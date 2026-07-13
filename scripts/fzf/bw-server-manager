@@ -24,16 +24,22 @@ mkdir -p "$GHOSTTY_DIR"
 # ── OS 판별 ────────────────────────────────────────────────────────────────────
 IS_WINDOWS=false
 IS_MAC=false
+IS_WSL=false
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
     IS_WINDOWS=true
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     IS_MAC=true
+elif grep -qi microsoft /proc/version 2>/dev/null; then
+    IS_WSL=true
 fi
 
 # ── 클립보드 복사 (OS별) ───────────────────────────────────────────────────────
 copy_to_clipboard() {
     local text="$1"
     if $IS_WINDOWS; then
+        echo -n "$text" | clip.exe
+    elif $IS_WSL; then
+        # WSL2: Windows 공유 클립보드 사용 (clip.exe 는 Windows PATH 통해 접근 가능)
         echo -n "$text" | clip.exe
     elif $IS_MAC; then
         echo -n "$text" | pbcopy
