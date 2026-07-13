@@ -45,15 +45,25 @@ print_step() {
 # ==============================================================================
 print_step "▶ [0/3] DevTools2 초기화 (sudo 권한 필요)"
 
-sudo "$SUB_DIR/0.init-devtools2.sh"
+# 로컬에 0.init-devtools2.sh가 존재하는지 감지
+if [ -f "$SUB_DIR/0.init-devtools2.sh" ]; then
+    echo "[정보] 로컬 초기화 스크립트 실행 중..."
+    sudo "$SUB_DIR/0.init-devtools2.sh"
+else
+    echo "[정보] 온라인 원격 초기화 스크립트 다운로드 및 실행 중..."
+    curl -sSfL "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/devtools2/0.init-devtools2.sh" -o /tmp/0.init-devtools2.sh
+    sudo bash /tmp/0.init-devtools2.sh
+fi
+
+# 0번 초기화 완료 후, 모든 파일은 /var/opt/_devtools2 경로에 다운로드 및 클론되어 확정적으로 존재합니다.
+CLONED_DIR="/var/opt/_devtools2/scripts/linux/devtools2"
 
 # ==============================================================================
 # [Step 1] 환경 변수 주입 (~/.bashrc)
 # ==============================================================================
 print_step "▶ [1/3] 환경 변수 설정 (~/.bashrc)"
 
-# 0번에서 클론된 경로의 스크립트를 사용해야 하므로, TARGET_DIR 기준으로 재계산
-"$SUB_DIR/1.setup-env.sh"
+"$CLONED_DIR/1.setup-env.sh"
 
 # source ~/.bashrc 를 마스터 스크립트 프로세스 내에서 실행하면,
 # 이후 호출되는 2, 3번 스크립트(자식 프로세스)가 환경 변수를 상속받습니다.
@@ -67,14 +77,14 @@ echo "[완료] 환경 변수가 현재 세션에 적용되었습니다."
 # ==============================================================================
 print_step "▶ [2/3] 핵심 포터블 도구 설치"
 
-"$SUB_DIR/2.install-core-tools.sh"
+"$CLONED_DIR/2.install-core-tools.sh"
 
 # ==============================================================================
 # [Step 3] CLI 유틸리티 도구 설치 (fzf, lazygit, ripgrep, fd, ast-grep, hererocks 등)
 # ==============================================================================
 print_step "▶ [3/3] CLI 유틸리티 도구 설치"
 
-"$SUB_DIR/3.install-cli-tools.sh"
+"$CLONED_DIR/3.install-cli-tools.sh"
 
 # ==============================================================================
 # 완료

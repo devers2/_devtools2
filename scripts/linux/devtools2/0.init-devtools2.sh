@@ -45,77 +45,9 @@ else
     SHOULD_CLONE=true
 fi
 
-# 2) Git 자격 증명 설정 및 신규 클론 진행
+# 2) 신규 클론 진행을 위한 백업 및 준비
 if [ "$SHOULD_CLONE" = true ]; then
-    echo ""
-    echo "---------------------------------------------------------------------------"
-    echo "[Git 자격 증명 설정 마법사]"
-
-    # 기존 정보 확인 (호출자 기준)
-    EXISTING_NAME=$(sudo -u "$INVOKER" git config --global user.name || true)
-    EXISTING_EMAIL=$(sudo -u "$INVOKER" git config --global user.email || true)
-
-    INPUT_NEW_CREDS=false
-    if [ -n "$EXISTING_NAME" ] && [ -n "$EXISTING_EMAIL" ]; then
-        echo "  - 이미 설정된 Git 정보가 있습니다:"
-        echo "    • user.name  : $EXISTING_NAME"
-        echo "    • user.email : $EXISTING_EMAIL"
-        read -r -p "💡 새로운 깃 인증정보(토큰 포함)를 입력하시겠습니까? (y/N): " cred_choice </dev/tty
-        cred_choice=$(echo "$cred_choice" | tr '[:upper:]' '[:lower:]')
-        if [ "$cred_choice" = "y" ]; then
-            INPUT_NEW_CREDS=true
-        fi
-    else
-        INPUT_NEW_CREDS=true
-    fi
-
-    if [ "$INPUT_NEW_CREDS" = true ]; then
-        # 새로운 인증정보 입력 받기 (빈 값 입력 방지 루프)
-        while [ -z "${GIT_NAME:-}" ]; do
-            read -r -p "  ⌨️ GitHub 사용자 이름 입력: " GIT_NAME </dev/tty
-            GIT_NAME=$(echo "$GIT_NAME" | xargs) # 공백 제거
-            if [ -z "$GIT_NAME" ]; then
-                echo "    ⚠️ 사용자 이름은 필수 입력 항목입니다."
-            fi
-        done
-
-        while [ -z "${GIT_EMAIL:-}" ]; do
-            read -r -p "  ⌨️ GitHub 이메일 입력: " GIT_EMAIL </dev/tty
-            GIT_EMAIL=$(echo "$GIT_EMAIL" | xargs) # 공백 제거
-            if [ -z "$GIT_EMAIL" ]; then
-                echo "    ⚠️ 이메일은 필수 입력 항목입니다."
-            fi
-        done
-
-        # 토큰 입력 (보안을 위해 입력값 마스킹 처리)
-        while [ -z "${GIT_TOKEN:-}" ]; do
-            echo -n "  ⌨️ GitHub Personal Access Token (classic) 입력: " </dev/tty
-            stty -echo </dev/tty
-            read -r GIT_TOKEN </dev/tty
-            stty echo </dev/tty
-            echo ""
-            GIT_TOKEN=$(echo "$GIT_TOKEN" | xargs)
-            if [ -z "$GIT_TOKEN" ]; then
-                echo "    ⚠️ 깃허브 토큰은 필수 입력 항목입니다."
-            fi
-        done
-
-        # 글로벌 깃 설정 적용 (호출자 계정 기준)
-        sudo -u "$INVOKER" git config --global user.name "$GIT_NAME"
-        sudo -u "$INVOKER" git config --global user.email "$GIT_EMAIL"
-        sudo -u "$INVOKER" git config --global core.quotepath false
-        sudo -u "$INVOKER" git config --global credential.helper store
-
-        # 자격 증명 파일(~/.git-credentials)에 토큰 저장
-        sudo -u "$INVOKER" mkdir -p "$INVOKER_HOME"
-        echo "https://${GIT_NAME}:${GIT_TOKEN}@github.com" | sudo -u "$INVOKER" tee "$INVOKER_HOME/.git-credentials" >/dev/null
-        sudo -u "$INVOKER" chmod 600 "$INVOKER_HOME/.git-credentials"
-        echo "  ✅ Git 자격 증명이 성공적으로 저장되었습니다."
-    else
-        echo "  - 기존 Git 정보를 그대로 사용합니다."
-    fi
-
-    # 3) 기존 디렉터리 백업
+    # 2-1) 기존 디렉터리 백업
     if [ -d "$TARGET_DIR" ]; then
         BACKUP_SUFFIX=$(date +"%Y%m%d_%H%M%S")
         BACKUP_DIR="${TARGET_DIR}_backup_${BACKUP_SUFFIX}"
@@ -123,7 +55,7 @@ if [ "$SHOULD_CLONE" = true ]; then
         mv "$TARGET_DIR" "$BACKUP_DIR"
     fi
 
-    # 4) 신규 클론 수행
+    # 2-2) 신규 클론 수행
     echo "[작업] DevTools2 포터블 개발 환경 클론 중..."
 
     # 디렉터리를 미리 만들고 소유권을 $INVOKER로 이전해 주어야
@@ -131,9 +63,9 @@ if [ "$SHOULD_CLONE" = true ]; then
     mkdir -p "$TARGET_DIR"
     chown -R "$INVOKER" "$TARGET_DIR"
 
-    # 호출자 권한으로 클론을 진행하여 자격 증명 파일(~/.git-credentials)이 자동 적용되도록 함
+    # 공개 저장소이므로 토큰 인증 없이 호출자 권한으로 클론을 진행합니다.
     if ! sudo -u "$INVOKER" git clone https://github.com/devers2/_devtools2.git "$TARGET_DIR"; then
-        echo "[오류] 깃 클론에 실패했습니다. 자격 증명 또는 네트워크 상태를 확인해주세요."
+        echo "[오류] 깃 클론에 실패했습니다. 네트워크 상태나 저장소 URL을 확인해주세요."
         # 실패 시 롤백 (백업이 존재했다면 복구)
         if [ -d "${BACKUP_DIR:-}" ]; then
             echo "[복구] 클론 실패로 인해 백업본을 다시 원복합니다..."
