@@ -68,8 +68,11 @@ print_step "▶ [1/3] 환경 변수 설정 (~/.bashrc)"
 # source ~/.bashrc 를 마스터 스크립트 프로세스 내에서 실행하면,
 # 이후 호출되는 2, 3번 스크립트(자식 프로세스)가 환경 변수를 상속받습니다.
 echo "[로드] source ~/.bashrc 실행 중..."
+# 시스템 bashrc 내부의 정의되지 않은 변수로 인한 nounset(set -u) 에러 방지
+set +u
 # shellcheck source=/dev/null
 source "$HOME/.bashrc"
+set -u
 echo "[완료] 환경 변수가 현재 세션에 적용되었습니다."
 
 # ==============================================================================
