@@ -1,0 +1,16 @@
+# 모든 파일과 디렉터리를 기본적으로 무시
+*
+
+# 디렉터리 탐색 허용
+!/.config/
+!/apps/
+!/assets/
+!/data/
+!/modules/
+!/scripts/
+
+# 파일 탐색 허용
+!.gitattributes
+!.gitignore
+!README.md
+

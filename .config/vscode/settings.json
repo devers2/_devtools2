@@ -1,0 +1,841 @@
+{
+  /*
+   * 운영체제의 환경 변수를 치환해주는 기능을 내장하고 있는 일부 VS Code 설정 항목에서 사용할 수 있다.
+   * - 단, 모든 확장(extension) 설정에서 지원되는 것은 아니며, VS Code 자체가 해석하는 영역에서만 동작한다.
+   * - 확장(extension)이 자체적으로 해석하는 설정(예: java.configuration.runtimes) 에서는 환경 변수 치환이 동작하지 않을 수 있다. (확장 개발자가 별도로 지원해야 함)
+   *
+   * 환경 변수 사용이 가능한 대표적인 설정 항목
+   * - terminal.integrated.env.* : 터미널 환경변수 정의 시 ${env:VAR} 치환 가능
+   * - tasks.json (command, args, options.env 등) : 빌드/실행 작업 정의 시 ${env:VAR} 사용 가능
+   * - launch.json (program, env, args 등) : 디버깅 설정에서 ${env:VAR} 사용 가능
+   * - 일부 VS Code 코어 settings.json 항목 (예: python.pythonPath, files.exclude 등)에서도 지원
+   * - tasks.json / launch.json 의 inputs 기능 : 사용자 입력값을 변수처럼 정의하고 ${input:VAR} 형태로 참조 가능
+   *
+   * 대표적인 환경 변수
+   *   ${env:USERPROFILE} : 사용자 홈 디렉토리 (Windows)
+   *   ${env:HOME} : 사용자 홈 디렉토리 (Linux, macOS)
+   *   ${env:APPDATA} : 사용자 응용 프로그램 데이터 디렉토리 (Windows)
+   *   ${env:LOCALAPPDATA} : 사용자 로컬 응용 프로그램 데이터 디렉토리 (Windows)
+   *   ${env:USER} : 사용자 이름 (Linux, macOS)
+   *   ${env:USERNAME} : 사용자 이름 (Windows)
+   *   ${env:PATH} : 시스템 PATH 환경 변수
+   *   ${env:JAVA_HOME} : JDK 설치 경로 (Windows, Linux, macOS)
+   *
+   * VS Code 주요 디렉토리 경로
+   *   ${env:HOME}/.vscode/extensions : VS Code 확장 프로그램 디렉토리 (Linux, macOS)
+   *   ${env:USERPROFILE}/.vscode/extensions : VS Code 확장 프로그램 디렉토리 (Windows)
+   *   ${env:APPDATA}/Code/User : VS Code 사용자 설정 디렉토리 (Windows)
+   *   ${env:HOME}/Library/Application Support/Code/User : VS Code 사용자 설정 디렉토리 (macOS)
+   *   ${env:HOME}/.config/Code/User : VS Code 사용자 설정 디렉토리 (Linux)
+   *   ${env:HOME}/.vscode : VS Code 설정 디렉토리 (Linux, macOS)
+   *   ${env:USERPROFILE}/.vscode : VS Code 설정 디렉토리 (Windows)
+   *   ${env:HOME}/.vscode/extensions : VS Code 확장 프로그램 디렉토리 (Linux, macOS)
+   *   ${env:USERPROFILE}/.vscode/extensions : VS Code 확장 프로그램 디렉토리 (Windows)
+   *   ${env:HOME}/.vscode-insiders : VS Code Insiders 설정 디렉토리 (Linux, macOS)
+   *   ${env:USERPROFILE}/.vscode-insiders : VS Code Insiders 설정 디렉토리 (Windows)
+   */
+
+  /*
+   * ==============================================
+   * ※ 환경 및 경로 설정 (필수 확인 및 설정)
+   * ==============================================
+   * 💡 경로 통일 원칙 - Linux: "/var/opt/_devtools2/" 를 사용한다.
+   *
+   * 💡 경로 통일 원칙 - Windows:
+   * - 공통 심볼릭 링크(C:/devtools2/)를 사용하여 다양한 시스템 및 환경 간의 경로 일관성을 확보한다.
+   * - 이 심볼릭 링크는 실제 사용자 개발 환경 디렉토리(Z:)를 가리키도록 설정되어 있다.
+   * 🛠 설정 방법:
+   * - 만약 공통 심볼릭 링크(C:/devtools2/)가 존재하지 않는다면 아래 파일을 관리자 권한으로 실행하여 심볼릭링크를 생성한다.
+   * - `Z:/_devtools2/scripts/windows/env/0.setup-link-dev-env.ps1`
+   */
+
+  /* [Java 런타임 및 Language Server 경로] */
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-25",
+      "path": "/var/opt/_devtools2/modules/java/jdk-25",
+      "default": true
+    },
+    {
+      "name": "JavaSE-21",
+      "path": "/var/opt/_devtools2/modules/java/jdk-21"
+    },
+    {
+      "name": "JavaSE-17",
+      "path": "/var/opt/_devtools2/modules/java/jdk-17"
+    },
+    {
+      "name": "JavaSE-1.8",
+      "path": "/var/opt/_devtools2/modules/java/jdk-1.8"
+    }
+  ],
+  "java.jdt.ls.java.home": "/var/opt/_devtools2/modules/java/jdk-25", // Java Language Server의 JDK 경로
+  "spring-boot.ls.java.home": "/var/opt/_devtools2/modules/java/jdk-25", // Spring Boot Language Server의 JDK 경로
+
+  // Java 프로젝트 세부 설정 파일(Eclipse JDT) 경로
+  "java.settings.url": "file:////var/opt/_devtools2/.config/java/org.eclipse.jdt.core.prefs",
+
+  /* Java 포맷터 설정 파일 경로 및 프로필 설정 */
+  "java.format.settings.url": "file:////var/opt/_devtools2/.config/formatter/java/s2-code-style.xml", // Java 코드 스타일 설정 파일 경로
+  "java.format.settings.profile": "Standard-s2", // Java 코드 스타일 프로필 이름
+  "java.format.enabled": true,
+
+  /* Portable Git 경로 설정 - 무설치 버전 Git 은 VS Code 가 알 수 있도록 직접 경로를 지정한다. */
+  // "git.path": "/var/opt/_devtools2/modules/git/PortableGit/cmd/git.exe",
+
+  /* [Node.js 모듈/도구 실행 경로] */
+  "prettier.prettierPath": "/var/opt/_devtools2/data/.npm-packages/node_modules/prettier", // Prettier 실행 파일 경로
+  "prettier.configPath": "/var/opt/_devtools2/.config/prettier/.prettierrc.cjs", // Prettier 설정 파일 경로
+  "prettier.ignorePath": "/var/opt/_devtools2/.config/prettier/.prettierignore",
+  "eslint.nodePath": "/var/opt/_devtools2/data/.npm-packages/node_modules", // ESLint 작업 디렉토리 설정
+  "eslint.options": {
+    "overrideConfigFile": "/var/opt/_devtools2/.config/eslint/eslint.config.mjs"
+  },
+  "stylelint.stylelintPath": "/var/opt/_devtools2/data/.npm-packages/node_modules/stylelint", // Stylelint 실행 파일 경로
+  "stylelint.configFile": "/var/opt/_devtools2/.config/stylelint/stylelint.config.mjs", // Stylelint 설정 파일 경로
+
+  /* [Gradle 경로] */
+  // ❗Gradle 실행 시 사용할 JDK 경로: build.gradle 파일에서 명시된 JDK 버전과 일치해야 함, [프로젝트 루트]/.vscode/settings.json 파일에 프로젝트별 설정 필요
+  "java.import.gradle.java.home": "/var/opt/_devtools2/modules/java/jdk-25",
+  // ❗Gradle 실행 파일 경로: Gradle Wrapper 가 없거나 java.import.gradle.wrapper.enabled 가 false 로 설정된 경우에만 필요, 일반적으로는 Gradle Wrapper 사용 권장
+  // "java.import.gradle.home": "/var/opt/_devtools2/modules/gradle/gradle-9",
+  "java.import.gradle.wrapper.enabled": true, // Gradle Wrapper 사용 여부 → true: Wrapper 사용(기본값, 프로젝트 루트 디렉토리의 'gradlew' 스크립트 사용), false: 시스템에 설치된 Gradle 사용(java.import.gradle.home 설정 필요)
+
+  /* Maven 관련 */
+  "maven.settingsFile": "/var/opt/_devtools2/.config/maven/settings.xml", // Maven 확장 프로그램이 사용할 settings.xml 경로 지정
+  "java.configuration.maven.userSettings": "/var/opt/_devtools2/.config/maven/settings.xml", // Java 확장 프로그램(Red Hat)이 사용할 전역 설정
+
+  /*
+   * ==============================================
+   * ※ 기능별 설정 및 규칙
+   * ==============================================
+   */
+
+  /* 터미널 및 디버그 설정 */
+  "terminal.integrated.env.windows": {
+    /*
+     * [환경 변수 PATH 설정]
+     * - VS Code 터미널 전용 PATH: 기존 시스템 PATH(${env:PATH}) 뒤에 포터블 도구들의 bin 경로를 추가한다.
+     * - 시스템 환경 변수(Windows PATH)를 수정하지 않고도 VS Code 내장 터미널에서만 추가한 경로들의 도구를 즉시 실행할 수 있다.
+     * - 현재 PATH 에 추가된 java, gradle, node 를 환경 변수 설정없이 바로 사용할 수 있다.
+     * ※ 처리 주체가 VS Code 자체이므로 사용자 지정 환경 변수(${env:USERPROFILE})를 사용할 수 있다.
+     */
+    "PATH": "${env:PATH};${env:DEVTOOLS2}/modules/java/jdk-25/bin;${env:DEVTOOLS2}/modules/gradle/gradle-9/bin;${env:DEVTOOLS2}/modules/nodejs/node-v24;",
+
+    /*
+     * [로케일(Locale) 및 인코딩 설정]
+     * LANG / LC_ALL 환경 변수를 ko_KR.UTF-8로 설정하여 크로스 플랫폼 도구(Node.js, Gradle 등)가 한글 경로 및 메시지를 UTF-8 기반으로 처리하도록 강제한다.
+     * (한글 깨짐 및 로케일 오류 방지)
+     */
+    "LANG": "ko_KR.UTF-8",
+    "LC_ALL": "ko_KR.UTF-8",
+    "JAVA_TOOL_OPTIONS": "-Dfile.encoding=UTF-8"
+  },
+  "terminal.integrated.env.linux": {
+    "LANG": "ko_KR.UTF-8",
+    "LC_ALL": "ko_KR.UTF-8"
+  },
+  "terminal.integrated.env.osx": {
+    "LANG": "ko_KR.UTF-8",
+    "LC_ALL": "ko_KR.UTF-8"
+  },
+  "terminal.integrated.fontSize": 14, // 터미널 글꼴 크기
+  "terminal.integrated.lineHeight": 1.5, // 터미널 줄 높이 (배수)
+  "terminal.integrated.fontFamily": "D2Coding, Consolas, monospace",
+  "terminal.integrated.cursorStyle": "line", // 터미널 커서 스타일 → "block": 블록, "underline": 밑줄, "line": 수직선
+  "terminal.integrated.tabs.enabled": true, // 터미널 탭 기능 활성화
+  "terminal.integrated.defaultLocation": "view", // 터미널 기본 위치 → "view": 패널(기본값), "editor": 에디터 영역
+  "terminal.integrated.tabs.location": "left", // 터미널 탭 위치 → "top": 상단, "bottom": 하단(기본값), "left": 좌측, "right": 우측
+  "terminal.integrated.scrollback": 10000, // 터미널 스크롤백 줄 수
+  "terminal.integrated.shellIntegration.enabled": true, // 쉘 통합(Shell Integration) 활성화 여부 → true: 향상된 명령 추적 및 현재 작업 디렉토리 감지와 같은 기능을 지원
+  "terminal.integrated.defaultProfile.windows": "PowerShell", // 기본 터미널 설정
+  "terminal.integrated.profiles.windows": {
+    "PowerShell": {
+      "source": "PowerShell",
+      "args": [
+        // 명령어 실행 후 터미널 세션이 종료되지 않고 사용자 입력 대기 상태를 유지하도록 함
+        "-NoExit",
+        "-Command",
+        /*
+         * 실행 정책 설정 및 출력 인코딩: 두 명령어를 세미콜론(;)으로 연결하여 하나의 문자열로 실행
+         * 1. Set-ExecutionPolicy RemoteSigned -Scope Process -Force:
+         * - RemoteSigned 정책을 현재 VS Code 터미널 프로세스에만 임시로 설정하여 npm.ps1과 같은 로컬 스크립트 실행을 허용
+         * - 인터넷에서 받은 스크립트는 서명된 경우에만 실행을 허용
+         * 2. [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+         * - PowerShell 콘솔 자체의 출력 인코딩을 UTF-8로 설정
+         * 3. [Console]::InputEncoding=[System.Text.Encoding]::UTF8
+         * - PowerShell 콘솔 자체의 입력 인코딩을 UTF-8로 설정
+         * 4. chcp 65001
+         * - 윈도우 콘솔 창(터미널 쉘) 자체의 코드페이지를 UTF-8(번호: 65001)로 설정
+         */
+        "Set-ExecutionPolicy RemoteSigned -Scope Process -Force; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::InputEncoding=[System.Text.Encoding]::UTF8; chcp 65001"
+      ]
+    }
+  },
+  "debug.console.fontSize": 14, // 디버그 콘솔 글꼴 크기
+
+  /* GitHub Copilot 자동완성 설정: GeminiCodeAssist 에서 처리하기 위해 false 처리 함 */
+  "github.copilot.enable": {
+    "*": false,
+    "plaintext": false,
+    "markdown": false,
+    "scminput": false,
+    "log": false
+  },
+  "github.copilot.nextEditSuggestions.enabled": false, // Copilot Next Edit Suggestions 활성화 (최근에 수정한 코드를 기반으로 다음에 편집할 가능성이 있는 코드 변경 사항을 예측하여 제안) → true: 활성화, false: 비활성화
+
+  "gemini-cli.debug.logging.enabled": false, // Gemini CLI Companion 동작 로그 → false: 일반적으로 필요없음
+  "geminicodeassist.statusBarVisibility": "always", // 상태 표시줄에 GeminiCodeAssist 표시 → "always": 항상 표시, "never": 항상 숨김, "hideWhenInactive": 활성화 시 표시
+  "geminicodeassist.agent.additionalTrustedCertificates": "", // 사용자 정의 보안 인증서 → "": 회사등에서 자체적인 보안 인증서를 사용하는 경우
+  "geminicodeassist.agentDebugMode": false, // Gemini Agent 로그 기록 → false: 일반적으로 필요없음
+  "geminicodeassist.agentYoloMode": false, // Gemini Agent 가 제안하는 동작들을 승인 절차 없이 즉시 실행 → false: 안정성 문제로 사용안함
+  "geminicodeassist.chat.automaticScrolling": true, // Gemini Agent 채팅 답변 자동 스크롤 → true
+  "geminicodeassist.chat.changeView": "Inline suggestions", // Gemini 채팅창에서 제안된 코드 변경 사항을 보여주는 방법 → "Inline suggestions": 현재 작업 중인 코드 파일 안에서 표시(권장)
+  "geminicodeassist.chat.defaultCodeBlockDisplay": "Expanded", // Gemini 채팅창 안에서 생성된 코드 블록(Code Block) 방식 → "Expanded": 펼침(권장), "Preview": 미리보기
+  "geminicodeassist.chat.enableStreaming": true, // Gemini가 답변을 생성할 때 한 글자씩 실시간으로 보여줄지(Streaming) 여부 → true: 실시간으로 보여줌(권장)
+  "geminicodeassist.codeGenerationPaneViewEnabled": false, // Gemini가 긴 코드를 생성할때 별도의 전용 창(Pane)에서 보여줄지 여부 → false: 현재 편집기에서 보여줌(권장)
+  "geminicodeassist.contextExclusionFile": "/var/opt/_devtools2/.config/vscode/.aiexclude", // Gemini가 내 프로젝트의 코드를 읽을 때 제외 목록 파일 위치(geminiignore, node_modules)
+  "geminicodeassist.contextExclusionGitignore": true, // Gemini가 내 프로젝트 코드를 분석할 때 기존의 .gitignore 파일에 적힌 규칙을 그대로 따를지 여부 → true: .gitignore 목록 무시(권장)
+  "geminicodeassist.customCommands": {
+    // 인라인 채팅에서 '/' 한 후 나타나는 목록에서 키 선택하면 해당 프롬프트가 실행된다.
+    "주석": "자바독 주석과 중요한 내용에 주석 한글로 간결한 스타일로 달아줘"
+  },
+  "geminicodeassist.displayInlineContextHint": true, // Gemini가 코드를 제안할 때, 내 프로젝트의 어떤 파일이나 정보를 참고했는지를 코드 옆에 작게 표시해 줄지 결정하는 옵션 → true: 권장
+  "geminicodeassist.enable": true, // Gemini Code Assist 기능 사용 여부 → true
+  "geminicodeassist.enableTelemetry": false, // 사용 통계 및 진단 데이터(Telemetry)를 Google로 보낼지 결정하는 옵션 → false
+  "geminicodeassist.inlineSuggestions.enableAuto": true, // Gemini가 다음에 올 코드를 실시간으로 예측하여 회색 글씨(고스트 텍스트)로 보여줄지를 결정 → true
+  "geminicodeassist.inlineSuggestions.nextEditPredictions": true, // Gemini가 다음에 수정해야 할 위치와 내용"을 미리 예측해주는 기능 사용 여부 → true
+  "geminicodeassist.inlineSuggestions.suggestionSpeed": "Fast", // Gemini가 코드를 제안할 때 **얼마나 빨리 화면에 띄워줄지(응답 지연 시간) → "Fast" or "Moderate" (빠름 또는 중간)
+  "geminicodeassist.inlineSuggestions.triggerCharacters": [], // GeminiCodeAssist 트리거 문자 → [".", "(", " "]: ".", "(", " " 등의 특정문자를 입력 했을때만 트리거 됨, []: 모든 문자 입력 시 제안이 트리거 됨
+  "geminicodeassist.languages": ["*"], // Gemini가 자동완성(Inline Suggestions)을 제공할 대상 언어나 파일을 직접 지정 → "*": 모든언어
+  "geminicodeassist.localCodebaseAwareness": false, // Gemini가 프로젝트 전체 인덱싱 여부 → false: 대형 프로젝트에서 속도 저하 심함(권장, 필요시에만 true)
+  "geminicodeassist.project": "", // Google Cloud 프로젝트 ID를 지정 → 관리자가 생성한 Google Cloud 프로젝트 ID 가 있는 경우 작성
+  "geminicodeassist.recitation.maxCitedLength": -1, // 출처 인용(Citation)이 필요한 코드의 최대 길이(저작권 및 라이선스 관련) → -1: 제한없음, 0: 모든 인용 차단, 1이상 숫자: 해당 숫자 만큼의 토큰(자)를 넘을 경우만 차단
+  "geminicodeassist.rules": "모든 응답(설명, 플랜, 분석 포함)은 반드시 한국어로 답변한다.\n주석 스타일은 \"/**\n * <설명>\n */\" 형식을 엄격히 준수한다.", // 코딩 Rules → "상수는 항상 대문자로 써줘.", "모든 메서드 위에는 JavaDoc 형식의 한글 주석을 꼭 달아줘." 등
+  "geminicodeassist.updateChannel": "Default", // Gemini Code Assist의 버전 업데이트 주기 → "Default": 안정화 버전, "Insiders": 베타 버전
+  "geminicodeassist.verboseLogging": false, // Gemini 내부 상세 로그 여부 → false(권장)
+
+  /* 설정 동기화 관련 */
+  "settingsSync.ignoredExtensions": [], // 동기화에서 제외할 확장 프로그램 목록 → 빈 배열: 모든 확장 동기화
+  "settingsSync.ignoredSettings": [], // 동기화에서 제외할 설정 목록 → 빈 배열: 모든 설정 동기화
+
+  /* Java 및 Spring Boot 설정 */
+  "java.configuration.updateBuildConfiguration": "interactive", // 빌드 구성 업데이트 방식 (Maven이나 Gradle 프로젝트 구조 및 의존성 변경 시) → "interactive": 사용자에게 알림 후 업데이트, "interactive": 자동 업데이트, "disabled": 비활성화
+  "java.jdt.ls.vmargs": "-Dfile.encoding=UTF-8 -Duser.language=ko -Duser.country=KR -Xms8G -Xmx8G -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MaxMetaspaceSize=512m -XX:+UseCompressedOops", // Java Language Server의 VM 옵션: 32GB RAM 환경에서 OOM 방지 및 성능 최적화를 위한 8GB 힙 설정 (독립된 VS Code 창 2개 이내로 사용 조건, 16GB RAM 환경은 -Xms4G -Xmx4G 변경 필요)
+  "java.compile.nullAnalysis.mode": "automatic", // Java 컴파일러의 null 분석 모드 → "automatic": 자동으로 null 분석 모드를 적용, "disabled": null 분석 모드를 적용하지 않음
+  "java.debug.settings.console": "integratedTerminal", // 디버깅 콘솔을 통합 터미널로 설정
+  "java.debug.settings.vmArgs": "-Dfile.encoding=UTF-8 -Dconsole.encoding=UTF-8 -Xmx2G -XX:+UseG1GC", // Java 디버깅 시 JVM 옵션 (대규모 스프링 프로젝트에서 디버깅 시 메모리 부족 방지)
+  "java.debug.settings.onBuildFailureProceed": false, // Java 프로젝트를 디버깅할 때 빌드 실패 시 동작 제어 (false: 디버깅을 중단하고 계속할지 묻는 메시지 표시, true: 빌드 실패 시 자동으로 디버깅을 계속 진행(하지만 빌드 오류를 확인하기 어려움, 만약 false 로 해도 계속 진행된다면 .vscode/settings.json 의 설정도 확인해야한다.))
+  "java.test.config": [
+    {
+      "name": "test-config",
+      "workingDirectory": "${workspaceFolder}", // 테스트 실행 시 작업 디렉토리 설정 → "${workspaceFolder}": 현재 워크스페이스
+      "vmArgs": ["-Dfile.encoding=UTF-8"]
+    }
+  ],
+  "java.test.defaultConfig": "test-config",
+
+  "python.analysis.typeCheckingMode": "standard", // 파이썬 코드의 타입(Data Type) 오류 검사 모드 → standard: 명백한 타입 불일치, 존재하지 않는 속성 접근 등을 경고(가장 권장됨)
+
+  /* 에디터 기본 설정 */
+  "editor.formatOnSave": true, // 저장 시 자동 포맷팅 여부, 포맷팅 없이 저장: 시퀀스(연속) 단축키 "Ctrl + K Ctrl + S" 또는 명령어 팔레트(Ctrl + Shift + P) 에서 "Save without Formatting" 명령어 실행
+  "editor.formatOnSaveMode": "modificationsIfAvailable", // 포맷팅을 적용할 범위 →"modificationsIfAvailable": 소스 제어(Git)가 가능하면 수정되 부분만 아니라면 파일 전체를 포맷팅(협업 시 추천), "file": 파일 전체
+  "editor.formatOnPaste": false, // 붙여넣기 시 포맷팅 여부
+  "editor.bracketPairColorization.enabled": true, // 괄호 쌍 색상화 기능 활성화 (서로 일치하는 여는 괄호와 닫는 괄호를 동일한 색상으로 표시하여 코드 가독성을 높임)
+  "editor.bracketPairColorization.independentColorPoolPerBracketType": true, // 각 괄호 유형(소괄호, 중괄호, 대괄호)에 대해 독립적인 색상 풀 사용 여부
+  "editor.guides.bracketPairs": "active", // 괄호 쌍 가이드 표시 설정 (짝이 맞는 괄호 사이를 연결하는 수직선 표시) → true: 항상 표시, "active": 현재 커서가 위치한 정해진 괄호 쌍에만 표시, false: 비활성화
+  // 언어별 괄호 정의 (기본적인 (), {}, [] 외에 제네릭 타입 표기인 < > 등을 괄호로 인식하도록 추가 설정 가능, 이를 통해 괄호 쌍 색상화 및 가이드 기능이 해당 문자에도 적용됨)
+  "editor.language.brackets": [
+    ["(", ")"],
+    ["{", "}"],
+    ["[", "]"]
+  ],
+  "editor.fontFamily": "Consolas, 'Courier New', monospace", // 에디터 글꼴
+  "editor.fontSize": 14, // 에디터 글꼴 크기
+  "editor.lineHeight": 1.5, // 줄 높이 (배수)
+  "editor.defaultFormatter": "esbenp.prettier-vscode", // 기본 포맷터 ("esbenp.prettier-vscode": Prettier)
+  "editor.detectIndentation": false, // 자동 들여쓰기 감지 여부 → true: VS Code가 파일을 열 때 파일 내용을 스캔하여 들여쓰기 스타일(탭 또는 스페이스)과 크기를 감지, false: 비활성화(editor.tabSize 및 editor.insertSpaces 설정만을 따름)
+  "editor.tabSize": 2, // 탭 크기 (칸 수)
+  "editor.insertSpaces": true, // 탭 대신 스페이스 사용 → true: 활성화
+  "editor.minimap.enabled": true, // 미니맵 활성화 → true: 활성화
+  "editor.minimap.maxColumn": 80, // 미니맵 최대 열 수 → 120: 기본값
+  "editor.minimap.scale": 1, // 미니맵 배율 → 1: 100%
+  "editor.cursorSmoothCaretAnimation": "on", // 커서 이동 애니메이션 활성화 → "on": 활성화
+  "editor.renderWhitespace": "none", // 공백 문자 표시 → "none": 표시 안 함
+  "editor.rulers": [], // 줄 길이 → []: 표시 안 함(기본값), 120: 120자에 세로선 표시
+  "editor.stickyScroll.enabled": true, // 스티키 스크롤 활성화 (코드의 클래스/함수 선언부를 스크롤 시 상단에 고정해서 보여주는 고정 스크롤 기능) → true: 활성화
+  "editor.stickyScroll.maxLineCount": 5, // 스티키 스크롤 최대 줄 수 → 5: 5줄
+  "editor.wordWrap": "off", // 긴 줄 자동 줄 바꿈 → "off": 줄 바꿈 안 함
+  "editor.wordWrapColumn": 120, // 줄 바꿈을 할 열의 수 → 80: 80자(기본값)
+  "editor.unicodeHighlight.ambiguousCharacters": false, // 유니코드 문자 경고 비활성화 → false: 비활성화
+  "editor.codeActionsOnSave": {
+    // 저장할 때 코드 액션(린터)이 제안하는 수정/정리 실행 지시
+    "source.organizeImports": "explicit" // Java/JavaScript/TypeScript/Python 등 Import 정리
+  },
+  "editor.quickSuggestions": {
+    // 자동 완성 제안 활성화 설정
+    "other": true, // 일반 코드에 대한 제안 → true: 활성화(기본값)
+    "comments": false, // 주석 내 제안 → false: 비활성화(기본값)
+    "strings": false // 문자열 내 제안 → false: 비활성화(기본값)
+  },
+  "editor.suggestSelection": "first", // 최근 사용한 항목을 우선 표시 → "first": 첫 번째 항목 선택
+  "js/ts.tsserver.maxMemory": 4096, // TypeScript 언어 서버의 최대 메모리 할당 (대규모 프로젝트에서 메모리 부족 방지, 32GB RAM 환경에서는 4096 ~ 8192MB로 설정 권장)
+
+  /* 비교 편집기 설정 */
+  "diffEditor.renderSideBySide": true, // 변경 사항을 좌우 분할로 비교 → true: 좌우 분할(Side-by-Side)로 비교(기본값), false: 인라인(Inline)으로 비교
+  "diffEditor.ignoreTrimWhitespace": false, // 공백 문자 무시 여부 → false: 공백 문자도 비교(기본값)
+  "diffEditor.renderIndicators": true, // 변경된 줄 표시기 렌더링 → true: 활성화(기본값)
+  "diffEditor.hideUnchangedRegions.enabled": true, // 변경되지 않은 영역 숨기기 → false: 숨기지 않음(기본값)
+  "diffEditor.hideUnchangedRegions.contextLineCount": 5, // (diffEditor.hideUnchangedRegions.enabled 가 true 일 때) 변경되지 않은 영역 숨기기 시 표시할 컨텍스트 줄 수 → 3: 3줄(기본값)
+  "diffEditor.hideUnchangedRegions.minimumLineCount": 20, // (diffEditor.hideUnchangedRegions.enabled 가 true 일 때) 변경되지 않은 영역 숨기기 적용 최소 줄 수 → 20: 20줄(기본값)
+  "diffEditor.codeLens": true, // 코드 렌즈를 사용하여 변경된 줄 수 표시
+
+  /* 파일 관련 설정 */
+  "files.autoSave": "afterDelay", // 자동 저장 설정 → "off": 수동 저장, "afterDelay": 마지막 변경 후 일정 시간(기본 1000ms) 지나면 저장, "onFocusChange": 포커스가 에디터에서 벗어날 때 저장
+  "files.autoSaveDelay": 1000, // "afterDelay" 설정 시 자동 저장 지연 시간 (ms)
+  "files.autoGuessEncoding": true, // 파일 인코딩 자동 감지 → true: 활성화
+  "files.encoding": "utf8", // 기본 파일 인코딩 설정 → "utf8": UTF-8 사용
+  "files.eol": "\n", // 줄 바꿈 문자 설정 → "\n": LF 사용 (Unix / Linux / macOS,  가장 일반적인 개발 환경 표준), "\r\n": CRLF 사용 (Windows, 전통적인 표준)
+  "files.insertFinalNewline": true, // 파일 끝에 새 줄 추가 → true: 활성화
+  "files.trimTrailingWhitespace": true, // 줄 끝 공백 제거 → true: 활성화
+  // 특정 파일 확장자나 파일 이름 패턴을 다른 언어 모드와 연결
+  "files.associations": {},
+  /* VS Code의 파일 감시자(File Watcher)가 특정 파일/폴더를 감시하지 않도록 설정 (파일 감시자는 파일 변경을 실시간으로 감지하여 확장 프로그램 또는 탐색기 UI를 업데이트 한다.) */
+  "files.watcherExclude": {
+    // Git/버전 관리
+    "**/.git/**": true,
+    "**/.svn/**": true,
+
+    // 빌드 출력
+    "**/*.class": true,
+    "**/*.jar": true,
+    "**/*.war": true,
+    "**/*.ear": true,
+    "**/build/**": true,
+    "**/target/**": true,
+    "**/out/**": true,
+    "**/bin/**": true,
+    "**/classes/**": true,
+    "**/dist/**": true,
+    "**/generated/**": true,
+    "**/generated-sources/**": true,
+
+    // Gradle/Maven
+    "**/.gradle/**": true,
+    "**/.mvn/**": true,
+    "**/.m2/repository/**": true,
+
+    // 의존성 & 캐시
+    "**/node_modules/**": true, // 필수 숨김 필요
+    "**/.cache/**": true,
+    "**/.npm/**": true,
+    "**/.yarn/**": true,
+    "**/.pnp.*": true,
+    "**/.turbo/**": true,
+    "**/.parcel-cache/**": true,
+    "**/bower_components/**": true,
+    "**/build-cache/**": true,
+    "**/dependency-cache/**": true,
+
+    // 언어별 환경
+    "**/.venv/**": true,
+    "**/venv/**": true,
+    "**/__pycache__/**": true,
+    "**/*.egg-info/**": true,
+    "**/*.pyc": true,
+    "**/pkg/**": true,
+    "**/.serverless/**": true,
+
+    // IDE 관련
+    "**/.vscode/**": false,
+    "**/.vscode-server/**": true,
+    "**/.vscode-test/**": true,
+    "**/.idea/**": true,
+    "**/.classpath": true,
+    "**/.eclipse/**": true,
+    "**/.factorypath": true,
+    "**/*.iml": true,
+    "**/.metadata/**": true,
+    "**/.project": true,
+
+    "**/.settings/**": true,
+    "**/.vs/**": true,
+    "**/nbproject/**": true,
+
+    // 로그 & 임시/백업
+    "**/*.bak": true,
+    "**/*.log": true,
+    "**/*.pid": true,
+    "**/*.swp": true,
+    "**/*.tmp": true,
+    "**/*~": true,
+    "**/logs/**": true,
+    "**/temp/**": true,
+    "**/tmp/**": true,
+
+    // 테스트/정적/데이터베이스
+    "**/coverage/**": true,
+    "**/jacoco/**": true,
+    "**/test-output/**": true,
+    "**/test-reports/**": true,
+    "**/.nyc_output/**": true,
+    "**/static/vendor/**": true,
+    "**/*.bundle.js": true,
+    "**/*.db": true,
+    "**/*.sqlite": true,
+    "**/*.h2.db": true,
+    "**/h2/**": true,
+
+    // OS
+    "**/.DS_Store": true,
+    "**/.fseventsd/**": true,
+    "**/.Spotlight-V100/**": true,
+    "**/.Trash/**": true,
+    "**/.Trashes/**": true,
+    "**/Thumbs.db": true,
+    "**/desktop.ini": true,
+    "**/$RECYCLE.BIN/**": true,
+
+    // Python/도구 캐시
+    "**/.uv/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true,
+    "**/__pypackages__/**": true,
+
+    // Java JDT.LS 내부 데이터
+    "**/.jdtjsData/**": true,
+    "**/bin/main/**": true,
+    "**/bin/test/**": true,
+
+    // Neovim & 기타 편집기 호환성
+    "**/lazy-lock.json": true,
+    "**/.repro/**": true,
+    "**/undo/**": true,
+
+    // 로컬 DB 및 검색 인덱스 (Z 드라이브 부하 방지)
+    "**/.elastic/**": true,
+    "**/.lucene/**": true,
+    "**/SearchIndexer/**": true
+  },
+  /* VS Code 탐색기에서 파일 및 폴더 숨기기 설정 (검색 기능이나 다른 작업에는 영향을 주지 않음) */
+  "files.exclude": {
+    // Git/버전 관리
+    "**/.git/**": true,
+    "**/.svn/**": true,
+
+    // 빌드 출력
+    "**/*.class": true,
+
+    // Gradle 빌드 디렉토리
+    "**/build/classes/**": true,
+    "**/build/docs/**": true,
+    "**/build/generated/**": true,
+    "**/build/reports/**": true,
+    "**/build/resources/**": true,
+    "**/build/scripts/**": true,
+
+    // Maven 빌드 디렉토리
+    "**/target/classes/**": true,
+    "**/target/failsafe-reports/**": true,
+    "**/target/generated-sources/**": true,
+    "**/target/generated-test-sources/**": true,
+    "**/target/jacoco/**": true,
+    "**/target/jacoco.exec": true,
+    "**/target/maven-archiver/**": true,
+    "**/target/maven-status/**": true,
+    "**/target/site/**": true,
+    "**/target/surefire-reports/**": true,
+    "**/target/temp/**": true,
+    "**/target/test-classes/**": true,
+    "**/bin/**": true,
+    "**/out/**": true,
+    "**/dist/**": true,
+
+    // Gradle/Maven
+    "**/.gradle/**": false,
+    "**/.mvn/**": false,
+
+    // 의존성 & 캐시
+    "**/node_modules/**": true, // 필수 숨김 필요: 대량의 파일로 인한 성능 저하 방지를 위해 탐색기에서도 숨김 필요
+    "**/.cache/**": true,
+    "**/.npm/**": true,
+    "**/.yarn/**": true,
+    "**/.turbo/**": true,
+    "**/.parcel-cache/**": true,
+    "**/bower_components/**": true,
+    "**/build-cache/**": true,
+    "**/dependency-cache/**": true,
+
+    // IDE/설정 파일
+    "**/.vscode/**": false, // VS Code 설정 디렉토리
+    "**/.vscode-server/**": true,
+    "**/.vscode-test/**": true,
+    "**/.idea/**": true, // IntelliJ IDEA 설정 디렉토리
+    "**/.classpath": true,
+    "**/.eclipse/**": true,
+    "**/.factorypath": true,
+    "**/*.iml": true,
+    "**/.metadata/**": true,
+    "**/.project": true,
+    "**/.settings/**": true,
+    "**/.vs/**": true,
+    "**/nbproject/**": true,
+
+    // 로그 & 임시/백업 파일
+    "**/*.bak": true,
+    "**/*.swp": true,
+    "**/*.tmp": true,
+    "**/*~": true,
+    "**/*.log": true,
+    "**/logs/**": true,
+    "**/temp/**": true,
+    "**/tmp/**": true,
+
+    // 테스트/정적/데이터베이스
+    "**/coverage/**": true,
+    "**/jacoco/**": true,
+    "**/test-output/**": true,
+    "**/test-reports/**": true,
+    "**/.nyc_output/**": true,
+    "**/*.db": true,
+    "**/*.sqlite": true,
+    "**/*.h2.db": true,
+    "**/h2/**": true,
+
+    // OS
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true,
+    "**/desktop.ini": true,
+
+    // Python
+    "**/.venv/**": true,
+    "**/__pycache__/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.uv/**": true,
+
+    // Java JDTLS 관련 작업 데이터
+    "**/.jdtjsData/**": true,
+
+    // Neovim 세션 등
+    "**/shada/**": true,
+    "**/lazy-lock.json": true,
+
+    // 기타 빌드 도구 부산물
+    "**/.vercel/**": true,
+    "**/.next/**": true
+  },
+
+  /* 검색 설정: VS Code의 검색 기능(예: Ctrl+Shift+F로 전체 프로젝트 검색)에서 특정 파일/폴더를 제외 (파일 감시나 탐색기 표시에는 영향을 주지 않음) */
+  "search.exclude": {
+    // Git/버전 관리
+    "**/.git/**": true,
+    "**/.svn/**": true,
+
+    // 빌드 출력
+    "**/*.class": true,
+    "**/*.jar": true,
+    "**/*.war": true,
+    "**/*.ear": true,
+    "**/build/**": true,
+    "**/target/**": true,
+    "**/out/**": true,
+    "**/bin/**": true,
+    "**/classes/**": true,
+    "**/dist/**": true,
+    "**/generated/**": true,
+    "**/generated-sources/**": true,
+
+    // Gradle/Maven
+    "**/.gradle/**": true,
+    "**/.mvn/**": true,
+    "**/.m2/repository/**": true,
+
+    // 의존성 & 캐시
+    "**/node_modules/**": true, // 필수 숨김 필요
+    "**/.cache/**": true,
+    "**/.npm/**": true,
+    "**/.yarn/**": true,
+    "**/.pnp.*": true,
+    "**/.turbo/**": true,
+    "**/.parcel-cache/**": true,
+    "**/bower_components/**": true,
+    "**/build-cache/**": true,
+    "**/dependency-cache/**": true,
+
+    // 언어별 환경
+    "**/.venv/**": true,
+    "**/venv/**": true,
+    "**/__pycache__/**": true,
+    "**/*.egg-info/**": true,
+    "**/*.pyc": true,
+    "**/pkg/**": true,
+    "**/.serverless/**": true,
+
+    // IDE 관련
+    "**/.vscode/**": false, // VS Code 설정 디렉토리
+    "**/.vscode-server/**": true,
+    "**/.vscode-test/**": true,
+    "**/.idea/**": true, // IntelliJ IDEA 설정 디렉토리
+    "**/.classpath": true,
+    "**/.eclipse/**": true,
+    "**/.factorypath": true,
+    "**/*.iml": true,
+    "**/.metadata/**": true,
+    "**/.project": true,
+    "**/.settings/**": true,
+    "**/.vs/**": true,
+    "**/nbproject/**": true,
+
+    // 로그 & 임시/백업
+    "**/*.bak": true,
+    "**/*.log": true,
+    "**/*.pid": true,
+    "**/*.swp": true,
+    "**/*.tmp": true,
+    "**/*~": true,
+    "**/logs/**": true,
+    "**/temp/**": true,
+    "**/tmp/**": true,
+
+    // 테스트/정적/데이터베이스
+    "**/coverage/**": true,
+    "**/jacoco/**": true,
+    "**/test-output/**": true,
+    "**/test-reports/**": true,
+    "**/.nyc_output/**": true,
+    "**/*.db": true,
+    "**/*.sqlite": true,
+    "**/*.h2.db": true,
+    "**/h2/**": true,
+
+    // OS
+    "**/.DS_Store": true,
+    "**/.fseventsd/**": true,
+    "**/.Spotlight-V100/**": true,
+    "**/.Trash/**": true,
+    "**/.Trashes/**": true,
+    "**/Thumbs.db": true,
+    "**/desktop.ini": true,
+    "**/$RECYCLE.BIN/**": true,
+
+    // Python 캐시 및 환경
+    "**/.uv/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true,
+
+    //Java JDTLS 내부 인덱스 및 세션
+    "**/.jdtjsData/**": true
+  },
+  "search.useIgnoreFiles": true, // .gitignore 및 .ignore 파일에 정의된 경로를 검색에서 제외 → true: 활성화 시 .gitignore/.ignore에 설정된 파일과 폴더는 검색 결과에서 제외됨
+  "search.useGlobalIgnoreFiles": true, // 전역 .gitignore 및 .ignore 파일에 정의된 경로를 검색에서 제외 → true: 활성화 시 사용자 홈 디렉토리의 전역 .gitignore/.ignore 설정도 검색 결과에서 제외됨
+
+  /* Java 인덱싱 제외 설정 (언어 서버 부하 감소) */
+  "java.import.exclusions": [
+    /* 빌드 및 출력 폴더 (필수 제외) */
+    "**/node_modules/**",
+    "**/build/**",
+    "**/target/**",
+    "**/bin/**",
+    "**/out/**",
+    "**/.metadata/**",
+
+    /* 버전 관리 및 IDE 설정 */
+    "**/.git/**",
+    "**/.svn/**",
+    "**/.idea/**",
+    "**/.vscode/**",
+    "**/.settings/**",
+    "**/.project",
+    "**/.classpath",
+
+    /* 타 언어 환경 (딱풀 프로젝트 등 Python 병행 시) */
+    "**/.venv/**",
+    "**/venv/**",
+    "**/__pycache__/**",
+    "**/.uv/**",
+
+    /* 기타 불필요한 리소스 */
+    "**/archetype-resources/**",
+    "**/META-INF/maven/**",
+    "**/help-doc/**",
+    "**/doc/**"
+  ],
+
+  /* 언어별 포맷터/린팅 설정 */
+  "[java]": {
+    "editor.tabSize": 4,
+    "editor.defaultFormatter": "redhat.java" // Red Hat 포맷터 사용
+  },
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff", // 기본 포맷터를 Ruff로 지정
+    "editor.tabSize": 4,
+    "editor.codeActionsOnSave": {
+      // 저장할 때 코드 액션(린터)이 제안하는 수정/정리 실행 지시
+      "source.fixAll.ruff": "explicit", // 저장 시 Ruff가 찾은 모든 오류 자동 교정
+      "source.organizeImports.ruff": "explicit" // 저장 시 라이브러리(import) 자동 정렬/최적화
+    }
+  },
+  "[javascript]": {
+    // "editor.defaultFormatter": "vscode.typescript-language-features" // VS Code 기본 TypeScript 포맷터 사용
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      // 저장할 때 코드 액션(린터)이 제안하는 수정/정리 실행 지시
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+  "[javascriptreact]": {
+    // "editor.defaultFormatter": "vscode.typescript-language-features" // VS Code 기본 TypeScript 포맷터 사용
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      // 저장할 때 코드 액션(린터)이 제안하는 수정/정리 실행 지시
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+  "[typescript]": {
+    // "editor.defaultFormatter": "vscode.typescript-language-features" // VS Code 기본 TypeScript 포맷터 사용
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      // 저장할 때 코드 액션(린터)이 제안하는 수정/정리 실행 지시
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+  "[typescriptreact]": {
+    // "editor.defaultFormatter": "vscode.typescript-language-features" // VS Code 기본 TypeScript 포맷터 사용
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.codeActionsOnSave": {
+      // 저장할 때 코드 액션(린터)이 제안하는 수정/정리 실행 지시
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+  "[json]": {
+    // "editor.defaultFormatter": "vscode.json-language-features" // VS Code 기본 HTML 포맷터 사용
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[jsonc]": {
+    // "editor.defaultFormatter": "vscode.json-language-features" // VS Code 기본 HTML 포맷터 사용
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[html]": {
+    "editor.defaultFormatter": "vscode.html-language-features", // VS Code 기본 HTML 포맷터 사용
+    "editor.codeActionsOnSave": {
+      // 저장할 때 코드 액션(린터)이 제안하는 수정/정리 실행 지시
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+  "[css]": {
+    "editor.codeActionsOnSave": {
+      // 저장할 때 코드 액션(린터)이 제안하는 수정/정리 실행 지시
+      "source.fixAll.stylelint": "explicit"
+    }
+  },
+  "[scss]": {
+    "editor.codeActionsOnSave": {
+      // 저장할 때 코드 액션(린터)이 제안하는 수정/정리 실행 지시
+      "source.fixAll.stylelint": "explicit"
+    }
+  },
+  "[less]": {
+    "editor.codeActionsOnSave": {
+      // 저장할 때 코드 액션(린터)이 제안하는 수정/정리 실행 지시
+      "source.fixAll.stylelint": "explicit"
+    }
+  },
+  "[xml]": {
+    // "editor.defaultFormatter": "DotJoshJohnson.xml" // XML Tools 포맷터 사용
+    "editor.defaultFormatter": "inferrinizzard.prettier-sql-vscode"
+  },
+  "[sql]": {
+    "editor.defaultFormatter": "inferrinizzard.prettier-sql-vscode" // Prettier SQL 포맷터 사용
+  },
+  "[yaml]": {
+    "editor.defaultFormatter": "redhat.vscode-yaml" // Red Hat YAML 포맷터 사용
+  },
+  "[dockercompose]": {
+    "editor.autoIndent": "advanced",
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+  "[github-actions-workflow]": {
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  },
+  "[kotlin][kotlinscript]": {
+    "editor.tabSize": 4
+  },
+  "[groovy][gradle]": {
+    "editor.tabSize": 4
+  },
+
+  /* HTML 설정 */
+  "html.format.enable": true, // 내장 포맷터 활성화 (기본 true)
+  "html.format.unformatted": "script", // HTML 포맷터가 포맷하지 않을 태그 목록 → "script": <script> 태그 내 코드는 포맷하지 않음(기본 포맷터인 Prettier가 동작), "script,pre": <pre> 태그 등 추가 가능 , "" : 모든 태그 포맷팅
+  "html.format.wrapAttributes": "force-aligned", // HTML 속성의 줄 바꿈 방식 → "auto", "force", force-aligned", "force-expand-multiline"
+  "html.format.wrapLineLength": 120, // HTML 코드 줄 바꿈 기준 길이 → 120: 120자(기본값)
+  "html.format.indentInnerHtml": true, // <body> 및 <head> 내부 들여쓰기 → true: 활성화
+  "html.format.extraLiners": "head,body,/html", // HTML 포맷터가 빈 줄을 추가할 태그 목록 → "head,body,/html": <head>, <body>, </html> 태그 앞에 빈 줄 추가(기본값)
+
+  /* 포맷터/Lint 설정 */
+  "prettier.resolveGlobalModules": true, // 전역 모듈에서 Prettier 찾기 활성화
+  "prettier.requireConfig": true, // .prettierrc 필수로 사용 → true: 활성화(Prettier 설정 파일이 없으면 포맷터로 동작하지 않음)
+  "eslint.enable": true, // ESLint 활성화
+  "eslint.run": "onSave", // ESLint 실행 시점 설정 → "onSave": 파일 저장 시점에 린트 실행, "onType": 코드를 타이핑하는 도중 실시간으로 린트 실행
+  "eslint.format.enable": true, // ESLint를 포맷터로 사용
+  "eslint.workingDirectories": ["./"],
+  "eslint.validate": [
+    // ESLint가 검사할 파일 형식
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact",
+    "html",
+    "vue"
+  ],
+  "stylelint.enable": true, // Stylelint 활성화
+  "stylelint.run": "onSave", // Stylelint 실행 시점 설정 → "onSave": 파일 저장 시점에 린트 실행, "onType": 코드를 타이핑하는 도중 실시간으로 린트 실행
+  "stylelint.validate": ["css", "scss", "less", "vue"], // Stylelint가 검사할 파일 형식
+  "stylelint.reportInvalidScopeDisables": false, // Stylelint의 잘못된 범위 비활성화 보고서 비활성화
+  "stylelint.reportNeedlessDisables": false, // Stylelint의 불필요한 비활성화 보고서 비활성화
+  "css.validate": false, // CSS 기본 유효성 검사 비활성화 → Stylelint에게 위임
+
+  /* Git 설정 */
+  "git.enabled": true, // VS Code 내장 Git 소스 제어 기능 활성화 여부
+  "git.autofetch": true, // Git 자동 fetch → true: 활성화
+  "git.confirmSync": false, // Git 동기화 시 확인 메시지 → false: 비활성화
+  "git.useEditorAsCommitInput": false, // 커밋 메시지 입력 시 에디터 사용 → false: 비활성화
+  "git.enableSmartCommit": true, // Stage되지 않은 변경 사항도 커밋 여부 → true: 활성화
+  "git.openRepositoryInParentFolders": "always", // 상위 폴더의 Git 저장소 열기 → "always": 항상 열기, "never": 열지 않음, "smart": 자동 감지
+  "git.blame.editorDecoration.enabled": false, // 편집기 주석 Blame (Editor Decoration) 활성화 여부 → 연속 단축키 Ctrl + Alt + B, Ctrl + Alt + E 로 토글 가능
+  "git.blame.statusBarItem.enabled": true, // 상태 표시줄 Blame (Status Bar Item) 활성화 여부 → 연속 단축키 Ctrl + Alt + B, Ctrl + Alt + S 로 토글 가능
+  "gitlens.ai.model": "vscode", // GitLens AI 확장팩에서 사용할 모델 설정
+  "gitlens.ai.vscode.model": "copilot:gpt-4.1", // GitLens AI 확장팩에서 VS Code Copilot 모델 사용
+  "gitlens.views.scm.grouped.views": {
+    "commits": true,
+    "branches": true,
+    "remotes": true,
+    "stashes": true,
+    "tags": true,
+    "worktrees": true,
+    "contributors": true,
+    "fileHistory": false,
+    "repositories": true,
+    "searchAndCompare": false,
+    "launchpad": false
+  },
+
+  /* Gradle 설정 */
+  "gradle.nestedProjects": true, // Gradle 중첩 프로젝트 지원 → true: 활성화
+  "explorer.compactFolders": false, // 탐색기에서 폴더 압축 여부 → false: 비활성화
+  "explorer.confirmDelete": true, // 파일 삭제 시 확인 메시지 표시 → true: 활성화
+  "breadcrumbs.enabled": true, // 경로 탐색 → true: 활성화
+
+  /* 기타 확장 설정 */
+  "workbench.iconTheme": "material-icon-theme", // 아이콘 테마 설정
+  "workbench.startupEditor": "none", // 시작 시 새 Untitled 파일 열기 → "none": 비활성화
+  "workbench.editor.limit.enabled": true,
+  "workbench.editor.limit.value": 20, // 열 수 있는 탭의 최대 개수 → 20: 20개
+  "workbench.editorAssociations": {
+    "*.copilotmd": "vscode.markdown.preview.editor",
+    "*.html": "default"
+  },
+  "window.openFoldersInNewWindow": "on", // 폴더 열기시 새창에서 열기 여부 → "on": 항상 새 창에서 열기, "off": 항상 현재 창에서 열기
+  "sqltools.connections": [],
+  "cSpell.userWords": []
+}

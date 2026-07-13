@@ -1,0 +1,9 @@
+# data/.npm-packages/ 내의 모든 파일과 디렉터리를 기본적으로 무시
+*
+
+# 이 .gitignore 파일 자체는 추적 (이중 안전장치 역할)
+!.gitignore
+
+# 깃으로 관리할 npm 설정 파일 두 개만 예외 추적
+!package.json
+!package-lock.json

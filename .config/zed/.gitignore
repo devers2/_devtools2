@@ -1,0 +1,9 @@
+# Zed 자동 생성 / 캐시 파일 (Git에 올리지 말 것)
+state.json
+session.json
+workspaces/
+extensions/
+*.log
+
+# OS 임시 파일
+.DS_Store

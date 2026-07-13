@@ -1,0 +1,628 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# [ALT+c] 독립형 명령어 팔레트 (OS 호환 및 Gradle 상태 동적 감지)
+# ==============================================================================
+
+# 1. 현재 작업 환경 분석 및 OS 판별
+CWD=$(pwd)
+IS_WINDOWS=false
+IS_MAC=false
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+    IS_WINDOWS=true
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+    IS_MAC=true
+fi
+
+# 지원하는 JDK 및 파이썬 버전 목록 (신규 버전 추가 시 목록에만 버전을 추가하면 됨)
+SUPPORTED_JDK_VERSIONS=("25" "21" "17" "8")
+SUPPORTED_PY_VERSIONS=("314" "312")
+
+# 홈 디렉토리 판별 (Windows의 경우 USERPROFILE도 고려)
+HOME_DIR="${HOME:-$USERPROFILE}"
+if [[ -z "$HOME_DIR" ]]; then
+    HOME_DIR="."
+fi
+
+# Ghostty 상태 저장 디렉토리 정의 (.ghostty 디렉토리 사용)
+STATE_DIR="${HOME_DIR}/.ghostty"
+STATE_FILE="${STATE_DIR}/state.properties"
+mkdir -p "$STATE_DIR"
+
+# 프로젝트별 유니크 키 생성 (CWD 경로를 슬래시로 정규화한 후 md5sum 해시 추출)
+NORM_CWD=$(echo "$CWD" | tr '\\' '/' | sed 's/\/$//')
+PROJ_KEY=$(echo -n "$NORM_CWD" | md5sum | awk '{print $1}')
+
+# 기존 세이브 데이터 로드용 유틸리티 (properties 기반)
+get_state() {
+    local label=$1
+    local key=$2
+    local full_key="${PROJ_KEY}.${label}.${key}"
+    if [ -f "$STATE_FILE" ]; then
+        grep "^${full_key}=" "$STATE_FILE" | cut -d'=' -f2-
+    fi
+}
+
+save_state() {
+    local label=$1
+    local key=$2
+    local val=$3
+    local full_key="${PROJ_KEY}.${label}.${key}"
+
+    touch "$STATE_FILE"
+
+    local tmp
+    tmp=$(mktemp)
+    if [ -f "$STATE_FILE" ]; then
+        grep -v "^${full_key}=" "$STATE_FILE" >"$tmp"
+    fi
+    echo "${full_key}=${val}" >>"$tmp"
+    mv "$tmp" "$STATE_FILE"
+}
+
+# 2. 프로젝트 디렉토리 내 그레이들 래퍼 확인
+GRADLEW_EXISTS=false
+GW_NAME="./gradlew"
+if [ -f "$CWD/gradlew" ] || [ -f "$CWD/build.gradle" ] || [ -f "$CWD/build.gradle.kts" ]; then
+    GRADLEW_EXISTS=true
+    if $IS_WINDOWS; then
+        GW_NAME="gradlew.bat"
+    fi
+fi
+
+# CentralPortal 설정 여부 확인 (build.gradle 또는 build.gradle.kts 확인)
+CENTRAL_PORTAL_EXISTS=false
+if $GRADLEW_EXISTS; then
+    if grep -q "CentralPortal" "$CWD/build.gradle" 2>/dev/null || grep -q "CentralPortal" "$CWD/build.gradle.kts" 2>/dev/null; then
+        CENTRAL_PORTAL_EXISTS=true
+    fi
+fi
+
+# 3. fzf에 뿌려줄 동적 메뉴 빌드
+MENU_OPTIONS=()
+if $GRADLEW_EXISTS; then
+    MENU_OPTIONS+=("[Gradle] 실행 (bootRun)")
+    MENU_OPTIONS+=("[Gradle] 빌드 (build)")
+    if $CENTRAL_PORTAL_EXISTS; then
+        MENU_OPTIONS+=("[Gradle] 중앙 저장소 배포 (publishAllPublicationsToCentralPortalRepository)")
+    fi
+fi
+MENU_OPTIONS+=("[JDTLS] 캐시 초기화")
+MENU_OPTIONS+=("포트 확인 (Port Check)")
+MENU_OPTIONS+=("프로세스 확인 (Process Check)")
+MENU_OPTIONS+=("프로세스 종료 (Process Kill)")
+MENU_OPTIONS+=("포트로 프로세스 종료 (Port Kill)")
+MENU_OPTIONS+=("JDK 버전 변경 (JDK Switch)")
+MENU_OPTIONS+=("Python 버전 변경 (Python Switch)")
+
+# 실제 표시 항목 기준으로 번호를 동적으로 붙임
+NUMBERED_OPTIONS=()
+for i in "${!MENU_OPTIONS[@]}"; do
+    NUMBERED_OPTIONS+=("$((i + 1)). ${MENU_OPTIONS[$i]}")
+done
+
+# fzf 호출하여 사용자 선택 창 생성
+CHOICE=$(printf "%s\n" "${NUMBERED_OPTIONS[@]}" | fzf --prompt="🚀 명령어 선택 (_devtools2) > " --height=40% --reverse)
+
+if [ -z "$CHOICE" ]; then
+    exit 0
+fi
+
+# 4. 선택 항목별 실전 실행 프로세스 분기
+if [[ "$CHOICE" == *"실행"* ]]; then
+    PREV_INIT=$(get_state "gradle_run" "init_path")
+    PREV_MOD=$(get_state "gradle_run" "module")
+    PREV_PROF=$(get_state "gradle_run" "profile")
+
+    echo "📋 이전 실행 설정:"
+    echo "   Init 스크립트: ${PREV_INIT:-(없음)}"
+    echo "   모듈명       : ${PREV_MOD:-(없음)}"
+    echo "   프로필       : ${PREV_PROF:-(없음)}"
+    echo ""
+    read -p "▶️  이 설정으로 바로 실행하시겠습니까? (Y/n): " REUSE
+    REUSE=${REUSE:-"y"}
+
+    if [[ "${REUSE,,}" != "y" ]]; then
+        read -p "📜 Init 스크립트 경로 [$PREV_INIT]: " INIT_PATH
+        INIT_PATH=${INIT_PATH:-$PREV_INIT}
+
+        read -p "📦 모듈명 (없으면 엔터) [$PREV_MOD]: " MOD
+        MOD=${MOD:-$PREV_MOD}
+
+        read -p "🔑 프로필 (dev 등) [$PREV_PROF]: " PROF
+        PROF=${PROF:-$PREV_PROF}
+
+        save_state "gradle_run" "init_path" "$INIT_PATH"
+        save_state "gradle_run" "module" "$MOD"
+        save_state "gradle_run" "profile" "$PROF"
+    else
+        INIT_PATH="$PREV_INIT"
+        MOD="$PREV_MOD"
+        PROF="$PREV_PROF"
+    fi
+
+    # 안전하게 배열로 인수 조립 (eval 대신 직접 실행)
+    CMD_ARGS=()
+    if $IS_WINDOWS; then
+        CMD_ARGS+=("cmd.exe" "/c" "$GW_NAME")
+    else
+        CMD_ARGS+=("$GW_NAME")
+    fi
+
+    if [[ -n "$INIT_PATH" ]]; then
+        CMD_ARGS+=("-I" "$INIT_PATH")
+    fi
+
+    if [[ -n "$MOD" ]]; then
+        CMD_ARGS+=(":$MOD:bootRun")
+    else
+        CMD_ARGS+=("bootRun")
+    fi
+
+    if [[ -n "$PROF" ]]; then
+        CMD_ARGS+=("--args=--spring.profiles.active=$PROF")
+    fi
+
+    # 기본 백그라운드 컴파일 감시(-t), 병렬 빌드, 빌드 캐시 활성화
+    CMD_ARGS+=("-t" "--parallel" "--build-cache")
+
+    echo ""
+    read -p "📁 로그를 파일로 저장하시겠습니까? (y/N): " SAVE_LOG
+    SAVE_LOG=${SAVE_LOG:-"n"}
+
+    echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
+    if [[ "${SAVE_LOG,,}" == "y" ]]; then
+        LOG_DIR="$CWD/logs"
+        mkdir -p "$LOG_DIR"
+        LOG_FILE="$LOG_DIR/gradle-$(date +%Y%m%d-%H%M%S).log"
+        echo "📁 로그 저장 경로: $LOG_FILE"
+        "${CMD_ARGS[@]}" 2>&1 | tee "$LOG_FILE"
+    else
+        "${CMD_ARGS[@]}"
+    fi
+
+elif [[ "$CHOICE" == *"빌드"* ]]; then
+    PREV_CLEAN=$(get_state "gradle_build" "clean")
+    PREV_EX=$(get_state "gradle_build" "exclude")
+    PREV_PARALLEL=$(get_state "gradle_build" "parallel")
+    PREV_CACHE=$(get_state "gradle_build" "build_cache")
+    PREV_REFRESH=$(get_state "gradle_build" "refresh")
+    PREV_DEBUG=$(get_state "gradle_build" "debug")
+    PREV_JAVA_HOME=$(get_state "gradle_build" "java_home")
+
+    PREV_CLEAN=${PREV_CLEAN:-"N"}
+    PREV_EX=${PREV_EX:-""}
+    PREV_PARALLEL=${PREV_PARALLEL:-"Y"}
+    PREV_CACHE=${PREV_CACHE:-"Y"}
+    PREV_REFRESH=${PREV_REFRESH:-"N"}
+    PREV_DEBUG=${PREV_DEBUG:-""}
+    PREV_JAVA_HOME=${PREV_JAVA_HOME:-""}
+
+    echo "📋 이전 빌드 설정:"
+    echo "   클린 여부  : $PREV_CLEAN"
+    echo "   태스크 제외: ${PREV_EX:-(없음)}"
+    echo "   병렬 빌드  : $PREV_PARALLEL"
+    echo "   빌드 캐시  : $PREV_CACHE"
+    echo "   의존성 갱신: $PREV_REFRESH"
+    echo "   디버그 옵션: ${PREV_DEBUG:-(없음)}"
+    echo "   Java Home  : ${PREV_JAVA_HOME:-(기본값)}"
+    echo ""
+    read -p "▶️  이 설정으로 바로 빌드하시겠습니까? (Y/n): " REUSE
+    REUSE=${REUSE:-"y"}
+
+    if [[ "${REUSE,,}" != "y" ]]; then
+        read -p "🧹 클린 여부 (Y/N) [$PREV_CLEAN]: " CLEAN
+        CLEAN=${CLEAN:-$PREV_CLEAN}
+
+        read -p "🚫 태스크 제외 (test 등 제외할 태스크 명, 공백/콤마 구분) [$PREV_EX]: " EXCLUDE
+        EXCLUDE=${EXCLUDE:-$PREV_EX}
+
+        read -p "🚀 병렬 빌드 (Y/N) [$PREV_PARALLEL]: " PARALLEL
+        PARALLEL=${PARALLEL:-$PREV_PARALLEL}
+
+        read -p "📦 빌드 캐시 (Y/N) [$PREV_CACHE]: " CACHE
+        CACHE=${CACHE:-$PREV_CACHE}
+
+        read -p "🔄 의존성 갱신 (Y/N) [$PREV_REFRESH]: " REFRESH
+        REFRESH=${REFRESH:-$PREV_REFRESH}
+
+        read -p "🐛 디버깅 옵션 (공백/info/debug) [$PREV_DEBUG]: " DEBUG_OPT
+        DEBUG_OPT=${DEBUG_OPT:-$PREV_DEBUG}
+
+        read -p "☕ Java Home 경로 (공백이면 기본값) [$PREV_JAVA_HOME]: " JAVA_HOME_PATH
+        JAVA_HOME_PATH=${JAVA_HOME_PATH:-$PREV_JAVA_HOME}
+
+        save_state "gradle_build" "clean" "$CLEAN"
+        save_state "gradle_build" "exclude" "$EXCLUDE"
+        save_state "gradle_build" "parallel" "$PARALLEL"
+        save_state "gradle_build" "build_cache" "$CACHE"
+        save_state "gradle_build" "refresh" "$REFRESH"
+        save_state "gradle_build" "debug" "$DEBUG_OPT"
+        save_state "gradle_build" "java_home" "$JAVA_HOME_PATH"
+    else
+        CLEAN="$PREV_CLEAN"
+        EXCLUDE="$PREV_EX"
+        PARALLEL="$PREV_PARALLEL"
+        CACHE="$PREV_CACHE"
+        REFRESH="$PREV_REFRESH"
+        DEBUG_OPT="$PREV_DEBUG"
+        JAVA_HOME_PATH="$PREV_JAVA_HOME"
+    fi
+
+    CMD_ARGS=()
+    if $IS_WINDOWS; then
+        CMD_ARGS+=("cmd.exe" "/c" "$GW_NAME")
+    else
+        CMD_ARGS+=("$GW_NAME")
+    fi
+
+    if [[ "${CLEAN,,}" == "y" ]]; then
+        CMD_ARGS+=("clean")
+    fi
+    CMD_ARGS+=("build")
+
+    # 태스크 제외 처리 (공백 또는 쉼표 기준 토큰 분할하여 각각 -x 추가)
+    if [[ -n "$EXCLUDE" ]]; then
+        IFS=' ,/' read -r -a exc_tasks <<<"$EXCLUDE"
+        for task in "${exc_tasks[@]}"; do
+            if [[ -n "$task" ]]; then
+                CMD_ARGS+=("-x" "$task")
+            fi
+        done
+    fi
+
+    if [[ "${PARALLEL,,}" == "y" ]]; then
+        CMD_ARGS+=("--parallel")
+    fi
+    if [[ "${CACHE,,}" == "y" ]]; then
+        CMD_ARGS+=("--build-cache")
+    fi
+    if [[ "${REFRESH,,}" == "y" ]]; then
+        CMD_ARGS+=("--refresh-dependencies")
+    fi
+
+    if [[ "${DEBUG_OPT,,}" == "info" ]]; then
+        CMD_ARGS+=("--info" "--stacktrace")
+    elif [[ "${DEBUG_OPT,,}" == "debug" ]]; then
+        CMD_ARGS+=("--debug" "--stacktrace")
+    fi
+
+    if [[ -n "$JAVA_HOME_PATH" ]]; then
+        CMD_ARGS+=("-Dorg.gradle.java.home=$JAVA_HOME_PATH")
+    fi
+
+    echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
+    "${CMD_ARGS[@]}"
+
+elif [[ "$CHOICE" == *"중앙 저장소 배포"* ]]; then
+    CMD_ARGS=()
+    if $IS_WINDOWS; then
+        CMD_ARGS+=("cmd.exe" "/c" "$GW_NAME")
+    else
+        CMD_ARGS+=("$GW_NAME")
+    fi
+    CMD_ARGS+=("clean" "publishAllPublicationsToCentralPortalRepository" "-x" "test" "--build-cache")
+
+    echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
+    "${CMD_ARGS[@]}"
+
+elif [[ "$CHOICE" == *"JDTLS"* ]]; then
+    PROJ_NAME=$(basename "$CWD")
+
+    # OS별 캐시 디렉토리 판단
+    if $IS_WINDOWS; then
+        TEMP_DIR="${TEMP:-$LOCALAPPDATA/Temp}"
+        TEMP_DIR=$(echo "$TEMP_DIR" | tr '\\' '/')
+        JDTLS_CACHE="$TEMP_DIR/nvim/jdtls/$PROJ_NAME"
+    else
+        XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME_DIR/.cache}"
+        JDTLS_CACHE="$XDG_CACHE_HOME/nvim/jdtls/$PROJ_NAME"
+    fi
+
+    if [ -d "$JDTLS_CACHE" ]; then
+        read -p "🗑️ JDTLS 캐시를 삭제하시겠습니까? (경로: $JDTLS_CACHE) (y/N): " CONFIRM
+        if [[ "${CONFIRM,,}" == "y" ]]; then
+            rm -rf "$JDTLS_CACHE"
+            echo "✅ JDTLS 캐시 제거 완료: $PROJ_NAME"
+        else
+            echo "❌ 취소되었습니다."
+        fi
+    else
+        echo "ℹ️ 삭제할 JDTLS 캐시 디렉토리가 존재하지 않습니다: $JDTLS_CACHE"
+    fi
+
+elif [[ "$CHOICE" == *"포트 확인"* ]]; then
+    read -p "🔍 조회할 포트 번호 입력: " PORT
+    if [[ -n "$PORT" ]]; then
+        if $IS_WINDOWS; then
+            netstat -ano | findstr ":$PORT"
+        else
+            # lsof 우선 사용 (더 상세한 PID/프로세스명 정보 제공), 없으면 ss 폴백
+            if command -v lsof &>/dev/null; then
+                echo "📋 포트 $PORT 사용 프로세스 목록:"
+                lsof -i :"$PORT" 2>/dev/null || echo "  (해당 포트를 사용하는 프로세스 없음)"
+            else
+                sudo ss -tulpn | grep ":$PORT" || echo "  (해당 포트를 사용하는 프로세스 없음)"
+            fi
+        fi
+    fi
+
+elif [[ "$CHOICE" == *"프로세스 확인"* ]]; then
+    read -p "🎯 검색할 프로세스 이름 키워드: " KWD
+    if [[ -n "$KWD" ]]; then
+        if $IS_WINDOWS; then
+            tasklist | findstr /i "$KWD"
+        else
+            ps aux | grep -i "$KWD" | grep -v grep
+        fi
+    fi
+
+elif [[ "$CHOICE" == *"프로세스 종료"* && "$CHOICE" != *"포트로"* ]]; then
+    # 다중 PID를 공백으로 구분하여 한 번에 종료 가능
+    read -p "💀 종료할 프로세스 PID 입력 (여러 개면 공백으로 구분, 예: 1234 5678): " PID_INPUT
+    if [[ -n "$PID_INPUT" ]]; then
+        read -r -a PID_ARRAY <<<"$PID_INPUT"
+        if $IS_WINDOWS; then
+            for PID in "${PID_ARRAY[@]}"; do
+                echo "💀 PID $PID 종료 중..."
+                taskkill /f /pid "$PID" && echo "  ✅ PID $PID 종료 완료" || echo "  ❌ PID $PID 종료 실패"
+            done
+        else
+            for PID in "${PID_ARRAY[@]}"; do
+                if ps -p "$PID" &>/dev/null; then
+                    PNAME=$(ps -p "$PID" -o comm= 2>/dev/null)
+                    kill -9 "$PID" && echo "  ✅ PID $PID ($PNAME) 종료 완료" || echo "  ❌ PID $PID 종료 실패"
+                else
+                    echo "  ⚠️  PID $PID: 존재하지 않는 프로세스입니다."
+                fi
+            done
+        fi
+    fi
+
+elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
+    read -p "🔌 종료할 포트 번호 입력: " PORT
+    if [[ -z "$PORT" ]]; then
+        echo "❌ 포트 번호를 입력하세요."
+        exit 1
+    fi
+
+    if $IS_WINDOWS; then
+        # Windows: netstat -ano 마지막 컬럼(PID) 자동 파싱 후 일괄 종료
+        # netstat 출력 형식: TCP  0.0.0.0:PORT  0.0.0.0:0  LISTENING  <PID>
+        RAW_PIDS=$(netstat -ano 2>/dev/null | grep ":${PORT}[[:space:]]" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
+
+        if [[ -z "$RAW_PIDS" ]]; then
+            echo "ℹ️  포트 $PORT 를 사용하는 프로세스가 없습니다."
+            exit 0
+        fi
+
+        echo "📋 포트 $PORT 를 사용하는 프로세스 목록:"
+        echo "─────────────────────────────────────────"
+        for PID in $RAW_PIDS; do
+            # tasklist로 프로세스 이름 조회 (Windows)
+            PNAME=$(tasklist /fi "PID eq $PID" /fo csv /nh 2>/dev/null | cut -d',' -f1 | tr -d '"' | head -1)
+            echo "  PID: $PID  |  이름: ${PNAME:-알 수 없음}"
+        done
+        echo "─────────────────────────────────────────"
+        echo ""
+        read -p "⚠️  위 프로세스를 모두 종료하시겠습니까? (y/N): " CONFIRM
+        if [[ "${CONFIRM,,}" != "y" ]]; then
+            echo "❌ 취소되었습니다."
+            exit 0
+        fi
+
+        KILLED=0
+        FAILED=0
+        for PID in $RAW_PIDS; do
+            if taskkill /f /pid "$PID" &>/dev/null; then
+                echo "  ✅ PID $PID 종료 완료"
+                ((KILLED++))
+            else
+                echo "  ❌ PID $PID 종료 실패"
+                ((FAILED++))
+            fi
+        done
+
+        echo ""
+        echo "📊 결과: 성공 $KILLED 개 / 실패 $FAILED 개"
+
+        # 종료 후 재확인
+        sleep 0.5
+        REMAINING=$(netstat -ano 2>/dev/null | grep ":${PORT}[[:space:]]" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
+        if [[ -z "$REMAINING" ]]; then
+            echo "✅ 포트 $PORT 가 정상적으로 해제되었습니다."
+        else
+            echo "⚠️  아직 포트 $PORT 를 점유하는 프로세스가 남아 있습니다: $REMAINING"
+        fi
+    else
+        # Linux/macOS: lsof로 해당 포트의 모든 PID 자동 추출
+        if ! command -v lsof &>/dev/null; then
+            echo "❌ lsof 명령어를 찾을 수 없습니다. sudo dnf install lsof 등으로 설치 후 재시도하세요."
+            exit 1
+        fi
+
+        # 해당 포트를 사용하는 모든 PID 목록 추출 (중복 제거)
+        PIDS=$(lsof -ti :"$PORT" 2>/dev/null | sort -u)
+
+        if [[ -z "$PIDS" ]]; then
+            echo "ℹ️  포트 $PORT 를 사용하는 프로세스가 없습니다."
+            exit 0
+        fi
+
+        echo "📋 포트 $PORT 를 사용하는 프로세스 목록:"
+        echo "─────────────────────────────────────────"
+        for PID in $PIDS; do
+            PNAME=$(ps -p "$PID" -o comm= 2>/dev/null || echo "알 수 없음")
+            PCMD=$(ps -p "$PID" -o args= 2>/dev/null | cut -c1-80 || echo "")
+            echo "  PID: $PID  |  이름: $PNAME"
+            echo "  명령어: $PCMD"
+            echo ""
+        done
+        echo "─────────────────────────────────────────"
+        echo "총 ${#PIDS[@]} 개 프로세스가 발견되었습니다."
+        echo ""
+        read -p "⚠️  위 프로세스를 모두 종료하시겠습니까? (y/N): " CONFIRM
+        if [[ "${CONFIRM,,}" != "y" ]]; then
+            echo "❌ 취소되었습니다."
+            exit 0
+        fi
+
+        echo ""
+        KILLED=0
+        FAILED=0
+        for PID in $PIDS; do
+            PNAME=$(ps -p "$PID" -o comm= 2>/dev/null || echo "알 수 없음")
+            if kill -9 "$PID" 2>/dev/null; then
+                echo "  ✅ PID $PID ($PNAME) 종료 완료"
+                ((KILLED++))
+            else
+                echo "  ❌ PID $PID ($PNAME) 종료 실패 (권한 부족 시 sudo 필요)"
+                ((FAILED++))
+            fi
+        done
+
+        echo ""
+        echo "📊 결과: 성공 $KILLED 개 / 실패 $FAILED 개"
+
+        # 종료 후 포트가 실제로 해제됐는지 재확인
+        sleep 0.5
+        REMAINING=$(lsof -ti :"$PORT" 2>/dev/null | sort -u)
+        if [[ -z "$REMAINING" ]]; then
+            echo "✅ 포트 $PORT 가 정상적으로 해제되었습니다."
+        else
+            echo "⚠️  아직 포트 $PORT 를 점유하는 프로세스가 남아 있습니다: $REMAINING"
+            echo "   sudo kill -9 $REMAINING 으로 강제 종료를 시도해 보세요."
+        fi
+    fi
+
+elif [[ "$CHOICE" == *"JDK 버전 변경"* ]]; then
+    # 기준 경로 설정 (DEVTOOLS2 환경변수 백업)
+    DEV_ROOT="${DEVTOOLS2}"
+    if [[ -z "$DEV_ROOT" ]]; then
+        SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        DEV_ROOT="$(cd "$SCRIPT_PATH/../.." && pwd)"
+    fi
+
+    echo "🔍 현재 JDK 설정 정보:"
+    if [[ -n "$JAVA_HOME" ]]; then
+        echo "  - JAVA_HOME: $JAVA_HOME"
+    else
+        echo "  - JAVA_HOME: 설정되지 않음"
+    fi
+    if command -v java &>/dev/null; then
+        echo "  - java 위치: $(which java)"
+        echo "  - java 버전:"
+        java -version 2>&1 | sed 's/^/    /'
+    else
+        echo "  - java 명령어를 찾을 수 없습니다."
+    fi
+    echo ""
+
+    JDK_CHOICE=$(printf "%s\n" "${SUPPORTED_JDK_VERSIONS[@]}" | fzf --prompt="☕ 변경할 JDK 버전 선택 > " --height=30% --reverse)
+    if [[ -z "$JDK_CHOICE" ]]; then
+        echo "❌ 취소되었습니다."
+        exit 0
+    fi
+
+    if $IS_WINDOWS; then
+        JDK_SWITCH_PS1="$DEV_ROOT/scripts/windows/cmd/jdk_switch.ps1"
+        if [[ -f "$JDK_SWITCH_PS1" ]]; then
+            if command -v cygpath &>/dev/null; then
+                PS1_PATH=$(cygpath -w "$JDK_SWITCH_PS1")
+            else
+                PS1_PATH=$(echo "$JDK_SWITCH_PS1" | sed 's|^\/\([a-zA-Z]\)\/|\1:\\|' | tr '/' '\\')
+            fi
+            powershell.exe -ExecutionPolicy Bypass -File "$PS1_PATH" "$JDK_CHOICE"
+        else
+            echo "❌ 스위치 스크립트를 찾을 수 없습니다: $JDK_SWITCH_PS1"
+        fi
+    else
+        JDK_SWITCH_SCRIPT="$DEV_ROOT/scripts/linux/cmd/jdk_switch.sh"
+        if [[ -f "$JDK_SWITCH_SCRIPT" ]]; then
+            source "$JDK_SWITCH_SCRIPT" "$JDK_CHOICE"
+        else
+            echo "❌ 스위치 스크립트를 찾을 수 없습니다: $JDK_SWITCH_SCRIPT"
+        fi
+    fi
+
+    echo ""
+    echo "📢 안내:"
+    echo "  - 환경 변수 영구 설정이 변경되었습니다."
+    if $IS_WINDOWS; then
+        echo "  - 변경 사항을 완전히 적용하려면 현재 터미널 창을 닫고 새로 열어주세요."
+    else
+        echo "  - 현재 터미널 세션에 즉시 적용하려면 다음 명령을 실행하십시오:"
+        if [[ "$SHELL" == *"zsh"* ]]; then
+            echo "    source ~/.zshrc"
+        else
+            echo "    source ~/.bashrc"
+        fi
+        echo "  - 또는 터미널을 다시 시작(새 창/새 탭)하십시오."
+    fi
+
+elif [[ "$CHOICE" == *"Python 버전 변경"* ]]; then
+    # 기준 경로 설정 (DEVTOOLS2 환경변수 백업)
+    DEV_ROOT="${DEVTOOLS2}"
+    if [[ -z "$DEV_ROOT" ]]; then
+        SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        DEV_ROOT="$(cd "$SCRIPT_PATH/../.." && pwd)"
+    fi
+
+    echo "🔍 현재 Python 설정 정보:"
+    if [[ -n "$PYTHON_HOME" ]]; then
+        echo "  - PYTHON_HOME: $PYTHON_HOME"
+    else
+        echo "  - PYTHON_HOME: 설정되지 않음"
+    fi
+    if command -v python3 &>/dev/null; then
+        echo "  - python3 위치: $(which python3)"
+        echo "  - python3 버전: $(python3 --version 2>&1)"
+    elif command -v python &>/dev/null; then
+        echo "  - python 위치: $(which python)"
+        echo "  - python 버전: $(python --version 2>&1)"
+    else
+        echo "  - python 명령어를 찾을 수 없습니다."
+    fi
+    echo ""
+
+    PY_CHOICE=$(printf "%s\n" "${SUPPORTED_PY_VERSIONS[@]}" | fzf --prompt="🐍 변경할 Python 버전 선택 > " --height=30% --reverse)
+    if [[ -z "$PY_CHOICE" ]]; then
+        echo "❌ 취소되었습니다."
+        exit 0
+    fi
+
+    if $IS_WINDOWS; then
+        PY_SWITCH_PS1="$DEV_ROOT/scripts/windows/cmd/py_switch.ps1"
+        if [[ -f "$PY_SWITCH_PS1" ]]; then
+            if command -v cygpath &>/dev/null; then
+                PS1_PATH=$(cygpath -w "$PY_SWITCH_PS1")
+            else
+                PS1_PATH=$(echo "$PY_SWITCH_PS1" | sed 's|^\/\([a-zA-Z]\)\/|\1:\\|' | tr '/' '\\')
+            fi
+            powershell.exe -ExecutionPolicy Bypass -File "$PS1_PATH" "$PY_CHOICE"
+        else
+            echo "❌ 스위치 스크립트를 찾을 수 없습니다: $PY_SWITCH_PS1"
+        fi
+    else
+        PY_SWITCH_SCRIPT="$DEV_ROOT/scripts/linux/cmd/py_switch.sh"
+        if [[ -f "$PY_SWITCH_SCRIPT" ]]; then
+            source "$PY_SWITCH_SCRIPT" "$PY_CHOICE"
+        else
+            echo "❌ 스위치 스크립트를 찾을 수 없습니다: $PY_SWITCH_SCRIPT"
+        fi
+    fi
+
+    echo ""
+    echo "📢 안내:"
+    echo "  - 환경 변수 영구 설정이 변경되었습니다."
+    if $IS_WINDOWS; then
+        echo "  - 변경 사항을 완전히 적용하려면 현재 터미널 창을 닫고 새로 열어주세요."
+    else
+        echo "  - 현재 터미널 세션에 즉시 적용하려면 다음 명령을 실행하십시오:"
+        if [[ "$SHELL" == *"zsh"* ]]; then
+            echo "    source ~/.zshrc"
+        else
+            echo "    source ~/.bashrc"
+        fi
+        echo "  - 또는 터미널을 다시 시작(새 창/새 탭)하십시오."
+    fi
+fi

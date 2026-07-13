@@ -1,0 +1,34 @@
+# 1. 보안 관련
+.env
+.env.*
+*.key
+*.pem
+secrets.json
+
+# 2. 빌드 및 라이브러리 (매우 중요: 성능 향상)
+node_modules/
+dist/
+build/
+out/
+target/
+bin/
+obj/
+
+# 3. 로그 및 임시 파일
+*.log
+tmp/
+temp/
+.cache/
+
+# 4. 데이터 및 미디어
+*.csv
+*.db
+*.sqlite
+*.png
+*.jpg
+*.svg
+
+# 5. OS 및 도구 설정
+.DS_Store
+Thumbs.db
+.vscode/

@@ -1,0 +1,38 @@
+[
+  {
+    "key": "ctrl+alt+u",
+    "command": "editor.action.transformToUppercase"
+  },
+  {
+    "key": "ctrl+alt+l",
+    "command": "editor.action.transformToLowercase"
+  },
+  {
+    "key": "ctrl+alt+p",
+    "command": "editor.action.transformToPascalcase"
+  },
+  {
+    "key": "ctrl+alt+c",
+    "command": "editor.action.transformToCamelcase"
+  },
+  {
+    "key": "ctrl+alt+s",
+    "command": "editor.action.transformToSnakecase"
+  },
+  {
+    "key": "ctrl+alt+k",
+    "command": "editor.action.transformToKebabcase"
+  },
+  {
+    "key": "ctrl+alt+b ctrl+alt+e",
+    "command": "git.blame.toggleEditorDecoration"
+  },
+  {
+    "key": "ctrl+alt+b ctrl+alt+s",
+    "command": "git.blame.toggleStatusBarItem"
+  },
+  {
+    "key": "ctrl+e ctrl+e",
+    "command": "sqltools.executeCurrentQuery"
+  }
+]

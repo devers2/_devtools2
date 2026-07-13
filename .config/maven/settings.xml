@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+
+  <!-- 사용자 홈 기준 로컬 저장소 -->
+  <localRepository>${user.home}/.m2/repository</localRepository>
+
+  <!-- 중앙 저장소 미러 -->
+  <mirrors>
+    <mirror>
+      <id>central</id>
+      <mirrorOf>central</mirrorOf>
+      <url>https://repo.maven.apache.org/maven2</url>
+    </mirror>
+  </mirrors>
+
+  <!-- 표준 프로필 -->
+  <profiles>
+    <profile>
+      <id>standard-repos</id>
+      <repositories>
+        <repository>
+          <id>central</id>
+          <url>https://repo.maven.apache.org/maven2</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+
+        <repository>
+          <id>spring-milestones</id>
+          <name>Spring Milestones</name>
+          <url>https://repo.spring.io/milestone</url>
+          <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+
+        <repository>
+          <id>jboss-public-repository-group</id>
+          <name>JBoss Public Repository Group</name>
+          <url>https://repository.jboss.org/nexus/content/groups/public/</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+      </repositories>
+
+      <pluginRepositories>
+        <pluginRepository>
+          <id>central</id>
+          <url>https://repo.maven.apache.org/maven2</url>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+  </profiles>
+
+  <!-- 활성화할 프로필 -->
+  <activeProfiles>
+    <activeProfile>standard-repos</activeProfile>
+  </activeProfiles>
+</settings>

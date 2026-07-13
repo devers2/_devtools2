@@ -1,0 +1,411 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# bw-server-manager: Bitwarden 기반 서버 접속 관리자 (Ghostty / fzf 전용)
+# ==============================================================================
+# 의존성: bw (Bitwarden CLI), fzf, python3 (JSON 파싱), ssh/sftp/rsync
+#
+# 상태 흐름:
+#   1. bw CLI 미설치       → 안내 메시지 후 종료
+#   2. bw 미로그인         → 로그인 안내 후 종료
+#   3. bw vault 잠김       → 마스터 비밀번호 입력 → unlock → 세션 파일 저장
+#   4. 정상 unlock 상태   → 세션 파일 or 환경변수 로드 → 목록 조회
+#
+# BW_SESSION 지속:
+#   ~/.ghostty/bw_session 파일에 세션키를 저장해 다음 실행 시 재활용
+#   (bw vault가 잠기면 자동으로 재입력 요청)
+# ==============================================================================
+
+FOLDER_ID="9977a5c2-ee53-4a13-8dac-b43b010afabb"
+HOME_DIR="${HOME:-$USERPROFILE}"
+GHOSTTY_DIR="${HOME_DIR}/.ghostty"
+SESSION_FILE="${GHOSTTY_DIR}/bw_session"
+mkdir -p "$GHOSTTY_DIR"
+
+# ── OS 판별 ────────────────────────────────────────────────────────────────────
+IS_WINDOWS=false
+IS_MAC=false
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+    IS_WINDOWS=true
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+    IS_MAC=true
+fi
+
+# ── 클립보드 복사 (OS별) ───────────────────────────────────────────────────────
+copy_to_clipboard() {
+    local text="$1"
+    if $IS_WINDOWS; then
+        echo -n "$text" | clip.exe
+    elif $IS_MAC; then
+        echo -n "$text" | pbcopy
+    else
+        if command -v wl-copy &>/dev/null; then
+            echo -n "$text" | wl-copy
+        elif command -v xclip &>/dev/null; then
+            echo -n "$text" | xclip -selection clipboard
+        elif command -v xsel &>/dev/null; then
+            echo -n "$text" | xsel --clipboard --input
+        else
+            echo "⚠️  클립보드 도구(wl-copy/xclip/xsel)를 찾을 수 없습니다." >&2
+        fi
+    fi
+}
+
+# ── unlock 수행 및 세션키 저장 ─────────────────────────────────────────────────
+do_unlock() {
+    echo ""
+    read -rsp "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒 " MASTER_PASS
+    echo ""
+
+    if [ -z "$MASTER_PASS" ]; then
+        echo "❌ 비밀번호가 입력되지 않았습니다."
+        exit 1
+    fi
+
+    echo "🔓 Bitwarden vault 잠금 해제 중..."
+    UNLOCK_OUTPUT=$(bw unlock "$MASTER_PASS" 2>&1)
+    unset MASTER_PASS
+
+    # unlock 출력에서 세션키 추출 (export BW_SESSION="..." 패턴)
+    BW_SESSION=$(echo "$UNLOCK_OUTPUT" | grep -oP '(?<=export BW_SESSION=")[^"]+' | head -1)
+
+    if [ -z "$BW_SESSION" ]; then
+        echo "❌ 잠금 해제에 실패했습니다. 마스터 비밀번호를 확인해주세요."
+        exit 1
+    fi
+
+    # 세션키를 파일에 저장 (chmod 600 으로 보안)
+    echo "$BW_SESSION" >"$SESSION_FILE"
+    chmod 600 "$SESSION_FILE"
+
+    export BW_SESSION
+    echo "✅ 잠금 해제 완료. (세션이 ${SESSION_FILE} 에 저장되었습니다)"
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STEP 1: bw CLI 존재 확인
+# ──────────────────────────────────────────────────────────────────────────────
+if ! command -v bw &>/dev/null; then
+    echo "❌ Bitwarden CLI(bw)를 찾을 수 없습니다. 설치 여부를 확인해주세요."
+    echo "   설치 방법: https://bitwarden.com/help/cli/"
+    exit 1
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STEP 2: 저장된 세션키 로드 시도 (환경변수 우선, 없으면 파일)
+# ──────────────────────────────────────────────────────────────────────────────
+echo "⏳ 서버 상태 확인하는 중..."
+if [ -z "${BW_SESSION:-}" ] && [ -f "$SESSION_FILE" ]; then
+    BW_SESSION=$(cat "$SESSION_FILE")
+    export BW_SESSION
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STEP 3: bw 상태 확인 (세션키 포함해서 조회)
+# ──────────────────────────────────────────────────────────────────────────────
+BW_STATUS_JSON=$(bw status 2>/dev/null)
+BW_STATUS=$(echo "$BW_STATUS_JSON" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get('status', 'unknown'))
+except:
+    print('unknown')
+")
+
+case "$BW_STATUS" in
+unauthenticated)
+    echo "🔑 Bitwarden에 로그인되어 있지 않습니다."
+    echo "   아래 명령어로 먼저 로그인해주세요:"
+    echo ""
+    echo "   bw login"
+    echo ""
+    exit 1
+    ;;
+locked)
+    # 저장된 세션으로 실제 조회를 시도해보고 실패하면 재unlock
+    if [ -n "${BW_SESSION:-}" ]; then
+        TEST=$(bw list items --folderid "$FOLDER_ID" --session "$BW_SESSION" </dev/null 2>&1)
+        if echo "$TEST" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
+            echo "⚠️  저장된 세션이 만료되었습니다. 다시 인증합니다."
+            rm -f "$SESSION_FILE"
+            BW_SESSION=""
+        fi
+    fi
+    if [ -z "${BW_SESSION:-}" ]; then
+        do_unlock
+    fi
+    ;;
+unlocked)
+    # 세션키가 없으면 unlock 수행
+    if [ -z "${BW_SESSION:-}" ]; then
+        do_unlock
+    fi
+    ;;
+*)
+    echo "❌ Bitwarden 상태를 확인할 수 없습니다. (status: $BW_STATUS)"
+    echo "   bw status 명령으로 상태를 직접 확인해주세요."
+    exit 1
+    ;;
+esac
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STEP 4: 서버 목록 조회
+# ──────────────────────────────────────────────────────────────────────────────
+echo "⏳ 서버 목록 불러오는 중..."
+HOST_JSON=$(bw list items --folderid "$FOLDER_ID" --session "$BW_SESSION" </dev/null 2>&1)
+
+# 세션 만료 재감지
+if echo "$HOST_JSON" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
+    echo "❌ Bitwarden 세션이 만료되었습니다."
+    echo "   저장된 세션을 삭제하고 다시 실행해주세요: rm -f $SESSION_FILE"
+    rm -f "$SESSION_FILE"
+    exit 1
+fi
+
+if [ -z "$HOST_JSON" ] || [ "$HOST_JSON" = "[]" ]; then
+    echo "ℹ️  해당 폴더에 항목이 없습니다. (folder: $FOLDER_ID)"
+    exit 0
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STEP 5: JSON 파싱 (stdin으로 전달 → 제어문자 문제 완전 해결)
+# 비밀번호는 목록에 절대 표시하지 않음
+# 표시 형식: "서버이름 | 사용자명@호스트:포트  🔑(키있음)"
+# 내부 형식: [표시]\t[itemID]\t[username]\t[uri]\t[has_key]
+# ──────────────────────────────────────────────────────────────────────────────
+export HOST_JSON
+HOST_LIST=$(
+    python3 - <<'PYEOF'
+import sys, json, re, os
+
+raw = os.environ.get('HOST_JSON', '')
+
+# 원본 데이터가 비었는지 확인
+if not raw.strip():
+    print("❌ 오류: Bitwarden으로부터 가져온 데이터가 비어 있습니다.", file=sys.stderr)
+    sys.exit(1)
+
+# 정규식 대신 첫 대괄호와 마지막 대괄호 위치를 찾아 잘라냅니다.
+start_idx = raw.find('[')
+end_idx = raw.rfind(']')
+
+if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
+    print("❌ 오류: Bitwarden 출력물에서 JSON 배열[...] 형식을 찾을 수 없습니다.", file=sys.stderr)
+    print("--- [원본 출력물 시작] ---", file=sys.stderr)
+    print(raw, file=sys.stderr)
+    print("--- [원본 출력물 끝] ---", file=sys.stderr)
+    sys.exit(1)
+
+json_str = raw[start_idx:end_idx+1]
+
+try:
+    # strict=False: notes 필드 내 SSH 키의 개행(\n) 등 제어문자 허용
+    data = json.loads(json_str, strict=False)
+except json.JSONDecodeError as e:
+    print(f"❌ JSON 파싱 오류: {e}", file=sys.stderr)
+    print("--- [파싱 시도한 문자열] ---", file=sys.stderr)
+    print(json_str[:1000] + ("..." if len(json_str) > 1000 else ""), file=sys.stderr)
+    sys.exit(1)
+
+for item in data:
+    if not isinstance(item, dict):
+        continue
+    name     = item.get('name', '이름없음')
+    item_id  = item.get('id', '')
+    
+    # 방어적으로 login 정보 파싱
+    login = item.get('login')
+    if not isinstance(login, dict):
+        login = {}
+        
+    username = login.get('username') or ''
+    uris     = login.get('uris') or []
+    
+    raw_uri = ''
+    if isinstance(uris, list) and len(uris) > 0:
+        first_uri = uris[0]
+        if isinstance(first_uri, dict):
+            raw_uri = first_uri.get('uri') or ''
+            
+    notes = item.get('notes') or ''
+    if not isinstance(notes, str):
+        notes = ''
+
+    # ssh:// 등 스킴 제거
+    clean_uri = re.sub(r'^[a-z]+://', '', raw_uri)
+
+    # SSH 키 여부 (notes에 PRIVATE KEY 헤더가 있으면)
+    has_key = 'KEY' if re.search(r'BEGIN .* PRIVATE KEY', notes) else ''
+
+    display = f"{name} | {username}@{clean_uri}"
+    if has_key:
+        display += " 🔑"
+
+    # 탭으로 내부 데이터 구분 (fzf는 --with-nth=1 으로 display만 표시)
+    print(f"{display}\t{item_id}\t{username}\t{clean_uri}\t{has_key}")
+PYEOF
+)
+
+if [ -z "$HOST_LIST" ]; then
+    echo "❌ 서버 목록 파싱에 실패했습니다."
+    exit 1
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STEP 6: fzf로 서버 선택
+# ──────────────────────────────────────────────────────────────────────────────
+CHOICE=$(
+    echo "$HOST_LIST" | fzf \
+        --prompt="🌐 접속할 서버 선택 > " \
+        --height=50% \
+        --reverse \
+        --delimiter=$'\t' \
+        --with-nth=1 \
+        --header="[Enter] 선택  [ESC] 취소  │  비밀번호는 접속 선택 후 클립보드에 자동 저장됩니다"
+)
+
+if [ -z "$CHOICE" ]; then
+    echo "🚪 취소되었습니다."
+    exit 0
+fi
+
+# 탭 구분으로 내부 데이터 추출
+ITEM_ID=$(echo "$CHOICE" | cut -f2)
+USERNAME=$(echo "$CHOICE" | cut -f3)
+RAW_URI=$(echo "$CHOICE" | cut -f4)
+HAS_KEY=$(echo "$CHOICE" | cut -f5)
+HOST_NAME=$(echo "$CHOICE" | cut -f1 | cut -d'|' -f1 | xargs)
+
+# URI에서 호스트/포트 분리
+if [[ "$RAW_URI" == *:* ]]; then
+    ACTUAL_HOST="${RAW_URI%:*}"
+    PORT="${RAW_URI##*:}"
+else
+    ACTUAL_HOST="$RAW_URI"
+    PORT="22"
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STEP 7: 비밀번호를 itemID로 안전하게 조회 → 클립보드에만 저장
+# (fzf 목록에 비밀번호 절대 노출 없음)
+# ──────────────────────────────────────────────────────────────────────────────
+SERVER_PASS=$(bw get password "$ITEM_ID" --session "$BW_SESSION" 2>/dev/null || echo "")
+
+if [ -n "$SERVER_PASS" ]; then
+    copy_to_clipboard "$SERVER_PASS"
+    echo ""
+    echo "📋 비밀번호를 클립보드에 저장했습니다."
+    echo "   접속 후 비밀번호 프롬프트에 붙여넣기 하세요. (Ctrl+Shift+V 또는 마우스 우클릭)"
+fi
+
+# SSH 키 처리: notes에 private key가 있으면 임시 파일로 저장
+SSH_KEY_OPT=""
+if [ "$HAS_KEY" = "KEY" ]; then
+    NOTES_CONTENT=$(bw get notes "$ITEM_ID" --session "$BW_SESSION" 2>/dev/null || echo "")
+    if [ -n "$NOTES_CONTENT" ]; then
+        KEY_DIR="${GHOSTTY_DIR}/keys"
+        mkdir -p "$KEY_DIR"
+        KEY_PATH="$KEY_DIR/bw_key_${ITEM_ID}"
+        if [ ! -f "$KEY_PATH" ] || [ "$(cat "$KEY_PATH")" != "$NOTES_CONTENT" ]; then
+            echo "$NOTES_CONTENT" >"$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+        fi
+        SSH_KEY_OPT="-i $KEY_PATH"
+    fi
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STEP 8: 접속 방식 선택 (SSH / SFTP / RSYNC)
+# ──────────────────────────────────────────────────────────────────────────────
+echo ""
+echo "🖥️  [$HOST_NAME]  →  $USERNAME@$ACTUAL_HOST:$PORT"
+echo ""
+
+ACTION_OPTIONS=("1. 원격 접속 (SSH)" "2. 파일 전송 (SFTP)")
+if ! $IS_WINDOWS; then
+    ACTION_OPTIONS+=("3. 파일 동기화 (RSYNC)")
+fi
+
+ACTION=$(
+    printf "%s\n" "${ACTION_OPTIONS[@]}" | fzf \
+        --prompt="🛠️  작업 선택 > " \
+        --height=30% \
+        --reverse \
+        --header="[$HOST_NAME]  $USERNAME@$ACTUAL_HOST:$PORT"
+)
+
+if [ -z "$ACTION" ]; then
+    echo "🚪 취소되었습니다."
+    exit 0
+fi
+
+# ── SSH ───────────────────────────────────────────────────────────────────────
+if [[ "$ACTION" == *"SSH"* ]]; then
+    SSH_ARGS=(-p "$PORT")
+    [ -n "$SSH_KEY_OPT" ] && SSH_ARGS+=($SSH_KEY_OPT)
+    SSH_ARGS+=("$USERNAME@$ACTUAL_HOST")
+
+    echo "🚀 SSH 접속: ssh ${SSH_ARGS[*]}"
+    echo ""
+    ssh "${SSH_ARGS[@]}"
+
+# ── SFTP ──────────────────────────────────────────────────────────────────────
+elif [[ "$ACTION" == *"SFTP"* ]]; then
+    # SFTP는 포트 옵션이 대문자 -P
+    SFTP_ARGS=(-P "$PORT")
+    [ -n "$SSH_KEY_OPT" ] && SFTP_ARGS+=($SSH_KEY_OPT)
+    SFTP_ARGS+=("$USERNAME@$ACTUAL_HOST")
+
+    echo "📁 SFTP 접속: sftp ${SFTP_ARGS[*]}"
+    echo ""
+    echo "  주요 명령어:"
+    echo "  ls / lls      : 원격/로컬 파일 목록"
+    echo "  cd / lcd      : 원격/로컬 디렉토리 이동"
+    echo "  get [-r] 파일 : 다운로드 (-r: 디렉토리)"
+    echo "  put [-r] 파일 : 업로드 (-r: 디렉토리)"
+    echo "  exit          : 접속 종료"
+    echo ""
+    sftp "${SFTP_ARGS[@]}"
+
+# ── RSYNC ─────────────────────────────────────────────────────────────────────
+elif [[ "$ACTION" == *"RSYNC"* ]]; then
+    RSYNC_SSH="ssh -p $PORT"
+    [ -n "$SSH_KEY_OPT" ] && RSYNC_SSH="$RSYNC_SSH $SSH_KEY_OPT"
+
+    echo ""
+    echo "📦 RSYNC 안내 [$HOST_NAME]"
+    echo ""
+    echo "  ✔ 로컬 → 원격 (업로드):"
+    echo "    rsync -avzP -e \"$RSYNC_SSH\" [로컬경로] $USERNAME@$ACTUAL_HOST:[원격경로]"
+    echo ""
+    echo "  ✔ 원격 → 로컬 (다운로드):"
+    echo "    rsync -avzP -e \"$RSYNC_SSH\" $USERNAME@$ACTUAL_HOST:[원격경로] [로컬경로]"
+    echo ""
+    echo "  ※ '-n' 옵션 추가 시 실제 전송 없이 미리보기 가능"
+    echo ""
+
+    read -rp "📂 방향 선택 (u=업로드 / d=다운로드): " DIRECTION
+    if [[ "${DIRECTION,,}" == "u" ]]; then
+        read -rp "📂 로컬 소스 경로: " L_SRC
+        read -rp "📂 원격 대상 경로: " R_DEST
+        read -rp "🔍 미리보기만? (y/N): " DRY
+        DRY_OPT=""
+        [[ "${DRY,,}" == "y" ]] && DRY_OPT="-n"
+        echo ""
+        echo "🚀 실행: rsync -avzP $DRY_OPT -e \"$RSYNC_SSH\" \"$L_SRC\" \"$USERNAME@$ACTUAL_HOST:$R_DEST\""
+        # shellcheck disable=SC2086
+        rsync -avzP $DRY_OPT -e "$RSYNC_SSH" "$L_SRC" "$USERNAME@$ACTUAL_HOST:$R_DEST"
+    elif [[ "${DIRECTION,,}" == "d" ]]; then
+        read -rp "📂 원격 소스 경로: " R_SRC
+        read -rp "📂 로컬 대상 경로: " L_DEST
+        read -rp "🔍 미리보기만? (y/N): " DRY
+        DRY_OPT=""
+        [[ "${DRY,,}" == "y" ]] && DRY_OPT="-n"
+        echo ""
+        echo "🚀 실행: rsync -avzP $DRY_OPT -e \"$RSYNC_SSH\" \"$USERNAME@$ACTUAL_HOST:$R_SRC\" \"$L_DEST\""
+        # shellcheck disable=SC2086
+        rsync -avzP $DRY_OPT -e "$RSYNC_SSH" "$USERNAME@$ACTUAL_HOST:$R_SRC" "$L_DEST"
+    else
+        echo "🚪 취소되었습니다."
+    fi
+fi

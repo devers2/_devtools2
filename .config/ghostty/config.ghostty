@@ -1,0 +1,69 @@
+# 폰트 세팅
+font-family = "JetBrainsMono Nerd Font Mono"
+font-family = "D2Coding ligature"
+
+font-size = 10.2
+
+# 폰트 렌더링 시 서브픽셀 안티앨리어싱(글자 테두리를 부드럽게 처리) 처리 여부 → font-style = "Regular" 와 같이 사용
+font-thicken = true
+
+font-style = "Regular" # Regular / Medium / Bold
+font-style-bold = "Bold"
+font-style-italic = "Italic"
+
+# Ligature (합자) 설정
+font-feature = +liga
+font-feature = +calt
+
+cursor-style = "block"
+cursor-style-blink = true
+
+adjust-cell-height = "20%"
+adjust-icon-height = "10%"
+adjust-font-baseline = "1"
+
+# 마우스 커서 위치에 따라 포커스 적용 → false: 마우스 커서랑 상관없이 클릭해서 포커스 획득
+focus-follows-mouse = false
+
+# 화면 및 스타일링
+theme = "Kanagawa Wave"
+background-opacity = 0.96
+window-padding-x = 4
+window-padding-y = 4
+
+# 프로그램 스타일 주석 → 새 창/새 탭이 이전 창의 글자 크기를 상속 여부: true(기본 값): 이전 창의 글자 크기를 상속, false: 설정된 글자 크기로 고정
+window-inherit-font-size = false
+
+# 탭 바 제어
+# "auto": 탭이 2개 이상일 때 탭 바 보이기, "always": 탭이 1개만 있어도 탭 바 보이기, "never": 탭 바 숨기기
+window-show-tab-bar = "auto"
+
+# 만약 타이틀바를 포함하여 상단 바 전체를 깔끔하게 안 보이게 하고 싶다면 아래 주석을 해제하세요.
+# window-decoration = false
+
+# 창을 닫거나 종료할 때 확인 여부 → true: 확인 후 종료, false: 확인 없이 종료
+confirm-close-surface = false
+
+# 기본 단축키
+# keybind = ctrl+shift+c=copy
+# keybind = ctrl+shift+v=paste
+# keybind = ctrl+shift+t=new-tab
+
+# 창 분할 단축키
+keybind = alt+v=new_split:right
+keybind = alt+s=new_split:down
+
+# 스크립트 연동 (텍스트 직접 전송)
+keybind = alt+c=text:$DEVTOOLS2/scripts/fzf/command-palette
+keybind = alt+h=text:$DEVTOOLS2/scripts/fzf/bw-server-manager
+
+# 타이핑 중 마우스 포인터 자동 숨김 (텍스트 가독성 최적화)
+mouse-hide-while-typing = true
+
+# 스크롤백 히스토리 제한 (메모리 부족 OOM 방지)
+scrollback-limit = 10000
+
+# Windows/Linux 공통 설정: 기본 실행 셸로 pwsh.exe 설정
+# (윈도우에서는 PowerShell 7이 열리며, 리눅스에서는 scripts/linux/cmd/pwsh.exe 래퍼가 가로채어 bash를 띄웁니다)
+command = "pwsh.exe"
+

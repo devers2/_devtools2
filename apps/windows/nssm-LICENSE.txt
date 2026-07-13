@@ -1,0 +1,10 @@
+NSSM - the Non-Sucking Service Manager
+https://nssm.cc/
+
+nssm is public domain.  You may do anything you like with it.
+No warranty is implied.  Use at your own risk.
+
+The source code of nssm can be compiled with Visual Studio,
+specifically the free Express or Community editions, or with MinGW.
+Please see the website for details of how to obtain the source code
+and how to build it.

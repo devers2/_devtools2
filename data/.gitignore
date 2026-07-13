@@ -1,0 +1,8 @@
+# data/ 내의 모든 파일과 디렉터리를 기본적으로 무시
+*
+
+# 이 .gitignore 파일 자체는 추적
+!.gitignore
+
+# .npm-packages/ 디렉터리 탐색 허용 (세부 규칙은 .npm-packages/.gitignore 에서 관리)
+!/.npm-packages/
