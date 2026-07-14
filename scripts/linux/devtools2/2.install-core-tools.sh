@@ -5,6 +5,12 @@
 # 대상: Java(8/17/21/25), Gradle, Python, Node.js, Neovim, Ghostty
 # =================================================================
 
+# DEVTOOLS2 환경변수가 유실되었을 경우 스크립트 위치 기준으로 자동 계산하여 방어
+if [ -z "${DEVTOOLS2:-}" ]; then
+    SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+    DEVTOOLS2=$(readlink -f "$SCRIPT_DIR/../../..")
+fi
+
 # 로그 설정: data/logs 폴더에 실행 시점별로 기록
 LOG_DIR="$DEVTOOLS2/data/logs"
 mkdir -p "$LOG_DIR"

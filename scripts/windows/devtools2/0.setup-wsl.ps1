@@ -142,47 +142,32 @@ if (-not $isBaseRegistered) {
 
     Write-Info "선택된 배포판: $distroId"
     Write-Info "'$distroId' 배포판 설치를 시작합니다..."
-    Write-Warn "설치 중 새 창이 열리며 Ubuntu 초기 사용자 설정(Username/Password)이 진행될 수 있습니다."
+    Write-Warn "설치 중 또는 완료 후 새 창이 열리며 Ubuntu 초기 사용자 설정(Username/Password)이 진행됩니다."
     Write-Host ""
 
-    # --web-download를 우선 시도하여 환경 이슈 방지
+    # 설치 시도
     wsl --install -d $distroId --web-download
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "--web-download 실패. 일반 설치 모드로 재시도합니다..."
+    $exitCode = $LASTEXITCODE
+
+    # 에러 코드에 따라 일반 설치 시도 (이미 등록된 오류 등을 제외한 실제 실패 시에만 실행)
+    if ($exitCode -ne 0 -and $exitCode -ne 2147024894 -and $exitCode -ne 2147942420) {
+        Write-Warn "--web-download 실패 또는 건너뜀. 일반 설치 모드로 재시도합니다..."
         wsl --install -d $distroId
     }
 
-    # 등록 여부 검증 (대기)
-    Write-Info "배포판 등록 상태 확인 중..."
-    $isRegistered = $false
-    for ($i = 0; $i -lt 5; $i++) {
-        $registeredList = (wsl --list --quiet 2>$null) -replace "`0", "" |
-            Where-Object { $_.Trim() -ne "" } |
-            ForEach-Object { $_.Trim() }
-            
-        if ($registeredList -and ($registeredList -contains $distroId)) {
-            $isRegistered = $true
-            break
-        }
-        Start-Sleep -Seconds 2
-    }
-
-    if (-not $isRegistered) {
-        # 등록되지 않은 경우: Windows 기능 활성화로 인한 재부팅 필요 상태
-        Write-Fail "WSL 배포판이 정상적으로 시스템에 등록되지 않았습니다."
-        Write-Warn "설치 완료를 위해 컴퓨터 재부팅이 필요합니다."
-        Write-Warn "--------------------------------------------------------"
-        Write-Warn " [조치 방법]"
-        Write-Warn " 1. 컴퓨터를 다시 시작(재부팅)해 주세요."
-        Write-Warn " 2. 재부팅 후 로그인하면 자동으로 뜨는 리눅스 창에서 사용자 계정을 생성해 주세요."
-        Write-Warn " 3. 그 후, 처음에 실행했던 설치 명령어(마스터 스크립트)를 다시 실행하면"
-        Write-Warn "    남은 개발자 드라이브 이동 및 환경 설정이 자동으로 이어집니다."
-        Write-Warn "--------------------------------------------------------"
-        Pause-Script
-        exit 3010
-    }
-    
-    $isBaseRegistered = $true
+    Write-Host ""
+    Write-Warn "---------------------------------------------------------------------------"
+    Write-Warn " [설치 시작 완료 - 다음 조치 가이드]"
+    Write-Warn " 1. 새로 열린 리눅스(Ubuntu) 창에서 사용자 계정명(Username)과 비밀번호를 설정해 주세요."
+    Write-Warn "    (만약 창이 자동으로 열리지 않는다면, 시작 메뉴에서 Ubuntu를 실행하시거나"
+    Write-Warn "     윈도우 기능 활성화를 위해 컴퓨터를 재부팅해 주시기 바랍니다.)"
+    Write-Warn " 2. 계정 생성이 완료되면 해당 리눅스 창을 닫아주세요."
+    Write-Warn " 3. 그 후, 처음에 실행했던 설치 명령어(마스터 스크립트)를 다시 실행해 주시면"
+    Write-Warn "    devtools2로의 마이그레이션 및 개발도구 빌드가 자동으로 이어서 진행됩니다."
+    Write-Warn "---------------------------------------------------------------------------"
+    Write-Host ""
+    Pause-Script
+    exit 3010
 }
 
 # --------------------------------------------------------------------------
