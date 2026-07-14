@@ -15,6 +15,12 @@ set -euo pipefail
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 DEVTOOLS2=$(readlink -f "$SCRIPT_DIR/../../..")
 
+# 만약 스크립트가 리포지토리 외부(예: /tmp)에서 실행되었거나, 유효한 DEVTOOLS2 폴더가 아니면
+# 표준 경로인 /var/opt/_devtools2 를 기본값으로 사용합니다.
+if [ ! -f "$DEVTOOLS2/scripts/linux/devtools2/0.init-devtools2.sh" ]; then
+    DEVTOOLS2="/var/opt/_devtools2"
+fi
+
 DEVTOOLS2_GROUP=devers
 
 # 루트 권한 체크

@@ -5,10 +5,14 @@
 # 대상: Java(8/17/21/25), Gradle, Python, Node.js, Neovim, Ghostty
 # =================================================================
 
-# DEVTOOLS2 환경변수가 유실되었을 경우 스크립트 위치 기준으로 자동 계산하여 방어
 if [ -z "${DEVTOOLS2:-}" ]; then
     SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
     DEVTOOLS2=$(readlink -f "$SCRIPT_DIR/../../..")
+fi
+
+# 유효한 DEVTOOLS2 폴더가 아니면 표준 경로를 기본값으로 사용
+if [ ! -f "$DEVTOOLS2/scripts/linux/devtools2/2.install-core-tools.sh" ]; then
+    DEVTOOLS2="/var/opt/_devtools2"
 fi
 
 # 로그 설정: data/logs 폴더에 실행 시점별로 기록

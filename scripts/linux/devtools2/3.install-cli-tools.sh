@@ -23,10 +23,14 @@ if grep -qi 'microsoft' /proc/version 2>/dev/null; then
     IS_WSL2=true
 fi
 
-# DEVTOOLS2 환경변수가 유실되었을 경우 스크립트 위치 기준으로 자동 계산하여 방어
 if [ -z "${DEVTOOLS2:-}" ]; then
     SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
     DEVTOOLS2=$(readlink -f "$SCRIPT_DIR/../../..")
+fi
+
+# 유효한 DEVTOOLS2 폴더가 아니면 표준 경로를 기본값으로 사용
+if [ ! -f "$DEVTOOLS2/scripts/linux/devtools2/3.install-cli-tools.sh" ]; then
+    DEVTOOLS2="/var/opt/_devtools2"
 fi
 
 # 바이너리가 설치될 modules 디렉토리 경로 설정
