@@ -258,36 +258,48 @@ Write-Host "  Windows 설정   : $WinGhosttyDir\config.ghostty" -ForegroundColor
 Write-Host ""
 
 # Windows 전용 config.ghostty 생성
-# ─ 이유: 공유 config 의 command = "pwsh.exe" 는 Linux 전용 래퍼를 거치며,
-#         Windows(winghostty) 에서는 wsl.exe 로 WSL 배포판을 직접 실행해야 합니다.
-# ─ 공유 설정(폰트/테마 등)은 config-file 로 포함하되,
-#   마지막에 Windows 전용 command 를 덮어씁니다.
-$ghosttyConfigPathForGhostty = "$WslGhosttyConfig\config.ghostty" -replace '\\', '/'
-$winConfigContent = @"
-# ====================================================
-# Windows (Winghostty) 전용 설정
-# 이 파일은 자동 생성됩니다. 직접 편집하지 마세요.
-# 공유 설정은 WSL2 내 .config/ghostty/config.ghostty 를 편집하세요.
-# ====================================================
+# ─ 이유: Winghostty(Windows)는 UNC 경로(\\wsl.localhost\...)의 config-file 을 직접 로드하는 데 실패하여
+#         "error starting IO thread" 오류가 발생할 수 있습니다.
+# ─ 해결: WSL2 내의 공유 설정 파일을 가져와서 command 지시어만 wsl.exe 로 교체한 뒤
+#         로컬 Windows 경로(%LOCALAPPDATA%\winghostty\config.ghostty)에 완전히 로컬 파일로 저장합니다.
 
-# 공유 설정 포함 (폰트/테마/단축키 등)
-config-file = "$ghosttyConfigPathForGhostty"
+$wslConfigPath = "$WslGhosttyConfig\config.ghostty"
+$winConfigPath = "$WinGhosttyDir\config.ghostty"
 
-# Windows 전용 덮어쓰기: WSL2 $WslDistro 배포판을 기본 셸로 사용
-command = wsl.exe -d $WslDistro
-"@
-
-# 기존 파일이 심볼릭 링크라면 삭제 후 실제 파일로 교체
-if (Test-Path "$WinGhosttyDir\config.ghostty") {
-    $existingItem = Get-Item "$WinGhosttyDir\config.ghostty" -Force
+# 기존 파일이 심볼릭 링크라면 삭제
+if (Test-Path $winConfigPath) {
+    $existingItem = Get-Item $winConfigPath -Force
     if ($existingItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-        Write-Host "  기존 심볼릭 링크 제거 후 실제 파일로 교체합니다..." -ForegroundColor DarkGray
-        Remove-Item "$WinGhosttyDir\config.ghostty" -Force
+        Write-Host "  기존 심볼릭 링크를 제거합니다..." -ForegroundColor DarkGray
+        Remove-Item $winConfigPath -Force
     }
 }
 
-Set-Content -Path "$WinGhosttyDir\config.ghostty" -Value $winConfigContent -Encoding UTF8 -Force
-Write-Success "Windows 전용 config.ghostty 생성 완료"
+if (Test-Path $wslConfigPath) {
+    Write-Host "  공유 설정 가져오는 중: $wslConfigPath" -ForegroundColor DarkGray
+    $sharedConfig = Get-Content $wslConfigPath
+    # 기존 command = ... 라인 제거
+    $cleanConfig = $sharedConfig | Where-Object { $_ -notmatch "^\s*command\s*=" }
+    # 윈도우 전용 command 추가
+    $cleanConfig += ""
+    $cleanConfig += "# ===================================================="
+    $cleanConfig += "# Windows (Winghostty) 전용 설정 (자동 추가됨)"
+    $cleanConfig += "# ===================================================="
+    $cleanConfig += "command = wsl.exe -d $WslDistro"
+
+    Set-Content -Path $winConfigPath -Value $cleanConfig -Encoding UTF8 -Force
+    Write-Success "Windows 전용 config.ghostty 로컬 파일 복사 및 설정 완료"
+}
+else {
+    # 공유 설정 파일이 없으면 최소 설정으로 생성
+    Write-Warn "공유 설정 파일을 찾을 수 없어 최소 설정으로 config.ghostty를 생성합니다."
+    $minConfig = @(
+        "# Windows (Winghostty) 최소 설정",
+        "command = wsl.exe -d $WslDistro"
+    )
+    Set-Content -Path $winConfigPath -Value $minConfig -Encoding UTF8 -Force
+    Write-Success "최소 config.ghostty 생성 완료"
+}
 
 # 혹시 InsipidPoint/ghostty-windows 빌드도 사용 중일 경우 대비
 $WinGhosttyAltDir = "$WinLocalAppData\ghostty"
