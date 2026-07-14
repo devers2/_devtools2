@@ -157,6 +157,9 @@ else {
     Write-Host "  지정된 배포판: $WslDistro" -ForegroundColor White
 }
 
+# WSL2 UNC 경로 기본값 (\\wsl.localhost\<Distro>\...)
+$WslRoot = "\\wsl.localhost\$WslDistro"
+
 # WSL 심볼릭 링크는 Windows UNC 경로에서 따라가지 못하므로
 # _devtools2 고정 경로를 직접 참조합니다: /var/opt/_devtools2
 $DevTools2Wsl = "$WslRoot\var\opt\_devtools2"
@@ -177,10 +180,20 @@ Write-Step "[Step 2] Zed 에디터 설치"
 # Zed 윈도우 에디터 설치 (다양한 패키지 ID 시도)
 $zedInstalled = $false
 try {
-    if (Get-Command zed -ErrorAction SilentlyContinue) { $zedInstalled = $true }
-    elseif (Test-Path "$env:LOCALAPPDATA\Programs\Zed\Zed.exe") { $zedInstalled = $true }
-    elseif (Test-Path "$env:LOCALAPPDATA\Zed\bin\zed.exe") { $zedInstalled = $true }
-    elseif (Test-Path "$env:ProgramFiles\Zed\Zed.exe") { $zedInstalled = $true }
+    # winget list 로 설치 여부 우선 확인 (가장 정확)
+    $wgList = winget list --id Zed.Zed 2>$null
+    if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "Zed") { $zedInstalled = $true }
+    # 실행 파일 경로로 추가 확인
+    if (-not $zedInstalled) {
+        $zedPaths = @(
+            "$env:LOCALAPPDATA\Programs\Zed\Zed.exe",
+            "$env:LOCALAPPDATA\Zed\bin\zed.exe",
+            "$env:ProgramFiles\Zed\Zed.exe"
+        )
+        foreach ($p in $zedPaths) {
+            if (Test-Path $p) { $zedInstalled = $true; break }
+        }
+    }
 }
 catch {}
 
@@ -194,8 +207,9 @@ else {
     $zedInstallSuccess = $false
     foreach ($zedId in $zedIds) {
         winget install --id $zedId --silent --accept-source-agreements --accept-package-agreements 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "Zed 에디터 설치 완료 ($zedId)"
+        # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
+        if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) {
+            Write-Success "Zed 에디터 설치/확인 완료 ($zedId)"
             $zedInstallSuccess = $true
             break
         }

@@ -192,11 +192,21 @@ Write-Step "[Step 3] Ghostty (Winghostty) 설치"
 
 $ghosttyInstalled = $false
 try {
-    if (Get-Command winghostty -ErrorAction SilentlyContinue) { $ghosttyInstalled = $true }
-    elseif (Get-Command ghostty -ErrorAction SilentlyContinue) { $ghosttyInstalled = $true }
-    elseif (Test-Path "$env:LOCALAPPDATA\Programs\winghostty\winghostty.exe") { $ghosttyInstalled = $true }
-    elseif (Test-Path "$env:LOCALAPPDATA\Programs\ghostty\bin\ghostty.exe") { $ghosttyInstalled = $true }
-    elseif (Test-Path "$env:ProgramFiles\Ghostty\bin\ghostty.exe") { $ghosttyInstalled = $true }
+    # winget list 로 설치 여부 우선 확인 (가장 정확)
+    $wgList = winget list --id AmanThanvi.winghostty 2>$null
+    if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "winghostty") { $ghosttyInstalled = $true }
+    # 실행 파일 경로로 추가 확인
+    if (-not $ghosttyInstalled) {
+        $ghosttyPaths = @(
+            "$env:LOCALAPPDATA\Programs\winghostty\winghostty.exe",
+            "$env:LOCALAPPDATA\Programs\ghostty\bin\ghostty.exe",
+            "$env:ProgramFiles\Ghostty\bin\ghostty.exe",
+            "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\AmanThanvi.winghostty_Microsoft.Winget.Source_8wekyb3d8bbwe\winghostty.exe"
+        )
+        foreach ($p in $ghosttyPaths) {
+            if (Test-Path $p) { $ghosttyInstalled = $true; break }
+        }
+    }
 }
 catch {}
 
@@ -206,8 +216,9 @@ if ($ghosttyInstalled) {
 else {
     Write-Host "  Winghostty 를 winget 으로 설치합니다..." -ForegroundColor White
     winget install --id AmanThanvi.winghostty --silent --accept-source-agreements --accept-package-agreements
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "Winghostty 설치 완료"
+    # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
+    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) {
+        Write-Success "Winghostty 설치/확인 완료"
     }
     else {
         Write-Fail "Winghostty 설치 실패 (종료 코드: $LASTEXITCODE)"
@@ -232,19 +243,42 @@ if (-not (Test-Path $WinGhosttyDir)) {
     New-Item -ItemType Directory -Path $WinGhosttyDir -Force | Out-Null
 }
 
-Write-Host "  소스 (WSL2): $WslGhosttyConfig" -ForegroundColor DarkGray
-Write-Host "  링크 대상  : $WinGhosttyDir\config.ghostty" -ForegroundColor DarkGray
+Write-Host "  공유 설정 (WSL2): $WslGhosttyConfig" -ForegroundColor DarkGray
+Write-Host "  Windows 설정   : $WinGhosttyDir\config.ghostty" -ForegroundColor DarkGray
 Write-Host ""
 
-# config.ghostty 파일이 없으면 기본 설정 파일 생성
-if (-not (Test-Path "$WslGhosttyConfig\config.ghostty")) {
-    Write-Warn "config.ghostty 파일이 아직 없습니다. WSL2 내에 기본 설정 파일을 생성합니다..."
-    wsl -d $WslDistro -- bash -c "mkdir -p /var/opt/_devtools2/.config/ghostty && touch /var/opt/_devtools2/.config/ghostty/config.ghostty"
+# Windows 전용 config.ghostty 생성
+# ─ 이유: 공유 config 의 command = "pwsh.exe" 는 Linux 전용 래퍼를 거치며,
+#         Windows(winghostty) 에서는 wsl.exe 로 WSL 배포판을 직접 실행해야 합니다.
+# ─ 공유 설정(폰트/테마 등)은 config-file 로 포함하되,
+#   마지막에 Windows 전용 command 를 덮어씁니다.
+$wslConfigUncPath = "$WslGhosttyConfig\config.ghostty" -replace "\\\\", "\\"
+$winConfigContent = @"
+# ====================================================
+# Windows (Winghostty) 전용 설정
+# 이 파일은 자동 생성됩니다. 직접 편집하지 마세요.
+# 공유 설정은 WSL2 내 .config/ghostty/config.ghostty 를 편집하세요.
+# ====================================================
+
+# 공유 설정 포함 (폰트/테마/단축키 등)
+config-file = $wslConfigUncPath
+
+# Windows 전용 덮어쓰기: WSL2 $WslDistro 배포판을 기본 셸로 사용
+# (config-file 이후에 위치해야 덮어쓰기가 적용됩니다)
+command = wsl.exe ~ -d $WslDistro
+"@
+
+# 기존 파일이 심볼릭 링크라면 삭제 후 실제 파일로 교체
+if (Test-Path "$WinGhosttyDir\config.ghostty") {
+    $existingItem = Get-Item "$WinGhosttyDir\config.ghostty" -Force
+    if ($existingItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+        Write-Host "  기존 심볼릭 링크 제거 후 실제 파일로 교체합니다..." -ForegroundColor DarkGray
+        Remove-Item "$WinGhosttyDir\config.ghostty" -Force
+    }
 }
 
-New-SafeSymlink -LinkPath "$WinGhosttyDir\config.ghostty" `
-                -TargetPath "$WslGhosttyConfig\config.ghostty" `
-                -ItemType "SymbolicLink"
+Set-Content -Path "$WinGhosttyDir\config.ghostty" -Value $winConfigContent -Encoding UTF8 -Force
+Write-Success "Windows 전용 config.ghostty 생성 완료"
 
 # 혹시 InsipidPoint/ghostty-windows 빌드도 사용 중일 경우 대비
 $WinGhosttyAltDir = "$WinLocalAppData\ghostty"
