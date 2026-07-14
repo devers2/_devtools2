@@ -173,11 +173,11 @@ Write-Info "WSL 인스턴스 이름: $wslName"
 # 최종 설치 경로 결정
 if ($null -ne $installRoot) {
     $wslInstallPath = "$installRoot\$wslName"
-    Write-Info "설치 경로: $wslInstallPath"
 }
 else {
-    Write-Info "설치 경로: Windows 기본 경로 (자동)"
+    $wslInstallPath = Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName"
 }
+Write-Info "설치 경로: $wslInstallPath"
 
 # ==============================================================================
 # 설치 요약 출력 및 최종 확인
@@ -188,12 +188,7 @@ Write-Host "  📋 설치 요약" -ForegroundColor Cyan
 Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host "  배포판    : $distroLabel ($distroId)" -ForegroundColor White
 Write-Host "  인스턴스명: $wslName" -ForegroundColor White
-if ($null -ne $installRoot) {
-    Write-Host "  설치 경로 : $wslInstallPath" -ForegroundColor White
-}
-else {
-    Write-Host "  설치 경로 : Windows 기본 경로" -ForegroundColor White
-}
+Write-Host "  설치 경로 : $wslInstallPath" -ForegroundColor White
 Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
 Write-Host ""
 
@@ -238,82 +233,178 @@ $needsCustomInstall = ($wslName -ne $distroId) -or ($null -ne $installRoot)
 
 if ($needsCustomInstall) {
     # 사용자 정의 이름 또는 경로를 설정해야 하는 경우:
-    # 1. 먼저 기본 배포판 이름으로 설치
-    Write-Info "$distroId 를 기본 경로에 임시로 설치합니다..."
-    Write-Warn "설치 중 Ubuntu 초기 사용자 설정이 진행됩니다. 안내에 따라 입력해주세요."
-    Write-Host ""
+    
+    # 0. 최종 대상 인스턴스($wslName)가 이미 등록되어 있는지 확인
+    $isFinalRegistered = (wsl --list --quiet 2>$null) -replace "`0", "" | Where-Object { $_.Trim() -eq $wslName }
+    
+    if ($isFinalRegistered) {
+        Write-Success "대상 WSL 배포판 '$wslName'이 이미 등록되어 있습니다. 설치 단계를 건너넙니다."
+    } else {
+        # 1. 먼저 기본 배포판(Ubuntu)이 등록되어 있는지 확인
+        $isBaseRegistered = (wsl --list --quiet 2>$null) -replace "`0", "" | Where-Object { $_.Trim() -eq $distroId }
 
-    wsl --install -d $distroId
-    if ($LASTEXITCODE -ne 0) {
-        Write-Fail "WSL 배포판 임시 설치 중 오류가 발생했습니다 (종료 코드: $LASTEXITCODE)"
-        Pause-Script
-        exit 1
-    }
+        if (-not $isBaseRegistered) {
+            Write-Info "$distroId 를 기본 경로에 임시로 설치합니다..."
+            Write-Warn "설치 중 Ubuntu 초기 사용자 설정이 진행됩니다. 안내에 따라 입력해주세요."
+            Write-Host ""
 
-    # 2. 사용자 계정 생성 완료 후 설정된 username 가져오기
-    Write-Info "생성된 사용자 계정 정보를 읽어오는 중..."
-    $createdUsername = (wsl -d $distroId -e whoami).Trim()
-    if ([string]::IsNullOrEmpty($createdUsername) -or $createdUsername -eq "root") {
-        $createdUsername = "ubuntu"
-    }
-    Write-Success "생성된 사용자 계정 확인: $createdUsername"
+            # --web-download 플래그를 추가하여 스토어 및 DISM 관련 재부팅 이슈 최소화
+            wsl --install -d $distroId --web-download
+            
+            # 만약 실패하면 일반 설치 시도
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "--web-download 설치 실패. 일반 설치 모드로 재시도합니다..."
+                wsl --install -d $distroId
+            }
 
-    # 3. 임시 tar 백업 파일 경로 지정
-    $tempTarPath = Join-Path $env:TEMP "wsl_temp_$($wslName).tar"
+            if ($LASTEXITCODE -ne 0) {
+                Write-Fail "WSL 배포판 임시 설치 중 오류가 발생했습니다 (종료 코드: $LASTEXITCODE)"
+                Pause-Script
+                exit 1
+            }
 
-    # 4. 배포판 내보내기 (Export)
-    Write-Info "배포판을 백업 파일($tempTarPath)로 내보내는 중..."
-    wsl --export $distroId $tempTarPath
-    if ($LASTEXITCODE -ne 0) {
-        Write-Fail "배포판 내보내기(Export)에 실패했습니다."
-        Pause-Script
-        exit 1
-    }
+            # 등록 여부 검증 (wsl --list 에 나타나는지 확인)
+            Write-Info "배포판 등록 상태 확인 중..."
+            $isBaseRegistered = $false
+            for ($i = 0; $i -lt 5; $i++) {
+                $registeredList = (wsl --list --quiet 2>$null) -replace "`0", "" |
+                    Where-Object { $_.Trim() -ne "" } |
+                    ForEach-Object { $_.Trim() }
+                    
+                if ($registeredList -and ($registeredList -contains $distroId)) {
+                    $isBaseRegistered = $true
+                    break
+                }
+                Start-Sleep -Seconds 2
+            }
+        } else {
+            Write-Info "기본 배포판 '$distroId'가 이미 임시 설치되어 있습니다. 계정 가져오기 및 마이그레이션을 계속 진행합니다."
+        }
 
-    # 5. 기존 기본 임시 배포판 해제 (Unregister)
-    Write-Info "임시 설치된 기본 배포판을 해제합니다..."
-    wsl --unregister $distroId
+        if (-not $isBaseRegistered) {
+            # 등록 실패: 재부팅 필요 가능성이 높음
+            Write-Fail "WSL 배포판($distroId)이 정상적으로 시스템에 등록되지 않았습니다."
+            Write-Warn "설치 완료를 위해 컴퓨터 재부팅이 필요합니다."
+            Write-Warn "--------------------------------------------------------"
+            Write-Warn " [조치 방법]"
+            Write-Warn " 1. 컴퓨터를 다시 시작(재부팅)해 주세요."
+            Write-Warn " 2. 재부팅 후 자동으로 뜨는 리눅스 창에서 사용자 계정을 생성해 주세요."
+            Write-Warn " 3. 그 후, 처음에 실행했던 설치 명령어(마스터 스크립트)를 다시 실행하면"
+            Write-Warn "    이 단계부터 자동으로 설치가 이어서 진행됩니다."
+            Write-Warn "--------------------------------------------------------"
+            Pause-Script
+            exit 3010
+        }
 
-    # 6. 최종 설치 폴더 준비
-    if ($null -eq $installRoot) {
-        $wslInstallPath = Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName"
-    }
+        # 2. 사용자 계정 생성 완료 후 설정된 username 가져오기
+        Write-Info "생성된 사용자 계정 정보를 읽어오는 중..."
+        $createdUsername = ""
+        try {
+            $whoamiResult = wsl -d $distroId -e whoami 2>$null
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($whoamiResult)) {
+                $createdUsername = $whoamiResult.Trim()
+            }
+        } catch {
+            # ignore error
+        }
+        
+        if ([string]::IsNullOrEmpty($createdUsername) -or $createdUsername -match "error" -or $createdUsername -match "실패" -or $createdUsername -match "Wsl/Service") {
+            $createdUsername = "ubuntu"
+        }
+        Write-Success "생성된 사용자 계정 확인: $createdUsername"
 
-    Write-Info "최종 설치 경로 확인 및 폴더 생성: $wslInstallPath"
-    if (-not (Test-Path $wslInstallPath)) {
-        New-Item -ItemType Directory -Path $wslInstallPath -Force | Out-Null
-    }
+        # 3. 임시 tar 백업 파일 경로 지정
+        $tempTarPath = Join-Path $env:TEMP "wsl_temp_$($wslName).tar"
 
-    # 7. 원하는 이름과 경로로 가져오기 (Import)
-    Write-Info "배포판을 '$wslName' 이름으로 $wslInstallPath 에 가져오는 중..."
-    wsl --import $wslName $wslInstallPath $tempTarPath
-    if ($LASTEXITCODE -ne 0) {
-        Write-Fail "배포판 가져오기(Import)에 실패했습니다."
-        if (Test-Path $tempTarPath) { Remove-Item $tempTarPath -Force }
-        Pause-Script
-        exit 1
-    }
+        # 4. 배포판 내보내기 (Export)
+        Write-Info "배포판을 백업 파일($tempTarPath)로 내보내는 중..."
+        wsl --export $distroId $tempTarPath
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "배포판 내보내기(Export)에 실패했습니다."
+            Pause-Script
+            exit 1
+        }
 
-    # 8. 가져온 인스턴스의 기본 사용자를 생성한 사용자로 설정 (wsl.conf 수정)
-    Write-Info "가져온 배포판의 기본 로그인 사용자를 '$createdUsername'으로 설정 중..."
-    wsl -d $wslName -u root -e bash -c "echo -e '[user]\ndefault=$createdUsername' > /etc/wsl.conf"
+        # 5. 기존 기본 임시 배포판 해제 (Unregister)
+        Write-Info "임시 설치된 기본 배포판을 해제합니다..."
+        wsl --unregister $distroId
 
-    # 9. 임시 tar 백업 파일 제거
-    if (Test-Path $tempTarPath) {
-        Remove-Item $tempTarPath -Force
+        # 6. 최종 설치 폴더 준비
+        if ($null -eq $installRoot) {
+            $wslInstallPath = Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName"
+        }
+
+        Write-Info "최종 설치 경로 확인 및 폴더 생성: $wslInstallPath"
+        if (-not (Test-Path $wslInstallPath)) {
+            New-Item -ItemType Directory -Path $wslInstallPath -Force | Out-Null
+        }
+
+        # 7. 원하는 이름과 경로로 가져오기 (Import)
+        Write-Info "배포판을 '$wslName' 이름으로 $wslInstallPath 에 가져오는 중..."
+        wsl --import $wslName $wslInstallPath $tempTarPath
+        if ($LASTEXITCODE -ne 0) {
+            Write-Fail "배포판 가져오기(Import)에 실패했습니다."
+            if (Test-Path $tempTarPath) { Remove-Item $tempTarPath -Force }
+            Pause-Script
+            exit 1
+        }
+
+        # 8. 가져온 인스턴스의 기본 사용자를 생성한 사용자로 설정 (wsl.conf 수정)
+        Write-Info "가져온 배포판의 기본 로그인 사용자를 '$createdUsername'으로 설정 중..."
+        wsl -d $wslName -u root -e bash -c "echo -e '[user]\ndefault=$createdUsername' > /etc/wsl.conf"
+
+        # 9. 임시 tar 백업 파일 제거
+        if (Test-Path $tempTarPath) {
+            Remove-Item $tempTarPath -Force
+        }
     }
 }
 else {
     # 기본 경로 및 기본 이름 그대로 설치
-    Write-Info "$distroId 를 기본 경로에 설치합니다..."
-    Write-Warn "설치 중 Ubuntu 초기 사용자 설정이 진행됩니다. 안내에 따라 입력해주세요."
-    Write-Host ""
+    # 이미 등록되어 있는지 확인
+    $isRegistered = (wsl --list --quiet 2>$null) -replace "`0", "" | Where-Object { $_.Trim() -eq $distroId }
+    
+    if ($isRegistered) {
+        Write-Success "대상 WSL 배포판 '$distroId'가 이미 등록되어 있습니다. 설치 단계를 건너넙니다."
+    } else {
+        Write-Info "$distroId 를 기본 경로에 설치합니다..."
+        Write-Warn "설치 중 Ubuntu 초기 사용자 설정이 진행됩니다. 안내에 따라 입력해주세요."
+        Write-Host ""
 
-    wsl --install -d $distroId
-    if ($LASTEXITCODE -ne 0) {
-        Write-Fail "WSL 배포판 설치 중 오류가 발생했습니다 (종료 코드: $LASTEXITCODE)"
-        Pause-Script
-        exit 1
+        wsl --install -d $distroId --web-download
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "--web-download 설치 실패. 일반 설치 모드로 재시도합니다..."
+            wsl --install -d $distroId
+        }
+
+        # 등록 여부 검증
+        Write-Info "배포판 등록 상태 확인 중..."
+        $isRegistered = $false
+        for ($i = 0; $i -lt 5; $i++) {
+            $registeredList = (wsl --list --quiet 2>$null) -replace "`0", "" |
+                Where-Object { $_.Trim() -ne "" } |
+                ForEach-Object { $_.Trim() }
+                
+            if ($registeredList -and ($registeredList -contains $distroId)) {
+                $isRegistered = $true
+                break
+            }
+            Start-Sleep -Seconds 2
+        }
+
+        if (-not $isRegistered) {
+            Write-Fail "WSL 배포판($distroId)이 정상적으로 시스템에 등록되지 않았습니다."
+            Write-Warn "설치 완료를 위해 컴퓨터 재부팅이 필요합니다."
+            Write-Warn "--------------------------------------------------------"
+            Write-Warn " [조치 방법]"
+            Write-Warn " 1. 컴퓨터를 다시 시작(재부팅)해 주세요."
+            Write-Warn " 2. 재부팅 후 자동으로 뜨는 리눅스 창에서 사용자 계정을 생성해 주세요."
+            Write-Warn " 3. 그 후, 처음에 실행했던 설치 명령어(마스터 스크립트)를 다시 실행하면"
+            Write-Warn "    설치 완료 화면으로 바로 연결됩니다."
+            Write-Warn "--------------------------------------------------------"
+            Pause-Script
+            exit 3010
+        }
     }
 }
 
@@ -400,9 +491,7 @@ Write-Host "🎉 WSL2 설치 완료!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  설치된 배포판 : $distroLabel" -ForegroundColor White
 Write-Host "  인스턴스 이름 : $wslName" -ForegroundColor White
-if ($null -ne $installRoot) {
-    Write-Host "  설치 경로     : $wslInstallPath" -ForegroundColor White
-}
+Write-Host "  설치 경로     : $wslInstallPath" -ForegroundColor White
 Write-Host "  설정 파일     : $devtools2File" -ForegroundColor White
 Write-Host ""
 Write-Host "  다음 단계:" -ForegroundColor Cyan

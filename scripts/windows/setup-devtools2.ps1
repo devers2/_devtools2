@@ -114,13 +114,41 @@ if ($isLocalMode) {
 Write-Step "[Step 1] WSL2 가상 머신 인스턴스 생성"
 
 if ($isLocalMode) {
-    & $setupWslScript
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File $setupWslScript
 } else {
     Write-Info "GitHub에서 WSL 설치 스크립트 다운로드 중..."
     $rawWslScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/0.setup-wsl.ps1"
-    # UTF-8 및 줄바꿈 파싱 오류 방지를 위해 ScriptBlock으로 실행
-    $wslScriptBlock = [scriptblock]::Create($rawWslScript)
-    & $wslScriptBlock
+    
+    # 원격 실행 시 임시 파일로 저장 후 powershell.exe -File로 실행하여 exit 코드 확보
+    $tempWslScriptFile = Join-Path $env:TEMP "temp_setup_wsl.ps1"
+    $rawWslScript | Out-File -FilePath $tempWslScriptFile -Encoding UTF8 -Force
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tempWslScriptFile
+    if (Test-Path $tempWslScriptFile) { Remove-Item $tempWslScriptFile -Force }
+}
+
+# 재부팅 지점 처리 (종료 코드 3010)
+if ($LASTEXITCODE -eq 3010) {
+    Write-Warn "==========================================================================="
+    Write-Warn " 🔄 WSL2 설치 완료를 위해 컴퓨터를 다시 시작(재부팅)해야 합니다."
+    Write-Warn "==========================================================================="
+    Write-Host ""
+    Write-Host "  [재부팅 후 진행 방법]" -ForegroundColor Cyan
+    Write-Host "  1. 컴퓨터를 다시 시작(재부팅)해 주세요." -ForegroundColor White
+    Write-Host "  2. 로그인 후 자동으로 리눅스 설치 창이 열리면 사용자 이름과 비밀번호를 입력해 계정 생성을 완료합니다." -ForegroundColor White
+    Write-Host "  3. 계정 생성이 완료되면, 아래 명령어를 PowerShell(관리자 권한)에 다시 입력하여" -ForegroundColor White
+    Write-Host "     남은 환경 설정을 자동으로 이어 나가세요:" -ForegroundColor White
+    Write-Host ""
+    Write-Host "     irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2.ps1 | iex" -ForegroundColor Green
+    Write-Host ""
+    Write-Warn "==========================================================================="
+    Pause-Script
+    exit 0
+}
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Fail "WSL 설치 스크립트 실행 중 에러가 발생했습니다 (종료 코드: $LASTEXITCODE)."
+    Pause-Script
+    exit 1
 }
 
 # 생성된 메타데이터 조회하여 배포판 이름(WSL_DISTRO) 파싱
