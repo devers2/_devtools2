@@ -137,6 +137,60 @@ $wslDistro = ($savedDistro -split "=", 2)[1].Trim()
 Write-Info "대상 WSL2 배포판: $wslDistro"
 
 # ==============================================================================
+# [Step 1-후처리] WSL2 배포판 접근 가능 여부 확인 (신규 설치 후 등록 지연 대응)
+# ==============================================================================
+Write-Info "WSL2 배포판($wslDistro) 접근 가능 여부 확인 중..."
+$maxRetry = 15
+$retryCount = 0
+$distroReady = $false
+
+while ($retryCount -lt $maxRetry) {
+    $testResult = wsl -d $wslDistro -- echo "ready" 2>$null
+    if ($testResult -match "ready") {
+        $distroReady = $true
+        Write-Success "WSL2 배포판 접근 확인 완료: $wslDistro"
+        break
+    }
+
+    # --name 플래그가 일부 Windows 버전에서 무시될 수 있으므로
+    # 실제 등록된 배포판 이름과 비교하여 자동 보정
+    $actualDistros = (wsl --list --quiet 2>$null) -replace "`0", "" |
+        Where-Object { $_.Trim() -ne "" } |
+        ForEach-Object { $_.Trim() }
+
+    if ($actualDistros -and $actualDistros.Count -gt 0) {
+        $actualName = $actualDistros[0]
+        if ($actualName -ne $wslDistro) {
+            Write-Warn "배포판이 '$actualName' 이름으로 등록되었습니다. (요청한 이름: $wslDistro)"
+            Write-Warn "메타데이터를 실제 이름으로 자동 보정합니다."
+            $wslDistro = $actualName
+            # .devtools2 메타데이터 파일도 실제 이름으로 업데이트
+            (Get-Content $devtools2File) -replace "^WSL_DISTRO=.*", "WSL_DISTRO=$wslDistro" |
+                Set-Content $devtools2File -Encoding UTF8
+
+            $testResult = wsl -d $wslDistro -- echo "ready" 2>$null
+            if ($testResult -match "ready") {
+                $distroReady = $true
+                Write-Success "WSL2 배포판 접근 확인 완료 (보정된 이름): $wslDistro"
+                break
+            }
+        }
+    }
+
+    $retryCount++
+    Write-Info "  WSL2 배포판 준비 대기 중... ($retryCount/$maxRetry)"
+    Start-Sleep -Seconds 2
+}
+
+if (-not $distroReady) {
+    Write-Fail "WSL2 배포판($wslDistro)에 접근할 수 없습니다."
+    Write-Warn "잠시 후 다시 시도하거나 아래 명령으로 WSL 상태를 직접 확인해주세요:"
+    Write-Host "    wsl --list --verbose" -ForegroundColor Gray
+    Pause-Script
+    exit 1
+}
+
+# ==============================================================================
 # [Step 2] WSL2 내부 개발도구 디렉터리 및 권한 초기화
 # ==============================================================================
 Write-Step "[Step 2] WSL2 내부 개발도구 디렉터리 및 권한 초기화"
