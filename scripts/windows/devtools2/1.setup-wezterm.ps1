@@ -1,12 +1,10 @@
 # ==============================================================================
-# Ghostty (Winghostty) 설치 및 WSL2 설정 폴더 심볼릭 링크 생성 스크립트
+# WezTerm 설치 및 WSL2 설정 폴더 심볼릭 링크 생성 스크립트 (1.setup-wezterm.ps1)
 #
 # 주요 기능:
 #   1. PowerShell 7 (pwsh) 설치 여부 확인 및 winget 을 통한 자동 설치
-#   2. winget 을 통해 Winghostty 를 자동 설치 (이미 설치되어 있으면 건너뜀)
-#   3. WSL2 의 _devtools2/.config/ghostty/config.ghostty 설정을 Windows 설정 경로로 심볼릭 링크 생성
-#      - 공통 설정의 `command = "pwsh.exe"` 지시어를 그대로 심볼릭 링크로 공유합니다.
-#      - (리눅스 환경에서는 scripts/linux/cmd/pwsh.exe 래퍼가 가로채어 bash 쉘을 띄워 오류를 예외 처리합니다.)
+#   2. winget 을 통해 WezTerm 을 자동 설치 (이미 설치되어 있으면 건너뜀)
+#   3. WSL2 의 _devtools2/.config/wezterm/.wezterm.lua 설정을 Windows 홈 디렉토리로 심볼릭 링크 생성
 #
 # 사전 조건:
 #   - WSL2 에 Ubuntu 계열 배포판이 설치되어 있어야 합니다.
@@ -15,9 +13,7 @@
 #
 # 사용 방법:
 #   PowerShell 을 관리자 권한으로 열고 실행:
-#   .\1.setup-ghostty.ps1
-#   또는 WSL2 배포판 이름을 직접 지정:
-#   .\1.setup-ghostty.ps1 -WslDistro "Ubuntu-24.04"
+#   .\1.setup-wezterm.ps1
 # ==============================================================================
 
 param(
@@ -117,7 +113,7 @@ if (-not $isAdmin) {
 
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor Magenta
-Write-Host "🚀 Ghostty (Winghostty) 설치 및 설정 파일 심볼릭 링크 연동" -ForegroundColor Magenta
+Write-Host "🚀 WezTerm 설치 및 설정 파일 심볼릭 링크 연동" -ForegroundColor Magenta
 Write-Host "===========================================================================" -ForegroundColor Magenta
 
 # ==============================================================================
@@ -196,133 +192,68 @@ else {
 }
 
 # ==============================================================================
-# [Step 3] Ghostty (Winghostty) 설치
+# [Step 3] WezTerm 설치
 # ==============================================================================
-Write-Step "[Step 3] Ghostty (Winghostty) 설치"
+Write-Step "[Step 3] WezTerm 설치"
 
-$ghosttyInstalled = $false
+$weztermInstalled = $false
 try {
     # winget list 로 설치 여부 우선 확인 (가장 정확)
-    $wgList = winget list --id AmanThanvi.winghostty 2>$null
-    if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "winghostty") { $ghosttyInstalled = $true }
+    $wgList = winget list --id wez.wezterm 2>$null
+    if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "wezterm") { $weztermInstalled = $true }
     # 실행 파일 경로로 추가 확인
-    if (-not $ghosttyInstalled) {
-        $ghosttyPaths = @(
-            "$env:LOCALAPPDATA\Programs\winghostty\winghostty.exe",
-            "$env:LOCALAPPDATA\Programs\ghostty\bin\ghostty.exe",
-            "$env:ProgramFiles\Ghostty\bin\ghostty.exe",
-            "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\AmanThanvi.winghostty_Microsoft.Winget.Source_8wekyb3d8bbwe\winghostty.exe"
-        )
-        foreach ($p in $ghosttyPaths) {
-            if (Test-Path $p) { $ghosttyInstalled = $true; break }
-        }
+    if (-not $weztermInstalled) {
+        if (Get-Command wezterm -ErrorAction SilentlyContinue) { $weztermInstalled = $true }
+        elseif (Test-Path "$env:ProgramFiles\WezTerm\wezterm.exe") { $weztermInstalled = $true }
+        elseif (Test-Path "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe") { $weztermInstalled = $true }
     }
 }
 catch {}
 
-if ($ghosttyInstalled) {
-    Write-Skip "Ghostty/Winghostty 가 이미 설치되어 있습니다."
+if ($weztermInstalled) {
+    Write-Skip "WezTerm 이 이미 설치되어 있습니다."
 }
 else {
-    Write-Host "  Winghostty 를 winget 으로 설치합니다..." -ForegroundColor White
-    winget install --id AmanThanvi.winghostty --silent --accept-source-agreements --accept-package-agreements
+    Write-Host "  WezTerm 을 winget 으로 설치합니다..." -ForegroundColor White
+    winget install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements
     # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
     if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) {
-        Write-Success "Winghostty 설치/확인 완료"
+        Write-Success "WezTerm 설치/확인 완료"
     }
     else {
-        Write-Fail "Winghostty 설치 실패 (종료 코드: $LASTEXITCODE)"
-        Write-Host "  수동 설치: https://winghostty.com" -ForegroundColor Yellow
+        Write-Fail "WezTerm 설치 실패 (종료 코드: $LASTEXITCODE)"
+        Write-Host "  수동 설치: https://wezfurlong.org/wezterm/install/windows.html" -ForegroundColor Yellow
     }
 }
 
 # ==============================================================================
-# [Step 4] Ghostty 설정 파일 심볼릭 링크 연동
-#
-# 원본 config.ghostty 내에 command = "pwsh.exe" 가 등록되어 있습니다.
-# 이 파일을 그대로 윈도우 측에 심볼릭 링크하여 100% 동일하게 공유합니다.
+# [Step 4] WezTerm 설정 파일 심볼릭 링크 연동
 # ==============================================================================
-Write-Step "[Step 4] Ghostty 설정 파일 심볼릭 링크 연동"
+Write-Step "[Step 4] WezTerm 설정 파일 심볼릭 링크 연동"
 
-$WslGhosttyConfig = "$DevTools2Wsl\.config\ghostty"
-$WinLocalAppData  = $env:LOCALAPPDATA
+$WslWeztermConfig = "$DevTools2Wsl\.config\wezterm\.wezterm.lua"
+$WinWeztermConfig = "$env:USERPROFILE\.wezterm.lua"
 
-# Winghostty 설정 폴더 링크
-$WinGhosttyDir = "$WinLocalAppData\winghostty"
-if (-not (Test-Path $WinGhosttyDir)) {
-    New-Item -ItemType Directory -Path $WinGhosttyDir -Force | Out-Null
+# WezTerm 설정 파일 존재 여부 확인 및 보강
+if (-not (Test-Path $WslWeztermConfig)) {
+    Write-Warn "WSL2 내 설정 파일(.wezterm.lua)이 없습니다. 기본 파일 생성 중..."
+    wsl -d $WslDistro -- bash -c "mkdir -p /var/opt/_devtools2/.config/wezterm && touch /var/opt/_devtools2/.config/wezterm/.wezterm.lua"
 }
 
-Write-Host "  공유 설정 (WSL2): $WslGhosttyConfig" -ForegroundColor DarkGray
-Write-Host "  Windows 설정   : $WinGhosttyDir\config.ghostty" -ForegroundColor DarkGray
+Write-Host "  공유 설정 (WSL2): $WslWeztermConfig" -ForegroundColor DarkGray
+Write-Host "  Windows 설정   : $WinWeztermConfig" -ForegroundColor DarkGray
 Write-Host ""
 
-# Windows 전용 config.ghostty 생성
-# ─ 이유: Winghostty(Windows)는 UNC 경로(\\wsl.localhost\...)의 config-file 을 직접 로드하는 데 실패하여
-#         "error starting IO thread" 오류가 발생할 수 있습니다.
-# ─ 해결: WSL2 내의 공유 설정 파일을 가져와서 command 지시어만 wsl.exe 로 교체한 뒤
-#         로컬 Windows 경로(%LOCALAPPDATA%\winghostty\config.ghostty)에 완전히 로컬 파일로 저장합니다.
-
-$wslConfigPath = "$WslGhosttyConfig\config.ghostty"
-$winConfigPath = "$WinGhosttyDir\config.ghostty"
-
-# 기존 파일이 심볼릭 링크라면 삭제
-if (Test-Path $winConfigPath) {
-    $existingItem = Get-Item $winConfigPath -Force
-    if ($existingItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-        Write-Host "  기존 심볼릭 링크를 제거합니다..." -ForegroundColor DarkGray
-        Remove-Item $winConfigPath -Force
-    }
-}
-
-if (Test-Path $wslConfigPath) {
-    Write-Host "  공유 설정 가져오는 중: $wslConfigPath" -ForegroundColor DarkGray
-    $sharedConfig = Get-Content $wslConfigPath
-    # 기존 command = ... 라인 제거
-    $cleanConfig = $sharedConfig | Where-Object { $_ -notmatch "^\s*command\s*=" }
-    # 윈도우 전용 command 추가
-    $cleanConfig += ""
-    $cleanConfig += "# ===================================================="
-    $cleanConfig += "# Windows (Winghostty) 전용 설정 (자동 추가됨)"
-    $cleanConfig += "# ===================================================="
-    $cleanConfig += "command = wsl.exe -d $WslDistro"
-
-    Set-Content -Path $winConfigPath -Value $cleanConfig -Encoding UTF8 -Force
-    Write-Success "Windows 전용 config.ghostty 로컬 파일 복사 및 설정 완료"
-}
-else {
-    # 공유 설정 파일이 없으면 최소 설정으로 생성
-    Write-Warn "공유 설정 파일을 찾을 수 없어 최소 설정으로 config.ghostty를 생성합니다."
-    $minConfig = @(
-        "# Windows (Winghostty) 최소 설정",
-        "command = wsl.exe -d $WslDistro"
-    )
-    Set-Content -Path $winConfigPath -Value $minConfig -Encoding UTF8 -Force
-    Write-Success "최소 config.ghostty 생성 완료"
-}
-
-# 혹시 InsipidPoint/ghostty-windows 빌드도 사용 중일 경우 대비
-$WinGhosttyAltDir = "$WinLocalAppData\ghostty"
-if (Test-Path $WinGhosttyAltDir) {
-    Write-Host ""
-    Write-Host "  [추가] InsipidPoint/ghostty-windows 빌드 경로도 감지됨. 추가 링크 생성..." -ForegroundColor DarkGray
-    New-SafeSymlink -LinkPath "$WinGhosttyAltDir\config" `
-                    -TargetPath "$WslGhosttyConfig\config.ghostty" `
-                    -ItemType "SymbolicLink"
-}
+New-SafeSymlink -LinkPath $WinWeztermConfig -TargetPath $WslWeztermConfig -ItemType "SymbolicLink"
 
 # ==============================================================================
 # 완료
 # ==============================================================================
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor Magenta
-Write-Host "🎉 Ghostty 설정 연동 완료!" -ForegroundColor Green
+Write-Host "🎉 WezTerm 설정 연동 완료!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  설정 파일 공유(심볼릭 링크)가 완료되었습니다." -ForegroundColor White
 Write-Host "  이제 리눅스 혹은 윈도우 어느 쪽에서든 설정을 편집하면 양쪽 모두에 즉시 반영됩니다." -ForegroundColor White
-Write-Host ""
-Write-Host "  - Windows : PowerShell 7 (pwsh.exe)로 기본 구동됩니다." -ForegroundColor White
-Write-Host "  - Linux   : scripts/linux/cmd/pwsh.exe 가 가로채어 bash 쉘을 오류 없이 띄웁니다." -ForegroundColor White
 Write-Host "===========================================================================" -ForegroundColor Magenta
 Write-Host ""
-

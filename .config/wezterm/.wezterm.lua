@@ -1645,6 +1645,25 @@ local function load_external_settings(config)
   end
 end
 
+-- 기존 복잡한 Lua 단축키 대신 독립형 fzf 셸 스크립트를 즉시 호출하도록 단축키 덮어쓰기
+config.keys = {
+  -- ALT + c: 명령어 팔레트 실행
+  {
+    key = 'c',
+    mods = 'ALT',
+    action = act.SendString('$DEVTOOLS2/scripts/fzf/command-palette\n'),
+  },
+  -- ALT + h: SSH/Bitwarden 매니저 실행
+  {
+    key = 'h',
+    mods = 'ALT',
+    action = act.SendString('$DEVTOOLS2/scripts/fzf/bw-server-manager\n'),
+  },
+  -- 기본 창 분할 단축키
+  { key = 'v', mods = 'ALT', action = act.SplitHorizontal({ domain = 'CurrentPaneDomain' }) },
+  { key = 's', mods = 'ALT', action = act.SplitVertical({ domain = 'CurrentPaneDomain' }) },
+}
+
 -- 설정 적용
 load_external_settings(config)
 

@@ -94,10 +94,10 @@ if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
 
     # 로컬 하위 스크립트 경로 존재 여부 점검 (로컬 모드/온라인 모드 자동 판정)
     $setupWslScript = Join-Path $ToolsDir "0.setup-wsl.ps1"
-    $setupGhosttyScript = Join-Path $ToolsDir "1.setup-ghostty.ps1"
+    $setupWeztermScript = Join-Path $ToolsDir "1.setup-wezterm.ps1"
     $setupZedScript = Join-Path $ToolsDir "2.setup-zed.ps1"
 
-    if ((Test-Path $setupWslScript) -and (Test-Path $setupGhosttyScript) -and (Test-Path $setupZedScript)) {
+    if ((Test-Path $setupWslScript) -and (Test-Path $setupWeztermScript) -and (Test-Path $setupZedScript)) {
         $isLocalMode = $true
     }
 }
@@ -294,16 +294,16 @@ Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
 if ($isLocalMode) {
-    Write-SubStep "▶ (1/2) Ghostty (Winghostty) 설치 및 설정 연동 (로컬)"
-    & $setupGhosttyScript -WslDistro $wslDistro
+    Write-SubStep "▶ (1/2) WezTerm 설치 및 설정 연동 (로컬)"
+    & $setupWeztermScript -WslDistro $wslDistro
 
     Write-SubStep "▶ (2/2) Zed 에디터 설치 및 설정 연동 (로컬)"
     & $setupZedScript -WslDistro $wslDistro
 } else {
-    Write-SubStep "▶ (1/2) Ghostty (Winghostty) 설치 및 설정 연동 (온라인)"
-    $rawGhosttyScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/1.setup-ghostty.ps1"
-    $ghosttyScriptBlock = [scriptblock]::Create($rawGhosttyScript)
-    & $ghosttyScriptBlock -WslDistro $wslDistro
+    Write-SubStep "▶ (1/2) WezTerm 설치 및 설정 연동 (온라인)"
+    $rawWeztermScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/1.setup-wezterm.ps1"
+    $weztermScriptBlock = [scriptblock]::Create($rawWeztermScript)
+    & $weztermScriptBlock -WslDistro $wslDistro
 
     Write-SubStep "▶ (2/2) Zed 에디터 설치 및 설정 연동 (온라인)"
     $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/2.setup-zed.ps1"
