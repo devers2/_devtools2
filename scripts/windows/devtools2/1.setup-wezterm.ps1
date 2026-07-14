@@ -227,9 +227,47 @@ else {
 }
 
 # ==============================================================================
-# [Step 4] WezTerm 설정 파일 심볼릭 링크 연동
+# [Step 4] 필수 폰트 설치 (assets/fonts → Windows 사용자 폰트)
+# WezTerm 은 Windows 네이티브 앱이므로 폰트를 Windows 에 직접 설치해야 합니다.
 # ==============================================================================
-Write-Step "[Step 4] WezTerm 설정 파일 심볼릭 링크 연동"
+Write-Step "[Step 4] 필수 폰트 설치"
+
+$WslFontsDir  = "$DevTools2Wsl\assets\fonts"
+$UserFontsDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+$FontRegPath  = "HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+
+if (-not (Test-Path $WslFontsDir)) {
+    Write-Warn "폰트 소스 경로를 찾을 수 없습니다: $WslFontsDir (건너뜀)"
+} else {
+    if (-not (Test-Path $UserFontsDir)) {
+        New-Item -ItemType Directory -Path $UserFontsDir -Force | Out-Null
+    }
+    if (-not (Test-Path $FontRegPath)) {
+        New-Item -Path $FontRegPath -Force | Out-Null
+    }
+
+    $fontFiles = Get-ChildItem -Path $WslFontsDir -Include "*.ttf", "*.ttc", "*.otf" -File -ErrorAction SilentlyContinue
+    foreach ($fontFile in $fontFiles) {
+        $destPath = "$UserFontsDir\$($fontFile.Name)"
+        if (Test-Path $destPath) {
+            Write-Skip "폰트 이미 설치됨: $($fontFile.Name)"
+        } else {
+            try {
+                Copy-Item -Path $fontFile.FullName -Destination $destPath -Force
+                $regName = [System.IO.Path]::GetFileNameWithoutExtension($fontFile.Name) + ' (TrueType)'
+                Set-ItemProperty -Path $FontRegPath -Name $regName -Value $destPath -Force
+                Write-Success "폰트 설치: $($fontFile.Name)"
+            } catch {
+                Write-Warn "폰트 설치 실패: $($fontFile.Name) - $_"
+            }
+        }
+    }
+}
+
+# ==============================================================================
+# [Step 5] WezTerm 설정 파일 심볼릭 링크 연동
+# ==============================================================================
+Write-Step "[Step 5] WezTerm 설정 파일 심볼릭 링크 연동"
 
 $WslWeztermConfig = "$DevTools2Wsl\.config\wezterm\.wezterm.lua"
 $WinWeztermConfig = "$env:USERPROFILE\.wezterm.lua"
