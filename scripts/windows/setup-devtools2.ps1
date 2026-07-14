@@ -87,20 +87,25 @@ Write-Host "====================================================================
 Write-Host "🌟 DevTools2 Windows & WSL2 통합 설치 마스터 자동화" -ForegroundColor DarkCyan
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
-$BaseDir = $PSScriptRoot
-$ToolsDir = Join-Path $BaseDir "devtools2"
-
-# 로컬 하위 스크립트 경로 존재 여부 점검 (로컬 모드/온라인 모드 자동 판정)
-$setupWslScript = Join-Path $ToolsDir "0.setup-wsl.ps1"
-$setupGhosttyScript = Join-Path $ToolsDir "1.setup-ghostty.ps1"
-$setupZedScript = Join-Path $ToolsDir "2.setup-zed.ps1"
-
 $isLocalMode = $false
-if ((Test-Path $setupWslScript) -and (Test-Path $setupGhosttyScript) -and (Test-Path $setupZedScript)) {
-    $isLocalMode = $true
+if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+    $BaseDir = $PSScriptRoot
+    $ToolsDir = Join-Path $BaseDir "devtools2"
+
+    # 로컬 하위 스크립트 경로 존재 여부 점검 (로컬 모드/온라인 모드 자동 판정)
+    $setupWslScript = Join-Path $ToolsDir "0.setup-wsl.ps1"
+    $setupGhosttyScript = Join-Path $ToolsDir "1.setup-ghostty.ps1"
+    $setupZedScript = Join-Path $ToolsDir "2.setup-zed.ps1"
+
+    if ((Test-Path $setupWslScript) -and (Test-Path $setupGhosttyScript) -and (Test-Path $setupZedScript)) {
+        $isLocalMode = $true
+    }
+}
+
+if ($isLocalMode) {
     Write-Info "로컬 스크립트가 감지되었습니다. [로컬 오프라인 모드]로 설치를 진행합니다."
 } else {
-    Write-Warn "로컬 스크립트가 존재하지 않습니다. GitHub 공개 저장소에서 다운로드하는 [온라인 원격 모드]로 설치를 진행합니다."
+    Write-Warn "로컬 스크립트가 존재하지 않거나 원격 실행 중입니다. GitHub 공개 저장소에서 다운로드하는 [온라인 원격 모드]로 설치를 진행합니다."
 }
 
 # ==============================================================================
