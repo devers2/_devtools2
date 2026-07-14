@@ -191,11 +191,17 @@ if (-not $isBaseRegistered) {
 Write-Step "[Step 3] devtools2 인스턴스 마이그레이션 및 설정"
 
 # 설치 경로 결정
+# Z: 드라이브는 같은 PC의 여러 Windows 사용자가 공유할 수 있으므로,
+# 파일 충돌 방지를 위해 경로에 Windows 계정명($env:USERNAME)을 포함합니다.
+# (배포판 이름 'devtools2'는 고정 유지 - WSL 등록은 사용자별로 독립적)
+$windowsUser = $env:USERNAME.ToLower()
 $hasDevDrive = Test-Path "Z:\"
 if ($hasDevDrive) {
     Write-Success "Z: 개발자 드라이브(ReFS)가 감지되었습니다."
-    Write-Info "WSL 가상 머신은 Z: 드라이브에 설치됩니다."
-    $wslInstallPath = "Z:\WSL\$wslName"
+    # 경로에 Windows 사용자명을 포함하여 다른 계정과 파일 충돌 방지
+    $wslInstallPath = "Z:\wsl\devtools2\$windowsUser"
+    Write-Info "WSL 가상 머신은 Z: 드라이브에 설치됩니다. (경로: $wslInstallPath)"
+    Write-Info "(다른 Windows 계정과 Z: 드라이브를 공유하더라도 파일 경로가 분리됩니다.)"
 } else {
     Write-Warn "Z: 개발자 드라이브를 찾을 수 없습니다. C: 드라이브 사용자 폴더로 설치를 계속 진행합니다."
     $wslInstallPath = Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName"
