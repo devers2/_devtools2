@@ -211,27 +211,24 @@ config.front_end = 'WebGpu' -- 그래픽 가속 활성화 (WebGpu / OpenGL / Sof
 -- config.window_decorations = "RESIZE" -- 타이틀을 숨기고 창 조절 가능: 나이틀리 버전에서 오류 발생하여 주석처리
 
 if is_windows then
-  -- 윈도우 일때 PowerShell을 기본으로 사용
-  if command_exists('pwsh.exe') then
-    -- PowerShell 7
-    config.default_prog = { 'pwsh.exe', '-NoLogo' }
+  -- Windows 에서 WSL2 devtools2 배포판을 기본 셸로 사용
+  config.default_prog = { 'wsl.exe', '-d', 'devtools2' }
 
-    -- PowerShell 7 사용 시 일부 폴더가 배경색과 겹쳐 잘 안 보이는 문제 해결
-    local scheme = wezterm.color.get_builtin_schemes()[config.color_scheme]
-    local ansi = { table.unpack(scheme.ansi) }
-    local brights = { table.unpack(scheme.brights) }
-
-    -- ANSI 번호 → Lua 인덱스: ANSI N = [N+1]
-    ansi[5] = '#1e3a8a' -- ANSI 4  (일반 파란색 → 어두운 파랑)
-    brights[5] = '#3b82f6' -- ANSI 12 (밝은 파란색 → 선명한 파랑)
-
-    config.colors = {
-      ansi = ansi,
-      brights = brights,
-    }
-  else
-    -- 기본 PowerShell
-    config.default_prog = { 'powershell.exe', '-NoLogo' }
+  -- PowerShell 7 폴더 색 보정 (선택적 적용 - API 지원 여부와 color_scheme 존재 여부 모두 확인)
+  local ok, result = pcall(function()
+    if wezterm.color and wezterm.color.get_builtin_schemes then
+      local scheme = wezterm.color.get_builtin_schemes()[config.color_scheme]
+      if scheme then
+        local ansi = { table.unpack(scheme.ansi) }
+        local brights = { table.unpack(scheme.brights) }
+        ansi[5] = '#1e3a8a'    -- ANSI 4  (일반 파란색 → 어두운 파랑)
+        brights[5] = '#3b82f6' -- ANSI 12 (밝은 파란색 → 선명한 파랑)
+        config.colors = { ansi = ansi, brights = brights }
+      end
+    end
+  end)
+  if not ok then
+    wezterm.log_warn('색상 보정 실패 (무시됨): ' .. tostring(result))
   end
 end
 

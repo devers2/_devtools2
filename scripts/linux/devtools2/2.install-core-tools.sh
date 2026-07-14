@@ -222,7 +222,7 @@ cd "$DEVTOOLS2/modules/neovim"
 
 if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
     # 사용자에게 선택 입력 요청
-    read -p "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까? (y/n): " choice
+    read -p "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까? (y/N): " choice
 
     case "$choice" in
     y | Y)
