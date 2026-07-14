@@ -123,6 +123,10 @@ pip install --user --break-system-packages hererocks 2>/dev/null || pip install 
 HEREROCKS_DIR="$DEVTOOLS2/data/nvim/lazy-rocks/hererocks"
 mkdir -p "$HEREROCKS_DIR"
 cd "$HEREROCKS_DIR"
+
+# 임시 PATH 추가 (pip로 설치된 hererocks 바이너리를 현재 셸 환경에 즉시 연동)
+export PATH="$HOME/.local/bin:$PATH"
+
 hererocks . -l 5.1 -r latest
 echo "✅ hererocks / Lua 환경 구성 완료"
 echo ""

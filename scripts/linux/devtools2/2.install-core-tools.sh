@@ -190,6 +190,9 @@ fi
 mkdir -p "$DEVTOOLS2/data/.npm-packages"
 cd "$DEVTOOLS2/data/.npm-packages"
 
+# 임시 PATH 추가 (방금 설치한 Node.js 바이너리를 현재 셸 환경에 즉시 연동)
+export PATH="$DEVTOOLS2/modules/nodejs/node-v24/bin:$PATH"
+
 if [ -f "package.json" ]; then
     echo "   📦 글로벌 npm 패키지 복구 중..."
     npm install
