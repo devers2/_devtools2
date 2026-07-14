@@ -4,7 +4,7 @@
 
   ```powershell
   # 온라인 설치
-  irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2.ps1 | iex
+  irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex
 
   # 설치 완료 후 배포판 확인
   wsl --list --verbose

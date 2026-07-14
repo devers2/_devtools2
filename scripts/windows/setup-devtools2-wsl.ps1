@@ -1,5 +1,5 @@
 # ==============================================================================
-# DevTools2 Windows/WSL2 통합 자동 설치 마스터 스크립트 (setup-devtools2.ps1)
+# DevTools2 Windows/WSL2 통합 자동 설치 마스터 스크립트 (setup-devtools2-wsl.ps1)
 #
 # 주요 기능:
 #   1. Windows WSL2 가상 머신 생성 및 활성화 (0.setup-wsl.ps1)
@@ -9,7 +9,7 @@
 #
 # 사용 방법:
 #   PowerShell 을 관리자 권한으로 열고 실행:
-#   .\setup-devtools2.ps1
+#   .\setup-devtools2-wsl.ps1
 # ==============================================================================
 
 # --- 한글 깨짐 방지: 출력 인코딩을 UTF-8 로 설정
@@ -71,7 +71,7 @@ if (-not $isAdmin) {
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
         # 원격 Raw 실행 시 UAC를 통해 원격 명령어를 새 창에서 관리자 권한으로 자동 재실행
         Write-Warn "관리자 권한이 필요합니다. UAC 승격 후 새 창에서 원격 설치를 계속합니다..."
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2.ps1 | iex`"" -Verb RunAs
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex`"" -Verb RunAs
         exit
     } else {
         # 로컬 파일 실행 시에는 기존처럼 UAC 권한 승격 재실행
@@ -138,7 +138,7 @@ if ($LASTEXITCODE -eq 3010) {
     Write-Host "  3. 계정 생성이 완료되면, 아래 명령어를 PowerShell(관리자 권한)에 다시 입력하여" -ForegroundColor White
     Write-Host "     남은 환경 설정을 자동으로 이어 나가세요:" -ForegroundColor White
     Write-Host ""
-    Write-Host "     irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2.ps1 | iex" -ForegroundColor Green
+    Write-Host "     irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex" -ForegroundColor Green
     Write-Host ""
     Write-Warn "==========================================================================="
     Pause-Script
@@ -200,7 +200,7 @@ while ($retryCount -lt $maxRetry) {
             # .devtools2 메타데이터 파일도 실제 이름으로 업데이트
             (Get-Content $devtools2File) -replace "^WSL_DISTRO=.*", "WSL_DISTRO=$wslDistro" |
                 Set-Content $devtools2File -Encoding UTF8
-
+ 
             $testResult = wsl -d $wslDistro -- echo "ready" 2>$null
             if ($testResult -match "ready") {
                 $distroReady = $true

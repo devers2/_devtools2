@@ -196,19 +196,20 @@ Write-Step "[Step 3] Ghostty (Winghostty) 설치"
 
 $ghosttyInstalled = $false
 try {
-    $result = winget list --id AmanThanvi.winghostty 2>$null
-    if ($result -match "AmanThanvi.winghostty") {
-        $ghosttyInstalled = $true
-    }
+    if (Get-Command winghostty -ErrorAction SilentlyContinue) { $ghosttyInstalled = $true }
+    elseif (Get-Command ghostty -ErrorAction SilentlyContinue) { $ghosttyInstalled = $true }
+    elseif (Test-Path "$env:LOCALAPPDATA\Programs\winghostty\winghostty.exe") { $ghosttyInstalled = $true }
+    elseif (Test-Path "$env:LOCALAPPDATA\Programs\ghostty\bin\ghostty.exe") { $ghosttyInstalled = $true }
+    elseif (Test-Path "$env:ProgramFiles\Ghostty\bin\ghostty.exe") { $ghosttyInstalled = $true }
 }
 catch {}
 
 if ($ghosttyInstalled) {
-    Write-Skip "Winghostty 가 이미 설치되어 있습니다."
+    Write-Skip "Ghostty/Winghostty 가 이미 설치되어 있습니다."
 }
 else {
     Write-Host "  Winghostty 를 winget 으로 설치합니다..." -ForegroundColor White
-    winget install --id AmanThanvi.winghostty --accept-source-agreements --accept-package-agreements
+    winget install --id AmanThanvi.winghostty --silent --accept-source-agreements --accept-package-agreements
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Winghostty 설치 완료"
     }

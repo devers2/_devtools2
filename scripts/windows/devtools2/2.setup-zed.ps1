@@ -182,10 +182,9 @@ Write-Step "[Step 2] Zed 에디터 설치"
 
 $zedInstalled = $false
 try {
-    $result = winget list --id Zed.Zed 2>$null
-    if ($result -match "Zed.Zed") {
-        $zedInstalled = $true
-    }
+    if (Get-Command zed -ErrorAction SilentlyContinue) { $zedInstalled = $true }
+    elseif (Test-Path "$env:LOCALAPPDATA\Programs\Zed\Zed.exe") { $zedInstalled = $true }
+    elseif (Test-Path "$env:ProgramFiles\Zed\Zed.exe") { $zedInstalled = $true }
 }
 catch {}
 
@@ -194,7 +193,7 @@ if ($zedInstalled) {
 }
 else {
     Write-Host "  Zed 에디터를 winget 으로 설치합니다..." -ForegroundColor White
-    winget install --id Zed.Zed --accept-source-agreements --accept-package-agreements
+    winget install --id Zed.Zed --silent --accept-source-agreements --accept-package-agreements
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Zed 에디터 설치 완료"
     }
