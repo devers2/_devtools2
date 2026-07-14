@@ -234,38 +234,87 @@ Write-Success "WSL2 기본 설정 완료"
 # ==============================================================================
 Write-Step "[Step 5] $distroLabel 설치"
 
-if ($null -ne $installRoot) {
-    # Z: 드라이브가 있을 경우: 경로 생성 후 --location 옵션으로 설치
-    Write-Info "$wslInstallPath 폴더를 생성합니다..."
+$needsCustomInstall = ($wslName -ne $distroId) -or ($null -ne $installRoot)
+
+if ($needsCustomInstall) {
+    # 사용자 정의 이름 또는 경로를 설정해야 하는 경우:
+    # 1. 먼저 기본 배포판 이름으로 설치
+    Write-Info "$distroId 를 기본 경로에 임시로 설치합니다..."
+    Write-Warn "설치 중 Ubuntu 초기 사용자 설정이 진행됩니다. 안내에 따라 입력해주세요."
+    Write-Host ""
+
+    wsl --install -d $distroId
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "WSL 배포판 임시 설치 중 오류가 발생했습니다 (종료 코드: $LASTEXITCODE)"
+        Pause-Script
+        exit 1
+    }
+
+    # 2. 사용자 계정 생성 완료 후 설정된 username 가져오기
+    Write-Info "생성된 사용자 계정 정보를 읽어오는 중..."
+    $createdUsername = (wsl -d $distroId -e whoami).Trim()
+    if ([string]::IsNullOrEmpty($createdUsername) -or $createdUsername -eq "root") {
+        $createdUsername = "ubuntu"
+    }
+    Write-Success "생성된 사용자 계정 확인: $createdUsername"
+
+    # 3. 임시 tar 백업 파일 경로 지정
+    $tempTarPath = Join-Path $env:TEMP "wsl_temp_$($wslName).tar"
+
+    # 4. 배포판 내보내기 (Export)
+    Write-Info "배포판을 백업 파일($tempTarPath)로 내보내는 중..."
+    wsl --export $distroId $tempTarPath
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "배포판 내보내기(Export)에 실패했습니다."
+        Pause-Script
+        exit 1
+    }
+
+    # 5. 기존 기본 임시 배포판 해제 (Unregister)
+    Write-Info "임시 설치된 기본 배포판을 해제합니다..."
+    wsl --unregister $distroId
+
+    # 6. 최종 설치 폴더 준비
+    if ($null -eq $installRoot) {
+        $wslInstallPath = Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName"
+    }
+
+    Write-Info "최종 설치 경로 확인 및 폴더 생성: $wslInstallPath"
     if (-not (Test-Path $wslInstallPath)) {
         New-Item -ItemType Directory -Path $wslInstallPath -Force | Out-Null
-        Write-Success "폴더 생성 완료: $wslInstallPath"
-    }
-    else {
-        Write-Warn "폴더가 이미 존재합니다: $wslInstallPath"
     }
 
-    Write-Info "$distroId 를 '$wslName' 이름으로 $wslInstallPath 에 설치합니다..."
-    Write-Warn "설치 중 Ubuntu 초기 사용자 설정이 진행됩니다. 안내에 따라 입력해주세요."
-    Write-Host ""
+    # 7. 원하는 이름과 경로로 가져오기 (Import)
+    Write-Info "배포판을 '$wslName' 이름으로 $wslInstallPath 에 가져오는 중..."
+    wsl --import $wslName $wslInstallPath $tempTarPath
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "배포판 가져오기(Import)에 실패했습니다."
+        if (Test-Path $tempTarPath) { Remove-Item $tempTarPath -Force }
+        Pause-Script
+        exit 1
+    }
 
-    wsl --install -d $distroId --name $wslName --location $wslInstallPath
+    # 8. 가져온 인스턴스의 기본 사용자를 생성한 사용자로 설정 (wsl.conf 수정)
+    Write-Info "가져온 배포판의 기본 로그인 사용자를 '$createdUsername'으로 설정 중..."
+    wsl -d $wslName -u root -e bash -c "echo -e '[user]\ndefault=$createdUsername' > /etc/wsl.conf"
+
+    # 9. 임시 tar 백업 파일 제거
+    if (Test-Path $tempTarPath) {
+        Remove-Item $tempTarPath -Force
+    }
 }
 else {
-    # Z: 드라이브 없음: 기본 경로에 설치
-    Write-Info "$distroId 를 '$wslName' 이름으로 기본 경로에 설치합니다..."
+    # 기본 경로 및 기본 이름 그대로 설치
+    Write-Info "$distroId 를 기본 경로에 설치합니다..."
     Write-Warn "설치 중 Ubuntu 초기 사용자 설정이 진행됩니다. 안내에 따라 입력해주세요."
     Write-Host ""
 
-    wsl --install -d $distroId --name $wslName
-}
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Fail "WSL 배포판 설치 중 오류가 발생했습니다 (종료 코드: $LASTEXITCODE)"
-    Write-Warn "설치가 불완전할 수 있습니다. 아래 명령으로 상태를 확인하세요:"
-    Write-Host "    wsl --list --verbose" -ForegroundColor DarkGray
-    Pause-Script
-    exit 1
+    wsl --install -d $distroId
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "WSL 배포판 설치 중 오류가 발생했습니다 (종료 코드: $LASTEXITCODE)"
+        Pause-Script
+        exit 1
+    }
 }
 
 Write-Success "$distroLabel ('$wslName') 설치 완료"
