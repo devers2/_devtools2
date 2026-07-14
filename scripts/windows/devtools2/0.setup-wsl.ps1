@@ -271,6 +271,47 @@ if ($LASTEXITCODE -ne 0) {
 Write-Success "$distroLabel ('$wslName') 설치 완료"
 
 # ==============================================================================
+# [Step 5-후처리] 실제 등록된 WSL 배포판 이름 검증 및 자동 보정
+#
+# 일부 Windows 버전에서 --name 플래그가 무시되어 기본값(Ubuntu 등)으로
+# 등록될 수 있습니다. 설치 후 실제 이름을 확인하여 자동으로 보정합니다.
+# ==============================================================================
+Write-Info "실제 등록된 WSL 배포판 이름 검증 중..."
+
+# 최대 20초 대기하며 WSL 목록에 나타날 때까지 확인
+$verified = $false
+for ($i = 0; $i -lt 10; $i++) {
+    $registeredList = (wsl --list --quiet 2>$null) -replace "`0", "" |
+        Where-Object { $_.Trim() -ne "" } |
+        ForEach-Object { $_.Trim() }
+
+    if ($registeredList -and $registeredList.Count -gt 0) {
+        # 요청한 이름($wslName)이 목록에 있는지 확인
+        $matchedName = $registeredList | Where-Object { $_ -eq $wslName } | Select-Object -First 1
+        if ($matchedName) {
+            Write-Success "배포판 이름 확인 완료: $wslName"
+            $verified = $true
+            break
+        }
+
+        # 목록에 없으면 가장 최근에 추가된 배포판(목록 첫 번째)을 실제 이름으로 사용
+        $actualName = $registeredList[0]
+        Write-Warn "--name '$wslName' 이 무시되어 '$actualName' 으로 등록되었습니다."
+        Write-Warn "이름을 '$actualName' 으로 자동 보정합니다."
+        $wslName = $actualName
+        $verified = $true
+        break
+    }
+
+    Write-Info "  WSL 배포판 등록 대기 중... ($($i + 1)/10)"
+    Start-Sleep -Seconds 2
+}
+
+if (-not $verified) {
+    Write-Warn "WSL 배포판 이름을 자동으로 확인하지 못했습니다. '$wslName' 이름으로 계속 진행합니다."
+}
+
+# ==============================================================================
 # [Step 6] %USERPROFILE%\.devtools2 파일에 WSL 인스턴스 이름 저장
 #
 # 이후 1.setup-ghostty.ps1, 2.setup-zed.ps1 등에서 기본 배포판 이름으로 활용
