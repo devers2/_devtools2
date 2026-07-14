@@ -146,17 +146,13 @@ else {
 # WSL2 UNC 경로 기본값 (\\wsl.localhost\<Distro>\...)
 $WslRoot = "\\wsl.localhost\$WslDistro"
 
-# WSL2 내 사용자 홈 경로 확인
-$WslUsername = (wsl -d $WslDistro -- whoami).Trim()
-$WslHome = "$WslRoot\home\$WslUsername"
+# WSL 심볼릭 링크는 Windows UNC 경로에서 따라가지 못하므로
+# _devtools2 고정 경로를 직접 참조합니다: /var/opt/_devtools2
+$DevTools2Wsl = "$WslRoot\var\opt\_devtools2"
 
-Write-Host "  WSL2 홈 경로: $WslHome" -ForegroundColor White
-
-# _devtools2 경로 확인: 홈의 _devtools2 심볼릭 링크 우선, 없으면 직접 경로
-$DevTools2Wsl = "$WslHome\_devtools2"
 if (-not (Test-Path $DevTools2Wsl)) {
     Write-Fail "WSL2 에서 '_devtools2' 폴더를 찾을 수 없습니다: $DevTools2Wsl"
-    Write-Host "  WSL2 에서 먼저 1.setup-dev-env.sh 를 실행해주세요." -ForegroundColor Yellow
+    Write-Host "  마스터 설치 스크립트(setup-devtools2-wsl.ps1)를 먼저 실행해주세요." -ForegroundColor Yellow
     Read-Host "계속하려면 엔터를 누르세요"
     exit 1
 }
@@ -239,6 +235,12 @@ if (-not (Test-Path $WinGhosttyDir)) {
 Write-Host "  소스 (WSL2): $WslGhosttyConfig" -ForegroundColor DarkGray
 Write-Host "  링크 대상  : $WinGhosttyDir\config.ghostty" -ForegroundColor DarkGray
 Write-Host ""
+
+# config.ghostty 파일이 없으면 기본 설정 파일 생성
+if (-not (Test-Path "$WslGhosttyConfig\config.ghostty")) {
+    Write-Warn "config.ghostty 파일이 아직 없습니다. WSL2 내에 기본 설정 파일을 생성합니다..."
+    wsl -d $WslDistro -- bash -c "mkdir -p /var/opt/_devtools2/.config/ghostty && touch /var/opt/_devtools2/.config/ghostty/config.ghostty"
+}
 
 New-SafeSymlink -LinkPath "$WinGhosttyDir\config.ghostty" `
                 -TargetPath "$WslGhosttyConfig\config.ghostty" `

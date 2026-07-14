@@ -157,19 +157,13 @@ else {
     Write-Host "  지정된 배포판: $WslDistro" -ForegroundColor White
 }
 
-$WslRoot = "\\wsl.localhost\$WslDistro"
+# WSL 심볼릭 링크는 Windows UNC 경로에서 따라가지 못하므로
+# _devtools2 고정 경로를 직접 참조합니다: /var/opt/_devtools2
+$DevTools2Wsl = "$WslRoot\var\opt\_devtools2"
 
-# WSL2 내 사용자 이름 확인
-$WslUsername = (wsl -d $WslDistro -- whoami).Trim()
-$WslHome = "$WslRoot\home\$WslUsername"
-
-Write-Host "  WSL2 홈 경로: $WslHome" -ForegroundColor White
-
-# _devtools2 경로 확인
-$DevTools2Wsl = "$WslHome\_devtools2"
 if (-not (Test-Path $DevTools2Wsl)) {
     Write-Fail "WSL2 에서 '_devtools2' 폴더를 찾을 수 없습니다: $DevTools2Wsl"
-    Write-Host "  WSL2 에서 먼저 1.setup-dev-env.sh 를 실행해주세요." -ForegroundColor Yellow
+    Write-Host "  마스터 설치 스크립트(setup-devtools2-wsl.ps1)를 먼저 실행해주세요." -ForegroundColor Yellow
     Read-Host "계속하려면 엔터를 누르세요"
     exit 1
 }
@@ -180,10 +174,12 @@ Write-Host "  _devtools2 경로: $DevTools2Wsl" -ForegroundColor White
 # ==============================================================================
 Write-Step "[Step 2] Zed 에디터 설치"
 
+# Zed 윈도우 에디터 설치 (다양한 패키지 ID 시도)
 $zedInstalled = $false
 try {
     if (Get-Command zed -ErrorAction SilentlyContinue) { $zedInstalled = $true }
     elseif (Test-Path "$env:LOCALAPPDATA\Programs\Zed\Zed.exe") { $zedInstalled = $true }
+    elseif (Test-Path "$env:LOCALAPPDATA\Zed\bin\zed.exe") { $zedInstalled = $true }
     elseif (Test-Path "$env:ProgramFiles\Zed\Zed.exe") { $zedInstalled = $true }
 }
 catch {}
@@ -192,14 +188,21 @@ if ($zedInstalled) {
     Write-Skip "Zed 에디터가 이미 설치되어 있습니다."
 }
 else {
-    Write-Host "  Zed 에디터를 winget 으로 설치합니다..." -ForegroundColor White
-    winget install --id Zed.Zed --silent --accept-source-agreements --accept-package-agreements
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "Zed 에디터 설치 완료"
+    Write-Host "  Zed 에디터를 winget으로 설치합니다..." -ForegroundColor White
+    # 여러 ID 시도 (Zed는 winget 등록명이 플랫폼마다 다양함)
+    $zedIds = @("Zed.Zed", "Zed-Industries.Zed", "zed")
+    $zedInstallSuccess = $false
+    foreach ($zedId in $zedIds) {
+        winget install --id $zedId --silent --accept-source-agreements --accept-package-agreements 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "Zed 에디터 설치 완료 ($zedId)"
+            $zedInstallSuccess = $true
+            break
+        }
     }
-    else {
-        Write-Fail "Zed 설치 실패 (종료 코드: $LASTEXITCODE)"
-        Write-Host "  수동 설치: https://zed.dev/download" -ForegroundColor Yellow
+    if (-not $zedInstallSuccess) {
+        Write-Warn "Zed winget 설치 실패. 수동 설치: https://zed.dev/download"
+        Write-Warn "(Zed Windows 버전이 아직 Preview 상태일 수 있습니다)"
     }
 }
 
@@ -213,7 +216,7 @@ else {
 # 링크하지 않는 항목 (Zed 가 자동 생성, gitignore 에 포함):
 #   - state.json, session.json, workspaces/, extensions/, *.log
 #
-# WSL2 소스: \\wsl.localhost\<Distro>\home\<user>\_devtools2\.config\zed\
+# WSL2 소스: \\wsl.localhost\<Distro>\var\opt\_devtools2\.config\zed\
 # ==============================================================================
 Write-Step "[Step 3] Zed 설정 파일 심볼릭 링크 생성"
 
@@ -224,17 +227,43 @@ Write-Host "  소스 (WSL2): $WslZedConfig" -ForegroundColor DarkGray
 Write-Host "  링크 대상  : $WinZedDir" -ForegroundColor DarkGray
 Write-Host ""
 
+# Zed 설정 폴더가 WSL2에 없으면 생성
+if (-not (Test-Path $WslZedConfig)) {
+    Write-Warn "WSL2에 Zed 설정 폴더가 없습니다. 기본 폴더를 생성합니다..."
+    wsl -d $WslDistro -- bash -c "mkdir -p /var/opt/_devtools2/.config/zed"
+}
+
 # settings.json 링크
-Write-Host "  📄 settings.json 링크 생성 중..."
-New-SafeFileSymlink -LinkPath "$WinZedDir\settings.json" `
-                    -TargetPath "$WslZedConfig\settings.json"
+Write-Host "  파일 settings.json 링크 생성 중..."
+if (Test-Path "$WslZedConfig\settings.json") {
+    New-SafeFileSymlink -LinkPath "$WinZedDir\settings.json" `
+                        -TargetPath "$WslZedConfig\settings.json"
+} else {
+    Write-Warn "settings.json 소스 파일이 없습니다. WSL2 설정 파일 생성 후 링크합니다..."
+    wsl -d $WslDistro -- bash -c "touch /var/opt/_devtools2/.config/zed/settings.json"
+    Start-Sleep -Milliseconds 300
+    if (Test-Path "$WslZedConfig\settings.json") {
+        New-SafeFileSymlink -LinkPath "$WinZedDir\settings.json" `
+                            -TargetPath "$WslZedConfig\settings.json"
+    }
+}
 
 Write-Host ""
 
 # keymap.json 링크
-Write-Host "  📄 keymap.json 링크 생성 중..."
-New-SafeFileSymlink -LinkPath "$WinZedDir\keymap.json" `
-                    -TargetPath "$WslZedConfig\keymap.json"
+Write-Host "  파일 keymap.json 링크 생성 중..."
+if (Test-Path "$WslZedConfig\keymap.json") {
+    New-SafeFileSymlink -LinkPath "$WinZedDir\keymap.json" `
+                        -TargetPath "$WslZedConfig\keymap.json"
+} else {
+    Write-Warn "keymap.json 소스 파일이 없습니다. WSL2 설정 파일 생성 후 링크합니다..."
+    wsl -d $WslDistro -- bash -c "touch /var/opt/_devtools2/.config/zed/keymap.json"
+    Start-Sleep -Milliseconds 300
+    if (Test-Path "$WslZedConfig\keymap.json") {
+        New-SafeFileSymlink -LinkPath "$WinZedDir\keymap.json" `
+                            -TargetPath "$WslZedConfig\keymap.json"
+    }
+}
 
 # ==============================================================================
 # 완료
