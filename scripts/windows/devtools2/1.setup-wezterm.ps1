@@ -73,18 +73,11 @@ function New-SafeSymlink {
                 return
             }
             else {
-                # 대상 경로가 다르면 삭제 후 재생성
-                Write-Host "  [재생성] 심볼릭 링크 대상이 다릅니다. 삭제 후 재생성합니다..." -ForegroundColor Yellow
-                Write-Host "    기존: $currentTarget" -ForegroundColor DarkGray
-                Write-Host "    신규: $TargetPath" -ForegroundColor DarkGray
-                Remove-Item $LinkPath -Force
+                # 기존 파일/폴더를 .bak 으로 백업
+                $backupPath = "$LinkPath.bak"
+                Write-Host "  [백업] 기존 '$LinkPath' -> '$backupPath'" -ForegroundColor Yellow
+                Move-Item -Path $LinkPath -Destination $backupPath -Force
             }
-        }
-        else {
-            # 기존 파일/폴더를 .bak 으로 백업
-            $backupPath = "$LinkPath.bak"
-            Write-Host "  [백업] 기존 '$LinkPath' -> '$backupPath'" -ForegroundColor Yellow
-            Move-Item -Path $LinkPath -Destination $backupPath -Force
         }
     }
 
@@ -95,6 +88,26 @@ function New-SafeSymlink {
     catch {
         Write-Fail "심볼릭 링크 생성 실패: $($_.Exception.Message)"
     }
+}
+
+# 프로세스 종료 시까지 스피너를 표시해 대기하는 함수
+function Wait-ProcessWithSpinner {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [string]$Message
+    )
+
+    $spinChars = @('|', '/', '-', '\')
+    $spinIdx = 0
+    Write-Host "  $Message " -NoNewline -ForegroundColor Cyan
+    while (-not $Process.HasExited) {
+        $char = $spinChars[$spinIdx]
+        Write-Host -NoNewline "`b$char"
+        $spinIdx = ($spinIdx + 1) % $spinChars.Count
+        Start-Sleep -Milliseconds 200
+    }
+    # 백스페이스로 스피너 문자를 지우고 완료 출력
+    Write-Host -NoNewline "`b`b => 완료!`n" -ForegroundColor Green
 }
 
 # ==============================================================================
@@ -169,24 +182,32 @@ Write-Host "  _devtools2 경로: $DevTools2Wsl" -ForegroundColor White
 # ==============================================================================
 Write-Step "[Step 2] PowerShell 7 설치 확인"
 
-$pwshInstalled = $false
+# winget 소스 업데이트 (최초 실행 시 동의 질문으로 인한 무한 대기 멈춤 방지)
 try {
-    $null = Get-Command pwsh -ErrorAction SilentlyContinue
+    Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
+    $pSrc = Start-Process winget -ArgumentList "source update --accept-source-agreements" -NoNewWindow -PassThru -ErrorAction SilentlyContinue
+    Wait-ProcessWithSpinner -Process $pSrc -Message "winget 소스 업데이트 중"
+} catch {}
+
+$pwshInstalled = $false
+# Get-Command에 -ErrorAction SilentlyContinue를 주더라도 $null 리턴값을 정확하게 검사해야 함
+$pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+if ($pwshCmd -ne $null) {
     $pwshInstalled = $true
 }
-catch {}
 
 if ($pwshInstalled) {
     Write-Skip "PowerShell 7 이 이미 시스템에 설치되어 있습니다."
 }
 else {
     Write-Info "PowerShell 7 이 감지되지 않았습니다. winget 으로 설치를 진행합니다..."
-    winget install --id Microsoft.PowerShell --source winget --accept-source-agreements --accept-package-agreements
-    if ($LASTEXITCODE -eq 0) {
+    $p = Start-Process winget -ArgumentList "install --id Microsoft.PowerShell --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+    Wait-ProcessWithSpinner -Process $p -Message "PowerShell 7 패키지 설치 진행 중"
+    if ($p.ExitCode -eq 0) {
         Write-Success "PowerShell 7 설치 완료"
     }
     else {
-        Write-Fail "PowerShell 7 설치 실패 (종료 코드: $LASTEXITCODE)"
+        Write-Fail "PowerShell 7 설치 실패 (종료 코드: $($p.ExitCode))"
         Write-Host "  수동 설치를 권장합니다: https://aka.ms/powershell-release" -ForegroundColor Yellow
     }
 }
@@ -198,14 +219,23 @@ Write-Step "[Step 3] WezTerm 설치"
 
 $weztermInstalled = $false
 try {
-    # winget list 로 설치 여부 우선 확인 (가장 정확)
-    $wgList = winget list --id wez.wezterm 2>$null
-    if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "wezterm") { $weztermInstalled = $true }
-    # 실행 파일 경로로 추가 확인
+    # 1순위: 실행 파일 경로 및 Get-Command로 로컬 검사 ( winget list 호출보다 무해하고 안 멈춤 )
+    if (Get-Command wezterm -ErrorAction SilentlyContinue) {
+        $weztermInstalled = $true
+    }
+    elseif (Test-Path "$env:ProgramFiles\WezTerm\wezterm.exe") {
+        $weztermInstalled = $true
+    }
+    elseif (Test-Path "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe") {
+        $weztermInstalled = $true
+    }
+    
+    # 2순위: 로컬에 파일이 없으면 winget 리스트 확인
     if (-not $weztermInstalled) {
-        if (Get-Command wezterm -ErrorAction SilentlyContinue) { $weztermInstalled = $true }
-        elseif (Test-Path "$env:ProgramFiles\WezTerm\wezterm.exe") { $weztermInstalled = $true }
-        elseif (Test-Path "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe") { $weztermInstalled = $true }
+        $wgList = winget list --id wez.wezterm 2>$null
+        if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "wezterm") {
+            $weztermInstalled = $true
+        }
     }
 }
 catch {}
@@ -215,13 +245,14 @@ if ($weztermInstalled) {
 }
 else {
     Write-Host "  WezTerm 을 winget 으로 설치합니다..." -ForegroundColor White
-    winget install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements
+    $p = Start-Process winget -ArgumentList "install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+    Wait-ProcessWithSpinner -Process $p -Message "WezTerm 패키지 설치 진행 중"
     # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
-    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) {
+    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
         Write-Success "WezTerm 설치/확인 완료"
     }
     else {
-        Write-Fail "WezTerm 설치 실패 (종료 코드: $LASTEXITCODE)"
+        Write-Fail "WezTerm 설치 실패 (종료 코드: $($p.ExitCode))"
         Write-Host "  수동 설치: https://wezfurlong.org/wezterm/install/windows.html" -ForegroundColor Yellow
     }
 }

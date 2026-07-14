@@ -115,6 +115,26 @@ function New-SafeFileSymlink {
     }
 }
 
+# 프로세스 종료 시까지 스피너를 표시해 대기하는 함수
+function Wait-ProcessWithSpinner {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [string]$Message
+    )
+
+    $spinChars = @('|', '/', '-', '\')
+    $spinIdx = 0
+    Write-Host "  $Message " -NoNewline -ForegroundColor Cyan
+    while (-not $Process.HasExited) {
+        $char = $spinChars[$spinIdx]
+        Write-Host -NoNewline "`b$char"
+        $spinIdx = ($spinIdx + 1) % $spinChars.Count
+        Start-Sleep -Milliseconds 200
+    }
+    # 백스페이스로 스피너 문자를 지우고 완료 출력
+    Write-Host -NoNewline "`b`b => 완료!`n" -ForegroundColor Green
+}
+
 # ==============================================================================
 # [Step 0] 관리자 권한 확인 및 재실행
 # ==============================================================================
@@ -187,22 +207,34 @@ Write-Host "  _devtools2 경로: $DevTools2Wsl" -ForegroundColor White
 # ==============================================================================
 Write-Step "[Step 2] Zed 에디터 설치"
 
+# winget 소스 업데이트 (최초 실행 시 동의 질문으로 인한 무한 대기 멈춤 방지)
+try {
+    Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
+    $pSrc = Start-Process winget -ArgumentList "source update --accept-source-agreements" -NoNewWindow -PassThru -ErrorAction SilentlyContinue
+    Wait-ProcessWithSpinner -Process $pSrc -Message "winget 소스 업데이트 중"
+} catch {}
+
 # Zed 윈도우 에디터 설치 (다양한 패키지 ID 시도)
 $zedInstalled = $false
 try {
-    # winget list 로 설치 여부 우선 확인 (가장 정확)
-    $wgList = winget list --id Zed.Zed 2>$null
-    if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "Zed") { $zedInstalled = $true }
-    # 실행 파일 경로로 추가 확인
+    # 1순위: 로컬 실행 파일 경로 및 Get-Command로 빠른 검사 (winget list 보다 빠르고 안 멈춤)
+    $zedPaths = @(
+        "$env:LOCALAPPDATA\Programs\Zed\Zed.exe",
+        "$env:LOCALAPPDATA\Zed\bin\zed.exe",
+        "$env:ProgramFiles\Zed\Zed.exe"
+    )
+    foreach ($p in $zedPaths) {
+        if (Test-Path $p) { $zedInstalled = $true; break }
+    }
+    
+    if (-not $zedInstalled -and (Get-Command zed -ErrorAction SilentlyContinue)) {
+        $zedInstalled = $true
+    }
+
+    # 2순위: 로컬에 파일이 없으면 winget 리스트 확인
     if (-not $zedInstalled) {
-        $zedPaths = @(
-            "$env:LOCALAPPDATA\Programs\Zed\Zed.exe",
-            "$env:LOCALAPPDATA\Zed\bin\zed.exe",
-            "$env:ProgramFiles\Zed\Zed.exe"
-        )
-        foreach ($p in $zedPaths) {
-            if (Test-Path $p) { $zedInstalled = $true; break }
-        }
+        $wgList = winget list --id Zed.Zed 2>$null
+        if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "Zed") { $zedInstalled = $true }
     }
 }
 catch {}
@@ -216,9 +248,10 @@ else {
     $zedIds = @("Zed.Zed", "Zed-Industries.Zed", "zed")
     $zedInstallSuccess = $false
     foreach ($zedId in $zedIds) {
-        winget install --id $zedId --silent --accept-source-agreements --accept-package-agreements 2>$null
+        $p = Start-Process winget -ArgumentList "install --id $zedId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+        Wait-ProcessWithSpinner -Process $p -Message "Zed 에디터 설치 진행 중 ($zedId)"
         # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
-        if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) {
+        if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
             Write-Success "Zed 에디터 설치/확인 완료 ($zedId)"
             $zedInstallSuccess = $true
             break

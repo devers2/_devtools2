@@ -34,6 +34,20 @@ if grep -qi 'microsoft' /proc/version 2>/dev/null; then
 fi
 
 # 아키텍처에 따라 적절한 URL을 선택하여 다운로드 및 압축 해제 함수
+show_spinner() {
+    local pid=$1
+    local delay=0.15
+    local spinstr='|/-\'
+    while kill -0 "$pid" 2>/dev/null; do
+        local temp=${spinstr#?}
+        printf " [%c] " "$spinstr"
+        spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
 install_tool() {
     local X64_URL="$1"
     local ARM_URL="$2"
@@ -50,12 +64,18 @@ install_tool() {
 
     FILE_NAME=$(basename "$DOWNLOAD_URL")
 
-    # 다운로드 및 압축 해제
-    wget -q "$DOWNLOAD_URL"
-    tar -xf "$FILE_NAME"
+    # 다운로드 및 압축 해제에 스피너 적용
+    echo -n "   📥 $TARGET_DIR 다운로드 중..."
+    wget -q "$DOWNLOAD_URL" &
+    show_spinner $!
+    echo " 완료"
+
+    echo -n "   📦 $TARGET_DIR 압축 해제 중..."
+    tar -xf "$FILE_NAME" &
+    show_spinner $!
+    echo " 완료"
 
     # 폴더 이름 정리 (패턴 매칭으로 이동 후 정리)
-    # 압축 해제된 폴더가 무엇이든 TARGET_DIR로 변경
     local EXTRACTED_DIR=$(tar -tf "$FILE_NAME" | head -1 | cut -f1 -d"/")
     mv "$EXTRACTED_DIR" "$TARGET_DIR"
 
@@ -139,10 +159,18 @@ cd "$DEVTOOLS2/modules/gradle"
 if [ -d "$DEVTOOLS2/modules/gradle/gradle-9" ]; then
     echo "   ⏭️ [건너뜀] gradle-9 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/gradle/gradle-9'"
 else
-    wget -q https://services.gradle.org/distributions/gradle-9.4.1-bin.zip
-    unzip -q gradle-9.4.1-bin.zip
+    echo -n "   📥 Gradle 다운로드 중..."
+    wget -q https://services.gradle.org/distributions/gradle-9.4.1-bin.zip &
+    show_spinner $!
+    echo " 완료"
+
+    echo -n "   📦 Gradle 압축 해제 중..."
+    unzip -q gradle-9.4.1-bin.zip &
+    show_spinner $!
+    echo " 완료"
+
     mv gradle-9.4.1 gradle-9
-    rm gradle-9.4.1-bin.zip
+    rm -f gradle-9.4.1-bin.zip
 fi
 
 echo "✅ Gradle 설치 완료"
@@ -198,8 +226,10 @@ cd "$DEVTOOLS2/data/.npm-packages"
 export PATH="$DEVTOOLS2/modules/nodejs/node-v24/bin:$PATH"
 
 if [ -f "package.json" ]; then
-    echo "   📦 글로벌 npm 패키지 복구 중..."
-    npm install
+    echo -n "   📦 글로벌 npm 패키지 복구 중 (npm install)..."
+    npm install -q &
+    show_spinner $!
+    echo " 완료"
 fi
 
 # rsync를 사용하여 기존 node_modules 내용을 lib/node_modules로 강제 통합(덮어쓰기) 후 기존 디렉토리 삭제
@@ -263,11 +293,13 @@ else
     cd "$DEVTOOLS2/modules/ghostty"
 
     if [ -f "$DEVTOOLS2/modules/ghostty/ghostty" ]; then
-        echo "   ⏭️ [건너뜀] ghostty AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -f '$DEVTOOLS2/modules/ghostty/ghostty'"
-    else
-        echo "   📦 Ghostty AppImage 다운로드 중..."
-        curl -Ls "https://github.com/pkgforge-dev/ghostty-appimage/releases/download/v1.3.1/Ghostty-1.3.1-$ARCH.AppImage" -o ghostty
-        chmod +x ghostty
+    echo "   ⏭️ [건너뜀] ghostty AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -f '$DEVTOOLS2/modules/ghostty/ghostty'"
+else
+    echo -n "   📦 Ghostty AppImage 다운로드 중..."
+    curl -Ls "https://github.com/pkgforge-dev/ghostty-appimage/releases/download/v1.3.1/Ghostty-1.3.1-$ARCH.AppImage" -o ghostty &
+    show_spinner $!
+    echo " 완료"
+    chmod +x ghostty
 
         # 설정 파일 경로 심볼릭 링크 생성
         "$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh" "$DEVTOOLS2/.config/ghostty" "$HOME/.config/ghostty"

@@ -40,6 +40,20 @@ MODULES_DIR="$DEVTOOLS2/modules"
 # 각 도구별로 독립된 폴더를 생성하여 관리를 용이하게 합니다.
 mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODULES_DIR/fd" "$MODULES_DIR/ast-grep"
 
+show_spinner() {
+    local pid=$1
+    local delay=0.15
+    local spinstr='|/-\'
+    while kill -0 "$pid" 2>/dev/null; do
+        local temp=${spinstr#?}
+        printf " [%c] " "$spinstr"
+        spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
 echo ""
 echo "==========================================================================="
 echo "🚀 도구 설치를 시작합니다..."
@@ -49,53 +63,63 @@ if [ "$IS_WSL2" = true ]; then echo "📍 환경: WSL2 감지됨"; fi
 
 # 1. fzf 설치 - v0.71.0
 # 터미널용 퍼지 파인더 (목록 검색 도구)
-echo "📦 fzf 설치 중..."
+echo -n "📦 fzf 설치 중..."
 if [ "$IS_ARM64" = true ]; then
     URL='https://github.com/junegunn/fzf/releases/download/v0.71.0/fzf-0.71.0-linux_arm64.tar.gz'
 else
     URL='https://github.com/junegunn/fzf/releases/download/v0.71.0/fzf-0.71.0-linux_amd64.tar.gz'
 fi
-curl -L "$URL" | tar xz -C "$MODULES_DIR/fzf"
+curl -sL "$URL" | tar xz -C "$MODULES_DIR/fzf" &
+show_spinner $!
+echo " 완료"
 
 # 2. lazygit 설치 - v0.42.0
 # 터미널 UI 기반 Git 관리 도구
-echo "📦 lazygit 설치 중..."
+echo -n "📦 lazygit 설치 중..."
 if [ "$IS_ARM64" = true ]; then
     URL='https://github.com/jesseduffield/lazygit/releases/download/v0.61.1/lazygit_0.61.1_Linux_arm64.tar.gz'
 else
     URL='https://github.com/jesseduffield/lazygit/releases/download/v0.61.1/lazygit_0.61.1_Linux_x86_64.tar.gz'
 fi
-curl -L "$URL" | tar xz -C "$MODULES_DIR/lazygit"
+curl -sL "$URL" | tar xz -C "$MODULES_DIR/lazygit" &
+show_spinner $!
+echo " 완료"
 
 # 3. ripgrep (rg) 설치 - v15.0.0
 # 코드 내 문자열 초고속 검색 도구
-echo "📦 ripgrep 설치 중..."
+echo -n "📦 ripgrep 설치 중..."
 if [ "$IS_ARM64" = true ]; then
     URL='https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-aarch64-unknown-linux-gnu.tar.gz'
 else
     URL='https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz'
 fi
-curl -L "$URL" | tar xz -C "$MODULES_DIR/ripgrep" --strip-components=1
+curl -sL "$URL" | tar xz -C "$MODULES_DIR/ripgrep" --strip-components=1 &
+show_spinner $!
+echo " 완료"
 
 # 4. fd-find (fd) 설치 - v11.0.0
 # 파일 이름 초고속 검색 도구 (find 대용)
-echo "📦 fd-find 설치 중..."
+echo -n "📦 fd-find 설치 중..."
 if [ "$IS_ARM64" = true ]; then
     URL='https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-aarch64-unknown-linux-musl.tar.gz'
 else
     URL='https://github.com/sharkdp/fd/releases/download/v10.4.2/fd-v10.4.2-x86_64-unknown-linux-musl.tar.gz'
 fi
-curl -L "$URL" | tar xz -C "$MODULES_DIR/fd" --strip-components=1
+curl -sL "$URL" | tar xz -C "$MODULES_DIR/fd" --strip-components=1 &
+show_spinner $!
+echo " 완료"
 
 # 5. ast-grep (sg) 설치 - v0.42.1
 # 추상 구문 트리(AST) 기반의 구조적 코드 검색 도구 (Java 소스 분석 최적화)
-echo "📦 ast-grep 설치 중..."
+echo -n "📦 ast-grep 설치 중..."
 if [ "$IS_ARM64" = true ]; then
     URL='https://github.com/ast-grep/ast-grep/releases/latest/download/app-aarch64-unknown-linux-gnu.zip'
 else
     URL='https://github.com/ast-grep/ast-grep/releases/latest/download/app-x86_64-unknown-linux-gnu.zip'
 fi
-curl -L "$URL" -o /tmp/ast-grep.zip && unzip -o /tmp/ast-grep.zip -d "$MODULES_DIR/ast-grep" && rm /tmp/ast-grep.zip
+(curl -sL "$URL" -o /tmp/ast-grep.zip && unzip -qo /tmp/ast-grep.zip -d "$MODULES_DIR/ast-grep" && rm -f /tmp/ast-grep.zip) &
+show_spinner $!
+echo " 완료"
 
 # 실행 권한 부여 및 검증
 echo "🔐 실행 권한 부여 및 검증 중..."
@@ -111,11 +135,15 @@ echo "✅ 모든 바이너리 도구($ARCH) 설치가 완료되었습니다!"
 echo ""
 
 echo "---------------------------------------------------------------------------"
-echo "📦 6. 시스템 apt 패키지 설치 중 (sudo 비번이 필요할 수 있습니다)..."
-echo "   대상: build-essential, libreadline-dev, git, trash-cli"
-echo ""
-sudo apt-get update -qq
-sudo apt-get install -y build-essential libreadline-dev git trash-cli
+echo -n "   - apt 패키지 인덱스 업데이트 중..."
+sudo apt-get update -qq &
+show_spinner $!
+echo " 완료"
+
+echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli) 설치 중..."
+sudo apt-get install -y build-essential libreadline-dev git trash-cli -qq &
+show_spinner $!
+echo " 완료"
 echo "✅ apt 패키지 설치 완료"
 echo ""
 
@@ -131,7 +159,10 @@ cd "$HEREROCKS_DIR"
 # 임시 PATH 추가 (pip로 설치된 hererocks 바이너리를 현재 셸 환경에 즉시 연동)
 export PATH="$HOME/.local/bin:$PATH"
 
-hererocks . -l 5.1 -r latest
+echo -n "   ⚙️ hererocks 구성 중 (Lua 5.1 / Luarocks 최신)..."
+hererocks . -l 5.1 -r latest -q &
+show_spinner $!
+echo " 완료"
 echo "✅ hererocks / Lua 환경 구성 완료"
 echo ""
 
