@@ -116,6 +116,22 @@ CREATED_AT=$(Get-Date -Format "yyyy-MM-ddTHH:mm:ss")
 $distroId = $registeredDistros | Where-Object { $_ -match "^Ubuntu" } | Select-Object -First 1
 $isBaseRegistered = -not [string]::IsNullOrEmpty($distroId)
 
+$createdUsername = ""
+$isUserConfigured = $false
+
+if ($isBaseRegistered) {
+    # 배포판이 등록되어 있는 경우, 이미 사용자 계정이 생성되어 작동하는지 테스트
+    try {
+        $whoamiResult = wsl -d $distroId -e whoami 2>$null
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($whoamiResult)) {
+            $createdUsername = $whoamiResult.Trim()
+            if ($createdUsername -and $createdUsername -notmatch "error" -and $createdUsername -notmatch "실패" -and $createdUsername -notmatch "Wsl/Service") {
+                $isUserConfigured = $true
+            }
+        }
+    } catch {}
+}
+
 if (-not $isBaseRegistered) {
     # --------------------------------------------------------------------------
     # Phase 1: WSL2 기본 설치 (최초 실행 및 버전 선택)
@@ -144,23 +160,82 @@ if (-not $isBaseRegistered) {
     Write-Warn "설치 중 또는 완료 후 새 창이 열리며 Ubuntu 초기 사용자 설정(Username/Password)이 진행됩니다."
     Write-Host ""
 
-    Write-Warn "---------------------------------------------------------------------------"
-    Write-Warn " [설치 시작 완료 - 다음 조치 가이드]"
-    Write-Warn " 1. 잠시 후 새로운 창이 열리며 Ubuntu 배포판 다운로드 및 설치가 진행됩니다."
-    Write-Warn " 2. 설치가 끝나면 자동으로 열리는 리눅스(Ubuntu) 창에서 사용자 계정명(Username)과 비밀번호를 설정해 주세요."
-    Write-Warn "    (만약 창이 자동으로 열리지 않는다면, 시작 메뉴에서 Ubuntu를 실행하시거나"
-    Write-Warn "     윈도우 기능 활성화를 위해 컴퓨터를 재부팅해 주시기 바랍니다.)"
-    Write-Warn " 3. 계정 생성이 완료되면 해당 리눅스 창을 닫아주세요."
-    Write-Warn " 4. 그 후, 처음에 실행했던 설치 명령어(마스터 스크립트)를 다시 실행해 주시면"
-    Write-Warn "    devtools2로의 마이그레이션 및 개발도구 빌드가 자동으로 이어서 진행됩니다."
-    Write-Warn "---------------------------------------------------------------------------"
-    Write-Host ""
-
-    # 설치를 백그라운드 프로세스로 실행하여 메인 터미널이 즉시 종료되도록 함 (동기 대기 방지)
+    # 설치를 백그라운드 프로세스로 실행하여 메인 터미널이 대기 루프로 진입할 수 있도록 함
     Start-Process wsl.exe -ArgumentList "--install -d $distroId --web-download"
+    # 프로세스 시작을 위해 1초 대기
+    Start-Sleep -Seconds 1
+}
+
+# --------------------------------------------------------------------------
+# 사용자 계정 설정 대기 루프 (설정이 아직 완료되지 않은 경우 실행)
+# --------------------------------------------------------------------------
+if (-not $isUserConfigured) {
+    Write-Step "[Step 2-1] WSL2 초기 사용자 설정 완료 대기"
     
-    Pause-Script
-    exit 3010
+    # 이미 배포판은 등록되었으나 계정이 없는 경우, 사용자 설정을 위해 배포판 창을 직접 띄움
+    if ($isBaseRegistered) {
+        Write-Info "기본 배포판($distroId)이 감지되었으나 사용자 설정이 완료되지 않았습니다."
+        Write-Info "사용자 설정을 위해 배포판($distroId) 창을 실행합니다..."
+        try {
+            Start-Process wsl.exe -ArgumentList "-d $distroId" -ErrorAction SilentlyContinue
+        } catch {
+            Write-Warn "배포판 실행에 실패했습니다. 수동으로 실행해 주세요."
+        }
+    }
+
+    $loopCount = 0
+    while (-not $isUserConfigured) {
+        Write-Host ""
+        Write-Host "===========================================================================" -ForegroundColor Yellow
+        Write-Host " 📢 WSL2 초기 사용자 설정 대기 중 (인스턴스: $distroId)" -ForegroundColor Yellow
+        Write-Host "===========================================================================" -ForegroundColor Yellow
+        Write-Host "  1. 새로 열린 리눅스(Ubuntu) 창에서 사용자 이름(Username)과 비밀번호를 설정해 주세요."
+        Write-Host "  2. 사용자 계정 생성이 완전히 완료된 후, 해당 리눅스 창을 닫아주세요."
+        Write-Host "  3. 계정 생성이 정상 완료되었다면, 아래에서 엔터(Enter)를 입력하여 다음 단계를 진행합니다."
+        Write-Host "===========================================================================" -ForegroundColor Yellow
+        Write-Host "  (※ 창이 자동으로 열리지 않았다면 시작 메뉴에서 $distroId 를 실행해 주세요.)" -ForegroundColor Gray
+        Write-Host ""
+        
+        Read-Host "계정 생성을 완료한 후 엔터(Enter)를 누르세요"
+        
+        # 1) wsl --list에서 배포판이 실제로 등록되었는지 재확인 (특히 최초 설치 시)
+        $registeredDistros = (wsl --list --quiet 2>$null) -replace "`0", "" |
+            Where-Object { $_.Trim() -ne "" } |
+            ForEach-Object { $_.Trim() }
+            
+        $actualDistroId = $registeredDistros | Where-Object { $_ -match "^Ubuntu" } | Select-Object -First 1
+        
+        if (-not [string]::IsNullOrEmpty($actualDistroId)) {
+            $distroId = $actualDistroId
+            
+            # 2) whoami 명령어가 에러 없이 실행되고 유효한 사용자 명을 리턴하는지 확인
+            try {
+                $whoamiResult = wsl -d $distroId -e whoami 2>$null
+                if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($whoamiResult)) {
+                    $createdUsername = $whoamiResult.Trim()
+                    if ($createdUsername -and $createdUsername -notmatch "error" -and $createdUsername -notmatch "실패" -and $createdUsername -notmatch "Wsl/Service") {
+                        $isUserConfigured = $true
+                        Write-Success "WSL2 사용자 설정이 완료되었습니다! (사용자 계정: $createdUsername)"
+                    }
+                }
+            } catch {}
+            
+            if (-not $isUserConfigured) {
+                Write-Warn "배포판($distroId)은 감지되었으나, 아직 초기 사용자 설정(ID/PW 생성)이 완료되지 않았습니다."
+                Write-Warn "설정을 마친 후 다시 엔터를 눌러주세요."
+            }
+        } else {
+            Write-Warn "아직 Ubuntu 배포판이 등록되지 않았습니다."
+            Write-Warn "설치 창에서 다운로드 및 설치가 완료될 때까지 기다린 후 계정을 생성해 주세요."
+        }
+        
+        $loopCount++
+        # 혹시 너무 오랫동안 감지가 안 될 경우를 대비해 배포판 수동 실행 안내 혹은 자동 재실행 시도
+        if ($loopCount -gt 0 -and -not $isUserConfigured -and -not [string]::IsNullOrEmpty($distroId)) {
+            Write-Info "배포판($distroId) 창이 닫혀있다면 백그라운드/수동 실행을 재시도합니다..."
+            try { Start-Process wsl.exe -ArgumentList "-d $distroId" -ErrorAction SilentlyContinue } catch {}
+        }
+    }
 }
 
 # --------------------------------------------------------------------------
@@ -189,14 +264,15 @@ Write-Info "설치 경로: $wslInstallPath"
 Write-Info "Ubuntu($distroId)를 '$wslName'으로 마이그레이션(Export/Import)합니다..."
 
 # 1. 사용자 계정명 확인
-Write-Info "설정된 사용자 계정 정보를 읽어오는 중..."
-$createdUsername = ""
-try {
-    $whoamiResult = wsl -d $distroId -e whoami 2>$null
-    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($whoamiResult)) {
-        $createdUsername = $whoamiResult.Trim()
-    }
-} catch {}
+if ([string]::IsNullOrEmpty($createdUsername)) {
+    Write-Info "설정된 사용자 계정 정보를 읽어오는 중..."
+    try {
+        $whoamiResult = wsl -d $distroId -e whoami 2>$null
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($whoamiResult)) {
+            $createdUsername = $whoamiResult.Trim()
+        }
+    } catch {}
+}
 
 if ([string]::IsNullOrEmpty($createdUsername) -or $createdUsername -match "error" -or $createdUsername -match "실패" -or $createdUsername -match "Wsl/Service") {
     $createdUsername = "ubuntu"
