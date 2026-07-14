@@ -262,8 +262,7 @@ Write-Host ""
 #         Windows(winghostty) 에서는 wsl.exe 로 WSL 배포판을 직접 실행해야 합니다.
 # ─ 공유 설정(폰트/테마 등)은 config-file 로 포함하되,
 #   마지막에 Windows 전용 command 를 덮어씁니다.
-$repoRoot = (Get-Item "$PSScriptRoot\..\..\..").FullName
-$repoRootForGhostty = $repoRoot -replace '\\', '/'
+$ghosttyConfigPathForGhostty = "$WslGhosttyConfig\config.ghostty" -replace '\\', '/'
 $winConfigContent = @"
 # ====================================================
 # Windows (Winghostty) 전용 설정
@@ -272,7 +271,7 @@ $winConfigContent = @"
 # ====================================================
 
 # 공유 설정 포함 (폰트/테마/단축키 등)
-config-file = "$repoRootForGhostty/.config/ghostty/config.ghostty"
+config-file = "$ghosttyConfigPathForGhostty"
 
 # Windows 전용 덮어쓰기: WSL2 $WslDistro 배포판을 기본 셸로 사용
 command = wsl.exe -d $WslDistro
