@@ -141,31 +141,24 @@ if (-not $isBaseRegistered) {
     }
 
     Write-Info "선택된 배포판: $distroId"
-    Write-Info "'$distroId' 배포판 설치를 시작합니다..."
     Write-Warn "설치 중 또는 완료 후 새 창이 열리며 Ubuntu 초기 사용자 설정(Username/Password)이 진행됩니다."
     Write-Host ""
 
-    # 설치 시도
-    wsl --install -d $distroId --web-download
-    $exitCode = $LASTEXITCODE
-
-    # 에러 코드에 따라 일반 설치 시도 (이미 등록된 오류 등을 제외한 실제 실패 시에만 실행)
-    if ($exitCode -ne 0 -and $exitCode -ne 2147024894 -and $exitCode -ne 2147942420) {
-        Write-Warn "--web-download 실패 또는 건너뜀. 일반 설치 모드로 재시도합니다..."
-        wsl --install -d $distroId
-    }
-
-    Write-Host ""
     Write-Warn "---------------------------------------------------------------------------"
     Write-Warn " [설치 시작 완료 - 다음 조치 가이드]"
-    Write-Warn " 1. 새로 열린 리눅스(Ubuntu) 창에서 사용자 계정명(Username)과 비밀번호를 설정해 주세요."
+    Write-Warn " 1. 잠시 후 새로운 창이 열리며 Ubuntu 배포판 다운로드 및 설치가 진행됩니다."
+    Write-Warn " 2. 설치가 끝나면 자동으로 열리는 리눅스(Ubuntu) 창에서 사용자 계정명(Username)과 비밀번호를 설정해 주세요."
     Write-Warn "    (만약 창이 자동으로 열리지 않는다면, 시작 메뉴에서 Ubuntu를 실행하시거나"
     Write-Warn "     윈도우 기능 활성화를 위해 컴퓨터를 재부팅해 주시기 바랍니다.)"
-    Write-Warn " 2. 계정 생성이 완료되면 해당 리눅스 창을 닫아주세요."
-    Write-Warn " 3. 그 후, 처음에 실행했던 설치 명령어(마스터 스크립트)를 다시 실행해 주시면"
+    Write-Warn " 3. 계정 생성이 완료되면 해당 리눅스 창을 닫아주세요."
+    Write-Warn " 4. 그 후, 처음에 실행했던 설치 명령어(마스터 스크립트)를 다시 실행해 주시면"
     Write-Warn "    devtools2로의 마이그레이션 및 개발도구 빌드가 자동으로 이어서 진행됩니다."
     Write-Warn "---------------------------------------------------------------------------"
     Write-Host ""
+
+    # 설치를 백그라운드 프로세스로 실행하여 메인 터미널이 즉시 종료되도록 함 (동기 대기 방지)
+    Start-Process wsl.exe -ArgumentList "--install -d $distroId --web-download"
+    
     Pause-Script
     exit 3010
 }

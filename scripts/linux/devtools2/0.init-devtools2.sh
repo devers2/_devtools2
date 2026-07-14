@@ -23,6 +23,12 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# 0) 시스템 필수 패키지 설치 (unzip, tar, curl, wget, rsync, python3-pip 등)
+echo "[작업] 시스템 필수 패키지 설치 중 (unzip, tar, curl, wget, rsync, python3-pip)..."
+apt-get update -qq
+apt-get install -y -qq unzip tar curl wget rsync python3-pip
+echo "  ✅ 필수 패키지 설치 완료!"
+
 # 스크립트를 실제 호출한 사용자(관리자가 sudo로 실행한 경우 SUDO_USER를 우선 사용)
 INVOKER="${SUDO_USER:-${USER:-root}}"
 INVOKER_HOME=$(getent passwd "$INVOKER" | cut -d: -f6)
