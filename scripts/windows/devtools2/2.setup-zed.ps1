@@ -73,11 +73,21 @@ function New-SafeFileSymlink {
         New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
     }
 
-    if (Test-Path $LinkPath) {
+    if (Test-Path $LinkPath -PathType Any) {
         $item = Get-Item $LinkPath -Force
         if ($item.LinkType -eq "SymbolicLink") {
-            Write-Skip "'$(Split-Path $LinkPath -Leaf)' 는 이미 심볼릭 링크입니다."
-            return
+            $currentTarget = $item.Target
+            if ($currentTarget -eq $TargetPath) {
+                Write-Skip "'$(Split-Path $LinkPath -Leaf)' 심볼릭 링크가 이미 올바릅니다."
+                return
+            }
+            else {
+                # 대상 경로가 다르면 삭제 후 재생성
+                Write-Host "  [재생성] 심볼릭 링크 대상이 다릅니다. 삭제 후 재생성합니다..." -ForegroundColor Yellow
+                Write-Host "    기존: $currentTarget" -ForegroundColor DarkGray
+                Write-Host "    신규: $TargetPath" -ForegroundColor DarkGray
+                Remove-Item $LinkPath -Force
+            }
         }
         else {
             # 기존 파일을 .bak 으로 백업
@@ -90,7 +100,7 @@ function New-SafeFileSymlink {
     # WSL2 경로 접근 가능 여부 확인
     if (-not (Test-Path $TargetPath)) {
         Write-Fail "WSL2 소스 파일을 찾을 수 없습니다: $TargetPath"
-        Write-Host "  WSL2 에서 먼저 1.setup-dev-env.sh 를 실행해주세요." -ForegroundColor Yellow
+        Write-Host "  WSL2 에서 먼저 setup-devtools2-wsl.ps1 를 실행해주세요." -ForegroundColor Yellow
         return
     }
 
@@ -297,4 +307,4 @@ Write-Host "  Zed 를 재시작하면 설정이 적용됩니다." -ForegroundCol
 Write-Host "===========================================================================" -ForegroundColor Magenta
 Write-Host ""
 
-Read-Host "계속하려면 엔터를 누르세요"
+
