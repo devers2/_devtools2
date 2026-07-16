@@ -68,14 +68,24 @@ function New-SafeSymlink {
         $item = Get-Item $LinkPath -Force
         if ($item.LinkType -eq "SymbolicLink") {
             $currentTarget = $item.Target
-            if ($currentTarget -eq $TargetPath) {
+            # UNC\ 로 시작하는 경로를 \\ 형식으로 정규화하여 대조
+            $normalizedCurrent = $currentTarget
+            if ($normalizedCurrent -like "UNC\*") {
+                $normalizedCurrent = "\\" + $normalizedCurrent.Substring(4)
+            }
+            $normalizedTarget = $TargetPath
+            if ($normalizedTarget -like "UNC\*") {
+                $normalizedTarget = "\\" + $normalizedTarget.Substring(4)
+            }
+
+            if ($normalizedCurrent.Replace("/", "\").TrimEnd("\") -eq $normalizedTarget.Replace("/", "\").TrimEnd("\")) {
                 Write-Skip "'$(Split-Path $LinkPath -Leaf)' 심볼릭 링크가 이미 올바릅니다."
                 return
             }
             else {
                 # 기존 파일/폴더를 .bak 으로 백업
                 $backupPath = "$LinkPath.bak"
-                Write-Host "  [백업] 기존 '$LinkPath' -> '$backupPath'" -ForegroundColor Yellow
+                Write-Host "  [백업] 기존 '$LinkPath' -> '$backupPath' (대상 불일치: '$normalizedCurrent' != '$normalizedTarget')" -ForegroundColor Yellow
                 Move-Item -Path $LinkPath -Destination $backupPath -Force
             }
         }
@@ -99,15 +109,13 @@ function Wait-ProcessWithSpinner {
 
     $spinChars = @('|', '/', '-', '~')
     $spinIdx = 0
-    Write-Host "  $Message " -NoNewline -ForegroundColor Cyan
     while (-not $Process.HasExited) {
         $char = $spinChars[$spinIdx]
-        Write-Host -NoNewline "`b$char"
+        Write-Host -NoNewline "`r  [$char] $Message...                               " -ForegroundColor Cyan
         $spinIdx = ($spinIdx + 1) % $spinChars.Count
         Start-Sleep -Milliseconds 200
     }
-    # 백스페이스로 스피너 문자를 지우고 완료 출력
-    Write-Host -NoNewline "`b`b => 완료!`n" -ForegroundColor Green
+    Write-Host "`r  [완료] $Message 완료!                               " -ForegroundColor Green
 }
 
 # ==============================================================================
@@ -282,43 +290,63 @@ $fontNames = @(
     "JetBrainsMonoNerdFontMono-BoldItalic.ttf"
 )
 
-# 1) 기본: WSL2 내부 경로에 폰트가 있는지 검사
-$hasWslFonts = $false
-if (Test-Path $WslFontsDir) {
-    $wslFontFiles = Get-ChildItem -Path $WslFontsDir -Include "*.ttf", "*.ttc", "*.otf" -File -ErrorAction SilentlyContinue
-    if ($wslFontFiles.Count -gt 0) {
-        $hasWslFonts = $true
-        Write-Host "  WSL2 내부 경로에서 폰트 파일을 찾았습니다: $WslFontsDir" -ForegroundColor White
-        
-        foreach ($fontFile in $wslFontFiles) {
-            $destPath = "$UserFontsDir\$($fontFile.Name)"
-            if (Test-Path $destPath) {
-                Write-Skip "폰트 이미 설치됨: $($fontFile.Name)"
-            } else {
+# 1) WSL 명령어로 폰트 존재 여부를 직접 확인 (UNC 경로는 WSL 심볼릭 링크를 못 따라가므로)
+$wslFontCount = 0
+try {
+    $wslFontCount = [int](wsl -d $WslDistro -- bash -c "ls /var/opt/_devtools2/assets/fonts/*.ttf /var/opt/_devtools2/assets/fonts/*.ttc 2>/dev/null | wc -l")
+} catch {}
+
+$hasWslFonts = ($wslFontCount -gt 0)
+
+if ($hasWslFonts) {
+    Write-Host "  WSL2 내부 경로에서 폰트 파일을 찾았습니다. ($wslFontCount 개)" -ForegroundColor White
+
+    # WSL에서 Windows 임시 폴더로 폰트 복사
+    $tempFontDir = Join-Path $env:TEMP "devtools2_wsl_fonts"
+    if (-not (Test-Path $tempFontDir)) {
+        New-Item -ItemType Directory -Path $tempFontDir -Force | Out-Null
+    }
+
+    foreach ($fontName in $fontNames) {
+        $destPath = "$UserFontsDir\$fontName"
+        if (Test-Path $destPath) {
+            Write-Skip "폰트 이미 설치됨: $fontName"
+        } else {
+            $wslFontPath = "/var/opt/_devtools2/assets/fonts/$fontName"
+            # Windows 경로를 WSL 경로로 변환하여 cp 명령 실행
+            $winTempPath = $tempFontDir.Replace("\", "/").Replace("C:", "/mnt/c").Replace("c:", "/mnt/c")
+            wsl -d $WslDistro -- bash -c "[ -f '$wslFontPath' ] && cp '$wslFontPath' '$winTempPath/$fontName'" 2>$null
+
+            $copiedFile = Join-Path $tempFontDir $fontName
+            if (Test-Path $copiedFile) {
                 try {
-                    Copy-Item -Path $fontFile.FullName -Destination $destPath -Force
-                    $regName = [System.IO.Path]::GetFileNameWithoutExtension($fontFile.Name) + ' (TrueType)'
+                    Copy-Item -Path $copiedFile -Destination $destPath -Force
+                    $regName = [System.IO.Path]::GetFileNameWithoutExtension($fontName) + ' (TrueType)'
                     Set-ItemProperty -Path $FontRegPath -Name $regName -Value $destPath -Force
-                    Write-Success "폰트 설치: $($fontFile.Name)"
+                    Write-Success "폰트 설치: $fontName"
                 } catch {
-                    Write-Host "  [경고] 폰트 설치 실패: $($fontFile.Name) - $_" -ForegroundColor Yellow
+                    Write-Host "  [경고] 폰트 설치 실패: $fontName - $_" -ForegroundColor Yellow
                 }
             }
         }
     }
+
+    if (Test-Path $tempFontDir) {
+        Remove-Item -Path $tempFontDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
-# 2) 예외 처리 및 폴백: WSL2 내부 경로에 없으면 GitHub 원격에서 다운로드하여 설치
+# 2) WSL2에도 없으면 GitHub 원격에서 다운로드
 if (-not $hasWslFonts) {
-    Write-Host "  WSL2 내부에 폰트가 없거나 접근할 수 없습니다. GitHub 원격 저장소에서 폰트를 직접 다운로드합니다..." -ForegroundColor Yellow
-    
+    Write-Host "  WSL2 내부에 폰트가 없습니다. GitHub 원격 저장소에서 직접 다운로드합니다..." -ForegroundColor Yellow
+
     $tempDownloadDir = Join-Path $env:TEMP "devtools2_fonts_tmp"
     if (-not (Test-Path $tempDownloadDir)) {
         New-Item -ItemType Directory -Path $tempDownloadDir -Force | Out-Null
     }
-    
+
     $gitHubFontBaseUrl = "https://raw.githubusercontent.com/devers2/_devtools2/main/assets/fonts"
-    
+
     foreach ($fontName in $fontNames) {
         $destPath = "$UserFontsDir\$fontName"
         if (Test-Path $destPath) {
@@ -326,11 +354,9 @@ if (-not $hasWslFonts) {
         } else {
             $tempFile = Join-Path $tempDownloadDir $fontName
             $url = "$gitHubFontBaseUrl/$fontName"
-            
             try {
                 Write-Host "  다운로드 중: $fontName..." -ForegroundColor White
                 Invoke-RestMethod -Uri $url -OutFile $tempFile -ErrorAction Stop
-                
                 Copy-Item -Path $tempFile -Destination $destPath -Force
                 $regName = [System.IO.Path]::GetFileNameWithoutExtension($fontName) + ' (TrueType)'
                 Set-ItemProperty -Path $FontRegPath -Name $regName -Value $destPath -Force
@@ -340,8 +366,7 @@ if (-not $hasWslFonts) {
             }
         }
     }
-    
-    # 임시 디렉토리 청소
+
     if (Test-Path $tempDownloadDir) {
         Remove-Item -Path $tempDownloadDir -Recurse -Force -ErrorAction SilentlyContinue
     }

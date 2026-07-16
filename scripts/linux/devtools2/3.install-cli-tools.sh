@@ -160,7 +160,7 @@ cd "$HEREROCKS_DIR"
 export PATH="$HOME/.local/bin:$PATH"
 
 echo -n "   ⚙️ hererocks 구성 중 (Lua 5.1 / Luarocks 최신)..."
-hererocks . -l 5.1 -r latest -q &
+hererocks . -l 5.1 -r latest &
 show_spinner $!
 echo " 완료"
 echo "✅ hererocks / Lua 환경 구성 완료"

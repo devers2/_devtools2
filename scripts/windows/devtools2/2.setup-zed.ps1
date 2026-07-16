@@ -77,15 +77,25 @@ function New-SafeFileSymlink {
         $item = Get-Item $LinkPath -Force
         if ($item.LinkType -eq "SymbolicLink") {
             $currentTarget = $item.Target
-            if ($currentTarget -eq $TargetPath) {
+            # UNC\ 로 시작하는 경로를 \\ 형식으로 정규화하여 대조
+            $normalizedCurrent = $currentTarget
+            if ($normalizedCurrent -like "UNC\*") {
+                $normalizedCurrent = "\\" + $normalizedCurrent.Substring(4)
+            }
+            $normalizedTarget = $TargetPath
+            if ($normalizedTarget -like "UNC\*") {
+                $normalizedTarget = "\\" + $normalizedTarget.Substring(4)
+            }
+
+            if ($normalizedCurrent.Replace("/", "\").TrimEnd("\") -eq $normalizedTarget.Replace("/", "\").TrimEnd("\")) {
                 Write-Skip "'$(Split-Path $LinkPath -Leaf)' 심볼릭 링크가 이미 올바릅니다."
                 return
             }
             else {
                 # 대상 경로가 다르면 삭제 후 재생성
                 Write-Host "  [재생성] 심볼릭 링크 대상이 다릅니다. 삭제 후 재생성합니다..." -ForegroundColor Yellow
-                Write-Host "    기존: $currentTarget" -ForegroundColor DarkGray
-                Write-Host "    신규: $TargetPath" -ForegroundColor DarkGray
+                Write-Host "    기존: $normalizedCurrent" -ForegroundColor DarkGray
+                Write-Host "    신규: $normalizedTarget" -ForegroundColor DarkGray
                 Remove-Item $LinkPath -Force
             }
         }
@@ -122,17 +132,15 @@ function Wait-ProcessWithSpinner {
         [string]$Message
     )
 
-    $spinChars = @('|', '/', '-', '\')
+    $spinChars = @('|', '/', '-', '~')
     $spinIdx = 0
-    Write-Host "  $Message " -NoNewline -ForegroundColor Cyan
     while (-not $Process.HasExited) {
         $char = $spinChars[$spinIdx]
-        Write-Host -NoNewline "`b$char"
+        Write-Host -NoNewline "`r  [$char] $Message...                               " -ForegroundColor Cyan
         $spinIdx = ($spinIdx + 1) % $spinChars.Count
         Start-Sleep -Milliseconds 200
     }
-    # 백스페이스로 스피너 문자를 지우고 완료 출력
-    Write-Host -NoNewline "`b`b => 완료!`n" -ForegroundColor Green
+    Write-Host "`r  [완료] $Message 완료!                               " -ForegroundColor Green
 }
 
 # ==============================================================================
