@@ -1,4 +1,3 @@
-
 # ==============================================================================
 # DevTools2 Windows/WSL2 통합 자동 설치 마스터 스크립트 (setup-devtools2-wsl.ps1)
 #
@@ -191,8 +190,9 @@ while ($retryCount -lt $maxRetry) {
         if ($checkProc.HasExited) { break }
     }
     
-    if ($checkProc.HasExited -and $checkProc.ExitCode -eq 0) {
+    if ($checkProc.HasExited) {
         $testResult = Get-Content "$env:TEMP\wsl_ready_check.txt" -Raw 2>$null
+        # ready 문자열이 포함되어 있으면 통과 (경고 메세지와 섞여 있어도 검출 가능)
         if ($testResult -match "ready") {
             $distroReady = $true
             Write-Host "`r  [완료] WSL2 배포판 접근 확인 완료: $wslDistro" -ForegroundColor Green
