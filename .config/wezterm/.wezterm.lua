@@ -51,6 +51,14 @@ local memory_state = {
 
 -- PATH에서 실행 파일 경로를 찾는 함수
 local function find_executable(cmd)
+  -- WezTerm 내장 API 우선 사용 (윈도우에서 exe 파일 권한 거부 없이 확실하게 감지)
+  if wezterm.executable_find then
+    local found = wezterm.executable_find(cmd)
+    if found then
+      return found
+    end
+  end
+
   -- PATH 환경 변수 가져오기
   local path = os.getenv('PATH') or ''
 
