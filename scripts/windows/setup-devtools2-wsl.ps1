@@ -275,7 +275,7 @@ $plainPassword = $null
 
 # cat 파이프 방식으로 sudo -S에 비밀번호를 안전하게 전달
 # 스크립트의 실행 결과 코드를 확보하고 임시 파일 삭제 후 최종 종료 코드를 마스터로 전달
-wsl -d $wslDistro -- bash -c "cat /tmp/.wsl_pw_tmp | sudo -S bash /tmp/0.init-devtools2.sh; EXIT_CODE=\$?; rm -f /tmp/.wsl_pw_tmp; exit \$EXIT_CODE"
+wsl -d $wslDistro -- bash -c "cat /tmp/.wsl_pw_tmp | sudo -S bash /tmp/0.init-devtools2.sh; RC=`$?; rm -f /tmp/.wsl_pw_tmp; exit `$RC"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Fail "WSL2 내부 초기화 스크립트 실행 중 에러가 발생했습니다."
