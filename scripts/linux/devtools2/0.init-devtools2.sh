@@ -141,6 +141,13 @@ find "$DEVTOOLS2" -type d -exec chmod 2775 {} +
 # 파일: 읽기 권한을 모두에게 부여하고, 소유자/그룹에 쓰기 권한을 추가하여 실행 비트 보존
 find "$DEVTOOLS2" -type f -exec chmod a+r,u+w,g+w {} +
 
+# 4-1) 사용자에게 passwordless sudo 권한을 부여하여 후속 패키지 설치 단계에서 암호 입력을 생략함
+if [ "$INVOKER" != "root" ]; then
+    echo "[작업] 사용자 '$INVOKER'에게 passwordless sudo 설정을 부여합니다..."
+    echo "$INVOKER ALL=(ALL) NOPASSWD: ALL" > "/etc/sudoers.d/$INVOKER"
+    chmod 0440 "/etc/sudoers.d/$INVOKER"
+fi
+
 # DEVTOOLS2와 DEVTOOLS2_GROUP은 이 스크립트 실행 시 고정(할당)되어 스크립트 내에서 사용됩니다.
 # 시스템 전역으로 영구 등록하지는 않습니다. 각 사용자 세션에 환경변수를 영구히 추가하려면
 # add-devtools2-user.sh를 사용하여 해당 사용자의 쉘 초기화 파일을 업데이트하세요.

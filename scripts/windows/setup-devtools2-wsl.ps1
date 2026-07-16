@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # DevTools2 Windows/WSL2 통합 자동 설치 마스터 스크립트 (setup-devtools2-wsl.ps1)
 #
 # 주요 기능:
@@ -58,6 +58,36 @@ function Write-Fail {
 function Pause-Script {
     Write-Host ""
     Read-Host "계속하려면 엔터를 누르세요"
+}
+
+# 단순 프로세스/조건 대기형 스피너 헬퍼
+function Wait-WithSpinner {
+    param(
+        [string]$Message,
+        [scriptblock]$Condition,
+        [int]$MaxTimeoutSeconds = 600
+    )
+    $spinner = @('|', '/', '-', '+')
+    $i = 0
+    $startTime = Get-Date
+    while ($true) {
+        $elapsed = (Get-Date) - $startTime
+        if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
+            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)                   " -ForegroundColor Red
+            return $false
+        }
+        
+        $success = & $Condition
+        if ($success) {
+            Write-Host "`r  [완료] $Message 완료!                               " -ForegroundColor Green
+            return $true
+        }
+        
+        $char = $spinner[$i % 4]
+        Write-Host -NoNewline "`r  [$char] $Message..."
+        Start-Sleep -Milliseconds 250
+        $i++
+    }
 }
 
 # ==============================================================================
@@ -158,24 +188,54 @@ Write-Info "WSL2 배포판($wslDistro) 접근 가능 여부 확인 중..."
 $maxRetry = 15
 $retryCount = 0
 $distroReady = $false
+$spinner = @('|', '/', '-', '+')
+$sIdx = 0
 
 while ($retryCount -lt $maxRetry) {
-    $testResult = wsl -d $wslDistro -- echo "ready" 2>$null
-    if ($testResult -match "ready") {
-        $distroReady = $true
-        Write-Success "WSL2 배포판 접근 확인 완료: $wslDistro"
-        break
+    # WSL ready 확인을 백그라운드로 띄워 스피너 표시
+    $checkProc = Start-Process wsl.exe -ArgumentList "-d $wslDistro -- echo ready" -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wsl_ready_check.txt" -ErrorAction SilentlyContinue
+    
+    # 2초 동안 스피너 회전 대기
+    for ($i = 0; $i -lt 8; $i++) {
+        $char = $spinner[$sIdx % 4]
+        Write-Host -NoNewline "`r  [$char] WSL2 배포판 준비 상태 조회 중..."
+        Start-Sleep -Milliseconds 250
+        $sIdx++
+        if ($checkProc.HasExited) { break }
     }
+    
+    if ($checkProc.HasExited -and $checkProc.ExitCode -eq 0) {
+        $testResult = Get-Content "$env:TEMP\wsl_ready_check.txt" -Raw 2>$null
+        if ($testResult -match "ready") {
+            $distroReady = $true
+            Write-Host "`r  [완료] WSL2 배포판 접근 확인 완료: $wslDistro" -ForegroundColor Green
+            Remove-Item "$env:TEMP\wsl_ready_check.txt" -Force -ErrorAction SilentlyContinue
+            break
+        }
+    }
+    Remove-Item "$env:TEMP\wsl_ready_check.txt" -Force -ErrorAction SilentlyContinue
 
     # --name 플래그가 일부 Windows 버전에서 무시될 수 있으므로
-    # 실제 등록된 배포판 이름과 비교하여 자동 보정
-    $actualDistros = (wsl --list --quiet 2>$null) -replace "`0", "" |
-        Where-Object { $_.Trim() -ne "" } |
-        ForEach-Object { $_.Trim() }
+    # 실제 등록된 배포판 이름과 비교하여 자동 보정 (스피너 대기 적용)
+    $actualDistros = @()
+    $listProc = Start-Process wsl.exe -ArgumentList "--list --quiet" -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wsl_list_check.txt" -ErrorAction SilentlyContinue
+    while (-not $listProc.HasExited) {
+        $char = $spinner[$sIdx % 4]
+        Write-Host -NoNewline "`r  [$char] 실제 배포판 이름 조회 중..."
+        Start-Sleep -Milliseconds 250
+        $sIdx++
+    }
+    if (Test-Path "$env:TEMP\wsl_list_check.txt") {
+        $actualDistros = (Get-Content "$env:TEMP\wsl_list_check.txt" -Raw) -replace "`0", "" -split "`r`n" |
+            Where-Object { $_.Trim() -ne "" } |
+            ForEach-Object { $_.Trim() }
+        Remove-Item "$env:TEMP\wsl_list_check.txt" -Force -ErrorAction SilentlyContinue
+    }
 
     if ($actualDistros -and $actualDistros.Count -gt 0) {
         $actualName = $actualDistros[0]
         if ($actualName -ne $wslDistro) {
+            Write-Host ""
             Write-Warn "배포판이 '$actualName' 이름으로 등록되었습니다. (요청한 이름: $wslDistro)"
             Write-Warn "메타데이터를 실제 이름으로 자동 보정합니다."
             $wslDistro = $actualName
@@ -210,6 +270,22 @@ if (-not $distroReady) {
 # ==============================================================================
 Write-Step "[Step 2] WSL2 내부 개발도구 디렉터리 및 권한 초기화"
 
+# WSL sudo 권한 획득을 위한 비밀번호 입력
+Write-Host ""
+Write-Host "===========================================================================" -ForegroundColor Yellow
+Write-Host " 📢 WSL2 sudo 관리자 권한 실행을 위한 비밀번호 입력" -ForegroundColor Yellow
+Write-Host "===========================================================================" -ForegroundColor Yellow
+Write-Host "  WSL2 내부의 시스템 패키지(apt) 및 개발 환경 설정을 위해"
+Write-Host "  Ubuntu 설치 시 생성했던 계정의 비밀번호 입력이 필요합니다."
+Write-Host "===========================================================================" -ForegroundColor Yellow
+Write-Host ""
+
+$wslPassword = Read-Host "비밀번호(password)" -AsSecureString
+$bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($wslPassword)
+$plainPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+[System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+Write-Host ""
+
 if ($isLocalMode) {
     $linuxInitScriptSource = Join-Path $BaseDir "..\linux\devtools2\0.init-devtools2.sh"
     if (-not (Test-Path $linuxInitScriptSource)) {
@@ -241,8 +317,9 @@ if ($isLocalMode) {
 }
 
 Write-Host ""
-# WSL2 대화형 셸을 통해 sudo 권한으로 init 스크립트 실행
-wsl -d $wslDistro -- bash -c "sudo bash /tmp/0.init-devtools2.sh"
+# WSL2 대화형 셸을 통해 sudo 권한으로 init 스크립트 실행 (입력받은 패스워드 주입)
+wsl -d $wslDistro -- bash -c "echo '$plainPassword' | sudo -S bash /tmp/0.init-devtools2.sh"
+$plainPassword = $null
 
 if ($LASTEXITCODE -ne 0) {
     Write-Fail "WSL2 내부 초기화 스크립트 실행 중 에러가 발생했습니다."

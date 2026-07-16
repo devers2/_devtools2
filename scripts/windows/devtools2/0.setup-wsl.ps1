@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # WSL2 설치 및 마이그레이션 스크립트 (0.setup-wsl.ps1)
 # ==============================================================================
 
@@ -42,6 +42,36 @@ function Pause-Script {
     Read-Host "계속하려면 엔터를 누르세요"
 }
 
+# 단순 프로세스/조건 대기형 스피너 헬퍼
+function Wait-WithSpinner {
+    param(
+        [string]$Message,
+        [scriptblock]$Condition,
+        [int]$MaxTimeoutSeconds = 600
+    )
+    $spinner = @('|', '/', '-', '+')
+    $i = 0
+    $startTime = Get-Date
+    while ($true) {
+        $elapsed = (Get-Date) - $startTime
+        if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
+            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)                   " -ForegroundColor Red
+            return $false
+        }
+        
+        $success = & $Condition
+        if ($success) {
+            Write-Host "`r  [완료] $Message 완료!                               " -ForegroundColor Green
+            return $true
+        }
+        
+        $char = $spinner[$i % 4]
+        Write-Host -NoNewline "`r  [$char] $Message..."
+        Start-Sleep -Milliseconds 250
+        $i++
+    }
+}
+
 # ==============================================================================
 # [Step 0] 관리자 권한 확인
 # ==============================================================================
@@ -71,10 +101,20 @@ $devtools2File = Join-Path $env:USERPROFILE ".devtools2"
 # ==============================================================================
 Write-Step "[Step 1] WSL2 가상 머신 상태 확인"
 
-# 현재 등록된 WSL 배포판 목록 가져오기
-$registeredDistros = (wsl --list --quiet 2>$null) -replace "`0", "" |
-    Where-Object { $_.Trim() -ne "" } |
-    ForEach-Object { $_.Trim() }
+# 현재 등록된 WSL 배포판 목록 가져오기 (시간 지연 대비 스피너 적용)
+$registeredDistros = @()
+$listProc = Start-Process wsl.exe -ArgumentList "--list --quiet" -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wsl_list_check.txt" -ErrorAction SilentlyContinue
+
+$waitSuccess = Wait-WithSpinner -Message "WSL2 가상 머신 상태 확인 중" -Condition {
+    return $listProc.HasExited
+}
+
+if (Test-Path "$env:TEMP\wsl_list_check.txt") {
+    $registeredDistros = (Get-Content "$env:TEMP\wsl_list_check.txt" -Raw) -replace "`0", "" -split "`r`n" |
+        Where-Object { $_.Trim() -ne "" } |
+        ForEach-Object { $_.Trim() }
+    Remove-Item "$env:TEMP\wsl_list_check.txt" -Force -ErrorAction SilentlyContinue
+}
 
 # 1. 'devtools2'가 이미 등록되어 있다면 설정 파일 복구 및 즉시 통과
 if ($registeredDistros -contains $wslName) {
@@ -283,9 +323,11 @@ Write-Success "생성된 사용자 계정 확인: $createdUsername"
 $tempTarPath = Join-Path $env:TEMP "wsl_temp_$($wslName).tar"
 
 # 3. 배포판 내보내기 (Export)
-Write-Info "배포판을 백업 파일($tempTarPath)로 내보내는 중..."
-wsl --export $distroId $tempTarPath
-if ($LASTEXITCODE -ne 0) {
+$exportProc = Start-Process wsl.exe -ArgumentList "--export $distroId `"$tempTarPath`"" -PassThru -NoNewWindow
+$exportSuccess = Wait-WithSpinner -Message "배포판 백업 파일 내보내는 중 ($distroId -> 임시 백업)" -Condition {
+    return $exportProc.HasExited
+}
+if ($exportProc.ExitCode -ne 0) {
     Write-Fail "배포판 내보내기(Export)에 실패했습니다."
     Pause-Script
     exit 1
@@ -301,9 +343,11 @@ if (-not (Test-Path $wslInstallPath)) {
 }
 
 # 6. 새로운 이름/경로로 가져오기 (Import)
-Write-Info "배포판을 '$wslName' 이름으로 $wslInstallPath 에 가져오는 중..."
-wsl --import $wslName $wslInstallPath $tempTarPath
-if ($LASTEXITCODE -ne 0) {
+$importProc = Start-Process wsl.exe -ArgumentList "--import $wslName `"$wslInstallPath`" `"$tempTarPath`"" -PassThru -NoNewWindow
+$importSuccess = Wait-WithSpinner -Message "배포판 가져오는 중 ($wslName -> $wslInstallPath)" -Condition {
+    return $importProc.HasExited
+}
+if ($importProc.ExitCode -ne 0) {
     Write-Fail "배포판 가져오기(Import)에 실패했습니다."
     if (Test-Path $tempTarPath) { Remove-Item $tempTarPath -Force }
     Pause-Script
