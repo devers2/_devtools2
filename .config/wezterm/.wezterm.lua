@@ -211,8 +211,12 @@ config.front_end = 'WebGpu' -- 그래픽 가속 활성화 (WebGpu / OpenGL / Sof
 -- config.window_decorations = "RESIZE" -- 타이틀을 숨기고 창 조절 가능: 나이틀리 버전에서 오류 발생하여 주석처리
 
 if is_windows then
-  -- Windows 에서 WSL2 devtools2 배포판을 기본 셸로 사용
-  config.default_prog = { 'wsl.exe', '-d', 'devtools2' }
+  -- Windows 에서 PowerShell 7 (pwsh)을 기본 셸로 사용 (없으면 powershell.exe 사용)
+  if command_exists('pwsh') then
+    config.default_prog = { 'pwsh.exe', '-NoLogo' }
+  else
+    config.default_prog = { 'powershell.exe', '-NoLogo' }
+  end
 
   -- PowerShell 7 폴더 색 보정 (선택적 적용 - API 지원 여부와 color_scheme 존재 여부 모두 확인)
   local ok, result = pcall(function()
