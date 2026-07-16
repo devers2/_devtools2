@@ -38,7 +38,7 @@ MODULES_DIR="$DEVTOOLS2/modules"
 
 # 경로 생성
 # 각 도구별로 독립된 폴더를 생성하여 관리를 용이하게 합니다.
-mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODULES_DIR/fd" "$MODULES_DIR/ast-grep"
+mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODULES_DIR/fd" "$MODULES_DIR/ast-grep" "$MODULES_DIR/bitwarden"
 
 show_spinner() {
     local pid=$1
@@ -121,9 +121,23 @@ fi
 show_spinner $!
 echo " 완료"
 
+# 6. Bitwarden CLI (bw) 설치
+# 안전한 서버 로그인 연동 및 패스워드 매니저 CLI
+echo -n "📦 Bitwarden CLI 설치 중..."
+if [ "$IS_ARM64" = true ]; then
+    # ARM64용은 최신 GitHub 클라이언트 릴리즈 주소를 직접 이용
+    URL="https://github.com/bitwarden/clients/releases/download/cli-v2024.4.1/bw-linux-2024.4.1.zip"
+else
+    # x86_64용 공식 다이렉트 다운로드 주소
+    URL="https://vault.bitwarden.com/download/?app=cli&platform=linux"
+fi
+(curl -sL "$URL" -o /tmp/bw.zip && unzip -qo /tmp/bw.zip -d "$MODULES_DIR/bitwarden" && rm -f /tmp/bw.zip) &
+show_spinner $!
+echo " 완료"
+
 # 실행 권한 부여 및 검증
 echo "🔐 실행 권한 부여 및 검증 중..."
-for cmd in "$MODULES_DIR/ripgrep/rg" "$MODULES_DIR/fd/fd" "$MODULES_DIR/fzf/fzf" "$MODULES_DIR/lazygit/lazygit" "$MODULES_DIR/ast-grep/sg"; do
+for cmd in "$MODULES_DIR/ripgrep/rg" "$MODULES_DIR/fd/fd" "$MODULES_DIR/fzf/fzf" "$MODULES_DIR/lazygit/lazygit" "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/bitwarden/bw"; do
     if [ -s "$cmd" ]; then
         chmod +x "$cmd"
     else

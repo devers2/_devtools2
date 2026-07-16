@@ -101,6 +101,7 @@ $DEVTOOLS2/modules/fd:\
 $DEVTOOLS2/modules/fzf:\
 $DEVTOOLS2/modules/lazygit:\
 $DEVTOOLS2/modules/ast-grep:\
+$DEVTOOLS2/modules/bitwarden:\
 $PATH"
 # === DEVTOOLS2 환경 변수 끝 ===
 
@@ -124,6 +125,7 @@ $DEVTOOLS2/modules/fd:\
 $DEVTOOLS2/modules/fzf:\
 $DEVTOOLS2/modules/lazygit:\
 $DEVTOOLS2/modules/ast-grep:\
+$DEVTOOLS2/modules/bitwarden:\
 $PATH"
 # === DEVTOOLS2 환경 변수 끝 ===
 
