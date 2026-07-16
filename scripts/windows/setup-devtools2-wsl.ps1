@@ -268,9 +268,13 @@ if ($isLocalMode) {
 
 Write-Host ""
 # WSL2 대화형 셸을 통해 sudo 권한으로 init 스크립트 실행 (입력받은 패스워드 주입)
-# WSL의 /tmp에 임시 파일로 비밀번호 전달 (싱글쿼트/특수문자 안전 처리)
+# WSL의 /tmp에 임시 파일로 비밀번호 전달
+# [중요] [System.Text.Encoding]::UTF8 은 BOM(EF BB BF)을 포함하므로 사용 금지
+#        반드시 UTF8Encoding(false) 로 BOM 없이 써야 sudo 인증이 정상 작동함
 $wslTmpForPw = "\\wsl.localhost\$wslDistro\tmp\.wsl_pw_tmp"
-[System.IO.File]::WriteAllText($wslTmpForPw, $plainPassword, [System.Text.Encoding]::UTF8)
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+# 비밀번호 뒤에 줄바꿈을 추가해야 sudo -S 가 안정적으로 읽음
+[System.IO.File]::WriteAllText($wslTmpForPw, ($plainPassword + "`n"), $utf8NoBom)
 $plainPassword = $null
 
 # cat 파이프 방식으로 sudo -S에 비밀번호를 안전하게 전달
