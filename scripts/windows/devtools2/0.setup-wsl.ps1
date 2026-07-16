@@ -117,7 +117,7 @@ if (Test-Path "$env:TEMP\wsl_list_check.txt") {
     Remove-Item "$env:TEMP\wsl_list_check.txt" -Force -ErrorAction SilentlyContinue
 }
 
-# 1. 'devtools2'가 이미 등록되어 있다면 설정 파일 복구 및 즉시 통과
+# 1. 'devtools2'가 이미 등록되어 있다면 즉시 통과
 if ($registeredDistros -contains $wslName) {
     Write-Success "기존에 설치된 WSL2 배포판 '$wslName'이 이미 존재하여 이를 그대로 사용합니다."
     Write-Warn "---------------------------------------------------------------------------"
@@ -129,25 +129,7 @@ if ($registeredDistros -contains $wslName) {
     Write-Warn "---------------------------------------------------------------------------"
     Write-Host ""
     
-    # 설정 파일이 없거나 내용이 다르면 생성/업데이트
-    if (-not (Test-Path $devtools2File)) {
-        Write-Info "설정 파일(.devtools2)을 작성/복구합니다..."
-        $hasDevDrive = Test-Path "Z:\"
-        $wslInstallPath = if ($hasDevDrive) { "Z:\WSL\$wslName" } else { Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName" }
-        
-        $fileContent = @"
-# DevTools2 WSL 설정 파일
-# 이 파일은 0.setup-wsl.ps1 에 의해 자동 생성됩니다.
-
-WSL_DISTRO=$wslName
-WSL_DISTRO_ID=Ubuntu
-WSL_INSTALL_PATH=$wslInstallPath
-CREATED_AT=$(Get-Date -Format "yyyy-MM-ddTHH:mm:ss")
-"@
-        $fileContent | Out-File -FilePath $devtools2File -Encoding UTF8 -Force
-    }
-    
-    Write-Success "환경 설정 복구 완료. 다음 단계로 진행합니다."
+    Write-Success "기존 배포판 사용 준비 완료. 다음 단계로 진행합니다."
     Pause-Script
     exit 0
 }
@@ -364,30 +346,8 @@ if (Test-Path $tempTarPath) {
 }
 
 # --------------------------------------------------------------------------
-# [Step 4] 설정 정보 저장 및 완료
+# [Step 4] 완료
 # --------------------------------------------------------------------------
-Write-Step "[Step 4] WSL 인스턴스 정보 저장 (~\.devtools2)"
-
-$fileContent = @"
-# DevTools2 WSL 설정 파일
-# 이 파일은 0.setup-wsl.ps1 에 의해 자동 생성됩니다.
-
-WSL_DISTRO=$wslName
-WSL_DISTRO_ID=$distroId
-WSL_INSTALL_PATH=$wslInstallPath
-CREATED_AT=$(Get-Date -Format "yyyy-MM-ddTHH:mm:ss")
-"@
-
-try {
-    $fileContent | Out-File -FilePath $devtools2File -Encoding UTF8 -Force
-    Write-Success "설정 파일 저장: $devtools2File"
-}
-catch {
-    Write-Fail "설정 파일 저장 실패: $($_.Exception.Message)"
-    Pause-Script
-    exit 1
-}
-
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor Magenta
 Write-Host "🎉 WSL2 설치 및 환경 설정 완료!" -ForegroundColor Green
@@ -395,7 +355,6 @@ Write-Host ""
 Write-Host "  설치된 배포판 : Ubuntu ($distroId)" -ForegroundColor White
 Write-Host "  인스턴스 이름 : $wslName" -ForegroundColor White
 Write-Host "  설치 경로     : $wslInstallPath" -ForegroundColor White
-Write-Host "  설정 파일     : $devtools2File" -ForegroundColor White
 Write-Host "===========================================================================" -ForegroundColor Magenta
 Write-Host ""
 

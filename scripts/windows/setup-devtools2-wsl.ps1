@@ -164,22 +164,8 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# 생성된 메타데이터 조회하여 배포판 이름(WSL_DISTRO) 파싱
-$devtools2File = Join-Path $env:USERPROFILE ".devtools2"
-if (-not (Test-Path $devtools2File)) {
-    Write-Fail "WSL2 설치 과정에서 메타데이터 파일이 생성되지 않았습니다."
-    Write-Fail "WSL 설치에 실패했거나 취소되었습니다. 마스터 설정을 중단합니다."
-    Pause-Script
-    exit 1
-}
-
-$savedDistro = Get-Content $devtools2File | Where-Object { $_ -match "^WSL_DISTRO=" } | Select-Object -First 1
-if (-not $savedDistro) {
-    Write-Fail ".devtools2 파일에서 WSL_DISTRO 정보를 읽을 수 없습니다."
-    Pause-Script
-    exit 1
-}
-$wslDistro = ($savedDistro -split "=", 2)[1].Trim()
+# 대상 WSL2 배포판 이름은 'devtools2'로 고정입니다.
+$wslDistro = "devtools2"
 Write-Info "대상 WSL2 배포판: $wslDistro"
 
 # ==============================================================================
@@ -215,43 +201,6 @@ while ($retryCount -lt $maxRetry) {
         }
     }
     Remove-Item "$env:TEMP\wsl_ready_check.txt" -Force -ErrorAction SilentlyContinue
-
-    # --name 플래그가 일부 Windows 버전에서 무시될 수 있으므로
-    # 실제 등록된 배포판 이름과 비교하여 자동 보정 (스피너 대기 적용)
-    $actualDistros = @()
-    $listProc = Start-Process wsl.exe -ArgumentList "--list --quiet" -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wsl_list_check.txt" -ErrorAction SilentlyContinue
-    while (-not $listProc.HasExited) {
-        $char = $spinner[$sIdx % 4]
-        Write-Host -NoNewline "`r  [$char] 실제 배포판 이름 조회 중..."
-        Start-Sleep -Milliseconds 250
-        $sIdx++
-    }
-    if (Test-Path "$env:TEMP\wsl_list_check.txt") {
-        $actualDistros = (Get-Content "$env:TEMP\wsl_list_check.txt" -Raw) -replace "`0", "" -split "`r`n" |
-            Where-Object { $_.Trim() -ne "" } |
-            ForEach-Object { $_.Trim() }
-        Remove-Item "$env:TEMP\wsl_list_check.txt" -Force -ErrorAction SilentlyContinue
-    }
-
-    if ($actualDistros -and $actualDistros.Count -gt 0) {
-        $actualName = $actualDistros[0]
-        if ($actualName -ne $wslDistro) {
-            Write-Host ""
-            Write-Warn "배포판이 '$actualName' 이름으로 등록되었습니다. (요청한 이름: $wslDistro)"
-            Write-Warn "메타데이터를 실제 이름으로 자동 보정합니다."
-            $wslDistro = $actualName
-            # .devtools2 메타데이터 파일도 실제 이름으로 업데이트
-            (Get-Content $devtools2File) -replace "^WSL_DISTRO=.*", "WSL_DISTRO=$wslDistro" |
-                Set-Content $devtools2File -Encoding UTF8
- 
-            $testResult = wsl -d $wslDistro -- echo "ready" 2>$null
-            if ($testResult -match "ready") {
-                $distroReady = $true
-                Write-Success "WSL2 배포판 접근 확인 완료 (보정된 이름): $wslDistro"
-                break
-            }
-        }
-    }
 
     $retryCount++
     Write-Info "  WSL2 배포판 준비 대기 중... ($retryCount/$maxRetry)"
