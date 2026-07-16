@@ -211,7 +211,8 @@ else {
     Write-Info "PowerShell 7 이 감지되지 않았습니다. winget 으로 설치를 진행합니다..."
     $p = Start-Process winget -ArgumentList "install --id Microsoft.PowerShell --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\pwsh_install.log" -RedirectStandardError "$env:TEMP\pwsh_install_err.log"
     Wait-ProcessWithSpinner -Process $p -Message "PowerShell 7 패키지 설치 진행 중"
-    if ($p.ExitCode -eq 0) {
+    # 0: 성공, 3010: 성공 (재부팅 필요)
+    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) {
         Write-Success "PowerShell 7 설치 완료"
     }
     else {

@@ -229,7 +229,7 @@ if is_windows then
     'C:/Program Files (x86)/PowerShell/7/pwsh.exe',
   }
   for _, p in ipairs(possible_paths) do
-    local found = wezterm.executable_find(p)
+    local found = find_executable(p)
     if found then
       pwsh_path = found
       break
