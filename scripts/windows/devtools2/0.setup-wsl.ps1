@@ -1,4 +1,4 @@
-# ==============================================================================
+ ==============================================================================
 # WSL2 설치 및 마이그레이션 스크립트 (0.setup-wsl.ps1)
 # ==============================================================================
 
@@ -322,16 +322,16 @@ Write-Success "생성된 사용자 계정 확인: $createdUsername"
 # 2. 임시 tar 백업 파일 생성
 $tempTarPath = Join-Path $env:TEMP "wsl_temp_$($wslName).tar"
 
-# 3. 배포판 내보내기 (Export)
-$exportProc = Start-Process wsl.exe -ArgumentList "--export $distroId `"$tempTarPath`"" -PassThru -NoNewWindow
-$exportSuccess = Wait-WithSpinner -Message "배포판 백업 파일 내보내는 중 ($distroId -> 임시 백업)" -Condition {
-    return $exportProc.HasExited
-}
-if ($exportProc.ExitCode -ne 0) {
-    Write-Fail "배포판 내보내기(Export)에 실패했습니다."
+# 3. 배포판 내보내기 (Export) - wsl.exe가 자체 진행률(MB)을 출력하므로 직접 실행
+Write-Info "배포판을 백업 파일로 내보내는 중... ($distroId -> $tempTarPath)"
+Write-Info "(몇 분 정도 소요될 수 있습니다)"
+wsl --export $distroId $tempTarPath
+if ($LASTEXITCODE -ne 0) {
+    Write-Fail "배포판 내보내기(Export)에 실패했습니다. (종료 코드: $LASTEXITCODE)"
     Pause-Script
     exit 1
 }
+Write-Success "배포판 내보내기 완료"
 
 # 4. 기존 임시 배포판 제거 (Unregister)
 Write-Info "임시 설치된 기본 배포판을 해제합니다..."
@@ -342,17 +342,17 @@ if (-not (Test-Path $wslInstallPath)) {
     New-Item -ItemType Directory -Path $wslInstallPath -Force | Out-Null
 }
 
-# 6. 새로운 이름/경로로 가져오기 (Import)
-$importProc = Start-Process wsl.exe -ArgumentList "--import $wslName `"$wslInstallPath`" `"$tempTarPath`"" -PassThru -NoNewWindow
-$importSuccess = Wait-WithSpinner -Message "배포판 가져오는 중 ($wslName -> $wslInstallPath)" -Condition {
-    return $importProc.HasExited
-}
-if ($importProc.ExitCode -ne 0) {
-    Write-Fail "배포판 가져오기(Import)에 실패했습니다."
+# 6. 새로운 이름/경로로 가져오기 (Import) - 마찬가지로 직접 실행
+Write-Info "배포판을 '$wslName' 이름으로 가져오는 중... ($wslInstallPath)"
+Write-Info "(몇 분 정도 소요될 수 있습니다)"
+wsl --import $wslName $wslInstallPath $tempTarPath
+if ($LASTEXITCODE -ne 0) {
+    Write-Fail "배포판 가져오기(Import)에 실패했습니다. (종료 코드: $LASTEXITCODE)"
     if (Test-Path $tempTarPath) { Remove-Item $tempTarPath -Force }
     Pause-Script
     exit 1
 }
+Write-Success "배포판 가져오기 완료"
 
 # 7. 기본 로그인 사용자를 설정 (wsl.conf 수정)
 wsl -d $wslName -u root -e bash -c "echo -e '[user]\ndefault=$createdUsername' > /etc/wsl.conf"

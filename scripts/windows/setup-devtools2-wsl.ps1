@@ -1,4 +1,4 @@
-# ==============================================================================
+ ==============================================================================
 # DevTools2 Windows/WSL2 통합 자동 설치 마스터 스크립트 (setup-devtools2-wsl.ps1)
 #
 # 주요 기능:
@@ -318,8 +318,11 @@ if ($isLocalMode) {
 
 Write-Host ""
 # WSL2 대화형 셸을 통해 sudo 권한으로 init 스크립트 실행 (입력받은 패스워드 주입)
-wsl -d $wslDistro -- bash -c "echo '$plainPassword' | sudo -S bash /tmp/0.init-devtools2.sh"
+# WSL의 /tmp에 임시 파일로 비밀번호 전달 (싱글쿼트/특수문자 안전 처리)
+$wslTmpForPw = "\\wsl.localhost\$wslDistro\tmp\.wsl_pw_tmp"
+[System.IO.File]::WriteAllText($wslTmpForPw, $plainPassword, [System.Text.Encoding]::UTF8)
 $plainPassword = $null
+wsl -d $wslDistro -- bash -c "sudo -S bash /tmp/0.init-devtools2.sh < /tmp/.wsl_pw_tmp; rm -f /tmp/.wsl_pw_tmp"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Fail "WSL2 내부 초기화 스크립트 실행 중 에러가 발생했습니다."
