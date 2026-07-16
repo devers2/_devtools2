@@ -97,7 +97,7 @@ function Wait-ProcessWithSpinner {
         [string]$Message
     )
 
-    $spinChars = @('|', '/', '-', '\')
+    $spinChars = @('|', '/', '-', '~')
     $spinIdx = 0
     Write-Host "  $Message " -NoNewline -ForegroundColor Cyan
     while (-not $Process.HasExited) {
@@ -185,7 +185,7 @@ Write-Step "[Step 2] PowerShell 7 설치 확인"
 # winget 소스 업데이트 (최초 실행 시 동의 질문으로 인한 무한 대기 멈춤 방지)
 try {
     Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
-    $pSrc = Start-Process winget -ArgumentList "source update --accept-source-agreements" -NoNewWindow -PassThru -ErrorAction SilentlyContinue
+    $pSrc = Start-Process winget -ArgumentList "source update" -NoNewWindow -PassThru -ErrorAction SilentlyContinue
     Wait-ProcessWithSpinner -Process $pSrc -Message "winget 소스 업데이트 중"
 } catch {}
 
@@ -263,35 +263,87 @@ else {
 # ==============================================================================
 Write-Step "[Step 4] 필수 폰트 설치"
 
-$WslFontsDir  = "$DevTools2Wsl\assets\fonts"
+$WslFontsDir = "$DevTools2Wsl\assets\fonts"
 $UserFontsDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
 $FontRegPath  = "HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
 
-if (-not (Test-Path $WslFontsDir)) {
-    Write-Warn "폰트 소스 경로를 찾을 수 없습니다: $WslFontsDir (건너뜀)"
-} else {
-    if (-not (Test-Path $UserFontsDir)) {
-        New-Item -ItemType Directory -Path $UserFontsDir -Force | Out-Null
-    }
-    if (-not (Test-Path $FontRegPath)) {
-        New-Item -Path $FontRegPath -Force | Out-Null
-    }
+if (-not (Test-Path $UserFontsDir)) {
+    New-Item -ItemType Directory -Path $UserFontsDir -Force | Out-Null
+}
+if (-not (Test-Path $FontRegPath)) {
+    New-Item -Path $FontRegPath -Force | Out-Null
+}
 
-    $fontFiles = Get-ChildItem -Path $WslFontsDir -Include "*.ttf", "*.ttc", "*.otf" -File -ErrorAction SilentlyContinue
-    foreach ($fontFile in $fontFiles) {
-        $destPath = "$UserFontsDir\$($fontFile.Name)"
-        if (Test-Path $destPath) {
-            Write-Skip "폰트 이미 설치됨: $($fontFile.Name)"
-        } else {
-            try {
-                Copy-Item -Path $fontFile.FullName -Destination $destPath -Force
-                $regName = [System.IO.Path]::GetFileNameWithoutExtension($fontFile.Name) + ' (TrueType)'
-                Set-ItemProperty -Path $FontRegPath -Name $regName -Value $destPath -Force
-                Write-Success "폰트 설치: $($fontFile.Name)"
-            } catch {
-                Write-Warn "폰트 설치 실패: $($fontFile.Name) - $_"
+$fontNames = @(
+    "D2Coding-Ver1.3.2-20180524-ligature.ttc",
+    "JetBrainsMonoNerdFontMono-Regular.ttf",
+    "JetBrainsMonoNerdFontMono-Bold.ttf",
+    "JetBrainsMonoNerdFontMono-Italic.ttf",
+    "JetBrainsMonoNerdFontMono-BoldItalic.ttf"
+)
+
+# 1) 기본: WSL2 내부 경로에 폰트가 있는지 검사
+$hasWslFonts = $false
+if (Test-Path $WslFontsDir) {
+    $wslFontFiles = Get-ChildItem -Path $WslFontsDir -Include "*.ttf", "*.ttc", "*.otf" -File -ErrorAction SilentlyContinue
+    if ($wslFontFiles.Count -gt 0) {
+        $hasWslFonts = $true
+        Write-Host "  WSL2 내부 경로에서 폰트 파일을 찾았습니다: $WslFontsDir" -ForegroundColor White
+        
+        foreach ($fontFile in $wslFontFiles) {
+            $destPath = "$UserFontsDir\$($fontFile.Name)"
+            if (Test-Path $destPath) {
+                Write-Skip "폰트 이미 설치됨: $($fontFile.Name)"
+            } else {
+                try {
+                    Copy-Item -Path $fontFile.FullName -Destination $destPath -Force
+                    $regName = [System.IO.Path]::GetFileNameWithoutExtension($fontFile.Name) + ' (TrueType)'
+                    Set-ItemProperty -Path $FontRegPath -Name $regName -Value $destPath -Force
+                    Write-Success "폰트 설치: $($fontFile.Name)"
+                } catch {
+                    Write-Host "  [경고] 폰트 설치 실패: $($fontFile.Name) - $_" -ForegroundColor Yellow
+                }
             }
         }
+    }
+}
+
+# 2) 예외 처리 및 폴백: WSL2 내부 경로에 없으면 GitHub 원격에서 다운로드하여 설치
+if (-not $hasWslFonts) {
+    Write-Host "  WSL2 내부에 폰트가 없거나 접근할 수 없습니다. GitHub 원격 저장소에서 폰트를 직접 다운로드합니다..." -ForegroundColor Yellow
+    
+    $tempDownloadDir = Join-Path $env:TEMP "devtools2_fonts_tmp"
+    if (-not (Test-Path $tempDownloadDir)) {
+        New-Item -ItemType Directory -Path $tempDownloadDir -Force | Out-Null
+    }
+    
+    $gitHubFontBaseUrl = "https://raw.githubusercontent.com/devers2/_devtools2/main/assets/fonts"
+    
+    foreach ($fontName in $fontNames) {
+        $destPath = "$UserFontsDir\$fontName"
+        if (Test-Path $destPath) {
+            Write-Skip "폰트 이미 설치됨: $fontName"
+        } else {
+            $tempFile = Join-Path $tempDownloadDir $fontName
+            $url = "$gitHubFontBaseUrl/$fontName"
+            
+            try {
+                Write-Host "  다운로드 중: $fontName..." -ForegroundColor White
+                Invoke-RestMethod -Uri $url -OutFile $tempFile -ErrorAction Stop
+                
+                Copy-Item -Path $tempFile -Destination $destPath -Force
+                $regName = [System.IO.Path]::GetFileNameWithoutExtension($fontName) + ' (TrueType)'
+                Set-ItemProperty -Path $FontRegPath -Name $regName -Value $destPath -Force
+                Write-Success "원격 다운로드 및 폰트 설치 완료: $fontName"
+            } catch {
+                Write-Host "  [경고] 원격 폰트 다운로드/설치 실패: $fontName - $_" -ForegroundColor Yellow
+            }
+        }
+    }
+    
+    # 임시 디렉토리 청소
+    if (Test-Path $tempDownloadDir) {
+        Remove-Item -Path $tempDownloadDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 

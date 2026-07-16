@@ -31,9 +31,26 @@ fi
 
 # 0) 시스템 필수 패키지 설치 (unzip, tar, curl, wget, rsync, python3-pip 등)
 echo "[작업] 시스템 필수 패키지 설치 중 (unzip, tar, curl, wget, rsync, python3-pip)..."
-apt-get update -qq
-apt-get install -y -qq unzip tar curl wget rsync python3-pip
-echo "  ✅ 필수 패키지 설치 완료!"
+(apt-get update -qq && apt-get install -y -qq unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1 &
+APT_PID=$!
+_spin_chars='/-\|'
+_spin_i=0
+while kill -0 "$APT_PID" 2>/dev/null; do
+    _c="${_spin_chars:$((_spin_i % 4)):1}"
+    printf "\r  [%s] apt 패키지 설치 진행 중..." "$_c"
+    sleep 0.3
+    _spin_i=$((_spin_i + 1))
+done
+wait "$APT_PID"
+APT_EXIT=$?
+printf "\r"
+if [ "$APT_EXIT" -ne 0 ]; then
+    echo "[오류] 패키지 설치에 실패했습니다. 로그:" >&2
+    cat /tmp/_apt_install.log >&2
+    exit 1
+fi
+rm -f /tmp/_apt_install.log
+echo "  [완료] 필수 패키지 설치 완료!"
 
 # 스크립트를 실제 호출한 사용자(관리자가 sudo로 실행한 경우 SUDO_USER를 우선 사용)
 INVOKER="${SUDO_USER:-${USER:-root}}"

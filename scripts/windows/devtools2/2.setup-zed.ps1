@@ -210,7 +210,7 @@ Write-Step "[Step 2] Zed 에디터 설치"
 # winget 소스 업데이트 (최초 실행 시 동의 질문으로 인한 무한 대기 멈춤 방지)
 try {
     Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
-    $pSrc = Start-Process winget -ArgumentList "source update --accept-source-agreements" -NoNewWindow -PassThru -ErrorAction SilentlyContinue
+    $pSrc = Start-Process winget -ArgumentList "source update" -NoNewWindow -PassThru -ErrorAction SilentlyContinue
     Wait-ProcessWithSpinner -Process $pSrc -Message "winget 소스 업데이트 중"
 } catch {}
 

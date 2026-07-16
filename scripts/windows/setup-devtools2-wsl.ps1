@@ -67,7 +67,7 @@ function Wait-WithSpinner {
         [scriptblock]$Condition,
         [int]$MaxTimeoutSeconds = 600
     )
-    $spinner = @('|', '/', '-', '+')
+    $spinner = @('|', '/', '-', '~')
     $i = 0
     $startTime = Get-Date
     while ($true) {
@@ -174,7 +174,7 @@ Write-Info "WSL2 배포판($wslDistro) 접근 가능 여부 확인 중..."
 $maxRetry = 15
 $retryCount = 0
 $distroReady = $false
-$spinner = @('|', '/', '-', '+')
+$spinner = @('|', '/', '-', '~')
 $sIdx = 0
 
 while ($retryCount -lt $maxRetry) {
