@@ -219,9 +219,25 @@ config.front_end = 'WebGpu' -- 그래픽 가속 활성화 (WebGpu / OpenGL / Sof
 -- config.window_decorations = "RESIZE" -- 타이틀을 숨기고 창 조절 가능: 나이틀리 버전에서 오류 발생하여 주석처리
 
 if is_windows then
-  -- Windows 에서 PowerShell 7 (pwsh)을 기본 셸로 사용 (없으면 powershell.exe 사용)
-  if command_exists('pwsh') then
-    config.default_prog = { 'pwsh.exe', '-NoLogo' }
+  -- Windows 에서 PowerShell 7 (pwsh)을 기본 셸로 사용 (MS Store 앱 실행 별칭 및 표준 설치 경로 직접 탐색)
+  local pwsh_path = nil
+  local possible_paths = {
+    'pwsh',
+    'pwsh.exe',
+    (home_dir:gsub('\\', '/')) .. '/AppData/Local/Microsoft/WindowsApps/pwsh.exe',
+    'C:/Program Files/PowerShell/7/pwsh.exe',
+    'C:/Program Files (x86)/PowerShell/7/pwsh.exe',
+  }
+  for _, p in ipairs(possible_paths) do
+    local found = wezterm.executable_find(p)
+    if found then
+      pwsh_path = found
+      break
+    end
+  end
+
+  if pwsh_path then
+    config.default_prog = { pwsh_path, '-NoLogo' }
   else
     config.default_prog = { 'powershell.exe', '-NoLogo' }
   end

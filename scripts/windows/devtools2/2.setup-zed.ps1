@@ -218,8 +218,9 @@ Write-Step "[Step 2] Zed 에디터 설치"
 # winget 소스 업데이트 (최초 실행 시 동의 질문으로 인한 무한 대기 멈춤 방지)
 try {
     Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
-    $pSrc = Start-Process winget -ArgumentList "source update" -NoNewWindow -PassThru -ErrorAction SilentlyContinue
+    $pSrc = Start-Process winget -ArgumentList "source update" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_source_update.log" -RedirectStandardError "$env:TEMP\zed_source_error.log" -ErrorAction SilentlyContinue
     Wait-ProcessWithSpinner -Process $pSrc -Message "winget 소스 업데이트 중"
+    Remove-Item "$env:TEMP\zed_source_update.log", "$env:TEMP\zed_source_error.log" -Force -ErrorAction SilentlyContinue
 } catch {}
 
 # Zed 윈도우 에디터 설치 (다양한 패키지 ID 시도)
@@ -256,14 +257,16 @@ else {
     $zedIds = @("Zed.Zed", "Zed-Industries.Zed", "zed")
     $zedInstallSuccess = $false
     foreach ($zedId in $zedIds) {
-        $p = Start-Process winget -ArgumentList "install --id $zedId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+        $p = Start-Process winget -ArgumentList "install --id $zedId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_install.log" -RedirectStandardError "$env:TEMP\zed_install_err.log"
         Wait-ProcessWithSpinner -Process $p -Message "Zed 에디터 설치 진행 중 ($zedId)"
         # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
         if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
             Write-Success "Zed 에디터 설치/확인 완료 ($zedId)"
             $zedInstallSuccess = $true
+            Remove-Item "$env:TEMP\zed_install.log", "$env:TEMP\zed_install_err.log" -Force -ErrorAction SilentlyContinue
             break
         }
+        Remove-Item "$env:TEMP\zed_install.log", "$env:TEMP\zed_install_err.log" -Force -ErrorAction SilentlyContinue
     }
     if (-not $zedInstallSuccess) {
         Write-Warn "Zed winget 설치 실패. 수동 설치: https://zed.dev/download"

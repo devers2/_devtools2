@@ -193,12 +193,12 @@ Write-Step "[Step 2] PowerShell 7 설치 확인"
 # winget 소스 업데이트 (최초 실행 시 동의 질문으로 인한 무한 대기 멈춤 방지)
 try {
     Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
-    $pSrc = Start-Process winget -ArgumentList "source update" -NoNewWindow -PassThru -ErrorAction SilentlyContinue
+    $pSrc = Start-Process winget -ArgumentList "source update" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\winget_source_update.log" -RedirectStandardError "$env:TEMP\winget_source_error.log" -ErrorAction SilentlyContinue
     Wait-ProcessWithSpinner -Process $pSrc -Message "winget 소스 업데이트 중"
+    Remove-Item "$env:TEMP\winget_source_update.log", "$env:TEMP\winget_source_error.log" -Force -ErrorAction SilentlyContinue
 } catch {}
 
 $pwshInstalled = $false
-# Get-Command에 -ErrorAction SilentlyContinue를 주더라도 $null 리턴값을 정확하게 검사해야 함
 $pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
 if ($pwshCmd -ne $null) {
     $pwshInstalled = $true
@@ -209,15 +209,23 @@ if ($pwshInstalled) {
 }
 else {
     Write-Info "PowerShell 7 이 감지되지 않았습니다. winget 으로 설치를 진행합니다..."
-    $p = Start-Process winget -ArgumentList "install --id Microsoft.PowerShell --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+    $p = Start-Process winget -ArgumentList "install --id Microsoft.PowerShell --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\pwsh_install.log" -RedirectStandardError "$env:TEMP\pwsh_install_err.log"
     Wait-ProcessWithSpinner -Process $p -Message "PowerShell 7 패키지 설치 진행 중"
     if ($p.ExitCode -eq 0) {
         Write-Success "PowerShell 7 설치 완료"
     }
     else {
+        # 로그 파일 출력하여 사용자에게 힌트 제공
+        if (Test-Path "$env:TEMP\pwsh_install_err.log") {
+            $errContent = Get-Content "$env:TEMP\pwsh_install_err.log" -Raw
+            if (-not [string]::IsNullOrEmpty($errContent)) {
+                Write-Host "  [상세 에러] $errContent" -ForegroundColor Yellow
+            }
+        }
         Write-Fail "PowerShell 7 설치 실패 (종료 코드: $($p.ExitCode))"
         Write-Host "  수동 설치를 권장합니다: https://aka.ms/powershell-release" -ForegroundColor Yellow
     }
+    Remove-Item "$env:TEMP\pwsh_install.log", "$env:TEMP\pwsh_install_err.log" -Force -ErrorAction SilentlyContinue
 }
 
 # ==============================================================================
@@ -253,7 +261,7 @@ if ($weztermInstalled) {
 }
 else {
     Write-Host "  WezTerm 을 winget 으로 설치합니다..." -ForegroundColor White
-    $p = Start-Process winget -ArgumentList "install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+    $p = Start-Process winget -ArgumentList "install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\wezterm_install.log" -RedirectStandardError "$env:TEMP\wezterm_install_err.log"
     Wait-ProcessWithSpinner -Process $p -Message "WezTerm 패키지 설치 진행 중"
     # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
     if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
@@ -263,6 +271,7 @@ else {
         Write-Fail "WezTerm 설치 실패 (종료 코드: $($p.ExitCode))"
         Write-Host "  수동 설치: https://wezfurlong.org/wezterm/install/windows.html" -ForegroundColor Yellow
     }
+    Remove-Item "$env:TEMP\wezterm_install.log", "$env:TEMP\wezterm_install_err.log" -Force -ErrorAction SilentlyContinue
 }
 
 # ==============================================================================
