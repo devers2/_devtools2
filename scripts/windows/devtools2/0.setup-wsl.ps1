@@ -49,7 +49,7 @@ function Wait-WithSpinner {
         [scriptblock]$Condition,
         [int]$MaxTimeoutSeconds = 600
     )
-    $spinner = @('|', '/', '-', '~')
+    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
     $i = 0
     $startTime = Get-Date
     while ($true) {

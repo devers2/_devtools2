@@ -107,12 +107,12 @@ function Wait-ProcessWithSpinner {
         [string]$Message
     )
 
-    $spinChars = @('|', '/', '-', '~')
+    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
     $spinIdx = 0
     while (-not $Process.HasExited) {
-        $char = $spinChars[$spinIdx]
+        $char = $spinner[$spinIdx]
         Write-Host -NoNewline "`r  [$char] $Message...                               " -ForegroundColor Cyan
-        $spinIdx = ($spinIdx + 1) % $spinChars.Count
+        $spinIdx = ($spinIdx + 1) % $spinner.Count
         Start-Sleep -Milliseconds 200
     }
     Write-Host "`r  [완료] $Message 완료!                               " -ForegroundColor Green
