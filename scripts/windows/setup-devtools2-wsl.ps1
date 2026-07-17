@@ -85,7 +85,7 @@ function Wait-WithSpinner {
         
         $char = $spinner[$i % 4]
         Write-Host -NoNewline "`r  [$char] $Message..."
-        Start-Sleep -Milliseconds 250
+        Start-Sleep -Milliseconds 150
         $i++
     }
 }
@@ -185,7 +185,7 @@ while ($retryCount -lt $maxRetry) {
     for ($i = 0; $i -lt 8; $i++) {
         $char = $spinner[$sIdx % 4]
         Write-Host -NoNewline "`r  [$char] WSL2 배포판 준비 상태 조회 중..."
-        Start-Sleep -Milliseconds 250
+        Start-Sleep -Milliseconds 150
         $sIdx++
         if ($checkProc.HasExited) { break }
     }

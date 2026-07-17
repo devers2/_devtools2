@@ -138,7 +138,7 @@ function Wait-ProcessWithSpinner {
         $char = $spinner[$spinIdx]
         Write-Host -NoNewline "`r  [$char] $Message...                               " -ForegroundColor Cyan
         $spinIdx = ($spinIdx + 1) % $spinner.Count
-        Start-Sleep -Milliseconds 200
+        Start-Sleep -Milliseconds 150
     }
     Write-Host "`r  [완료] $Message 완료!                               " -ForegroundColor Green
 }

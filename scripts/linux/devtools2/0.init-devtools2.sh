@@ -38,7 +38,7 @@ _spin_len=${#_spinner[@]}
 _spin_i=0
 while kill -0 "$APT_PID" 2>/dev/null; do
     printf "\r  [%s] apt 패키지 설치 진행 중..." "${_spinner[_spin_i]}"
-    sleep 0.3
+    sleep 0.15
     _spin_i=$(( (_spin_i + 1) % _spin_len ))
 done
 wait "$APT_PID"

@@ -67,7 +67,7 @@ function Wait-WithSpinner {
         
         $char = $spinner[$i % 4]
         Write-Host -NoNewline "`r  [$char] $Message..."
-        Start-Sleep -Milliseconds 250
+        Start-Sleep -Milliseconds 150
         $i++
     }
 }
