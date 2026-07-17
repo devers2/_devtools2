@@ -200,8 +200,18 @@ try {
 
 $pwshInstalled = $false
 $pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
-if ($pwshCmd -ne $null) {
+if ($null -ne $pwshCmd) {
     $pwshInstalled = $true
+}
+# MS Store 앱 실행 별칭 경로도 확인
+if (-not $pwshInstalled) {
+    $msStorePwsh = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\pwsh.exe'
+    if (Test-Path $msStorePwsh) { $pwshInstalled = $true }
+}
+# 표준 설치 경로도 확인
+if (-not $pwshInstalled) {
+    $stdPwsh = 'C:\Program Files\PowerShell\7\pwsh.exe'
+    if (Test-Path $stdPwsh) { $pwshInstalled = $true }
 }
 
 if ($pwshInstalled) {
@@ -209,24 +219,25 @@ if ($pwshInstalled) {
 }
 else {
     Write-Info "PowerShell 7 이 감지되지 않았습니다. winget 으로 설치를 진행합니다..."
-    $p = Start-Process winget -ArgumentList "install --id Microsoft.PowerShell --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\pwsh_install.log" -RedirectStandardError "$env:TEMP\pwsh_install_err.log"
+    # -RedirectStandardOutput 없이 실행해야 winget 이 정확한 종료 코드를 반환합니다.
+    $p = Start-Process winget -ArgumentList "install --id Microsoft.PowerShell --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
     Wait-ProcessWithSpinner -Process $p -Message "PowerShell 7 패키지 설치 진행 중"
-    # 0: 성공, 3010: 성공 (재부팅 필요)
-    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) {
-        Write-Success "PowerShell 7 설치 완료"
+    # 0: 성공, 3010: 성공(재부팅 필요), -1978335189: 이미 최신버전, -1978335212: 업그레이드 불필요
+    $pwshSuccessCodes = @(0, 3010, -1978335189, -1978335212)
+    if ($pwshSuccessCodes -contains $p.ExitCode) {
+        Write-Success "PowerShell 7 설치/확인 완료 (종료 코드: $($p.ExitCode))"
     }
     else {
-        # 로그 파일 출력하여 사용자에게 힌트 제공
-        if (Test-Path "$env:TEMP\pwsh_install_err.log") {
-            $errContent = Get-Content "$env:TEMP\pwsh_install_err.log" -Raw
-            if (-not [string]::IsNullOrEmpty($errContent)) {
-                Write-Host "  [상세 에러] $errContent" -ForegroundColor Yellow
-            }
+        # 설치 후 실제로 pwsh.exe 가 있는지 재확인
+        $pwshNow = (Get-Command pwsh.exe -ErrorAction SilentlyContinue) -or (Test-Path 'C:\Program Files\PowerShell\7\pwsh.exe')
+        if ($pwshNow) {
+            Write-Success "PowerShell 7 설치 확인 완료 (종료 코드 $($p.ExitCode) 이지만 실제 설치됨)"
         }
-        Write-Fail "PowerShell 7 설치 실패 (종료 코드: $($p.ExitCode))"
-        Write-Host "  수동 설치를 권장합니다: https://aka.ms/powershell-release" -ForegroundColor Yellow
+        else {
+            Write-Fail "PowerShell 7 설치 실패 (종료 코드: $($p.ExitCode))"
+            Write-Host "  수동 설치를 권장합니다: https://aka.ms/powershell-release" -ForegroundColor Yellow
+        }
     }
-    Remove-Item "$env:TEMP\pwsh_install.log", "$env:TEMP\pwsh_install_err.log" -Force -ErrorAction SilentlyContinue
 }
 
 # ==============================================================================
@@ -262,17 +273,27 @@ if ($weztermInstalled) {
 }
 else {
     Write-Host "  WezTerm 을 winget 으로 설치합니다..." -ForegroundColor White
-    $p = Start-Process winget -ArgumentList "install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\wezterm_install.log" -RedirectStandardError "$env:TEMP\wezterm_install_err.log"
+    # -RedirectStandardOutput 없이 실행해야 winget 이 정확한 종료 코드를 반환합니다.
+    $p = Start-Process winget -ArgumentList "install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
     Wait-ProcessWithSpinner -Process $p -Message "WezTerm 패키지 설치 진행 중"
-    # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
-    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
-        Write-Success "WezTerm 설치/확인 완료"
+    # 0: 성공, 3010: 성공(재부팅 필요), -1978335189: 이미 최신버전, -1978335212: 업그레이드 불필요
+    $weztermSuccessCodes = @(0, 3010, -1978335189, -1978335212)
+    if ($weztermSuccessCodes -contains $p.ExitCode) {
+        Write-Success "WezTerm 설치/확인 완료 (종료 코드: $($p.ExitCode))"
     }
     else {
-        Write-Fail "WezTerm 설치 실패 (종료 코드: $($p.ExitCode))"
-        Write-Host "  수동 설치: https://wezfurlong.org/wezterm/install/windows.html" -ForegroundColor Yellow
+        # 설치 후 실제로 wezterm 이 있는지 재확인
+        $weztermNow = (Get-Command wezterm -ErrorAction SilentlyContinue) -or `
+                      (Test-Path "$env:ProgramFiles\WezTerm\wezterm.exe") -or `
+                      (Test-Path "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe")
+        if ($weztermNow) {
+            Write-Success "WezTerm 설치 확인 완료 (종료 코드 $($p.ExitCode) 이지만 실제 설치됨)"
+        }
+        else {
+            Write-Fail "WezTerm 설치 실패 (종료 코드: $($p.ExitCode))"
+            Write-Host "  수동 설치: https://wezfurlong.org/wezterm/install/windows.html" -ForegroundColor Yellow
+        }
     }
-    Remove-Item "$env:TEMP\wezterm_install.log", "$env:TEMP\wezterm_install_err.log" -Force -ErrorAction SilentlyContinue
 }
 
 # ==============================================================================
