@@ -193,9 +193,9 @@ Write-Step "[Step 2] PowerShell 7 설치 확인"
 # winget 소스 업데이트 (최초 실행 시 동의 질문으로 인한 무한 대기 멈춤 방지)
 try {
     Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
-    $pSrc = Start-Process winget -ArgumentList "source update" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\winget_source_update.log" -RedirectStandardError "$env:TEMP\winget_source_error.log" -ErrorAction SilentlyContinue
+    # -WindowStyle Hidden: winget 자체 출력이 콘솔에 섯이지 않아 스피너가 깨끔하게 동작합니다.
+    $pSrc = Start-Process winget -ArgumentList "source update --accept-source-agreements" -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
     Wait-ProcessWithSpinner -Process $pSrc -Message "winget 소스 업데이트 중"
-    Remove-Item "$env:TEMP\winget_source_update.log", "$env:TEMP\winget_source_error.log" -Force -ErrorAction SilentlyContinue
 } catch {}
 
 $pwshInstalled = $false
@@ -219,8 +219,8 @@ if ($pwshInstalled) {
 }
 else {
     Write-Info "PowerShell 7 이 감지되지 않았습니다. winget 으로 설치를 진행합니다..."
-    # -RedirectStandardOutput 없이 실행해야 winget 이 정확한 종료 코드를 반환합니다.
-    $p = Start-Process winget -ArgumentList "install --id Microsoft.PowerShell --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+    # -WindowStyle Hidden: winget 출력을 완전히 숨겨 스피너가 깨끔하게 표시됩니다.
+    $p = Start-Process winget -ArgumentList "install --id Microsoft.PowerShell --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru
     Wait-ProcessWithSpinner -Process $p -Message "PowerShell 7 패키지 설치 진행 중"
     # 0: 성공, 3010: 성공(재부팅 필요), -1978335189: 이미 최신버전, -1978335212: 업그레이드 불필요
     $pwshSuccessCodes = @(0, 3010, -1978335189, -1978335212)
@@ -273,8 +273,8 @@ if ($weztermInstalled) {
 }
 else {
     Write-Host "  WezTerm 을 winget 으로 설치합니다..." -ForegroundColor White
-    # -RedirectStandardOutput 없이 실행해야 winget 이 정확한 종료 코드를 반환합니다.
-    $p = Start-Process winget -ArgumentList "install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+    # -WindowStyle Hidden: winget 출력을 완전히 숨겨 스피너가 깨끔하게 표시됩니다.
+    $p = Start-Process winget -ArgumentList "install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru
     Wait-ProcessWithSpinner -Process $p -Message "WezTerm 패키지 설치 진행 중"
     # 0: 성공, 3010: 성공(재부팅 필요), -1978335189: 이미 최신버전, -1978335212: 업그레이드 불필요
     $weztermSuccessCodes = @(0, 3010, -1978335189, -1978335212)
