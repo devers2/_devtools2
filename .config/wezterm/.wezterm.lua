@@ -220,39 +220,47 @@ config.front_end = 'WebGpu' -- 그래픽 가속 활성화 (WebGpu / OpenGL / Sof
 
 if is_windows then
   -- Windows 에서 PowerShell 7 (pwsh)을 기본 셸로 사용
-  -- 우선순위: 절대 경로 직접 확인 (PATH 미갱신 상황 대응) → PATH 탐색 순으로 검색
+  -- 감지 전략:
+  --   1) wezterm.executable_find: WindowsApps 별칭을 포함해 PATH 전체 탐색 (가장 신뢰도 높음)
+  --   2) 표준 MSI 설치 경로 직접 확인 (file_exists 가능한 실제 파일)
+  --   3) 최후 수단: 'pwsh.exe' 이름만 지정 → Windows 가 PATH/AppAlias 로 해결
   local pwsh_path = nil
 
-  -- 1순위: 절대 경로 직접 확인 (winget 설치 직후 PATH 미갱신 상황에서도 동작)
-  local absolute_paths = {
-    'C:/Program Files/PowerShell/7/pwsh.exe',
-    'C:/Program Files (x86)/PowerShell/7/pwsh.exe',
-    (home_dir:gsub('\\', '/')) .. '/AppData/Local/Microsoft/WindowsApps/pwsh.exe',
-  }
-  for _, p in ipairs(absolute_paths) do
-    if file_exists(p) then
-      pwsh_path = p
-      break
-    end
+  -- 1순위: wezterm 내장 executable_find (Windows App Execution Alias 처리 가능)
+  if wezterm.executable_find then
+    pwsh_path = wezterm.executable_find('pwsh.exe') or wezterm.executable_find('pwsh')
   end
 
-  -- 2순위: PATH 및 내장 API 탐색 (위에서 못 찾은 경우)
+  -- 2순위: MSI 표준 설치 경로 직접 확인 (file_exists 로 열 수 있는 실제 파일)
   if not pwsh_path then
-    local search_names = { 'pwsh.exe', 'pwsh' }
-    for _, name in ipairs(search_names) do
-      local found = find_executable(name)
-      if found then
-        pwsh_path = found
+    local direct_paths = {
+      'C:/Program Files/PowerShell/7/pwsh.exe',
+      'C:/Program Files (x86)/PowerShell/7/pwsh.exe',
+      (home_dir:gsub('\\', '/')) .. '/AppData/Local/Programs/PowerShell/7/pwsh.exe',
+    }
+    for _, p in ipairs(direct_paths) do
+      if file_exists(p) then
+        pwsh_path = p
         break
       end
     end
   end
 
-  if pwsh_path then
-    config.default_prog = { pwsh_path, '-NoLogo' }
-  else
-    config.default_prog = { 'powershell.exe', '-NoLogo' }
+  -- 3순위: PATH 기반 탐색 (find_executable 은 io.open 을 쓰므로 WindowsApps 는 못 찾지만
+  --        그 외 경로에 설치된 pwsh 는 찾을 수 있음)
+  if not pwsh_path then
+    pwsh_path = find_executable('pwsh.exe') or find_executable('pwsh')
   end
+
+  -- 4순위 (최후 수단): 이름만 지정 → Windows Shell 이 App Execution Alias 포함 PATH 로 해결
+  -- 이 방식은 WezTerm 이 직접 ShellExecute 를 사용하므로 WindowsApps 별칭도 동작함
+  if not pwsh_path then
+    pwsh_path = 'pwsh.exe'
+  end
+
+  -- pwsh_path 는 항상 설정됨 (최소 'pwsh.exe' 문자열)
+  config.default_prog = { pwsh_path, '-NoLogo' }
+  wezterm.log_info('WezTerm default shell: ' .. pwsh_path)
 
   -- PowerShell 7 폴더 색 보정 (선택적 적용 - API 지원 여부와 color_scheme 존재 여부 모두 확인)
   local ok, result = pcall(function()
