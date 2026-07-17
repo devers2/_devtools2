@@ -37,15 +37,16 @@ fi
 show_spinner() {
     local pid=$1
     local delay=0.15
-    local spinner='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    local spin_len=${#spinner[@]}
+    local i=0
     while kill -0 "$pid" 2>/dev/null; do
-        local temp=${spinner#?}
-        printf " [%c] " "$spinner"
-        spinner=$temp${spinner%"$temp"}
+        printf " [%s] " "${spinner[i]}"
+        i=$(( (i + 1) % spin_len ))
         sleep $delay
         printf "\b\b\b\b\b"
     done
-    printf "    \b\b\b\b"
+    printf "     \b\b\b\b\b"
 }
 
 install_tool() {
