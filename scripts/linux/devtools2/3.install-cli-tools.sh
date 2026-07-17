@@ -43,11 +43,11 @@ mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODU
 show_spinner() {
     local pid=$1
     local delay=0.15
-    local spinstr='|/-\'
+    local spinner='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
     while kill -0 "$pid" 2>/dev/null; do
-        local temp=${spinstr#?}
-        printf " [%c] " "$spinstr"
-        spinstr=$temp${spinstr%"$temp"}
+        local temp=${spinner#?}
+        printf " [%c] " "$spinner"
+        spinner=$temp${spinner%"$temp"}
         sleep $delay
         printf "\b\b\b\b\b"
     done

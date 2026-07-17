@@ -33,10 +33,10 @@ fi
 echo "[작업] 시스템 필수 패키지 설치 중 (unzip, tar, curl, wget, rsync, python3-pip)..."
 (apt-get update -qq && apt-get install -y -qq unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1 &
 APT_PID=$!
-_spin_chars='|/-~'
+_spinner='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 _spin_i=0
 while kill -0 "$APT_PID" 2>/dev/null; do
-    _c="${_spin_chars:$((_spin_i % 4)):1}"
+    _c="${_spinner:$((_spin_i % 4)):1}"
     printf "\r  [%s] apt 패키지 설치 진행 중..." "$_c"
     sleep 0.3
     _spin_i=$((_spin_i + 1))
