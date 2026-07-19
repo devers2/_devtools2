@@ -65,6 +65,7 @@ export PIP_CACHE_DIR="$DEVTOOLS2/data/.cache/pip"
 
 export NEOVIM_HOME="$DEVTOOLS2/modules/neovim/nvim"
 export NVIM_APPNAME="nvim"
+export ZED_HOME="$DEVTOOLS2/modules/zed"
 
 EOF
 
@@ -92,6 +93,7 @@ $GRADLE_HOME/bin:\
 $PYTHON_HOME/bin:\
 $PYTHONUSERBASE/bin:\
 $NEOVIM_HOME/bin:\
+$ZED_HOME/bin:\
 $DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin:\
 $DEVTOOLS2/data/nvim/mason/bin:\
 $DEVTOOLS2/scripts/linux/cmd:\

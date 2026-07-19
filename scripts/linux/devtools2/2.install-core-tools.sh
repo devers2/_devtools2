@@ -284,12 +284,17 @@ echo "--------------------------------------------------------------------------
 # 6. Zed 설치
 if [ "$IS_WSL2" = false ]; then
     echo "⚡ 6. Zed 설치 중..."
-    if command -v zed &>/dev/null || [ -f "$HOME/.local/bin/zed" ]; then
-        echo "   ⏭️ [건너뜀] Zed 에디터가 이미 설치되어 있습니다."
+    if [ -d "$DEVTOOLS2/modules/zed" ]; then
+        echo "   ⏭️ [건너뜀] zed 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/zed'"
     else
-        echo "   📥 Zed 설치 스크립트 다운로드 및 실행..."
-        curl -f https://zed.dev/install.sh | sh
-        echo "   ✅ Zed 설치 완료"
+        echo "   📦 Zed stable 다운로드 및 압축 해제..."
+        mkdir -p "$DEVTOOLS2/modules"
+        cd "$DEVTOOLS2/modules"
+
+        install_tool \
+            'https://github.com/zed-industries/zed/releases/latest/download/zed-linux-x86_64.tar.gz' \
+            'https://github.com/zed-industries/zed/releases/latest/download/zed-linux-aarch64.tar.gz' \
+            'zed'
     fi
 else
     echo "⚡ 6. Zed 설치 단계"
