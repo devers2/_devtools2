@@ -281,26 +281,43 @@ echo "✅ Neovim 설치 완료 ($ARCH)"
 echo ""
 
 echo "---------------------------------------------------------------------------"
-# 6. Ghostty 포터블 설치: https://ghostty.org/
-echo "💚 6. Ghostty 포터블 설치 단계"
+# 6. Zed 설치
+if [ "$IS_WSL2" = false ]; then
+    echo "⚡ 6. Zed 설치 중..."
+    if command -v zed &>/dev/null || [ -f "$HOME/.local/bin/zed" ]; then
+        echo "   ⏭️ [건너뜀] Zed 에디터가 이미 설치되어 있습니다."
+    else
+        echo "   📥 Zed 설치 스크립트 다운로드 및 실행..."
+        curl -f https://zed.dev/install.sh | sh
+        echo "   ✅ Zed 설치 완료"
+    fi
+else
+    echo "⚡ 6. Zed 설치 단계"
+    echo "   ⚠️  [WSL2 환경 감지] WSL2 환경에서는 Windows 호스트에 Zed를 설치하므로 리눅스 내부 Zed 설치는 건너뜁니다."
+fi
+echo ""
+
+echo "---------------------------------------------------------------------------"
+# 7. Ghostty 포터블 설치: https://ghostty.org/
+echo "💚 7. Ghostty 포터블 설치 단계"
 echo ""
 
 if [ "$IS_WSL2" = true ]; then
     echo "   ⚠️  [WSL2 환경 감지] Ghostty는 WSL2에서 지원되지 않으므로 설치를 건너뜁니다."
     echo "   💬 Windows 네이티브 환경에서 Ghostty를 설치해주세요: https://ghostty.org/"
 else
-    echo "💚 6. Ghostty 포터블 설치 중..."
+    echo "💚 7. Ghostty 포터블 설치 중..."
     mkdir -p "$DEVTOOLS2/modules/ghostty"
     cd "$DEVTOOLS2/modules/ghostty"
 
     if [ -f "$DEVTOOLS2/modules/ghostty/ghostty" ]; then
-    echo "   ⏭️ [건너뜀] ghostty AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -f '$DEVTOOLS2/modules/ghostty/ghostty'"
-else
-    echo -n "   📦 Ghostty AppImage 다운로드 중..."
-    curl -Ls "https://github.com/pkgforge-dev/ghostty-appimage/releases/download/v1.3.1/Ghostty-1.3.1-$ARCH.AppImage" -o ghostty &
-    show_spinner $!
-    echo " 완료"
-    chmod +x ghostty
+        echo "   ⏭️ [건너뜀] ghostty AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -f '$DEVTOOLS2/modules/ghostty/ghostty'"
+    else
+        echo -n "   📦 Ghostty AppImage 다운로드 중..."
+        curl -Ls "https://github.com/pkgforge-dev/ghostty-appimage/releases/download/v1.3.1/Ghostty-1.3.1-$ARCH.AppImage" -o ghostty &
+        show_spinner $!
+        echo " 완료"
+        chmod +x ghostty
 
         # 설정 파일 경로 심볼릭 링크 생성
         "$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh" "$DEVTOOLS2/.config/ghostty" "$HOME/.config/ghostty"

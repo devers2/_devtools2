@@ -242,7 +242,7 @@ try {
 
     # 2순위: 로컬에 파일이 없으면 winget 리스트 확인
     if (-not $zedInstalled) {
-        $wgList = winget list --id Zed.Zed 2>$null
+        $wgList = winget list --id ZedIndustries.Zed 2>$null
         if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "Zed") { $zedInstalled = $true }
     }
 }
@@ -253,8 +253,7 @@ if ($zedInstalled) {
 }
 else {
     Write-Host "  Zed 에디터를 winget으로 설치합니다..." -ForegroundColor White
-    # 여러 ID 시도 (Zed는 winget 등록명이 플랫폼마다 다양함)
-    $zedIds = @("Zed.Zed", "Zed-Industries.Zed", "zed")
+    $zedIds = @("ZedIndustries.Zed")
     $zedInstallSuccess = $false
     foreach ($zedId in $zedIds) {
         $p = Start-Process winget -ArgumentList "install --id $zedId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_install.log" -RedirectStandardError "$env:TEMP\zed_install_err.log"

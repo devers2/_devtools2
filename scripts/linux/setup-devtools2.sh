@@ -10,7 +10,7 @@
 #   0. init-devtools2     : Git 인증 설정 + 저장소 클론 + 그룹/권한 초기화 (sudo)
 #   1. setup-env          : ~/.bashrc 환경 변수 주입
 #      └─ source ~/.bashrc: 이후 스크립트가 환경 변수를 상속받을 수 있도록 로드
-#   2. install-core-tools : Java, Gradle, Python, Node.js, Neovim, Ghostty 설치
+#   2. install-core-tools : Java, Gradle, Python, Node.js, Neovim, Zed, Ghostty 설치
 #   3. install-cli-tools  : fzf, lazygit, ripgrep, fd, ast-grep, apt 패키지, hererocks 설치
 #
 # 사용 방법:
@@ -76,7 +76,7 @@ set -u
 echo "[완료] 환경 변수가 현재 세션에 적용되었습니다."
 
 # ==============================================================================
-# [Step 2] 핵심 포터블 도구 설치 (Java, Node.js, Python, Neovim, Ghostty 등)
+# [Step 2] 핵심 포터블 도구 설치 (Java, Node.js, Python, Neovim, Zed, Ghostty 등)
 # ==============================================================================
 print_step "▶ [2/3] 핵심 포터블 도구 설치"
 
