@@ -50,19 +50,23 @@ show_spinner() {
 }
 
 install_tool() {
-    local X64_URL="$1"
-    local ARM_URL="$2"
-    local TARGET_DIR="$3"
+    local URL_TEMPLATE="$1"
+    local X64_ARCH="$2"
+    local ARM_ARCH="$3"
+    local TARGET_DIR="$4"
+    local SELECTED_ARCH
     local DOWNLOAD_URL
     local FILE_NAME
 
-    # 아키텍처에 맞는 URL 선택
+    # 아키텍처에 맞는 아키텍처 식별 문자열 선택
     if [ "$IS_ARM64" = true ]; then
-        DOWNLOAD_URL="$ARM_URL"
+        SELECTED_ARCH="$ARM_ARCH"
     else
-        DOWNLOAD_URL="$X64_URL"
+        SELECTED_ARCH="$X64_ARCH"
     fi
 
+    # URL 템플릿의 {ARCH} 치환
+    DOWNLOAD_URL="${URL_TEMPLATE//\{ARCH\}/$SELECTED_ARCH}"
     FILE_NAME=$(basename "$DOWNLOAD_URL")
 
     # 다운로드 및 압축 해제에 스피너 적용
@@ -110,8 +114,9 @@ if [ -d "$DEVTOOLS2/modules/java/jdk-1.8" ]; then
 else
     echo "   📦 JDK 1.8 다운로드 및 압축 해제..."
     install_tool \
-        'https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u482-b08/OpenJDK8U-jdk_x64_linux_hotspot_8u482b08.tar.gz' \
-        'https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u482-b08/OpenJDK8U-jdk_aarch64_linux_hotspot_8u482b08.tar.gz' \
+        'https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u482-b08/OpenJDK8U-jdk_{ARCH}_linux_hotspot_8u482b08.tar.gz' \
+        'x64' \
+        'aarch64' \
         'jdk-1.8'
 fi
 
@@ -121,8 +126,9 @@ if [ -d "$DEVTOOLS2/modules/java/jdk-17" ]; then
 else
     echo "   📦 JDK 17 다운로드 및 압축 해제..."
     install_tool \
-        'https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.18%2B8/OpenJDK17U-jdk_x64_linux_hotspot_17.0.18_8.tar.gz' \
-        'https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.18%2B8/OpenJDK17U-jdk_aarch64_linux_hotspot_17.0.18_8.tar.gz' \
+        'https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.18%2B8/OpenJDK17U-jdk_{ARCH}_linux_hotspot_17.0.18_8.tar.gz' \
+        'x64' \
+        'aarch64' \
         'jdk-17'
 fi
 
@@ -132,8 +138,9 @@ if [ -d "$DEVTOOLS2/modules/java/jdk-21" ]; then
 else
     echo "   📦 JDK 21 다운로드 및 압축 해제..."
     install_tool \
-        'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.10%2B7/OpenJDK21U-jdk_x64_linux_hotspot_21.0.10_7.tar.gz' \
-        'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.10%2B7/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.10_7.tar.gz' \
+        'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.10%2B7/OpenJDK21U-jdk_{ARCH}_linux_hotspot_21.0.10_7.tar.gz' \
+        'x64' \
+        'aarch64' \
         'jdk-21'
 fi
 
@@ -143,8 +150,9 @@ if [ -d "$DEVTOOLS2/modules/java/jdk-25" ]; then
 else
     echo "   📦 JDK 25 다운로드 및 압축 해제..."
     install_tool \
-        'https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.2%2B10/OpenJDK25U-jdk_x64_linux_hotspot_25.0.2_10.tar.gz' \
-        'https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.2%2B10/OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.2_10.tar.gz' \
+        'https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.2%2B10/OpenJDK25U-jdk_{ARCH}_linux_hotspot_25.0.2_10.tar.gz' \
+        'x64' \
+        'aarch64' \
         'jdk-25'
 fi
 
@@ -187,8 +195,9 @@ if [ -d "$DEVTOOLS2/modules/python/python-314" ]; then
     echo "   ⏭️ [건너뜀] python-314 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/python/python-314'"
 else
     install_tool \
-        'https://github.com/indygreg/python-build-standalone/releases/download/20260414/cpython-3.14.4+20260414-x86_64-unknown-linux-gnu-install_only.tar.gz' \
-        'https://github.com/indygreg/python-build-standalone/releases/download/20260414/cpython-3.14.4+20260414-aarch64-unknown-linux-gnu-install_only.tar.gz' \
+        'https://github.com/indygreg/python-build-standalone/releases/download/20260414/cpython-3.14.4+20260414-{ARCH}-unknown-linux-gnu-install_only.tar.gz' \
+        'x86_64' \
+        'aarch64' \
         'python-314'
 fi
 
@@ -196,8 +205,9 @@ if [ -d "$DEVTOOLS2/modules/python/python-312" ]; then
     echo "   ⏭️ [건너뜀] python-312 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/python/python-312'"
 else
     install_tool \
-        'https://github.com/astral-sh/python-build-standalone/releases/download/20260414/cpython-3.12.13+20260414-x86_64-unknown-linux-gnu-install_only.tar.gz' \
-        'https://github.com/astral-sh/python-build-standalone/releases/download/20260414/cpython-3.12.13+20260414-aarch64-unknown-linux-gnu-install_only.tar.gz' \
+        'https://github.com/astral-sh/python-build-standalone/releases/download/20260414/cpython-3.12.13+20260414-{ARCH}-unknown-linux-gnu-install_only.tar.gz' \
+        'x86_64' \
+        'aarch64' \
         'python-312'
 fi
 
@@ -214,8 +224,9 @@ if [ -d "$DEVTOOLS2/modules/nodejs/node-v24" ]; then
     echo "   ⏭️ [건너뜀] node-v24 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/nodejs/node-v24'"
 else
     install_tool \
-        'https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-x64.tar.xz' \
-        'https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-arm64.tar.xz' \
+        'https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-{ARCH}.tar.xz' \
+        'x64' \
+        'arm64' \
         'node-v24'
 fi
 
@@ -261,8 +272,9 @@ if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
         rm -rf "$DEVTOOLS2/modules/neovim/nvim"
         echo "   📦 Neovim stable 다운로드 및 압축 해제..."
         install_tool \
-            'https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz' \
-            'https://github.com/neovim/neovim/releases/download/stable/nvim-linux-arm64.tar.gz' \
+            'https://github.com/neovim/neovim/releases/download/stable/nvim-linux-{ARCH}.tar.gz' \
+            'x86_64' \
+            'arm64' \
             'nvim'
         ;;
     *)
@@ -272,8 +284,9 @@ if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
 else
     echo "   📦 Neovim stable 다운로드 및 압축 해제..."
     install_tool \
-        'https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz' \
-        'https://github.com/neovim/neovim/releases/download/stable/nvim-linux-arm64.tar.gz' \
+        'https://github.com/neovim/neovim/releases/download/stable/nvim-linux-{ARCH}.tar.gz' \
+        'x86_64' \
+        'arm64' \
         'nvim'
 fi
 
@@ -292,8 +305,9 @@ if [ "$IS_WSL2" = false ]; then
         cd "$DEVTOOLS2/modules"
 
         install_tool \
-            'https://github.com/zed-industries/zed/releases/latest/download/zed-linux-x86_64.tar.gz' \
-            'https://github.com/zed-industries/zed/releases/latest/download/zed-linux-aarch64.tar.gz' \
+            'https://github.com/zed-industries/zed/releases/latest/download/zed-linux-{ARCH}.tar.gz' \
+            'x86_64' \
+            'aarch64' \
             'zed'
     fi
 else
