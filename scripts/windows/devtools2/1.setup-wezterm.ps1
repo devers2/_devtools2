@@ -227,38 +227,73 @@ else {
     Write-Host ""
     Write-Host "  WezTerm 버전을 선택하세요:" -ForegroundColor Cyan
     Write-Host "    [Y] Nightly  - 최신 기능 포함 나이틀리 버전 (권장, 기본값)" -ForegroundColor Green
-    Write-Host "    [N] Stable   - 안정화 버전 (2024년 2월)" -ForegroundColor Gray
+    Write-Host "    [N] Stable   - 안정화 버전 (2024년 2월 최종 업데이트)" -ForegroundColor Gray
     Write-Host ""
     $versionChoice = Read-Host "  나이틀리 버전으로 설치할까요? (Y/n)"
 
     if ($versionChoice -match '^[Nn]') {
-        $weztermWingetId = "wez.wezterm"
+        # ── 안정화: winget 으로 설치 ──────────────────────────────────────────
         $weztermVersionLabel = "안정화(Stable)"
-    } else {
-        $weztermWingetId = "wez.wezterm.nightly"
-        $weztermVersionLabel = "나이틀리(Nightly)"
-    }
-
-    Write-Host "  WezTerm $weztermVersionLabel 버전을 winget 으로 설치합니다..." -ForegroundColor White
-    # -WindowStyle Hidden: winget 출력을 완전히 숨겨 스피너가 깨끔하게 표시됩니다.
-    $p = Start-Process winget -ArgumentList "install --id $weztermWingetId --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru
-    Wait-ProcessWithSpinner -Process $p -Message "WezTerm $weztermVersionLabel 패키지 설치 진행 중"
-    # 0: 성공, 3010: 성공(재부팅 필요), -1978335189: 이미 최신버전, -1978335212: 업그레이드 불필요
-    $weztermSuccessCodes = @(0, 3010, -1978335189, -1978335212)
-    if ($weztermSuccessCodes -contains $p.ExitCode) {
-        Write-Success "WezTerm $weztermVersionLabel 설치/확인 완료 (종료 코드: $($p.ExitCode))"
-    }
-    else {
-        # 설치 후 실제로 wezterm 이 있는지 재확인
-        $weztermNow = (Get-Command wezterm -ErrorAction SilentlyContinue) -or `
-                      (Test-Path "$env:ProgramFiles\WezTerm\wezterm.exe") -or `
-                      (Test-Path "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe")
-        if ($weztermNow) {
-            Write-Success "WezTerm $weztermVersionLabel 설치 확인 완료 (종료 코드 $($p.ExitCode) 이지만 실제 설치됨)"
+        Write-Host "  WezTerm $weztermVersionLabel 버전을 winget 으로 설치합니다..." -ForegroundColor White
+        $p = Start-Process winget -ArgumentList "install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru
+        Wait-ProcessWithSpinner -Process $p -Message "WezTerm $weztermVersionLabel 패키지 설치 진행 중"
+        $weztermSuccessCodes = @(0, 3010, -1978335189, -1978335212)
+        if ($weztermSuccessCodes -contains $p.ExitCode) {
+            Write-Success "WezTerm $weztermVersionLabel 설치/확인 완료 (종료 코드: $($p.ExitCode))"
         }
         else {
-            Write-Fail "WezTerm $weztermVersionLabel 설치 실패 (종료 코드: $($p.ExitCode))"
-            Write-Host "  수동 설치: https://wezfurlong.org/wezterm/install/windows.html" -ForegroundColor Yellow
+            $weztermNow = (Get-Command wezterm -ErrorAction SilentlyContinue) -or `
+                          (Test-Path "$env:ProgramFiles\WezTerm\wezterm.exe") -or `
+                          (Test-Path "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe")
+            if ($weztermNow) {
+                Write-Success "WezTerm $weztermVersionLabel 설치 확인 완료 (종료 코드 $($p.ExitCode) 이지만 실제 설치됨)"
+            }
+            else {
+                Write-Fail "WezTerm $weztermVersionLabel 설치 실패 (종료 코드: $($p.ExitCode))"
+                Write-Host "  수동 설치: https://wezfurlong.org/wezterm/install/windows.html" -ForegroundColor Yellow
+            }
+        }
+    }
+    else {
+        # ── WezTerm Nightly 설치 ─────────────────────────────────────────────
+        # winget 에는 wez.wezterm.nightly 패키지가 없으므로 GitHub 직접 설치 방식 사용
+        $weztermVersionLabel = "Nightly"
+        $nightlyUrl = "https://github.com/wez/wezterm/releases/download/nightly/WezTerm-nightly-setup.exe"
+        $nightlyInstaller = Join-Path $env:TEMP "WezTerm-nightly-setup.exe"
+
+        Write-Host "  WezTerm $weztermVersionLabel 인스톨러를 GitHub에서 다운로드 중..." -ForegroundColor White
+
+        try {
+            $prevProgress = $ProgressPreference
+            $ProgressPreference = 'SilentlyContinue'
+
+            Invoke-WebRequest -Uri $nightlyUrl -OutFile $nightlyInstaller -ErrorAction Stop
+            $ProgressPreference = $prevProgress
+
+            Write-Host "  WezTerm $weztermVersionLabel 설치 중..." -ForegroundColor White
+            # /SILENT: 대화상자 없이 설치, /NORESTART: 자동 재부팅 방지, /SUPPRESSMSGBOXES: 잔여 팝업 완전 차단
+            $p = Start-Process -FilePath $nightlyInstaller -ArgumentList "/SILENT", "/NORESTART", "/SUPPRESSMSGBOXES" -PassThru -Wait -ErrorAction Stop
+
+            Remove-Item $nightlyInstaller -Force -ErrorAction SilentlyContinue
+
+            # 설치 성공 확인
+            $weztermExists = (Get-Command wezterm -ErrorAction SilentlyContinue) -or
+                             (Test-Path "$env:ProgramFiles\WezTerm\wezterm.exe") -or
+                             (Test-Path "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe")
+
+            if ($weztermExists -or $p.ExitCode -eq 0) {
+                Write-Success "WezTerm Nightly 설치 완료"
+            }
+            else {
+                Write-Fail "WezTerm Nightly 설치 실패 (ExitCode: $($p.ExitCode))"
+                Write-Host "  → 수동 설치: https://github.com/wez/wezterm/releases/tag/nightly" -ForegroundColor Yellow
+            }
+        }
+        catch {
+            $ProgressPreference = $prevProgress
+            Remove-Item $nightlyInstaller -Force -ErrorAction SilentlyContinue
+            Write-Fail "WezTerm Nightly 다운로드 또는 설치 실패: $($_.Exception.Message)"
+            Write-Host "  → 수동 설치 링크: https://github.com/wez/wezterm/releases/tag/nightly" -ForegroundColor Yellow
         }
     }
 }
