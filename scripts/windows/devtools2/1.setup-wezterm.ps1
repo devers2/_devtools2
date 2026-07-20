@@ -2,9 +2,15 @@
 # WezTerm 설치 및 WSL2 설정 폴더 심볼릭 링크 생성 스크립트 (1.setup-wezterm.ps1)
 #
 # 주요 기능:
-#   1. PowerShell 7 (pwsh) 설치 여부 확인 및 winget 을 통한 자동 설치
-#   2. winget 을 통해 WezTerm 을 자동 설치 (이미 설치되어 있으면 건너뜀)
-#   3. WSL2 의 _devtools2/.config/wezterm/.wezterm.lua 설정을 Windows 홈 디렉토리로 심볼릭 링크 생성
+#   1. winget 을 통해 WezTerm 을 자동 설치 (이미 설치되어 있으면 건너뜀)
+#   2. WSL2 의 _devtools2/.config/wezterm/.wezterm.lua 설정을 Windows 홈 디렉토리로 심볼릭 링크 생성
+#
+# [중요] 한글 깨짐 방지 안내 (Encoding Notice):
+#   - 로컬 실행 시: 본 스크립트는 UTF-8(BOM 없음)로 저장되어 있어, 구버전 윈도우 기본 
+#     PowerShell 5.1 콘솔에서 직접 로컬 실행할 경우 한글 주석 및 메시지가 깨질 수 있습니다.
+#     로컬 실행 시에는 가급적 PowerShell 7 (pwsh)을 설치한 후 실행하시기 바랍니다.
+#   - 온라인 실행 시: 웹 브라우저나 원격 다운로드 명령(irm | iex 등)을 사용해 온라인에서
+#     실시간으로 실행하는 경우에는 인코딩 다운로드 보정이 적용되어 문제없이 정상 동작합니다.
 #
 # 사전 조건:
 #   - WSL2 에 Ubuntu 계열 배포판이 설치되어 있어야 합니다.
@@ -186,64 +192,9 @@ if (-not (Test-Path $DevTools2Wsl)) {
 Write-Host "  _devtools2 경로: $DevTools2Wsl" -ForegroundColor White
 
 # ==============================================================================
-# [Step 2] PowerShell 7 (pwsh.exe) 설치 여부 확인 및 설치
+# [Step 2] WezTerm 설치
 # ==============================================================================
-Write-Step "[Step 2] PowerShell 7 설치 확인"
-
-# winget 소스 업데이트 (최초 실행 시 동의 질문으로 인한 무한 대기 멈춤 방지)
-try {
-    Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
-    # -WindowStyle Hidden: winget 자체 출력이 콘솔에 섯이지 않아 스피너가 깨끔하게 동작합니다.
-    $pSrc = Start-Process winget -ArgumentList "source update --accept-source-agreements" -WindowStyle Hidden -PassThru -ErrorAction SilentlyContinue
-    Wait-ProcessWithSpinner -Process $pSrc -Message "winget 소스 업데이트 중"
-} catch {}
-
-$pwshInstalled = $false
-$pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
-if ($null -ne $pwshCmd) {
-    $pwshInstalled = $true
-}
-# MS Store 앱 실행 별칭 경로도 확인
-if (-not $pwshInstalled) {
-    $msStorePwsh = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps\pwsh.exe'
-    if (Test-Path $msStorePwsh) { $pwshInstalled = $true }
-}
-# 표준 설치 경로도 확인
-if (-not $pwshInstalled) {
-    $stdPwsh = 'C:\Program Files\PowerShell\7\pwsh.exe'
-    if (Test-Path $stdPwsh) { $pwshInstalled = $true }
-}
-
-if ($pwshInstalled) {
-    Write-Skip "PowerShell 7 이 이미 시스템에 설치되어 있습니다."
-}
-else {
-    Write-Info "PowerShell 7 이 감지되지 않았습니다. winget 으로 설치를 진행합니다..."
-    # -WindowStyle Hidden: winget 출력을 완전히 숨겨 스피너가 깨끔하게 표시됩니다.
-    $p = Start-Process winget -ArgumentList "install --id Microsoft.PowerShell --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru
-    Wait-ProcessWithSpinner -Process $p -Message "PowerShell 7 패키지 설치 진행 중"
-    # 0: 성공, 3010: 성공(재부팅 필요), -1978335189: 이미 최신버전, -1978335212: 업그레이드 불필요
-    $pwshSuccessCodes = @(0, 3010, -1978335189, -1978335212)
-    if ($pwshSuccessCodes -contains $p.ExitCode) {
-        Write-Success "PowerShell 7 설치/확인 완료 (종료 코드: $($p.ExitCode))"
-    }
-    else {
-        # 설치 후 실제로 pwsh.exe 가 있는지 재확인
-        $pwshNow = (Get-Command pwsh.exe -ErrorAction SilentlyContinue) -or (Test-Path 'C:\Program Files\PowerShell\7\pwsh.exe')
-        if ($pwshNow) {
-            Write-Success "PowerShell 7 설치 확인 완료 (종료 코드 $($p.ExitCode) 이지만 실제 설치됨)"
-        }
-        else {
-            Write-Fail "PowerShell 7 설치 실패 (종료 코드: $($p.ExitCode))"
-            Write-Host "  수동 설치를 권장합니다: https://aka.ms/powershell-release" -ForegroundColor Yellow
-        }
-    }
-}
-
-# ==============================================================================
-# [Step 3] WezTerm 설치
-# ==============================================================================
-Write-Step "[Step 3] WezTerm 설치"
+Write-Step "[Step 2] WezTerm 설치"
 
 $weztermInstalled = $false
 try {
@@ -297,10 +248,10 @@ else {
 }
 
 # ==============================================================================
-# [Step 4] 필수 폰트 설치 (assets/fonts → Windows 사용자 폰트)
+# [Step 3] 필수 폰트 설치 (assets/fonts → Windows 사용자 폰트)
 # WezTerm 은 Windows 네이티브 앱이므로 폰트를 Windows 에 직접 설치해야 합니다.
 # ==============================================================================
-Write-Step "[Step 4] 필수 폰트 설치"
+Write-Step "[Step 3] 필수 폰트 설치"
 
 $WslFontsDir = "$DevTools2Wsl\assets\fonts"
 $UserFontsDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
@@ -404,9 +355,9 @@ if (-not $hasWslFonts) {
 }
 
 # ==============================================================================
-# [Step 5] WezTerm 설정 파일 심볼릭 링크 연동
+# [Step 4] WezTerm 설정 파일 심볼릭 링크 연동
 # ==============================================================================
-Write-Step "[Step 5] WezTerm 설정 파일 심볼릭 링크 연동"
+Write-Step "[Step 4] WezTerm 설정 파일 심볼릭 링크 연동"
 
 $WslWeztermConfig = "$DevTools2Wsl\.config\wezterm\.wezterm.lua"
 $WinWeztermConfig = "$env:USERPROFILE\.wezterm.lua"

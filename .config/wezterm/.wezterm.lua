@@ -216,69 +216,13 @@ config.window_background_opacity = 0.96 -- 투명도
 config.scroll_to_bottom_on_input = true -- 입력할 때 자동으로 맨 아래로 스크롤
 config.hide_tab_bar_if_only_one_tab = true -- 탭이 하나일 때는 숨기고, 여러 개일 때만 보여줌
 config.front_end = 'WebGpu' -- 그래픽 가속 활성화 (WebGpu / OpenGL / Software)
--- config.window_decorations = "RESIZE" -- 타이틀을 숨기고 창 조절 가능: 나이틀리 버전에서 오류 발생하여 주석처리
 
 if is_windows then
-  -- Windows 에서 PowerShell 7 (pwsh)을 기본 셸로 사용
-  -- 감지 전략:
-  --   1) wezterm.executable_find: WindowsApps 별칭을 포함해 PATH 전체 탐색 (가장 신뢰도 높음)
-  --   2) 표준 MSI 설치 경로 직접 확인 (file_exists 가능한 실제 파일)
-  --   3) 최후 수단: 'pwsh.exe' 이름만 지정 → Windows 가 PATH/AppAlias 로 해결
-  local pwsh_path = nil
-
-  -- 1순위: wezterm 내장 executable_find (Windows App Execution Alias 처리 가능)
-  if wezterm.executable_find then
-    pwsh_path = wezterm.executable_find('pwsh.exe') or wezterm.executable_find('pwsh')
-  end
-
-  -- 2순위: MSI 표준 설치 경로 직접 확인 (file_exists 로 열 수 있는 실제 파일)
-  if not pwsh_path then
-    local direct_paths = {
-      'C:/Program Files/PowerShell/7/pwsh.exe',
-      'C:/Program Files (x86)/PowerShell/7/pwsh.exe',
-      (home_dir:gsub('\\', '/')) .. '/AppData/Local/Programs/PowerShell/7/pwsh.exe',
-    }
-    for _, p in ipairs(direct_paths) do
-      if file_exists(p) then
-        pwsh_path = p
-        break
-      end
-    end
-  end
-
-  -- 3순위: PATH 기반 탐색 (find_executable 은 io.open 을 쓰므로 WindowsApps 는 못 찾지만
-  --        그 외 경로에 설치된 pwsh 는 찾을 수 있음)
-  if not pwsh_path then
-    pwsh_path = find_executable('pwsh.exe') or find_executable('pwsh')
-  end
-
-  -- 4순위 (최후 수단): 이름만 지정 → Windows Shell 이 App Execution Alias 포함 PATH 로 해결
-  -- 이 방식은 WezTerm 이 직접 ShellExecute 를 사용하므로 WindowsApps 별칭도 동작함
-  if not pwsh_path then
-    pwsh_path = 'pwsh.exe'
-  end
-
-  -- pwsh_path 는 항상 설정됨 (최소 'pwsh.exe' 문자열)
-  config.default_prog = { pwsh_path, '-NoLogo' }
-  wezterm.log_info('WezTerm default shell: ' .. pwsh_path)
-
-  -- PowerShell 7 폴더 색 보정 (선택적 적용 - API 지원 여부와 color_scheme 존재 여부 모두 확인)
-  local ok, result = pcall(function()
-    if wezterm.color and wezterm.color.get_builtin_schemes then
-      local scheme = wezterm.color.get_builtin_schemes()[config.color_scheme]
-      if scheme then
-        local ansi = { table.unpack(scheme.ansi) }
-        local brights = { table.unpack(scheme.brights) }
-        ansi[5] = '#1e3a8a'    -- ANSI 4  (일반 파란색 → 어두운 파랑)
-        brights[5] = '#3b82f6' -- ANSI 12 (밝은 파란색 → 선명한 파랑)
-        config.colors = { ansi = ansi, brights = brights }
-      end
-    end
-  end)
-  if not ok then
-    wezterm.log_warn('색상 보정 실패 (무시됨): ' .. tostring(result))
-  end
+  -- Windows 에서 WSL2 devtools2 배포판을 기본 셸로 사용해 바로 진입
+  config.default_prog = { 'wsl.exe', '-d', 'devtools2' }
 end
+
+-- config.window_decorations = "RESIZE" -- 타이틀을 숨기고 창 조절 가능: 나이틀리 버전에서 오류 발생하여 주석처리
 
 -- SSH 호스트 파일 경로 설정
 local hosts_file_path = wezterm_dir .. '/ssh_hosts.json'

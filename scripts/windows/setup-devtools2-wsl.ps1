@@ -5,7 +5,14 @@
 #   1. Windows WSL2 가상 머신 생성 및 활성화 (0.setup-wsl.ps1)
 #   2. WSL2 내부로 Linux 초기화 스크립트를 복사 및 실행하여 깃 자격증명 설정 및 클론 진행
 #   3. WSL2 내부의 환경변수 설정, 핵심 개발 런타임 및 CLI 유틸리티 도구 일괄 자동 설치
-#   4. Windows 호스트용 Ghostty 및 Zed 에디터 자동 설치 및 WSL2 설정 연동
+#   4. Windows 호스트용 WezTerm 및 Zed 에디터 자동 설치 및 WSL2 설정 연동
+#
+# [중요] 한글 깨짐 방지 안내 (Encoding Notice):
+#   - 로컬 실행 시: 본 스크립트는 UTF-8(BOM 없음)로 저장되어 있어, 구버전 윈도우 기본 
+#     PowerShell 5.1 콘솔에서 직접 로컬 실행할 경우 한글 주석 및 메시지가 깨질 수 있습니다.
+#     로컬 실행 시에는 가급적 PowerShell 7 (pwsh)을 설치한 후 실행하시기 바랍니다.
+#   - 온라인 실행 시: 웹 브라우저나 원격 다운로드 명령(irm | iex 등)을 사용해 온라인에서
+#     실시간으로 실행하는 경우에는 인코딩 다운로드 보정이 적용되어 문제없이 정상 동작합니다.
 #
 # 사용 방법:
 #   PowerShell 을 관리자 권한으로 열고 실행:
@@ -308,7 +315,7 @@ if ($LASTEXITCODE -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Sc
 Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
 
 # ==============================================================================
-# [Step 4] Windows 호스트 전용 Ghostty 및 Zed 에디터 연동
+# [Step 4] Windows 호스트 전용 WezTerm 및 Zed 에디터 연동
 # ==============================================================================
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
@@ -340,10 +347,10 @@ Write-Host "====================================================================
 Write-Host ""
 Write-Info "  윈도우와 WSL2가 완벽하게 상호 연동되어 동작합니다."
 Write-Info "  - Windows 셸에서 'wsl'을 치면 설정이 완료된 Ubuntu 개발 환경에 바로 진입합니다."
-Write-Info "  - Windows에 설치된 Ghostty 및 Zed 에디터의 설정은 WSL2 내부 설정과 실시간 공유됩니다."
+Write-Info "  - Windows에 설치된 WezTerm 및 Zed 에디터의 설정은 WSL2 내부 설정과 실시간 공유됩니다."
 Write-Host ""
 Write-Host "  설치 성공을 확인하시려면 아래 도구들을 실행해 보세요:"
-Write-Host "    - Windows: Ghostty 터미널 열기 (PowerShell 7 실행 확인)" -ForegroundColor Gray
+Write-Host "    - Windows: WezTerm 터미널 열기 (WSL2 바로 진입 확인)" -ForegroundColor Gray
 Write-Host "    - Windows: Zed 에디터 열기" -ForegroundColor Gray
 Write-Host "    - WSL2 내부: nvim --version, java -version, node -v 실행 확인" -ForegroundColor Gray
 Write-Host "===========================================================================" -ForegroundColor Magenta
