@@ -271,22 +271,38 @@ else {
             $ProgressPreference = $prevProgress
 
             Write-Host "  WezTerm $weztermVersionLabel 설치 중..." -ForegroundColor White
-            # /VERYSILENT: 완전 무인 설치 (Inno Setup 표준), /SUPPRESSMSGBOXES 는 /VERYSILENT 와 함께 사용해야 동작
-            # ※ 이 스크립트는 관리자 권한으로 실행되므로 -Verb RunAs 불필요 (RunAs 사용 시 ExitCode 추적 불가)
-            $p = Start-Process -FilePath $nightlyInstaller -ArgumentList "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES" -PassThru -Wait -ErrorAction Stop
 
-            Remove-Item $nightlyInstaller -Force -ErrorAction SilentlyContinue
+            # Inno Setup 무인 설치 인수 (/VERYSILENT 와 /SUPPRESSMSGBOXES 조합 필수)
+            $installArgs = "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"
 
-            # 설치 성공 확인
+            # 관리자 권한 여부에 따라 실행 방식 분기
+            # - 관리자: 현재 컨텍스트로 직접 실행 (-PassThru -Wait 로 ExitCode 추적 가능)
+            # - 비관리자: -Verb RunAs 로 권한 상승 후 실행 (ExitCode 추적 불가 → $weztermExists 로 판정)
+            $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+            if ($isAdmin) {
+                $p = Start-Process -FilePath $nightlyInstaller -ArgumentList $installArgs -PassThru -Wait -ErrorAction Stop
+                Remove-Item $nightlyInstaller -Force -ErrorAction SilentlyContinue
+                $installExitCode = $p.ExitCode
+            }
+            else {
+                Write-Warn "  관리자 권한이 없습니다. UAC 창이 표시되면 허용해 주세요..."
+                $p = Start-Process -FilePath $nightlyInstaller -ArgumentList $installArgs -Verb RunAs -PassThru -Wait -ErrorAction Stop
+                Remove-Item $nightlyInstaller -Force -ErrorAction SilentlyContinue
+                # RunAs 프로세스는 ExitCode 추적 불가 → 파일 존재 여부로만 판정
+                $installExitCode = $null
+            }
+
+            # 설치 성공 확인 (ExitCode 0 또는 실제 파일 존재 여부)
             $weztermExists = (Get-Command wezterm -ErrorAction SilentlyContinue) -or
                              (Test-Path "$env:ProgramFiles\WezTerm\wezterm.exe") -or
                              (Test-Path "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe")
 
-            if ($weztermExists -or $p.ExitCode -eq 0) {
+            if ($weztermExists -or $installExitCode -eq 0) {
                 Write-Success "WezTerm Nightly 설치 완료"
             }
             else {
-                Write-Fail "WezTerm Nightly 설치 실패 (ExitCode: $($p.ExitCode))"
+                Write-Fail "WezTerm Nightly 설치 실패 (ExitCode: $installExitCode)"
                 Write-Host "  → 수동 설치: https://github.com/wez/wezterm/releases/tag/nightly" -ForegroundColor Yellow
             }
         }
