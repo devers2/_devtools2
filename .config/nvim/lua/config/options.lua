@@ -114,6 +114,35 @@ vim.o.timeoutlen = 300
 vim.o.ttimeoutlen = 0
 
 -- 시스템 클립보드와 연동 (OS의 클립보드 도구를 자동으로 감지하여 사용)
+if vim.fn.has('wsl') == 1 then
+  if vim.fn.executable('win32yank.exe') == 1 then
+    vim.g.clipboard = {
+      name = 'win32yank-wsl',
+      copy = {
+        ['+'] = 'win32yank.exe -i --crlf',
+        ['*'] = 'win32yank.exe -i --crlf',
+      },
+      paste = {
+        ['+'] = 'win32yank.exe -o --lf',
+        ['*'] = 'win32yank.exe -o --lf',
+      },
+      cache_enabled = 0,
+    }
+  else
+    vim.g.clipboard = {
+      name = 'powershell-wsl',
+      copy = {
+        ['+'] = 'clip.exe',
+        ['*'] = 'clip.exe',
+      },
+      paste = {
+        ['+'] = [[powershell.exe -NoProfile -Command "[Console]::Out.Write(([string](Get-Clipboard -Raw)).Replace([string][char]13, ''))"]],
+        ['*'] = [[powershell.exe -NoProfile -Command "[Console]::Out.Write(([string](Get-Clipboard -Raw)).Replace([string][char]13, ''))"]],
+      },
+      cache_enabled = 0,
+    }
+  end
+end
 vim.opt.clipboard = 'unnamedplus'
 
 -- 포커스를 잃거나(FocusLost), 버퍼를 떠나거나(BufLeave), 입력 모드를 나갈 때(InsertLeave) 자동 저장

@@ -136,6 +136,18 @@ fi
 show_spinner $!
 echo " 완료"
 
+# 7. (WSL2 전용) win32yank 설치 (Neovim의 Windows 클립보드 공유 용도)
+if [ "$IS_WSL2" = true ]; then
+    echo -n "📦 (WSL2) win32yank 설치 중..."
+    (curl -sL "https://github.com/equalsraf/win32yank/releases/download/v0.1.1/win32yank-x64.zip" -o /tmp/win32yank.zip && \
+     unzip -qo /tmp/win32yank.zip -d /tmp/win32yank_tmp && \
+     mv -f /tmp/win32yank_tmp/win32yank.exe "$DEVTOOLS2/scripts/linux/cmd/win32yank.exe" && \
+     chmod +x "$DEVTOOLS2/scripts/linux/cmd/win32yank.exe" && \
+     rm -rf /tmp/win32yank.zip /tmp/win32yank_tmp) &
+    show_spinner $!
+    echo " 완료"
+fi
+
 # 실행 권한 부여 및 검증
 echo "🔐 실행 권한 부여 및 검증 중..."
 for cmd in "$MODULES_DIR/ripgrep/rg" "$MODULES_DIR/fd/fd" "$MODULES_DIR/fzf/fzf" "$MODULES_DIR/lazygit/lazygit" "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/bitwarden/bw"; do
@@ -155,8 +167,8 @@ sudo apt-get update -qq &
 show_spinner $!
 echo " 완료"
 
-echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli) 설치 중..."
-sudo apt-get install -y build-essential libreadline-dev git trash-cli -qq &
+echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli, xclip, wl-clipboard) 설치 중..."
+sudo apt-get install -y build-essential libreadline-dev git trash-cli xclip wl-clipboard -qq &
 show_spinner $!
 echo " 완료"
 echo "✅ apt 패키지 설치 완료"
