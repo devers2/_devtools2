@@ -308,7 +308,7 @@ return {
           -- [Eclipse 전역 환경설정 강제 주입: Spring Boot 3.2+ 호환성 유지용]
           -- 생성된 jdtls-global.epf 파일 안의 모든 규칙을 모든 프로젝트에 강제 적용합니다.
           settings = {
-            url = 'file:' .. _G.DEVTOOLS2_DIR .. '/.config/nvim/jdtls-global.epf',
+            url = vim.uri_from_fname(_G.DEVTOOLS2_DIR .. '/.config/nvim/jdtls-global.epf'),
           },
           -- [개발 편의성] 자동 완성 및 코드 컨벤션
           completion = {

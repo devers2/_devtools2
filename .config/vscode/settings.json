@@ -73,10 +73,10 @@
   "spring-boot.ls.java.home": "/var/opt/_devtools2/modules/java/jdk-25", // Spring Boot Language Server의 JDK 경로
 
   // Java 프로젝트 세부 설정 파일(Eclipse JDT) 경로
-  "java.settings.url": "file:////var/opt/_devtools2/.config/java/org.eclipse.jdt.core.prefs",
+  "java.settings.url": "file:///var/opt/_devtools2/.config/java/org.eclipse.jdt.core.prefs",
 
   /* Java 포맷터 설정 파일 경로 및 프로필 설정 */
-  "java.format.settings.url": "file:////var/opt/_devtools2/.config/formatter/java/s2-code-style.xml", // Java 코드 스타일 설정 파일 경로
+  "java.format.settings.url": "file:///var/opt/_devtools2/.config/formatter/java/s2-code-style.xml", // Java 코드 스타일 설정 파일 경로
   "java.format.settings.profile": "Standard-s2", // Java 코드 스타일 프로필 이름
   "java.format.enabled": true,
 
