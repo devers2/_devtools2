@@ -271,8 +271,9 @@ else {
             $ProgressPreference = $prevProgress
 
             Write-Host "  WezTerm $weztermVersionLabel 설치 중..." -ForegroundColor White
-            # /SILENT: 대화상자 없이 설치, /NORESTART: 자동 재부팅 방지, /SUPPRESSMSGBOXES: 잔여 팝업 완전 차단
-            $p = Start-Process -FilePath $nightlyInstaller -ArgumentList "/SILENT", "/NORESTART", "/SUPPRESSMSGBOXES" -PassThru -Wait -ErrorAction Stop
+            # /VERYSILENT: 완전 무인 설치 (Inno Setup 표준), /SUPPRESSMSGBOXES 는 /VERYSILENT 와 함께 사용해야 동작
+            # ※ 이 스크립트는 관리자 권한으로 실행되므로 -Verb RunAs 불필요 (RunAs 사용 시 ExitCode 추적 불가)
+            $p = Start-Process -FilePath $nightlyInstaller -ArgumentList "/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES" -PassThru -Wait -ErrorAction Stop
 
             Remove-Item $nightlyInstaller -Force -ErrorAction SilentlyContinue
 
