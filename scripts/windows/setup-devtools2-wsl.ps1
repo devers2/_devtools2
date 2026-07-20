@@ -320,22 +320,60 @@ Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
 if ($isLocalMode) {
-    Write-SubStep "▶ (1/2) WezTerm 설치 및 설정 연동 (로컬)"
+    Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (로컬)"
     & $setupWeztermScript -WslDistro $wslDistro
 
-    Write-SubStep "▶ (2/2) Zed 에디터 설치 및 설정 연동 (로컬)"
+    Write-SubStep "▶ (2/3) Zed 에디터 설치 및 설정 연동 (로컬)"
     & $setupZedScript -WslDistro $wslDistro
 } else {
-    Write-SubStep "▶ (1/2) WezTerm 설치 및 설정 연동 (온라인)"
+    Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (온라인)"
     $rawWeztermScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/1.setup-wezterm.ps1"
     $weztermScriptBlock = [scriptblock]::Create($rawWeztermScript)
     & $weztermScriptBlock -WslDistro $wslDistro
 
-    Write-SubStep "▶ (2/2) Zed 에디터 설치 및 설정 연동 (온라인)"
+    Write-SubStep "▶ (2/3) Zed 에디터 설치 및 설정 연동 (온라인)"
     $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/2.setup-zed.ps1"
     $zedScriptBlock = [scriptblock]::Create($rawZedScript)
     & $zedScriptBlock -WslDistro $wslDistro
 }
+
+Write-SubStep "▶ (3/3) VSCode 설정 연동 (심볼릭 링크)"
+$vscodeUserDir = "$env:APPDATA\Code\User"
+if (-not (Test-Path $vscodeUserDir)) {
+    New-Item -ItemType Directory -Path $vscodeUserDir -Force | Out-Null
+}
+
+# settings.json 백업 및 이전 링크 삭제
+if (Test-Path "$vscodeUserDir\settings.json") {
+    if (-not (Test-Path "$vscodeUserDir\settings.json.bak")) {
+        Move-Item "$vscodeUserDir\settings.json" "$vscodeUserDir\settings.json.bak" -Force
+        Write-Info "기존 settings.json을 settings.json.bak으로 백업했습니다."
+    } else {
+        Remove-Item "$vscodeUserDir\settings.json" -Force
+    }
+}
+
+# keybindings.json 백업 및 이전 링크 삭제
+if (Test-Path "$vscodeUserDir\keybindings.json") {
+    if (-not (Test-Path "$vscodeUserDir\keybindings.json.bak")) {
+        Move-Item "$vscodeUserDir\keybindings.json" "$vscodeUserDir\keybindings.json.bak" -Force
+        Write-Info "기존 keybindings.json을 keybindings.json.bak으로 백업했습니다."
+    } else {
+        Remove-Item "$vscodeUserDir\keybindings.json" -Force
+    }
+}
+
+# cmd.exe /c mklink 를 이용해 WSL2 파일 경로를 향해 심볼릭 링크 생성
+$targetSettings = "\\wsl.localhost\$wslDistro\var\opt\_devtools2\.config\vscode\settings.json"
+$targetKeybindings = "\\wsl.localhost\$wslDistro\var\opt\_devtools2\.config\vscode\keybindings.json"
+
+Write-Info "VSCode settings.json 심볼릭 링크 생성 중..."
+cmd.exe /c "mklink `"$vscodeUserDir\settings.json`" `"$targetSettings`"" | Out-Null
+
+Write-Info "VSCode keybindings.json 심볼릭 링크 생성 중..."
+cmd.exe /c "mklink `"$vscodeUserDir\keybindings.json`" `"$targetKeybindings`"" | Out-Null
+
+Write-Success "VSCode 설정 연동 완료"
 
 # ==============================================================================
 # 전체 설치 완료

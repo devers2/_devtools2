@@ -193,6 +193,13 @@ if [ -d "$HOME/.var/app/dev.zed.Zed" ]; then
     "$CMD_SYMLINK" "$DEVTOOLS2/.config/zed" "$flatpak_zed_dir/zed"
 fi
 
+# --- VSCode 설정 (네이티브 리눅스 전용) ---
+if [ "$IS_WSL2" = false ]; then
+    mkdir -p "$cfg_dir/Code/User"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json" "$cfg_dir/Code/User/settings.json"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/keybindings.json" "$cfg_dir/Code/User/keybindings.json"
+fi
+
 # data 대상 디렉터리 결정
 if [ -n "${XDG_DATA_HOME:-}" ]; then
     nvim_data_dir="$XDG_DATA_HOME"
