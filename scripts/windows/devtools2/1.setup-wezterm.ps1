@@ -223,14 +223,30 @@ if ($weztermInstalled) {
     Write-Skip "WezTerm 이 이미 설치되어 있습니다."
 }
 else {
-    Write-Host "  WezTerm 을 winget 으로 설치합니다..." -ForegroundColor White
+    # 나이틀리 / 안정화 버전 선택
+    Write-Host ""
+    Write-Host "  WezTerm 버전을 선택하세요:" -ForegroundColor Cyan
+    Write-Host "    [Y] Nightly  - 최신 기능 포함 나이틀리 버전 (권장, 기본값)" -ForegroundColor Green
+    Write-Host "    [N] Stable   - 안정화 버전 (2024년 2월)" -ForegroundColor Gray
+    Write-Host ""
+    $versionChoice = Read-Host "  나이틀리 버전으로 설치할까요? (Y/n)"
+
+    if ($versionChoice -match '^[Nn]') {
+        $weztermWingetId = "wez.wezterm"
+        $weztermVersionLabel = "안정화(Stable)"
+    } else {
+        $weztermWingetId = "wez.wezterm.nightly"
+        $weztermVersionLabel = "나이틀리(Nightly)"
+    }
+
+    Write-Host "  WezTerm $weztermVersionLabel 버전을 winget 으로 설치합니다..." -ForegroundColor White
     # -WindowStyle Hidden: winget 출력을 완전히 숨겨 스피너가 깨끔하게 표시됩니다.
-    $p = Start-Process winget -ArgumentList "install --id wez.wezterm --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru
-    Wait-ProcessWithSpinner -Process $p -Message "WezTerm 패키지 설치 진행 중"
+    $p = Start-Process winget -ArgumentList "install --id $weztermWingetId --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru
+    Wait-ProcessWithSpinner -Process $p -Message "WezTerm $weztermVersionLabel 패키지 설치 진행 중"
     # 0: 성공, 3010: 성공(재부팅 필요), -1978335189: 이미 최신버전, -1978335212: 업그레이드 불필요
     $weztermSuccessCodes = @(0, 3010, -1978335189, -1978335212)
     if ($weztermSuccessCodes -contains $p.ExitCode) {
-        Write-Success "WezTerm 설치/확인 완료 (종료 코드: $($p.ExitCode))"
+        Write-Success "WezTerm $weztermVersionLabel 설치/확인 완료 (종료 코드: $($p.ExitCode))"
     }
     else {
         # 설치 후 실제로 wezterm 이 있는지 재확인
@@ -238,10 +254,10 @@ else {
                       (Test-Path "$env:ProgramFiles\WezTerm\wezterm.exe") -or `
                       (Test-Path "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe")
         if ($weztermNow) {
-            Write-Success "WezTerm 설치 확인 완료 (종료 코드 $($p.ExitCode) 이지만 실제 설치됨)"
+            Write-Success "WezTerm $weztermVersionLabel 설치 확인 완료 (종료 코드 $($p.ExitCode) 이지만 실제 설치됨)"
         }
         else {
-            Write-Fail "WezTerm 설치 실패 (종료 코드: $($p.ExitCode))"
+            Write-Fail "WezTerm $weztermVersionLabel 설치 실패 (종료 코드: $($p.ExitCode))"
             Write-Host "  수동 설치: https://wezfurlong.org/wezterm/install/windows.html" -ForegroundColor Yellow
         }
     }
