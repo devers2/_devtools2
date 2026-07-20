@@ -129,6 +129,11 @@ $DEVTOOLS2/modules/lazygit:\
 $DEVTOOLS2/modules/ast-grep:\
 $DEVTOOLS2/modules/bitwarden:\
 $PATH"
+
+# Windows-mounted NTFS 디렉터리 배경색 수정 (WSL2에서 WezTerm Kanagawa 테마 가독성 확보)
+LS_COLORS=$(echo "$LS_COLORS" | sed "s/ow=[^:]*:/ow=01;37;48;5;24:/g; s/tw=[^:]*:/tw=01;37;48;5;58:/g")
+export LS_COLORS
+
 # === DEVTOOLS2 환경 변수 끝 ===
 
 EOF
