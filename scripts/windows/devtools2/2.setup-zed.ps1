@@ -77,7 +77,7 @@ function New-SafeFileSymlink {
         New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
     }
 
-    if (Test-Path $LinkPath -PathType Any) {
+    if (Get-Item -Path $LinkPath -Force -ErrorAction SilentlyContinue) {
         $item = Get-Item $LinkPath -Force
         if ($item.LinkType -eq "SymbolicLink") {
             $currentTarget = $item.Target
@@ -100,7 +100,8 @@ function New-SafeFileSymlink {
                 Write-Host "  [재생성] 심볼릭 링크 대상이 다릅니다. 삭제 후 재생성합니다..." -ForegroundColor Yellow
                 Write-Host "    기존: $normalizedCurrent" -ForegroundColor DarkGray
                 Write-Host "    신규: $normalizedTarget" -ForegroundColor DarkGray
-                Remove-Item $LinkPath -Force
+                Remove-Item $LinkPath -Force -ErrorAction SilentlyContinue
+                cmd.exe /c "del /f /q /a `"$LinkPath`"" 2>$null | Out-Null
             }
         }
         else {

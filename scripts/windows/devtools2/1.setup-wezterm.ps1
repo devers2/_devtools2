@@ -453,7 +453,18 @@ Write-Host "  공유 설정 (WSL2): $WslWeztermConfig" -ForegroundColor DarkGray
 Write-Host "  Windows 설정   : $WinWeztermConfig" -ForegroundColor DarkGray
 Write-Host ""
 
-New-SafeSymlink -LinkPath $WinWeztermConfig -TargetPath $WslWeztermConfig -ItemType "SymbolicLink"
+# 기존 파일, 심볼릭 링크, 깨진 링크(dangling symlink) 포함하여 확실히 삭제 후 mklink 생성
+if (Get-Item -Path $WinWeztermConfig -Force -ErrorAction SilentlyContinue) {
+    Remove-Item -Path $WinWeztermConfig -Force -ErrorAction SilentlyContinue
+}
+cmd.exe /c "del /f /q /a `"$WinWeztermConfig`"" 2>$null | Out-Null
+
+$mklinkResult = cmd.exe /c "mklink `"$WinWeztermConfig`" `"$WslWeztermConfig`"" 2>&1
+if (Get-Item -Path $WinWeztermConfig -Force -ErrorAction SilentlyContinue) {
+    Write-Success "WezTerm 심볼릭 링크 연동 완료: '$WinWeztermConfig' -> '$WslWeztermConfig'"
+} else {
+    Write-Fail "WezTerm 심볼릭 링크 생성 실패: $mklinkResult"
+}
 
 # ==============================================================================
 # 완료
