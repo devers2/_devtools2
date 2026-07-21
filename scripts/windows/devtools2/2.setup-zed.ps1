@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Zed 에디터 설치 및 WSL2 설정 파일 심볼릭 링크 생성 스크립트 (2.setup-zed.ps1)
 #
 # 주요 기능:
@@ -61,74 +61,7 @@ function Write-Fail {
     Write-Host "[오류] $Message" -ForegroundColor Red
 }
 
-# 파일 심볼릭 링크를 안전하게 생성하는 함수
-# - 대상이 이미 심볼릭 링크이면 건너뜀
-# - 대상이 일반 파일이면 .bak 으로 백업 후 링크 생성
-# - 부모 디렉터리가 없으면 자동 생성
-function New-SafeFileSymlink {
-    param(
-        [string]$LinkPath,   # 생성할 링크 경로 (Windows 측)
-        [string]$TargetPath  # 링크가 가리킬 실제 경로 (WSL2 측)
-    )
 
-    # 부모 디렉터리 생성
-    $parentDir = Split-Path $LinkPath -Parent
-    if (-not (Test-Path $parentDir)) {
-        New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
-    }
-
-    if (Get-Item -Path $LinkPath -Force -ErrorAction SilentlyContinue) {
-        $item = Get-Item $LinkPath -Force
-        if ($item.LinkType -eq "SymbolicLink") {
-            $currentTarget = $item.Target
-            # UNC\ 로 시작하는 경로를 \\ 형식으로 정규화하여 대조
-            $normalizedCurrent = $currentTarget
-            if ($normalizedCurrent -like "UNC\*") {
-                $normalizedCurrent = "\\" + $normalizedCurrent.Substring(4)
-            }
-            $normalizedTarget = $TargetPath
-            if ($normalizedTarget -like "UNC\*") {
-                $normalizedTarget = "\\" + $normalizedTarget.Substring(4)
-            }
-
-            if ($normalizedCurrent.Replace("/", "\").TrimEnd("\") -eq $normalizedTarget.Replace("/", "\").TrimEnd("\")) {
-                Write-Skip "'$(Split-Path $LinkPath -Leaf)' 심볼릭 링크가 이미 올바릅니다."
-                return
-            }
-            else {
-                # 대상 경로가 다르면 삭제 후 재생성
-                Write-Host "  [재생성] 심볼릭 링크 대상이 다릅니다. 삭제 후 재생성합니다..." -ForegroundColor Yellow
-                Write-Host "    기존: $normalizedCurrent" -ForegroundColor DarkGray
-                Write-Host "    신규: $normalizedTarget" -ForegroundColor DarkGray
-                Remove-Item $LinkPath -Force -ErrorAction SilentlyContinue
-                cmd.exe /c "del /f /q /a `"$LinkPath`"" 2>$null | Out-Null
-            }
-        }
-        else {
-            # 기존 파일을 .bak 으로 백업
-            $backupPath = "$LinkPath.bak"
-            Write-Host "  [백업] '$LinkPath' -> '$backupPath'" -ForegroundColor Yellow
-            Move-Item -Path $LinkPath -Destination $backupPath -Force
-        }
-    }
-
-    # WSL2 경로 접근 가능 여부 확인
-    if (-not (Test-Path $TargetPath)) {
-        Write-Fail "WSL2 소스 파일을 찾을 수 없습니다: $TargetPath"
-        Write-Host "  WSL2 에서 먼저 setup-devtools2-wsl.ps1 를 실행해주세요." -ForegroundColor Yellow
-        return
-    }
-
-    try {
-        New-Item -ItemType SymbolicLink -Path $LinkPath -Target $TargetPath -Force -ErrorAction Stop | Out-Null
-        Write-Success "링크 생성: '$(Split-Path $LinkPath -Leaf)'"
-        Write-Host "    Windows : $LinkPath" -ForegroundColor DarkGray
-        Write-Host "    WSL2    : $TargetPath" -ForegroundColor DarkGray
-    }
-    catch {
-        Write-Fail "심볼릭 링크 생성 실패 ('$(Split-Path $LinkPath -Leaf)'): $($_.Exception.Message)"
-    }
-}
 
 # 프로세스 종료 시까지 스피너를 표시해 대기하는 함수
 function Wait-ProcessWithSpinner {
@@ -279,62 +212,68 @@ else {
 }
 
 # ==============================================================================
-# [Step 3] Zed 설정 파일 심볼릭 링크 생성
+# [Step 3] Zed 설정 파일 초기 복사 (설치 연동)
 #
-# Zed Windows 설정 경로: %APPDATA%\Zed\
-#   - settings.json  : 에디터 전역 설정
-#   - keymap.json    : 키보드 단축키
-#
-# 링크하지 않는 항목 (Zed 가 자동 생성, gitignore 에 포함):
-#   - state.json, session.json, workspaces/, extensions/, *.log
-#
-# WSL2 소스: \\wsl.localhost\<Distro>\var\opt\_devtools2\.config\zed\
+# WSL2 내의 settings.json 및 keymap.json 실물 파일을
+# Windows용 Zed 설정 경로인 %APPDATA%\Zed\ 하위로 안전하게 복사해줍니다.
+# 이후 실시간 설정 동기화는 WSL2 내의 zed 실행 래퍼(Wrapper)가 담당합니다.
 # ==============================================================================
-Write-Step "[Step 3] Zed 설정 파일 심볼릭 링크 생성"
+Write-Step "[Step 3] Zed 설정 파일 초기 복사"
 
 $WslZedConfig = "$DevTools2Wsl\.config\zed"
 $WinZedDir    = "$env:APPDATA\Zed"
 
 Write-Host "  소스 (WSL2): $WslZedConfig" -ForegroundColor DarkGray
-Write-Host "  링크 대상  : $WinZedDir" -ForegroundColor DarkGray
+Write-Host "  대상 (Win) : $WinZedDir" -ForegroundColor DarkGray
 Write-Host ""
 
-# Zed 설정 폴더가 WSL2에 없으면 생성
+# Zed 설정 폴더가 WSL2에 없으면 기본 폴더를 생성
 if (-not (Test-Path $WslZedConfig)) {
     Write-Warn "WSL2에 Zed 설정 폴더가 없습니다. 기본 폴더를 생성합니다..."
     wsl -d $WslDistro -- bash -c "mkdir -p /var/opt/_devtools2/.config/zed"
 }
 
-# settings.json 링크
-Write-Host "  파일 settings.json 링크 생성 중..."
-if (Test-Path "$WslZedConfig\settings.json") {
-    New-SafeFileSymlink -LinkPath "$WinZedDir\settings.json" `
-                        -TargetPath "$WslZedConfig\settings.json"
-} else {
-    Write-Warn "settings.json 소스 파일이 없습니다. WSL2 설정 파일 생성 후 링크합니다..."
-    wsl -d $WslDistro -- bash -c "touch /var/opt/_devtools2/.config/zed/settings.json"
-    Start-Sleep -Milliseconds 300
-    if (Test-Path "$WslZedConfig\settings.json") {
-        New-SafeFileSymlink -LinkPath "$WinZedDir\settings.json" `
-                            -TargetPath "$WslZedConfig\settings.json"
-    }
+# settings.json과 keymap.json이 없으면 기본 뼈대 파일 생성
+if (-not (Test-Path "$WslZedConfig\settings.json")) {
+    wsl -d $WslDistro -- bash -c "echo '{}' > /var/opt/_devtools2/.config/zed/settings.json"
+}
+if (-not (Test-Path "$WslZedConfig\keymap.json")) {
+    wsl -d $WslDistro -- bash -c "echo '[]' > /var/opt/_devtools2/.config/zed/keymap.json"
 }
 
-Write-Host ""
-
-# keymap.json 링크
-Write-Host "  파일 keymap.json 링크 생성 중..."
-if (Test-Path "$WslZedConfig\keymap.json") {
-    New-SafeFileSymlink -LinkPath "$WinZedDir\keymap.json" `
-                        -TargetPath "$WslZedConfig\keymap.json"
-} else {
-    Write-Warn "keymap.json 소스 파일이 없습니다. WSL2 설정 파일 생성 후 링크합니다..."
-    wsl -d $WslDistro -- bash -c "touch /var/opt/_devtools2/.config/zed/keymap.json"
-    Start-Sleep -Milliseconds 300
-    if (Test-Path "$WslZedConfig\keymap.json") {
-        New-SafeFileSymlink -LinkPath "$WinZedDir\keymap.json" `
-                            -TargetPath "$WslZedConfig\keymap.json"
+# 기존에 설정된 심볼릭 링크나 디렉터리 링크가 있을 경우 완전히 제거하고 물리 폴더 생성
+if (Test-Path $WinZedDir) {
+    $item = Get-Item $WinZedDir -Force -ErrorAction SilentlyContinue
+    if ($item -and $item.LinkType -eq "SymbolicLink") {
+        Write-Host "  기존 심볼릭 링크 폴더를 제거합니다..." -ForegroundColor Yellow
+        Remove-Item $WinZedDir -Force -ErrorAction SilentlyContinue
+        cmd.exe /c "rd /s /q `"$WinZedDir`"" 2>$null | Out-Null
     }
+}
+if (-not (Test-Path $WinZedDir)) {
+    New-Item -ItemType Directory -Path $WinZedDir -Force | Out-Null
+}
+
+# settings.json 복사
+if (Test-Path "$WslZedConfig\settings.json") {
+    $targetFile = "$WinZedDir\settings.json"
+    if (Test-Path $targetFile) {
+        $fi = Get-Item $targetFile -Force
+        if ($fi.LinkType -eq "SymbolicLink") { Remove-Item $targetFile -Force }
+    }
+    Copy-Item -Path "$WslZedConfig\settings.json" -Destination $targetFile -Force
+    Write-Success "settings.json 파일 복사 완료"
+}
+
+# keymap.json 복사
+if (Test-Path "$WslZedConfig\keymap.json") {
+    $targetFile = "$WinZedDir\keymap.json"
+    if (Test-Path $targetFile) {
+        $fi = Get-Item $targetFile -Force
+        if ($fi.LinkType -eq "SymbolicLink") { Remove-Item $targetFile -Force }
+    }
+    Copy-Item -Path "$WslZedConfig\keymap.json" -Destination $targetFile -Force
+    Write-Success "keymap.json 파일 복사 완료"
 }
 
 # ==============================================================================
