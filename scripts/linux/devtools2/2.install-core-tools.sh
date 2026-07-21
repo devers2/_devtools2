@@ -179,33 +179,33 @@ _HAS_INSTALLED=false
 if [ "$_HAS_INSTALLED" = true ]; then
     echo "⚠️  이미 설치된 도구가 감지되었습니다. 중복 처리 방식을 선택하세요:"
     echo ""
-    echo "   1) 일괄 삭제 후 재설치"
-    echo "   2) 일괄 유지 (건너뜀) [기본값]"
-    echo "   3) 개별 선택"
+    echo "   1) 기존 도구 삭제 후 재설치 (덮어쓰기)"
+    echo "   2) 기존 도구 유지 (건너뛰기) [기본값]"
+    echo "   3) 도구별 개별 확인 (재설치/건너뛰기 선택)"
     echo ""
     read -rp "   선택 (1-3, 기본값: 2): " _dup_choice
     echo ""
     case "${_dup_choice:-2}" in
-        1) DUPLICATE_MODE="remove"     ; echo "   → 일괄 삭제 후 재설치 선택됨" ;;
-        3) DUPLICATE_MODE="individual" ; echo "   → 개별 선택 모드 선택됨" ;;
-        *) DUPLICATE_MODE="keep"       ; echo "   → 일괄 유지 선택됨" ;;
+        1) DUPLICATE_MODE="remove"     ; echo "   → 중복 처리: 묻지 않고 삭제 후 재설치 선택됨" ;;
+        3) DUPLICATE_MODE="individual" ; echo "   → 중복 처리: 도구별 개별 확인 선택됨" ;;
+        *) DUPLICATE_MODE="keep"       ; echo "   → 중복 처리: 기존 도구 유지(건너뛰기) 선택됨" ;;
     esac
     echo ""
 fi
 
 # ── 버전 설치 방식 선택 ──────────────────────────────────────────
-echo "❓ 버전 설치 방식을 선택하세요:"
+echo "❓ 적용할 버전 선택 방식을 선택하세요:"
 echo ""
-echo "   1) 일괄 최신 버전 설치"
-echo "   2) 일괄 최종 설치 버전 설치 [기본값]"
-echo "   3) 개별 선택"
+echo "   1) 모든 도구 최신 버전으로 설치 (온라인 최신 릴리스)"
+echo "   2) 모든 도구 지정 버전으로 설치 (TOML 고정/최종 설치 버전) [기본값]"
+echo "   3) 도구별 개별 확인 (최신/지정 버전 선택)"
 echo ""
 read -rp "   선택 (1-3, 기본값: 2): " _ver_choice
 echo ""
 case "${_ver_choice:-2}" in
-    1) VERSION_MODE="latest"     ; echo "   → 일괄 최신 버전 설치 선택됨" ;;
-    3) VERSION_MODE="individual" ; echo "   → 개별 선택 모드 선택됨" ;;
-    *) VERSION_MODE="pinned"     ; echo "   → 최종 설치 버전 설치 선택됨" ;;
+    1) VERSION_MODE="latest"     ; echo "   → 버전 선택: 모든 도구 최신 버전 선택됨" ;;
+    3) VERSION_MODE="individual" ; echo "   → 버전 선택: 도구별 개별 확인 선택됨" ;;
+    *) VERSION_MODE="pinned"     ; echo "   → 버전 선택: 모든 도구 지정(TOML) 버전 선택됨" ;;
 esac
 
 # 설치에 사용할 실제 버전 초기화 (기본: 최종 설치 버전)

@@ -65,16 +65,6 @@ if [ -d "$TARGET_DIR" ]; then
     echo "==========================================================================="
     echo "[알림] 이미 개발도구 디렉터리($TARGET_DIR)가 존재합니다."
 
-    # 기존 git 저장소가 있으면 git pull로 최신 스크립트를 자동 반영
-    if [ -d "$TARGET_DIR/.git" ]; then
-        echo "[작업] 기존 git 저장소를 최신 상태로 업데이트합니다 (git pull)..."
-        if sudo -u "$INVOKER" git -C "$TARGET_DIR" pull --ff-only 2>/dev/null; then
-            echo "  ✅ git pull 완료! 최신 스크립트가 반영되었습니다."
-        else
-            echo "  ⚠️  git pull 실패 (충돌 또는 네트워크 문제). 기존 파일을 그대로 사용합니다."
-        fi
-    fi
-
     read -r -p "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? (y/N): " choice </dev/tty
     choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
     if [ "$choice" = "y" ]; then
