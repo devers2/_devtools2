@@ -80,21 +80,18 @@ function Wait-WithSpinner {
     while ($true) {
         $elapsed = (Get-Date) - $startTime
         if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
-            $msg = "`r  [시간 초과] $Message (제한 시간 초과)"
-            Write-Host $msg.PadRight(79) -ForegroundColor Red
+            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)   " -ForegroundColor Red
             return $false
         }
         
         $success = & $Condition
         if ($success) {
-            $msg = "`r  [완료] $Message 완료!"
-            Write-Host $msg.PadRight(79) -ForegroundColor Green
+            Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
             return $true
         }
         
         $char = $spinner[$i % 4]
-        $msg = "`r  [$char] $Message..."
-        Write-Host -NoNewline $msg.PadRight(79)
+        Write-Host -NoNewline "`r  [$char] $Message...   "
         Start-Sleep -Milliseconds 150
         $i++
     }
@@ -194,8 +191,7 @@ while ($retryCount -lt $maxRetry) {
     # 2초 동안 스피너 회전 대기
     for ($i = 0; $i -lt 8; $i++) {
         $char = $spinner[$sIdx % 4]
-        $msg = "`r  [$char] WSL2 배포판 준비 상태 조회 중..."
-        Write-Host -NoNewline $msg.PadRight(79)
+        Write-Host -NoNewline "`r  [$char] WSL2 배포판 준비 상태 조회 중...   "
         Start-Sleep -Milliseconds 150
         $sIdx++
         if ($checkProc.HasExited) { break }
@@ -206,8 +202,7 @@ while ($retryCount -lt $maxRetry) {
         # ready 문자열이 포함되어 있으면 통과 (경고 메세지와 섞여 있어도 검출 가능)
         if ($testResult -match "ready") {
             $distroReady = $true
-            $doneMsg = "`r  [완료] WSL2 배포판 접근 확인 완료: $wslDistro"
-            Write-Host $doneMsg.PadRight(79) -ForegroundColor Green
+            Write-Host "`r  [완료] WSL2 배포판 접근 확인 완료: $wslDistro   " -ForegroundColor Green
             Remove-Item "$env:TEMP\wsl_ready_check.txt" -Force -ErrorAction SilentlyContinue
             break
         }
