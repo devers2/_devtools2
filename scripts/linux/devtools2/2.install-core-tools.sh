@@ -15,6 +15,48 @@ if [ ! -f "$DEVTOOLS2/scripts/linux/devtools2/2.install-core-tools.sh" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
 
+# tool-versions.toml 경로
+TOOL_VERSIONS_TOML="$DEVTOOLS2/scripts/linux/devtools2/tool-versions.toml"
+
+# ─────────────────────────────────────────────────────────────────
+# 📄 TOML 유틸리티 함수 (tool-versions.toml 연동)
+# ─────────────────────────────────────────────────────────────────
+
+# 지정한 키의 최종 설치 버전 (배열의 첫 번째 값)을 반환합니다.
+get_pinned_version() {
+    local key="$1"
+    grep -E "^${key} = \[" "$TOOL_VERSIONS_TOML" 2>/dev/null \
+        | grep -oE '"[^"]+"' | head -1 | tr -d '"'
+}
+
+# 지정한 키의 버전 배열 앞에 새 버전을 추가합니다 (이미 있으면 건너뜀).
+update_pinned_version() {
+    local key="$1" new_ver="$2"
+    if grep -E "^${key} = \[" "$TOOL_VERSIONS_TOML" 2>/dev/null | grep -qF "\"${new_ver}\""; then
+        return 0
+    fi
+    sed -i "s|^\(${key} = \[\)\(.*\)\]\$|\1\"${new_ver}\", \2]|" "$TOOL_VERSIONS_TOML"
+    echo "   📝 [tool-versions.toml] ${key} 버전 이력 추가: \"${new_ver}\""
+}
+
+# GitHub 최신 릴리즈 태그를 반환합니다. 실패 시 빈 문자열 반환.
+fetch_latest_github() {
+    local repo="$1"
+    curl -sf --max-time 10 \
+        "https://api.github.com/repos/${repo}/releases/latest" \
+        2>/dev/null \
+        | grep '"tag_name"' | head -1 \
+        | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || true
+}
+
+# Node.js 최신 v24.x 버전을 반환합니다 ('v' 포함, 예: v24.16.0).
+fetch_latest_nodejs() {
+    curl -sf --max-time 10 "https://nodejs.org/dist/index.json" \
+        2>/dev/null \
+        | grep -o '"version":"v24\.[^"]*"' | head -1 \
+        | cut -d'"' -f4 || true
+}
+
 # 로그 설정: data/logs 폴더에 실행 시점별로 기록
 LOG_DIR="$DEVTOOLS2/data/logs"
 mkdir -p "$LOG_DIR"
@@ -90,6 +132,111 @@ install_tool() {
 
 # 모든 표준 출력(stdout)과 표준 에러(stderr)를 터미널과 로그 파일에 동시에 기록
 exec > >(tee -i "$LOG_FILE") 2>&1
+
+# ─────────────────────────────────────────────────────────────────
+# ⚙️  PRE-FLIGHT: 설치 방식 선택 (Node.js, Ghostty 대상)
+# ─────────────────────────────────────────────────────────────────
+
+# 최종 설치 버전 읽기
+NODEJS_PINNED=$(get_pinned_version "nodejs")
+GHOSTTY_PINNED=$(get_pinned_version "ghostty")
+
+# 설치 상태 확인
+NODEJS_INSTALLED=false
+[ -d "$DEVTOOLS2/modules/nodejs/node-v24" ] && NODEJS_INSTALLED=true
+
+GHOSTTY_INSTALLED=false
+if [ "$IS_WSL2" = false ] && [ -f "$DEVTOOLS2/modules/ghostty/ghostty" ]; then
+    GHOSTTY_INSTALLED=true
+fi
+
+# 상태 포매팅 헬퍼
+_fmts() { [ "$1" = true ] && echo '✅ 설치됨' || echo '⬜ 미설치'; }
+
+echo ""
+echo "==========================================================================="
+echo "📋 버전 관리 대상 도구 현황 (Node.js, Ghostty)"
+echo ""
+printf "   %-14s  최종 설치 버전: %-12s  %s\n" \
+    "Node.js" "$NODEJS_PINNED" "$(_fmts "$NODEJS_INSTALLED")"
+if [ "$IS_WSL2" = false ]; then
+    printf "   %-14s  최종 설치 버전: %-12s  %s\n" \
+        "Ghostty" "$GHOSTTY_PINNED" "$(_fmts "$GHOSTTY_INSTALLED")"
+else
+    printf "   %-14s  %-28s  %s\n" \
+        "Ghostty" "(WSL2 - 설치 건너뜀)" "⏭️  해당 없음"
+fi
+echo ""
+echo "   ℹ️  Java, Gradle, Python, Neovim, Zed는 버전 고정 설치입니다."
+echo ""
+
+# ── 중복 처리 방식 선택 ──────────────────────────────────────────
+DUPLICATE_MODE="keep"
+_HAS_INSTALLED=false
+[ "$NODEJS_INSTALLED" = true ] && _HAS_INSTALLED=true
+[ "$IS_WSL2" = false ] && [ "$GHOSTTY_INSTALLED" = true ] && _HAS_INSTALLED=true
+
+if [ "$_HAS_INSTALLED" = true ]; then
+    echo "⚠️  이미 설치된 도구가 감지되었습니다. 중복 처리 방식을 선택하세요:"
+    echo ""
+    echo "   1) 일괄 삭제 후 재설치"
+    echo "   2) 일괄 유지 (건너뜀) [기본값]"
+    echo "   3) 개별 선택"
+    echo ""
+    read -rp "   선택 (1-3, 기본값: 2): " _dup_choice
+    echo ""
+    case "${_dup_choice:-2}" in
+        1) DUPLICATE_MODE="remove"     ; echo "   → 일괄 삭제 후 재설치 선택됨" ;;
+        3) DUPLICATE_MODE="individual" ; echo "   → 개별 선택 모드 선택됨" ;;
+        *) DUPLICATE_MODE="keep"       ; echo "   → 일괄 유지 선택됨" ;;
+    esac
+    echo ""
+fi
+
+# ── 버전 설치 방식 선택 ──────────────────────────────────────────
+echo "❓ 버전 설치 방식을 선택하세요:"
+echo ""
+echo "   1) 일괄 최신 버전 설치"
+echo "   2) 일괄 최종 설치 버전 설치 [기본값]"
+echo "   3) 개별 선택"
+echo ""
+read -rp "   선택 (1-3, 기본값: 2): " _ver_choice
+echo ""
+case "${_ver_choice:-2}" in
+    1) VERSION_MODE="latest"     ; echo "   → 일괄 최신 버전 설치 선택됨" ;;
+    3) VERSION_MODE="individual" ; echo "   → 개별 선택 모드 선택됨" ;;
+    *) VERSION_MODE="pinned"     ; echo "   → 최종 설치 버전 설치 선택됨" ;;
+esac
+
+# 설치에 사용할 실제 버전 초기화 (기본: 최종 설치 버전)
+NODEJS_VERSION="$NODEJS_PINNED"
+GHOSTTY_VERSION="$GHOSTTY_PINNED"
+
+# 일괄 최신 버전 모드: 미리 최신 버전 조회
+if [ "$VERSION_MODE" = "latest" ]; then
+    echo ""
+    echo "   🔍 최신 버전 조회 중..."
+    _nl=$(fetch_latest_nodejs)
+    if [ -n "$_nl" ]; then
+        NODEJS_VERSION="$_nl"
+        echo "   ✓ Node.js:  최신 → $_nl  (최종 설치: $NODEJS_PINNED)"
+    else
+        echo "   ⚠️  Node.js: 최신 버전 조회 실패 → 최종 설치 버전으로 대체: $NODEJS_PINNED"
+    fi
+    if [ "$IS_WSL2" = false ]; then
+        _gl=$(fetch_latest_github "pkgforge-dev/ghostty-appimage" | sed 's/^v//')
+        if [ -n "$_gl" ]; then
+            GHOSTTY_VERSION="$_gl"
+            echo "   ✓ Ghostty:  최신 → $_gl  (최종 설치: $GHOSTTY_PINNED)"
+        else
+            echo "   ⚠️  Ghostty: 최신 버전 조회 실패 → 최종 설치 버전으로 대체: $GHOSTTY_PINNED"
+        fi
+    fi
+fi
+
+echo ""
+echo "==========================================================================="
+echo ""
 
 # 오류 발생 시 즉시 중단 설정
 set -e
@@ -220,14 +367,61 @@ echo "🟢 4. Node.js 포터블 설치 중..."
 mkdir -p "$DEVTOOLS2/modules/nodejs"
 cd "$DEVTOOLS2/modules/nodejs"
 
-if [ -d "$DEVTOOLS2/modules/nodejs/node-v24" ]; then
-    echo "   ⏭️ [건너뜀] node-v24 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/nodejs/node-v24'"
+# ── 개별 선택 모드: Node.js 버전 결정 ────────────────────────────
+if [ "$VERSION_MODE" = "individual" ]; then
+    echo -n "   🔍 Node.js 최신 버전 조회 중... "
+    set +e; _nl_ind=$(fetch_latest_nodejs); set -e
+    [ -n "$_nl_ind" ] && echo "완료 ($_nl_ind)" || echo "실패 (조회 불가)"
+    echo ""
+    echo "   Node.js 설치 버전 선택:"
+    echo "   1) 최신 버전: ${_nl_ind:-[조회 실패 - 선택 불가]}"
+    echo "   2) 최종 설치 버전: $NODEJS_PINNED [기본값]"
+    echo ""
+    read -rp "   선택 (1-2, 기본값: 2): " _nv_sel
+    case "${_nv_sel:-2}" in
+        1) [ -n "$_nl_ind" ] && NODEJS_VERSION="$_nl_ind" || NODEJS_VERSION="$NODEJS_PINNED" ;;
+        *) NODEJS_VERSION="$NODEJS_PINNED" ;;
+    esac
+    echo ""
+fi
+
+# ── 중복 처리: 설치 여부 결정 ────────────────────────────────────
+_nodejs_action="install"
+if [ "$NODEJS_INSTALLED" = true ]; then
+    case "$DUPLICATE_MODE" in
+        remove)
+            _nodejs_action="reinstall"
+            ;;
+        individual)
+            echo "   ⚠️  node-v24 디렉토리가 이미 존재합니다."
+            read -rp "   삭제 후 재설치하시겠습니까? (y/N): " _nd_dup
+            case "${_nd_dup:-N}" in
+                y|Y) _nodejs_action="reinstall" ;;
+                *)   _nodejs_action="skip" ;;
+            esac
+            ;;
+        *)
+            _nodejs_action="skip"
+            ;;
+    esac
+fi
+
+# ── 설치 실행 ─────────────────────────────────────────────────────
+if [ "$_nodejs_action" = "skip" ]; then
+    echo "   ⏭️  [건너뜀] node-v24 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/nodejs/node-v24'"
 else
+    if [ "$_nodejs_action" = "reinstall" ]; then
+        echo "   🗑️  기존 node-v24 디렉토리 삭제 중..."
+        rm -rf "$DEVTOOLS2/modules/nodejs/node-v24"
+    fi
+    echo "   📦 Node.js $NODEJS_VERSION 설치..."
     install_tool \
-        'https://nodejs.org/dist/v24.15.0/node-v24.15.0-linux-{ARCH}.tar.xz' \
-        'x64' \
-        'arm64' \
-        'node-v24'
+        "https://nodejs.org/dist/${NODEJS_VERSION}/node-${NODEJS_VERSION}-linux-{ARCH}.tar.xz" \
+        'x64' 'arm64' 'node-v24'
+    # 최신 버전으로 설치한 경우 이력 업데이트
+    if [ "$NODEJS_VERSION" != "$NODEJS_PINNED" ]; then
+        update_pinned_version "nodejs" "$NODEJS_VERSION"
+    fi
 fi
 
 # 전역 패키지 저장소 생성 및 복구
@@ -329,17 +523,68 @@ else
     mkdir -p "$DEVTOOLS2/modules/ghostty"
     cd "$DEVTOOLS2/modules/ghostty"
 
-    if [ -f "$DEVTOOLS2/modules/ghostty/ghostty" ]; then
-        echo "   ⏭️ [건너뜀] ghostty AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -f '$DEVTOOLS2/modules/ghostty/ghostty'"
+    # ── 개별 선택 모드: Ghostty 버전 결정 ────────────────────────
+    if [ "$VERSION_MODE" = "individual" ]; then
+        echo -n "   🔍 Ghostty 최신 버전 조회 중... "
+        set +e; _gl_ind=$(fetch_latest_github "pkgforge-dev/ghostty-appimage" | sed 's/^v//'); set -e
+        [ -n "$_gl_ind" ] && echo "완료 ($_gl_ind)" || echo "실패 (조회 불가)"
+        echo ""
+        echo "   Ghostty 설치 버전 선택:"
+        echo "   1) 최신 버전: ${_gl_ind:-[조회 실패 - 선택 불가]}"
+        echo "   2) 최종 설치 버전: $GHOSTTY_PINNED [기본값]"
+        echo ""
+        read -rp "   선택 (1-2, 기본값: 2): " _gv_sel
+        case "${_gv_sel:-2}" in
+            1) [ -n "$_gl_ind" ] && GHOSTTY_VERSION="$_gl_ind" || GHOSTTY_VERSION="$GHOSTTY_PINNED" ;;
+            *) GHOSTTY_VERSION="$GHOSTTY_PINNED" ;;
+        esac
+        echo ""
+    fi
+
+    # ── 중복 처리: 설치 여부 결정 ────────────────────────────────
+    _ghostty_action="install"
+    if [ "$GHOSTTY_INSTALLED" = true ]; then
+        case "$DUPLICATE_MODE" in
+            remove)
+                _ghostty_action="reinstall"
+                ;;
+            individual)
+                echo "   ⚠️  ghostty AppImage가 이미 존재합니다."
+                read -rp "   삭제 후 재설치하시겠습니까? (y/N): " _gh_dup
+                case "${_gh_dup:-N}" in
+                    y|Y) _ghostty_action="reinstall" ;;
+                    *)   _ghostty_action="skip" ;;
+                esac
+                ;;
+            *)
+                _ghostty_action="skip"
+                ;;
+        esac
+    fi
+
+    # ── 설치 실행 ─────────────────────────────────────────────────
+    if [ "$_ghostty_action" = "skip" ]; then
+        echo "   ⏭️  [건너뜀] ghostty AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -f '$DEVTOOLS2/modules/ghostty/ghostty'"
     else
-        echo -n "   📦 Ghostty AppImage 다운로드 중..."
-        curl -Ls "https://github.com/pkgforge-dev/ghostty-appimage/releases/download/v1.3.1/Ghostty-1.3.1-$ARCH.AppImage" -o ghostty &
+        if [ "$_ghostty_action" = "reinstall" ]; then
+            echo "   🗑️  기존 ghostty AppImage 삭제 중..."
+            rm -f "$DEVTOOLS2/modules/ghostty/ghostty"
+        fi
+        echo -n "   📦 Ghostty $GHOSTTY_VERSION AppImage 다운로드 중..."
+        curl -Ls \
+            "https://github.com/pkgforge-dev/ghostty-appimage/releases/download/v${GHOSTTY_VERSION}/Ghostty-${GHOSTTY_VERSION}-${ARCH}.AppImage" \
+            -o ghostty &
         show_spinner $!
         echo " 완료"
         chmod +x ghostty
 
         # 설정 파일 경로 심볼릭 링크 생성
         "$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh" "$DEVTOOLS2/.config/ghostty" "$HOME/.config/ghostty"
+
+        # 최신 버전으로 설치한 경우 이력 업데이트
+        if [ "$GHOSTTY_VERSION" != "$GHOSTTY_PINNED" ]; then
+            update_pinned_version "ghostty" "$GHOSTTY_VERSION"
+        fi
     fi
 
     echo "✅ Ghostty 설치 완료"
