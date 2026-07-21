@@ -2,7 +2,7 @@
 # WezTerm 설치 및 WSL2 설정 폴더 심볼릭 링크 생성 스크립트 (1.setup-wezterm.ps1)
 #
 # 주요 기능:
-#   1. winget 을 통해 WezTerm 을 자동 설치 (이미 설치되어 있으면 건너뜀)
+#   1. winget 또는 GitHub 최신 릴리즈를 통해 WezTerm 자동/재설치 (이미 설치 시 다시 설치 여부 확인)
 #   2. WSL2 의 _devtools2/.config/wezterm/.wezterm.lua 설정을 Windows 홈 디렉토리로 심볼릭 링크 생성
 #
 # [중요] 한글 깨짐 방지 안내 (Encoding Notice):
@@ -219,10 +219,23 @@ try {
 }
 catch {}
 
+$doInstall = -not $weztermInstalled
+
 if ($weztermInstalled) {
-    Write-Skip "WezTerm 이 이미 설치되어 있습니다."
+    Write-Host ""
+    Write-Host "  ⚠️ WezTerm이 이미 설치되어 있습니다." -ForegroundColor Yellow
+    $reinstallChoice = Read-Host "  다시 설치하시겠습니까? (y/N, 기본값: N)"
+    if ($reinstallChoice -match '^[Yy]') {
+        Write-Host "  → 기존 WezTerm 재설치를 진행합니다..." -ForegroundColor White
+        $doInstall = $true
+    }
+    else {
+        Write-Skip "기존 WezTerm 설치를 유지합니다."
+        $doInstall = $false
+    }
 }
-else {
+
+if ($doInstall) {
     # 나이틀리 / 안정화 버전 선택
     Write-Host ""
     Write-Host "  WezTerm 버전을 선택하세요:" -ForegroundColor Cyan
