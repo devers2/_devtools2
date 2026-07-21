@@ -62,18 +62,21 @@ function Wait-WithSpinner {
     while ($true) {
         $elapsed = (Get-Date) - $startTime
         if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
-            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)                   " -ForegroundColor Red
+            $msg = "`r  [시간 초과] $Message (제한 시간 초과)"
+            Write-Host $msg.PadRight(79) -ForegroundColor Red
             return $false
         }
         
         $success = & $Condition
         if ($success) {
-            Write-Host "`r  [완료] $Message 완료!                               " -ForegroundColor Green
+            $msg = "`r  [완료] $Message 완료!"
+            Write-Host $msg.PadRight(79) -ForegroundColor Green
             return $true
         }
         
         $char = $spinner[$i % 4]
-        Write-Host -NoNewline "`r  [$char] $Message..."
+        $msg = "`r  [$char] $Message..."
+        Write-Host -NoNewline $msg.PadRight(79)
         Start-Sleep -Milliseconds 150
         $i++
     }
