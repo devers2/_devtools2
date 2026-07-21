@@ -1,4 +1,23 @@
 {
+  // ==============================================================================
+  // 🌟 [Zed 확장 프로그램 자동 설치 및 동기화 설정]
+  // - 새로운 확장을 설치 및 동기화하려면 아래 목록에 "확장명": true 를 추가한 뒤 Git에 저장하세요.
+  //   (예: "kotlin": true, "docker": true)
+  // ==============================================================================
+  "auto_install_extensions": {
+    // [Spring Boot / Gradle 개발 필수]
+    "java": true,       // Java 언어 지원
+    "gradle": true,     // Gradle 빌드 스크립트(.gradle) 지원
+    "xml": true,        // Spring XML/pom.xml 설정 지원
+    "yaml": true,       // application.yml 설정 및 인프라 파일 지원
+    
+    // [Python 개발 필수]
+    "python": true,     // Python 언어 및 LSP 지원
+    
+    // [기타 프로젝트 지원]
+    "toml": true        // tool-versions.toml 등 설정용
+  },
+
   "vim_mode": true,
   "icon_theme": {
     "mode": "system",
