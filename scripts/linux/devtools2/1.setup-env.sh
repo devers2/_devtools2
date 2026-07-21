@@ -137,6 +137,7 @@ $DEVTOOLS2/modules/fzf:\
 $DEVTOOLS2/modules/lazygit:\
 $DEVTOOLS2/modules/ast-grep:\
 $DEVTOOLS2/modules/bitwarden:\
+$DEVTOOLS2/modules/win32yank:\
 $PATH"
 
 # Windows-mounted NTFS 디렉터리 배경색 수정 (WSL2에서 WezTerm Kanagawa 테마 가독성 확보)

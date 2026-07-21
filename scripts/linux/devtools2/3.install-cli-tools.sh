@@ -120,7 +120,7 @@ FD_INSTALLED=false;       [ -f "$MODULES_DIR/fd/fd" ]              && FD_INSTALL
 ASTGREP_INSTALLED=false;  [ -f "$MODULES_DIR/ast-grep/sg" ]        && ASTGREP_INSTALLED=true
 BITWARDEN_INSTALLED=false;[ -f "$MODULES_DIR/bitwarden/bw" ]       && BITWARDEN_INSTALLED=true
 WIN32YANK_INSTALLED=false
-[ "$IS_WSL2" = true ] && [ -f "$DEVTOOLS2/scripts/linux/cmd/win32yank.exe" ] && WIN32YANK_INSTALLED=true
+[ "$IS_WSL2" = true ] && [ -f "$MODULES_DIR/win32yank/win32yank.exe" ] && WIN32YANK_INSTALLED=true
 
 # 설치에 사용할 실제 버전 초기화 (기본: 최종 설치 버전)
 FZF_VERSION="$FZF_PINNED"
@@ -605,12 +605,13 @@ if [ "$IS_WSL2" = true ]; then
         echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
     else
         if [ "$_wy_action" = "reinstall" ]; then
-            rm -f "$DEVTOOLS2/scripts/linux/cmd/win32yank.exe"
+            rm -f "$MODULES_DIR/win32yank/win32yank.exe"
         fi
+        mkdir -p "$MODULES_DIR/win32yank"
         (curl -sL "https://github.com/equalsraf/win32yank/releases/download/v${WIN32YANK_VERSION}/win32yank-x64.zip" -o /tmp/win32yank.zip && \
          unzip -qo /tmp/win32yank.zip -d /tmp/win32yank_tmp && \
-         mv -f /tmp/win32yank_tmp/win32yank.exe "$DEVTOOLS2/scripts/linux/cmd/win32yank.exe" && \
-         chmod +x "$DEVTOOLS2/scripts/linux/cmd/win32yank.exe" && \
+         mv -f /tmp/win32yank_tmp/win32yank.exe "$MODULES_DIR/win32yank/win32yank.exe" && \
+         chmod +x "$MODULES_DIR/win32yank/win32yank.exe" && \
          rm -rf /tmp/win32yank.zip /tmp/win32yank_tmp) &
         show_spinner $!
         echo " 완료"
