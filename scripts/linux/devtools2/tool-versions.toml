@@ -18,7 +18,7 @@
 [core_tools]
 
 # Node.js LTS (v24.x) — 버전은 'v' 포함 (예: "v24.15.0")
-nodejs = ["v24.15.0"]
+nodejs = ["v24.18.0", "v24.15.0"]
 
 # Ghostty Terminal AppImage (pkgforge-dev 빌드) — 버전은 'v' 미포함 (예: "1.3.1")
 ghostty = ["1.3.1"]
@@ -29,19 +29,19 @@ ghostty = ["1.3.1"]
 [cli_tools]
 
 # fzf (터미널 퍼지 파인더) — 버전은 'v' 미포함 (예: "0.71.0")
-fzf = ["0.71.0"]
+fzf = ["0.74.1", "0.71.0"]
 
 # lazygit (TUI Git 클라이언트) — 버전은 'v' 미포함 (예: "0.61.1")
-lazygit = ["0.61.1"]
+lazygit = ["0.63.1", "0.61.1"]
 
 # ripgrep / rg (초고속 코드 검색) — 버전은 'v' 미포함 (예: "15.1.0")
-ripgrep = ["15.1.0"]
+ripgrep = ["15.2.0", "15.1.0"]
 
 # fd-find / fd (초고속 파일 검색) — 버전은 'v' 미포함 (예: "10.4.2")
 fd = ["10.4.2"]
 
 # ast-grep / sg (AST 기반 코드 검색) — 버전은 'v' 미포함 (예: "0.42.1")
-ast_grep = ["0.42.1"]
+ast_grep = ["0.44.1", "0.42.1"]
 
 # Bitwarden CLI / bw [ARM64 전용 버전 관리]
 # x86_64는 공식 직접 다운로드 URL(항상 최신)을 사용하므로 버전 관리 불필요.
