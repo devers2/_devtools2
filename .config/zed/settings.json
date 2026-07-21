@@ -5,15 +5,18 @@
   //   (예: "kotlin": true, "docker": true)
   // ==============================================================================
   "auto_install_extensions": {
+    // [테마 확장]
+    "kanagawa": true,
+
     // [Spring Boot / Gradle 개발 필수]
     "java": true,       // Java 언어 지원
     "gradle": true,     // Gradle 빌드 스크립트(.gradle) 지원
     "xml": true,        // Spring XML/pom.xml 설정 지원
     "yaml": true,       // application.yml 설정 및 인프라 파일 지원
-    
+
     // [Python 개발 필수]
     "python": true,     // Python 언어 및 LSP 지원
-    
+
     // [기타 프로젝트 지원]
     "toml": true        // tool-versions.toml 등 설정용
   },

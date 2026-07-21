@@ -1,9 +1,9 @@
-﻿# ==============================================================================
-# Zed 에디터 설치 및 WSL2 설정 파일 심볼릭 링크 생성 스크립트 (2.setup-zed.ps1)
+# ==============================================================================
+# Zed 에디터 설치 및 WSL2 설정 파일 복사 스크립트 (2.setup-zed.ps1)
 #
 # 주요 기능:
 #   1. winget 을 통해 Zed 에디터를 자동 설치 (이미 설치되어 있으면 건너뜀)
-#   2. WSL2 의 _devtools2/.config/zed/ 내 설정 파일을 Windows Zed 설정 경로로 링크 생성
+#   2. WSL2 의 _devtools2/.config/zed/ 내 설정 파일을 Windows Zed 설정 경로로 복사
 #      - settings.json  : 에디터 전역 설정  (%APPDATA%\Zed\settings.json)
 #      - keymap.json    : 키보드 단축키 설정 (%APPDATA%\Zed\keymap.json)
 #
@@ -212,13 +212,12 @@ else {
 }
 
 # ==============================================================================
-# [Step 3] Zed 설정 파일 초기 복사 (설치 연동)
+# [Step 3] Zed 설정 파일 복사
 #
 # WSL2 내의 settings.json 및 keymap.json 실물 파일을
 # Windows용 Zed 설정 경로인 %APPDATA%\Zed\ 하위로 안전하게 복사해줍니다.
-# 이후 실시간 설정 동기화는 WSL2 내의 zed 실행 래퍼(Wrapper)가 담당합니다.
 # ==============================================================================
-Write-Step "[Step 3] Zed 설정 파일 초기 복사"
+Write-Step "[Step 3] Zed 설정 파일 복사"
 
 $WslZedConfig = "$DevTools2Wsl\.config\zed"
 $WinZedDir    = "$env:APPDATA\Zed"
@@ -283,12 +282,9 @@ Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor Magenta
 Write-Host "🎉 Zed 설정 완료!" -ForegroundColor Green
 Write-Host ""
-Write-Host "  링크된 설정 파일 목록:" -ForegroundColor White
-Write-Host "    $WinZedDir\settings.json -> (WSL2) .config\zed\settings.json" -ForegroundColor DarkGray
-Write-Host "    $WinZedDir\keymap.json   -> (WSL2) .config\zed\keymap.json" -ForegroundColor DarkGray
-Write-Host ""
-Write-Host "  링크하지 않은 항목 (Zed 자동 생성):" -ForegroundColor White
-Write-Host "    state.json, session.json, workspaces/, extensions/, *.log" -ForegroundColor DarkGray
+Write-Host "  복사된 설정 파일 목록:" -ForegroundColor White
+Write-Host "    $WinZedDir\settings.json" -ForegroundColor DarkGray
+Write-Host "    $WinZedDir\keymap.json" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  Zed 를 재시작하면 설정이 적용됩니다." -ForegroundColor Yellow
 Write-Host "===========================================================================" -ForegroundColor Magenta
