@@ -70,7 +70,7 @@ print_step "▶ [1/3] 환경 변수 설정 (~/.bashrc)"
 if [ "$IS_LOCAL" = true ]; then
     "$SUB_DIR/1.setup-env.sh"
 else
-    bash <(curl -sSfL "$RAW_BASE/1.setup-env.sh")
+    DEVTOOLS2=/var/opt/_devtools2 bash <(curl -sSfL "$RAW_BASE/1.setup-env.sh")
 fi
 
 # source ~/.bashrc 를 마스터 스크립트 프로세스 내에서 실행하면,
@@ -91,7 +91,7 @@ print_step "▶ [2/3] 핵심 포터블 도구 설치"
 if [ "$IS_LOCAL" = true ]; then
     "$SUB_DIR/2.install-core-tools.sh"
 else
-    bash <(curl -sSfL "$RAW_BASE/2.install-core-tools.sh")
+    DEVTOOLS2=/var/opt/_devtools2 bash <(curl -sSfL "$RAW_BASE/2.install-core-tools.sh")
 fi
 
 # ==============================================================================
@@ -102,7 +102,7 @@ print_step "▶ [3/3] CLI 유틸리티 도구 설치"
 if [ "$IS_LOCAL" = true ]; then
     "$SUB_DIR/3.install-cli-tools.sh"
 else
-    bash <(curl -sSfL "$RAW_BASE/3.install-cli-tools.sh")
+    DEVTOOLS2=/var/opt/_devtools2 bash <(curl -sSfL "$RAW_BASE/3.install-cli-tools.sh")
 fi
 
 # ==============================================================================

@@ -310,7 +310,7 @@ Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
 if ($isLocalMode) {
     wsl -d $wslDistro -- bash -l /var/opt/_devtools2/scripts/linux/devtools2/1.setup-env.sh
 } else {
-    wsl -d $wslDistro -- bash -c "bash -l <(curl -sSfL '$RAW_BASE/1.setup-env.sh')"
+    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l <(curl -sSfL '$RAW_BASE/1.setup-env.sh')"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
@@ -318,7 +318,7 @@ Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python
 if ($isLocalMode) {
     wsl -d $wslDistro -- bash -l /var/opt/_devtools2/scripts/linux/devtools2/2.install-core-tools.sh
 } else {
-    wsl -d $wslDistro -- bash -c "bash -l <(curl -sSfL '$RAW_BASE/2.install-core-tools.sh')"
+    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l <(curl -sSfL '$RAW_BASE/2.install-core-tools.sh')"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
@@ -326,7 +326,7 @@ Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
 if ($isLocalMode) {
     wsl -d $wslDistro -- bash -l /var/opt/_devtools2/scripts/linux/devtools2/3.install-cli-tools.sh
 } else {
-    wsl -d $wslDistro -- bash -c "bash -l <(curl -sSfL '$RAW_BASE/3.install-cli-tools.sh')"
+    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l <(curl -sSfL '$RAW_BASE/3.install-cli-tools.sh')"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
 

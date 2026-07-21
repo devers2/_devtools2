@@ -5,9 +5,18 @@
 # - WSL2 환경 감지 시 Ghostty 관련 PATH 제외
 # ==============================================================================
 
-# 현재 스크립트 위치를 기준으로 상위의 상위의 상위(../../..) 절대 경로를 DEVTOOLS2으로 설정한다.
-SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
-DEVTOOLS2=$(readlink -f "$SCRIPT_DIR/../../..")
+# DEVTOOLS2 경로 결정:
+#   1순위: 외부에서 이미 주입된 DEVTOOLS2 환경변수 (온라인 실행 시 마스터 스크립트가 주입)
+#   2순위: 현재 스크립트($0) 위치 기준 상대 경로 계산 (로컬 실행 시)
+#   3순위: 표준 설치 경로 /var/opt/_devtools2 (fallback)
+if [ -z "${DEVTOOLS2:-}" ]; then
+    SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+    DEVTOOLS2=$(readlink -f "$SCRIPT_DIR/../../..")
+fi
+# 유효한 DEVTOOLS2 폴더가 아니면 표준 경로를 기본값으로 사용
+if [ ! -f "$DEVTOOLS2/scripts/linux/devtools2/1.setup-env.sh" ]; then
+    DEVTOOLS2="/var/opt/_devtools2"
+fi
 
 # WSL2 환경 감지: /proc/version에 'microsoft' 문자열이 포함되어 있으면 WSL2로 판단한다.
 IS_WSL2=false
