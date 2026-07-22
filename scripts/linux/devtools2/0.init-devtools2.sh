@@ -148,7 +148,7 @@ if [ -d "$TARGET_DIR" ]; then
 
     choice="n"
     if [ -t 0 ] || [ -c /dev/tty ]; then
-        read -r -p "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? (y/N): " choice 2>/dev/null </dev/tty || choice="n"
+        read -r -p "$(prompt_input "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? (y/N): ")" choice 2>/dev/null </dev/tty || choice="n"
     fi
     choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
     if [ "$choice" = "y" ]; then

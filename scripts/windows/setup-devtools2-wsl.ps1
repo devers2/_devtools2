@@ -64,7 +64,8 @@ function Write-Fail {
 
 function Pause-Script {
     Write-Host ""
-    Read-Host "계속하려면 엔터를 누르세요"
+    Write-Host "👉 계속하려면 엔터(Enter) 키를 누르세요: " -ForegroundColor Yellow -NoNewline
+    [void][System.Console]::ReadLine()
 }
 
 # 단순 프로세스/조건 대기형 스피너 헬퍼

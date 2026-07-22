@@ -223,8 +223,8 @@ $doInstall = -not $weztermInstalled
 
 if ($weztermInstalled) {
     Write-Host ""
-    Write-Host "  ⚠️ WezTerm이 이미 설치되어 있습니다." -ForegroundColor Yellow
-    $reinstallChoice = Read-Host "  다시 설치하시겠습니까? (y/N, 기본값: N)"
+    Write-Host "👉 다시 설치하시겠습니까? (y/N, 기본값: N): " -ForegroundColor Yellow -NoNewline
+    $reinstallChoice = Read-Host
     if ($reinstallChoice -match '^[Yy]') {
         Write-Host "  → 기존 WezTerm 재설치를 진행합니다..." -ForegroundColor White
         $doInstall = $true
@@ -241,8 +241,8 @@ if ($doInstall) {
     Write-Host "  WezTerm 버전을 선택하세요:" -ForegroundColor Cyan
     Write-Host "    [Y] Nightly  - 최신 기능 포함 나이틀리 버전 (권장, 기본값)" -ForegroundColor Green
     Write-Host "    [N] Stable   - 안정화 버전 (2024년 2월 최종 업데이트)" -ForegroundColor Gray
-    Write-Host ""
-    $versionChoice = Read-Host "  나이틀리 버전으로 설치할까요? (Y/n)"
+    Write-Host "👉 나이틀리 버전으로 설치할까요? (Y/n, 기본값: Y): " -ForegroundColor Yellow -NoNewline
+    $versionChoice = Read-Host
 
     if ($versionChoice -match '^[Nn]') {
         # ── 안정화: winget 으로 설치 ──────────────────────────────────────────

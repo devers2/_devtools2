@@ -46,7 +46,8 @@ function Write-Fail {
 
 function Pause-Script {
     Write-Host ""
-    Read-Host "계속하려면 엔터를 누르세요"
+    Write-Host "👉 계속하려면 엔터(Enter) 키를 누르세요: " -ForegroundColor Yellow -NoNewline
+    [void][System.Console]::ReadLine()
 }
 
 # 단순 프로세스/조건 대기형 스피너 헬퍼
@@ -190,7 +191,8 @@ if (-not $isBaseRegistered) {
     Write-Host ""
 
     do {
-        $versionChoice = Read-Host "  번호를 입력하세요 [1/2/3] (기본값: 1)"
+        Write-Host "👉 번호를 입력하세요 [1/2/3] (기본값: 1): " -ForegroundColor Yellow -NoNewline
+        $versionChoice = Read-Host
         $versionChoice = $versionChoice.Trim()
         if ($versionChoice -eq "") { $versionChoice = "1" }
     } while ($versionChoice -notmatch "^[123]$")
@@ -241,7 +243,8 @@ if (-not $isUserConfigured) {
         Write-Host "  (※ 창이 자동으로 열리지 않았다면 시작 메뉴에서 $distroId 를 실행해 주세요.)" -ForegroundColor Gray
         Write-Host ""
         
-        Read-Host "계정 생성을 완료한 후 엔터(Enter)를 누르세요"
+        Write-Host "👉 계정 생성을 완료한 후 엔터(Enter) 키를 누르세요: " -ForegroundColor Yellow -NoNewline
+        [void][System.Console]::ReadLine()
         
         # 1) wsl --list에서 배포판이 실제로 등록되었는지 재확인 (특히 최초 설치 시)
         $registeredDistros = (wsl --list --quiet 2>$null) -replace "`0", "" |
