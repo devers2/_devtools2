@@ -639,12 +639,20 @@ echo ""
 
 echo "---------------------------------------------------------------------------"
 echo -n "   - apt 패키지 인덱스 업데이트 중..."
-sudo apt-get update -qq &
+(
+    export DEBIAN_FRONTEND=noninteractive
+    export NEEDRESTART_MODE=a
+    sudo apt-get update -qq
+) &
 show_spinner $!
 echo " 완료"
 
 echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli, xclip, wl-clipboard) 설치 중..."
-sudo apt-get install -y build-essential libreadline-dev git trash-cli xclip wl-clipboard -qq &
+(
+    export DEBIAN_FRONTEND=noninteractive
+    export NEEDRESTART_MODE=a
+    sudo apt-get install -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" build-essential libreadline-dev git trash-cli xclip wl-clipboard
+) &
 show_spinner $!
 echo " 완료"
 echo "✅ apt 패키지 설치 완료"

@@ -31,7 +31,15 @@ fi
 
 # 0) 시스템 필수 패키지 설치 (unzip, tar, curl, wget, rsync, python3-pip 등)
 echo "[작업] 시스템 필수 패키지 설치 중 (unzip, tar, curl, wget, rsync, python3-pip)..."
-(apt-get update -qq && apt-get install -y -qq unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1 &
+(
+    export DEBIAN_FRONTEND=noninteractive
+    export NEEDRESTART_MODE=a
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+        sleep 1
+    done
+    apt-get update -qq && \
+    apt-get install -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" unzip tar curl wget rsync python3-pip
+) > /tmp/_apt_install.log 2>&1 &
 APT_PID=$!
 _spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 _spin_len=${#_spinner[@]}
