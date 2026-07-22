@@ -218,8 +218,8 @@ config.hide_tab_bar_if_only_one_tab = true -- 탭이 하나일 때는 숨기고,
 config.front_end = 'WebGpu' -- 그래픽 가속 활성화 (WebGpu / OpenGL / Software)
 
 if is_windows then
-  -- Windows 에서 WSL2 devtools2 배포판을 기본 셸로 사용해 바로 진입
-  config.default_prog = { 'wsl.exe', '-d', 'devtools2' }
+  -- Windows 에서 WSL2 devtools2 배포판을 기본 셸로 사용해 홈 디렉토리(~)로 바로 진입
+  config.default_prog = { 'wsl.exe', '-d', 'devtools2', '--cd', '~' }
 end
 
 -- config.window_decorations = "RESIZE" -- 타이틀을 숨기고 창 조절 가능: 나이틀리 버전에서 오류 발생하여 주석처리
