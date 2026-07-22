@@ -689,7 +689,22 @@ if [ "$dap_answer_lower" = "y" ]; then
 
     mkdir -p "$GRADLE_INIT_DIR"
 
-    cat > "$GRADLE_DEBUG_FILE" << 'EOF'
+    # 파일이 이미 존재하는 경우 교체 여부 확인
+    do_write=true
+    if [ -f "$GRADLE_DEBUG_FILE" ]; then
+        echo ""
+        echo "   ⚠️  파일이 이미 존재합니다: $GRADLE_DEBUG_FILE"
+        echo -n "   기존 파일을 새 설정으로 교체할까요? [Y/n]: "
+        read -r overwrite_answer
+        overwrite_lower=$(echo "${overwrite_answer:-y}" | tr '[:upper:]' '[:lower:]')
+        if [ "$overwrite_lower" != "y" ]; then
+            do_write=false
+            echo "   ⏭️  기존 파일을 유지합니다."
+        fi
+    fi
+
+    if [ "$do_write" = "true" ]; then
+        cat > "$GRADLE_DEBUG_FILE" << 'EOF'
 allprojects {
   tasks.withType(JavaExec).configureEach {
     if (name == "bootRun") {
@@ -712,9 +727,10 @@ allprojects {
 }
 EOF
 
-    echo "   ✅ Gradle DAP Attach 전역 설정 완료"
-    echo "      파일: $GRADLE_DEBUG_FILE"
-    echo "      포트: 127.0.0.1:5005 (suspend=n, Attach 모드)"
+        echo "   ✅ Gradle DAP Attach 전역 설정 완료"
+        echo "      파일: $GRADLE_DEBUG_FILE"
+        echo "      포트: 127.0.0.1:5005 (suspend=n, Attach 모드)"
+    fi
 else
     echo "   ⏭️  건너뜀: Gradle DAP Attach 전역 설정을 나중에 추가하려면"
     echo "      $HOME/.gradle/init.d/debug.gradle 파일을 직접 생성하세요."
