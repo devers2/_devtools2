@@ -133,8 +133,9 @@ if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
     $setupWslScript = Join-Path $ToolsDir "0.setup-wsl.ps1"
     $setupWeztermScript = Join-Path $ToolsDir "1.setup-wezterm.ps1"
     $setupZedScript = Join-Path $ToolsDir "2.setup-zed.ps1"
+    $setupKanataScript = Join-Path $ToolsDir "3.setup-kanata.ps1"
 
-    if ((Test-Path $setupWslScript) -and (Test-Path $setupWeztermScript) -and (Test-Path $setupZedScript)) {
+    if ((Test-Path $setupWslScript) -and (Test-Path $setupWeztermScript) -and (Test-Path $setupZedScript) -and (Test-Path $setupKanataScript)) {
         $isLocalMode = $true
     }
 }
@@ -351,24 +352,32 @@ Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
 if ($isLocalMode) {
-    Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (로컬)"
+    Write-SubStep "▶ (1/4) WezTerm 설치 및 설정 연동 (로컬)"
     & $setupWeztermScript -WslDistro $wslDistro
 
-    Write-SubStep "▶ (2/3) Zed 에디터 설치 및 설정 연동 (로컬)"
+    Write-SubStep "▶ (2/4) Zed 에디터 설치 및 설정 연동 (로컬)"
     & $setupZedScript -WslDistro $wslDistro
+
+    Write-SubStep "▶ (3/4) kanata (CapsLock -> ESC/Ctrl 전역 매핑) 설치 및 연동 (로컬)"
+    & $setupKanataScript -WslDistro $wslDistro
 } else {
-    Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (온라인)"
+    Write-SubStep "▶ (1/4) WezTerm 설치 및 설정 연동 (온라인)"
     $rawWeztermScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/1.setup-wezterm.ps1"
     $weztermScriptBlock = [scriptblock]::Create($rawWeztermScript)
     & $weztermScriptBlock -WslDistro $wslDistro
 
-    Write-SubStep "▶ (2/3) Zed 에디터 설치 및 설정 연동 (온라인)"
+    Write-SubStep "▶ (2/4) Zed 에디터 설치 및 설정 연동 (온라인)"
     $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/2.setup-zed.ps1"
     $zedScriptBlock = [scriptblock]::Create($rawZedScript)
     & $zedScriptBlock -WslDistro $wslDistro
+
+    Write-SubStep "▶ (3/4) kanata (CapsLock -> ESC/Ctrl 전역 매핑) 설치 및 연동 (온라인)"
+    $rawKanataScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/3.setup-kanata.ps1"
+    $kanataScriptBlock = [scriptblock]::Create($rawKanataScript)
+    & $kanataScriptBlock -WslDistro $wslDistro
 }
 
-Write-SubStep "▶ (3/3) VSCode 설정 연동 (심볼릭 링크)"
+Write-SubStep "▶ (4/4) VSCode 설정 연동 (심볼릭 링크)"
 $vscodeUserDir = "$env:APPDATA\Code\User"
 if (-not (Test-Path $vscodeUserDir)) {
     New-Item -ItemType Directory -Path $vscodeUserDir -Force | Out-Null
