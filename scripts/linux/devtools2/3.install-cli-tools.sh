@@ -669,6 +669,58 @@ echo " 완료"
 echo "✅ hererocks / Lua 환경 구성 완료"
 echo ""
 
+echo "---------------------------------------------------------------------------"
+echo "🐛 8. Gradle DAP (디버거 Attach) 전역 설정"
+echo ""
+echo "   Gradle bootRun 실행 시 JDWP(Java Debug Wire Protocol)를 자동으로 활성화하여"
+echo "   DAP 클라이언트(Neovim DAP 등)를 포트 5005 로 Attach 할 수 있게 됩니다."
+echo ""
+echo "   대상 파일: ~/.gradle/init.d/debug.gradle"
+echo ""
+echo -n "   Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [Y/n]: "
+read -r dap_answer
+
+# 기본값 y: 아무것도 입력 안 하거나 Y/y 입력 시 설치
+dap_answer_lower=$(echo "${dap_answer:-y}" | tr '[:upper:]' '[:lower:]')
+
+if [ "$dap_answer_lower" = "y" ]; then
+    GRADLE_INIT_DIR="$HOME/.gradle/init.d"
+    GRADLE_DEBUG_FILE="$GRADLE_INIT_DIR/debug.gradle"
+
+    mkdir -p "$GRADLE_INIT_DIR"
+
+    cat > "$GRADLE_DEBUG_FILE" << 'EOF'
+allprojects {
+  tasks.withType(JavaExec).configureEach {
+    if (name == "bootRun") {
+      // jvmArgs 리스트에 "-agentlib:jdwp"로 시작하는 설정이 있는지 확인
+      def hasJDWP = jvmArgs.any { it.toString().contains("-agentlib:jdwp") }
+
+      if (hasJDWP) {
+        // 로컬(-I 옵션 등)에서 이미 설정했다면 전역 설정(5005)은 하지 않음
+        println ">>> [Global] Custom debug config detected. Prioritizing your custom port."
+      } else {
+        def javaVersion = org.gradle.api.JavaVersion.current()
+        def debugAddress = "127.0.0.1:5005"
+
+        // suspend=y 로 변경하면 디버거가 연결(Attach)되기 전까지 대기한다.
+        jvmArgs("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=${debugAddress}")
+        println ">>> [Global] Default JDWP Address assigned: ${debugAddress} (Java Version: ${javaVersion})"
+      }
+    }
+  }
+}
+EOF
+
+    echo "   ✅ Gradle DAP Attach 전역 설정 완료"
+    echo "      파일: $GRADLE_DEBUG_FILE"
+    echo "      포트: 127.0.0.1:5005 (suspend=n, Attach 모드)"
+else
+    echo "   ⏭️  건너뜀: Gradle DAP Attach 전역 설정을 나중에 추가하려면"
+    echo "      $HOME/.gradle/init.d/debug.gradle 파일을 직접 생성하세요."
+fi
+echo ""
+
 echo "==========================================================================="
 echo "🎉 모든 도구 설치가 완료되었습니다!"
 echo ""
