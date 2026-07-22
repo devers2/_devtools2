@@ -33,6 +33,12 @@ if [ ! -f "$DEVTOOLS2/scripts/linux/devtools2/3.install-cli-tools.sh" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
 
+# 공통 색상/스피너 헬퍼 로드
+# shellcheck source=./_colors.sh
+# shellcheck disable=SC1091
+_COLORS_SH="$(dirname "$(readlink -f "$0")")/_colors.sh"
+[ -f "$_COLORS_SH" ] && source "$_COLORS_SH"
+
 # 바이너리가 설치될 modules 디렉토리 경로 설정
 MODULES_DIR="$DEVTOOLS2/modules"
 
@@ -135,11 +141,11 @@ WIN32YANK_VERSION="$WIN32YANK_PINNED"
 _fmts() { [ "$1" = true ] && echo '✅ 설치됨' || echo '⬜ 미설치'; }
 
 echo ""
-echo "==========================================================================="
-echo "🚀 도구 설치를 시작합니다..."
-echo "📍 최상위 경로: $DEVTOOLS2"
-echo "📍 설치 폴더: $MODULES_DIR"
-if [ "$IS_WSL2" = true ]; then echo "📍 환경: WSL2 감지됨"; fi
+print_sep
+print_step "🚀 도구 설치를 시작합니다..."
+print_info "📍 최상위 경로: $DEVTOOLS2"
+print_info "📍 설치 폴더: $MODULES_DIR"
+if [ "$IS_WSL2" = true ]; then print_info "📍 환경: WSL2 감지됨"; fi
 echo ""
 echo "📋 버전 관리 대상 도구 현황"
 echo ""
@@ -267,7 +273,7 @@ if [ "$VERSION_MODE" = "latest" ]; then
     echo ""
 fi
 
-echo "==========================================================================="
+print_sep
 echo ""
 
 # ─────────────────────────────────────────────────────────────────
@@ -634,7 +640,7 @@ for cmd in "$MODULES_DIR/ripgrep/rg" "$MODULES_DIR/fd/fd" "$MODULES_DIR/fzf/fzf"
     fi
 done
 
-echo "✅ 모든 바이너리 도구($ARCH) 설치가 완료되었습니다!"
+print_done "모든 바이너리 도구($ARCH) 설치가 완료되었습니다!"
 echo ""
 
 echo "---------------------------------------------------------------------------"
@@ -651,7 +657,7 @@ echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli, xc
 sudo apt-get install -y build-essential libreadline-dev git trash-cli xclip wl-clipboard -qq &
 show_spinner $!
 echo " 완료"
-echo "✅ apt 패키지 설치 완료"
+print_done "apt 패키지 설치 완료"
 echo ""
 
 echo "---------------------------------------------------------------------------"
@@ -670,7 +676,7 @@ echo -n "   ⚙️ hererocks 구성 중 (Lua 5.1 / Luarocks 최신)..."
 hererocks . -l 5.1 -r latest &
 show_spinner $!
 echo " 완료"
-echo "✅ hererocks / Lua 환경 구성 완료"
+print_done "hererocks / Lua 환경 구성 완료"
 echo ""
 
 echo "---------------------------------------------------------------------------"
@@ -748,11 +754,11 @@ echo ""
 
 
 
-echo "==========================================================================="
-echo "🎉 모든 도구 설치가 완료되었습니다!"
+print_sep
+print_step "🎉 모든 도구 설치가 완료되었습니다!"
 echo ""
 echo "설정 확인 명령어:"
 echo "    hererocks --version"
 echo "    ls -F \"$DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin/\""
-echo "==========================================================================="
+print_sep
 echo ""

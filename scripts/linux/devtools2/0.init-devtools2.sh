@@ -23,24 +23,32 @@ fi
 
 DEVTOOLS2_GROUP=devers
 
+# 공통 색상/스피너 헬퍼 로드
+_COLORS_SH="$(dirname "$(readlink -f "$0")")/_colors.sh"
+# shellcheck source=./_colors.sh
+# shellcheck disable=SC1091
+[ -f "$_COLORS_SH" ] && source "$_COLORS_SH"
+
 # 루트 권한 체크
 if [ "$(id -u)" -ne 0 ]; then
-    echo "[오류] 이 스크립트는 관리자(root) 권한으로 실행해야 합니다. sudo로 실행하세요."
+    print_error "이 스크립트는 관리자(root) 권한으로 실행해야 합니다. sudo로 실행하세요."
     exit 1
 fi
 
-# 0) 시스템 필수 패키지 설치 (unzip, tar, curl, wget, rsync, python3-pip 등)
-echo "[작업] 시스템 필수 패키지 설치 중 (unzip, tar, curl, wget, rsync, python3-pip)..."
+print_sep
+print_step "[Step 0] 시스템 필수 패키지 설치 (unzip, tar, curl, wget, rsync, python3-pip)"
+print_sep
 
 # 만약 이전 패키지 작업이 락을 쥐고 멈춰있는 경우 락 강제 해제
 rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null
 dpkg --configure -a 2>/dev/null
 
-# 한국 카카오 미러 서버 연결 가능 여부 확인 후 가능하면 전환 (불가 시 원래 서버 유지)
+# 한국 카카오 미러 서버 연결 가능 여부 확인 (스피너 표시, 최대 3초)
 _use_kakao=false
-if curl -sf --max-time 3 http://mirror.kakao.com/ubuntu/ -o /dev/null 2>/dev/null; then
-    _use_kakao=true
-fi
+curl -sf --max-time 3 http://mirror.kakao.com/ubuntu/ -o /dev/null 2>/dev/null &
+_kakao_pid=$!
+run_with_spinner "카카오 미러 서버 연결 확인 중..." "$_kakao_pid"
+wait "$_kakao_pid" && _use_kakao=true || _use_kakao=false
 
 _switch_mirror() {
     local from="$1" to="$2"
@@ -49,33 +57,39 @@ _switch_mirror() {
 }
 
 if [ "$_use_kakao" = "true" ]; then
-    echo "  [정보] 카카오 고속 미러 서버 연결 확인 → mirror.kakao.com 으로 전환합니다."
+    print_info "카카오 고속 미러 서버 연결 확인 → mirror.kakao.com 으로 전환합니다."
     _switch_mirror "http://archive.ubuntu.com/ubuntu/"  "http://mirror.kakao.com/ubuntu/"
     _switch_mirror "http://security.ubuntu.com/ubuntu/" "http://mirror.kakao.com/ubuntu/"
 else
-    echo "  [정보] 카카오 미러 서버 연결 불가 → 기본 Ubuntu 서버(archive.ubuntu.com)를 사용합니다."
+    print_warn "카카오 미러 서버 연결 불가 → 기본 Ubuntu 서버(archive.ubuntu.com)를 사용합니다."
 fi
 
-(apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1
+print_info "apt 패키지 다운로드 및 설치 중..."
+(apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1 &
+_apt_pid=$!
+run_with_spinner "apt 설치/다운로드 진행 중..." "$_apt_pid"
+wait "$_apt_pid"
 APT_DIRECT_EXIT=$?
 
 # apt가 카카오 미러 서버로 실패한 경우 → 원래 서버로 자동 복구 후 재시도
 if [ "$APT_DIRECT_EXIT" -ne 0 ] && [ "$_use_kakao" = "true" ]; then
-    echo "  [경고] 카카오 미러 서버 실패. 기본 Ubuntu 서버로 폴백 후 재시도합니다..."
+    print_warn "카카오 미러 서버 실패. 기본 Ubuntu 서버로 폴백 후 재시도합니다..."
     _switch_mirror "http://mirror.kakao.com/ubuntu/" "http://archive.ubuntu.com/ubuntu/"
     rm -f /var/lib/apt/lists/lock 2>/dev/null
-    (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1
+    (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1 &
+    _apt_pid=$!
+    run_with_spinner "폴백 서버로 apt 재시도 중..." "$_apt_pid"
+    wait "$_apt_pid"
+    APT_DIRECT_EXIT=$?
 fi
 
-printf "\r\033[K"
-# APT_DIRECT_EXIT: 카카오 시도 or 폴백 이후 최종 결과 확인
 if [ "${APT_DIRECT_EXIT:-0}" -ne 0 ]; then
-    echo "[오류] 패키지 설치에 실패했습니다. 로그:" >&2
+    print_error "패키지 설치에 실패했습니다. 로그:"
     cat /tmp/_apt_install.log >&2
     exit 1
 fi
 rm -f /tmp/_apt_install.log
-echo "  [완료] 필수 패키지 설치 완료!"
+print_done "필수 패키지 설치 완료!"
 
 # 스크립트를 실제 호출한 사용자(관리자가 sudo로 실행한 경우 SUDO_USER를 우선 사용)
 INVOKER="${SUDO_USER:-${USER:-root}}"
