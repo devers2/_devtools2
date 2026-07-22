@@ -2,23 +2,24 @@
   // ==============================================================================
   // 🌟 [Zed 확장 프로그램 자동 설치 및 동기화 설정]
   // - 새로운 확장을 설치 및 동기화하려면 아래 목록에 "확장명": true 를 추가한 뒤 Git에 저장하세요.
+  // - "확장명"은 운영체제별로 아래 디렉토리에서 확장명을 확인할 수 있음(설치된 확장 디렉토리명 확인)
+  //   [Windows] %LOCALAPPDATA%\Zed\extensions\installed
+  //   [Linux] ~/.local/share/zed/extensions/
+  //   [WSL] ~/.local/share/zed/remote_extensions/
   //   (예: "kotlin": true, "docker": true)
   // ==============================================================================
   "auto_install_extensions": {
     // [테마 확장]
-    "kanagawa": true,
+    "kanagawa-themes": true,
 
     // [Spring Boot / Gradle 개발 필수]
     "java": true,       // Java 언어 지원
-    "gradle": true,     // Gradle 빌드 스크립트(.gradle) 지원
+    "html": true,
     "xml": true,        // Spring XML/pom.xml 설정 지원
-    "yaml": true,       // application.yml 설정 및 인프라 파일 지원
-
-    // [Python 개발 필수]
-    "python": true,     // Python 언어 및 LSP 지원
 
     // [기타 프로젝트 지원]
-    "toml": true        // tool-versions.toml 등 설정용
+    "toml": true,       // tool-versions.toml 등 설정용
+    "powershell": true  // PowerShell 쉘 스크립트 지원
   },
 
   "vim_mode": true,
@@ -35,7 +36,7 @@
   },
   "theme": {
     "mode": "system",
-    "light": "One Light",
+    "light": "Kanagawa Dragon",
     "dark": "Kanagawa Wave"
   },
   "tab_size": 2,
