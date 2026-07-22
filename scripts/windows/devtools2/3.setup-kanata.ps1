@@ -86,6 +86,13 @@ if (-not (Test-Path $kanataDir)) {
     New-Item -ItemType Directory -Path $kanataDir -Force | Out-Null
 }
 
+# Windows Defender 키로거 오탐 방지를 위해 kanata 폴더 및 프로세스 검사 제외 등록
+try {
+    Add-MpPreference -ExclusionPath $kanataDir -ErrorAction SilentlyContinue | Out-Null
+    Add-MpPreference -ExclusionProcess "kanata.exe" -ErrorAction SilentlyContinue | Out-Null
+    Write-Info "Windows Defender 검사 제외 대상 등록 완료 ($kanataDir)"
+} catch {}
+
 $doDownload = $true
 if (Test-Path $kanataExe) {
     Write-Host "  ⚠️ kanata 바이너리가 이미 존재합니다: $kanataExe" -ForegroundColor Yellow
