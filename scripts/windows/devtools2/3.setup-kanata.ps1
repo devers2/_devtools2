@@ -50,9 +50,10 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 
 if (-not $isAdmin) {
     Write-Host "[경고] kanata 설치 및 키보드 후킹 등록을 위해 관리자 권한이 필요합니다." -ForegroundColor Yellow
-    Write-Host "       관리자 권한으로 스크립트를 재실행합니다..." -ForegroundColor Yellow
-    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -WslDistro `"$WslDistro`"" -Verb RunAs
-    exit
+    if ($PSCommandPath) {
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -WslDistro `"$WslDistro`"" -Verb RunAs
+    }
+    return
 }
 
 Write-Host ""
@@ -69,7 +70,7 @@ Write-Host ""
 $kanataAnswer = Read-Host "  kanata (CapsLock -> ESC/Ctrl 전역 매핑)를 설치하시겠습니까? (Y/n)"
 if ($kanataAnswer -match '^[Nn]') {
     Write-Skip "kanata 설치를 건너뜁니다."
-    exit 0
+    return
 }
 
 # ==============================================================================
@@ -115,7 +116,7 @@ if ($doDownload) {
         } catch {
             Write-Fail "kanata 다운로드 실패: $($_.Exception.Message)"
             Write-Host "  수동 다운로드 링크: https://github.com/jtroo/kanata/releases/latest" -ForegroundColor Yellow
-            exit 1
+            return
         }
     }
 }
