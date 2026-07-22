@@ -675,6 +675,10 @@ echo ""
 echo "   Gradle bootRun 실행 시 JDWP(Java Debug Wire Protocol)를 자동으로 활성화하여"
 echo "   DAP 클라이언트(Neovim DAP 등)를 포트 5005 로 Attach 할 수 있게 됩니다."
 echo ""
+echo "   💡 Neovim 사용 안내:"
+echo "      - <leader> + d + a 단축키로 실행 중인 JVM에 attach 합니다."
+echo "      - ※ :Mason 에서 java-debug-adapter 가 설치되어 있어야 함."
+echo ""
 echo "   대상 파일: ~/.gradle/init.d/debug.gradle"
 echo ""
 echo -n "   Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [Y/n]: "
@@ -689,14 +693,14 @@ if [ "$dap_answer_lower" = "y" ]; then
 
     mkdir -p "$GRADLE_INIT_DIR"
 
-    # 파일이 이미 존재하는 경우 교체 여부 확인
+    # 파일이 이미 존재하는 경우 교체 여부 확인 (기본값 n: 덮어쓰지 않음)
     do_write=true
     if [ -f "$GRADLE_DEBUG_FILE" ]; then
         echo ""
         echo "   ⚠️  파일이 이미 존재합니다: $GRADLE_DEBUG_FILE"
-        echo -n "   기존 파일을 새 설정으로 교체할까요? [Y/n]: "
+        echo -n "   기존 파일을 새 설정으로 교체할까요? [y/N]: "
         read -r overwrite_answer
-        overwrite_lower=$(echo "${overwrite_answer:-y}" | tr '[:upper:]' '[:lower:]')
+        overwrite_lower=$(echo "${overwrite_answer:-n}" | tr '[:upper:]' '[:lower:]')
         if [ "$overwrite_lower" != "y" ]; then
             do_write=false
             echo "   ⏭️  기존 파일을 유지합니다."
@@ -813,14 +817,14 @@ else
 
         # ── 설정 파일 작성 ────────────────────────────────────────────────
         if [ "${keyd_do_conf:-false}" = "true" ]; then
-            # 기존 설정 파일이 있으면 교체 여부 확인
+            # 기존 설정 파일이 있으면 교체 여부 확인 (기본값 n)
             do_write_keyd=true
             if [ -f "$KEYD_CONF_FILE" ]; then
                 echo ""
                 echo "   ⚠️  설정 파일이 이미 존재합니다: $KEYD_CONF_FILE"
-                echo -n "   기존 설정을 새 설정으로 교체할까요? [Y/n]: "
+                echo -n "   기존 설정을 새 설정으로 교체할까요? [y/N]: "
                 read -r keyd_overwrite
-                keyd_overwrite_lower=$(echo "${keyd_overwrite:-y}" | tr '[:upper:]' '[:lower:]')
+                keyd_overwrite_lower=$(echo "${keyd_overwrite:-n}" | tr '[:upper:]' '[:lower:]')
                 if [ "$keyd_overwrite_lower" != "y" ]; then
                     do_write_keyd=false
                     echo "   ⏭️  기존 설정 파일을 유지합니다."
