@@ -374,7 +374,7 @@ do
   local shortcut_modes = { n = true, v = true, V = true, ['\22'] = true, s = true }
 
   vim.on_key(function(key)
-    local mode = vim.fn.mode()
+    local mode = vim.api.nvim_get_mode().mode
 
     if not shortcut_modes[mode] then
       -- 단축키 모드가 아니면 카운터 초기화 (Insert 모드 진입 시 등)
