@@ -145,20 +145,36 @@ if ($registeredDistros -contains $wslName) {
 $distroId = $registeredDistros | Where-Object { $_ -match "^Ubuntu" } | Select-Object -First 1
 $isBaseRegistered = -not [string]::IsNullOrEmpty($distroId)
 
-$createdUsername = ""
-$isUserConfigured = $false
+# WSL2 초기 일반 사용자(non-root, UID >= 1000) 계정이 실제로 정상 생성되었는지 검증
+function Test-WslUserAccountConfigured {
+    param([string]$distro)
+    if ([string]::IsNullOrEmpty($distro)) { return $false }
 
-if ($isBaseRegistered) {
-    # 배포판이 등록되어 있는 경우, 이미 사용자 계정이 생성되어 작동하는지 테스트
     try {
-        $whoamiResult = wsl -d $distroId -e whoami 2>$null
-        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($whoamiResult)) {
-            $createdUsername = $whoamiResult.Trim()
-            if ($createdUsername -and $createdUsername -notmatch "error" -and $createdUsername -notmatch "실패" -and $createdUsername -notmatch "Wsl/Service") {
-                $isUserConfigured = $true
+        $whoamiResult = wsl -d $distro -e whoami 2>$null
+        $uidResult = wsl -d $distro -e id -u 2>$null
+
+        if ($LASTEXITCODE -eq 0 -and $whoamiResult -and $uidResult) {
+            $uName = $whoamiResult.Trim()
+            $uidStr = $uidResult.Trim()
+            $uid = 0
+            [int]::TryParse($uidStr, [ref]$uid) | Out-Null
+
+            # root가 아니고 UID가 1000 이상인 일반 사용자 계정이 준비된 경우만 통과
+            if ($uName -and $uName -ne "root" -and $uid -ge 1000 -and $uName -notmatch "error" -and $uName -notmatch "Wsl/Service") {
+                return $true
             }
         }
     } catch {}
+
+    return $false
+}
+
+if ($isBaseRegistered) {
+    if (Test-WslUserAccountConfigured -distro $distroId) {
+        $createdUsername = (wsl -d $distroId -e whoami 2>$null).Trim()
+        $isUserConfigured = $true
+    }
 }
 
 if (-not $isBaseRegistered) {
@@ -237,21 +253,14 @@ if (-not $isUserConfigured) {
         if (-not [string]::IsNullOrEmpty($actualDistroId)) {
             $distroId = $actualDistroId
             
-            # 2) whoami 명령어가 에러 없이 실행되고 유효한 사용자 명을 리턴하는지 확인
-            try {
-                $whoamiResult = wsl -d $distroId -e whoami 2>$null
-                if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($whoamiResult)) {
-                    $createdUsername = $whoamiResult.Trim()
-                    if ($createdUsername -and $createdUsername -notmatch "error" -and $createdUsername -notmatch "실패" -and $createdUsername -notmatch "Wsl/Service") {
-                        $isUserConfigured = $true
-                        Write-Success "WSL2 사용자 설정이 완료되었습니다! (사용자 계정: $createdUsername)"
-                    }
-                }
-            } catch {}
-            
-            if (-not $isUserConfigured) {
-                Write-Warn "배포판($distroId)은 감지되었으나, 아직 초기 사용자 설정(ID/PW 생성)이 완료되지 않았습니다."
-                Write-Warn "설정을 마친 후 다시 엔터를 눌러주세요."
+            # whoami 및 id -u(UID >= 1000) 검증으로 일반 사용자 계정 생성 완료 여부 엄격 확인
+            if (Test-WslUserAccountConfigured -distro $distroId) {
+                $createdUsername = (wsl -d $distroId -e whoami 2>$null).Trim()
+                $isUserConfigured = $true
+                Write-Success "WSL2 사용자 설정이 완료되었습니다! (사용자 계정: $createdUsername)"
+            } else {
+                Write-Warn "아직 Ubuntu 설치/다운로드 중이거나 초기 사용자 계정(Username/Password) 설정이 완료되지 않았습니다."
+                Write-Warn "우측 Ubuntu 창에서 계정 생성을 완전히 마친 후(일반 사용자 계정 생성 필수) 다시 엔터를 눌러주세요."
             }
         } else {
             Write-Warn "아직 Ubuntu 배포판이 등록되지 않았습니다."
