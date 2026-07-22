@@ -23,11 +23,53 @@ fi
 
 DEVTOOLS2_GROUP=devers
 
-# 공통 색상/스피너 헬퍼 로드
-_COLORS_SH="$(dirname "$(readlink -f "$0")")/_colors.sh"
-# shellcheck source=./_colors.sh
-# shellcheck disable=SC1091
-[ -f "$_COLORS_SH" ] && source "$_COLORS_SH"
+# 공통 색상/스피너 헬퍼 로드 (원격 실행 및 파일 미존재 시 자동 폴백 보장)
+_load_colors() {
+    [ -n "${_COLORS_LOADED:-}" ] && return 0
+
+    local script_dir; script_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo ".")")
+    local colors_file="$script_dir/_colors.sh"
+
+    if [ ! -f "$colors_file" ] && [ -n "${DEVTOOLS2:-}" ] && [ -f "$DEVTOOLS2/scripts/linux/devtools2/_colors.sh" ]; then
+        colors_file="$DEVTOOLS2/scripts/linux/devtools2/_colors.sh"
+    fi
+
+    if [ -f "$colors_file" ]; then
+        # shellcheck disable=SC1090
+        source "$colors_file" 2>/dev/null && _COLORS_LOADED=true && return 0
+    fi
+
+    if curl -sSfL --max-time 5 "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/devtools2/_colors.sh" -o /tmp/_colors_remote.sh 2>/dev/null; then
+        # shellcheck disable=SC1091
+        source /tmp/_colors_remote.sh 2>/dev/null && _COLORS_LOADED=true && return 0
+    fi
+
+    _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW='' _C_RED='' _C_MAGENTA='' _C_WHITE='' _C_GRAY=''
+    if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
+        _C_RESET='\033[0m' _C_BOLD='\033[1m' _C_CYAN='\033[0;36m' _C_GREEN='\033[0;32m'
+        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_MAGENTA='\033[0;35m' _C_WHITE='\033[1;37m'
+    fi
+
+    print_info()    { printf "${_C_CYAN}[정보]${_C_RESET} %s\n"    "$*"; }
+    print_success() { printf "${_C_GREEN}[성공]${_C_RESET} %s\n"   "$*"; }
+    print_done()    { printf "${_C_GREEN}[완료]${_C_RESET} %s\n"   "$*"; }
+    print_warn()    { printf "${_C_YELLOW}[경고]${_C_RESET} %s\n"  "$*"; }
+    print_error()   { printf "${_C_RED}[오류]${_C_RESET} %s\n"     "$*" >&2; }
+    print_step()    { printf "${_C_MAGENTA}%s${_C_RESET}\n"         "$*"; }
+    print_sep()     { printf "${_C_MAGENTA}%s${_C_RESET}\n" "==========================================================================="; }
+    print_subsep()  { printf "${_C_MAGENTA}%s${_C_RESET}\n" "---------------------------------------------------------------------------"; }
+    print_question(){ printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
+    print_option()  {
+        if [ -n "${3:-}" ]; then
+            printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_GREEN}${_C_BOLD}%s${_C_RESET}\n" "$1" "$2" "$3"
+        else
+            printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET}\n" "$1" "$2"
+        fi
+    }
+    prompt_input()  { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
+    _COLORS_LOADED=true
+}
+_load_colors
 
 # 루트 권한 체크
 if [ "$(id -u)" -ne 0 ]; then
