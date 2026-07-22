@@ -36,19 +36,30 @@ echo "[작업] 시스템 필수 패키지 설치 중 (unzip, tar, curl, wget, rs
 rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null
 dpkg --configure -a 2>/dev/null
 
-(apt-get update -qq && apt-get install -y -qq unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1 &
+# 한국 고속 카카오 미러 서버(mirror.kakao.com)로 자동 전환하여 80MB 다운로드 속도 최적화
+if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+    sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror.kakao.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null
+    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirror.kakao.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null
+fi
+if [ -f /etc/apt/sources.list ]; then
+    sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror.kakao.com/ubuntu/|g' /etc/apt/sources.list 2>/dev/null
+    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirror.kakao.com/ubuntu/|g' /etc/apt/sources.list 2>/dev/null
+fi
+
+(apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1 &
 APT_PID=$!
 _spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 _spin_len=${#_spinner[@]}
 _spin_i=0
 while kill -0 "$APT_PID" 2>/dev/null; do
-    printf "\r  [%s] apt 패키지 설치 진행 중..." "${_spinner[_spin_i]}"
+    _last_log=$(tail -n 1 /tmp/_apt_install.log 2>/dev/null | cut -c1-50)
+    printf "\r\033[K  [%s] apt 설치/다운로드 진행 중... %s" "${_spinner[_spin_i]}" "$_last_log"
     sleep 0.15
     _spin_i=$(( (_spin_i + 1) % _spin_len ))
 done
 wait "$APT_PID"
 APT_EXIT=$?
-printf "\r"
+printf "\r\033[K"
 if [ "$APT_EXIT" -ne 0 ]; then
     echo "[오류] 패키지 설치에 실패했습니다. 로그:" >&2
     cat /tmp/_apt_install.log >&2
