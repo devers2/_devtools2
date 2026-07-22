@@ -144,6 +144,9 @@ $PATH"
 LS_COLORS=$(echo "$LS_COLORS" | sed "s/ow=[^:]*:/ow=01;37;48;5;24:/g; s/tw=[^:]*:/tw=01;37;48;5;58:/g")
 export LS_COLORS
 
+# 윈도우 사용자 홈 환경 변수 추가
+export userprofile=$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')")
+
 # === DEVTOOLS2 환경 변수 끝 ===
 
 EOF
