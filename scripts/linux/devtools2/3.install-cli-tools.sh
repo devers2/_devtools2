@@ -675,13 +675,13 @@ echo ""
 echo "   Gradle bootRun 실행 시 JDWP(Java Debug Wire Protocol)를 자동으로 활성화하여"
 echo "   DAP 클라이언트(Neovim DAP 등)를 포트 5005 로 Attach 할 수 있게 됩니다."
 echo ""
+echo "   대상 파일: ~/.gradle/init.d/debug.gradle"
+echo ""
 echo "   💡 Neovim 사용 안내:"
 echo "      - <leader> + d + a 단축키로 실행 중인 JVM에 attach 합니다."
 echo "      - ※ :Mason 에서 java-debug-adapter 가 설치되어 있어야 함."
 echo ""
-echo "   대상 파일: ~/.gradle/init.d/debug.gradle"
-echo ""
-echo -n "   Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [Y/n]: "
+echo -n "Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [Y/n]: "
 read -r dap_answer
 
 # 기본값 y: 아무것도 입력 안 하거나 Y/y 입력 시 설치
