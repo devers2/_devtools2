@@ -359,5 +359,59 @@ vim.api.nvim_create_autocmd("BufReadCmd", {
     end)
   end,
 })
+-- ============================================================
+-- CapsLock 감지 경고
+-- Normal / Visual 모드에서 연속 대문자 입력 시 CapsLock 경고
+-- (단축키 모드에서 대문자가 연속 입력되면 CapsLock 이 켜진 것으로 판단)
+-- ============================================================
+do
+  local capslock_count = 0    -- 연속 대문자 카운트
+  local capslock_warned = false -- 이미 경고한 경우 중복 방지
 
+  local THRESHOLD = 2 -- 연속 대문자 몇 개부터 경고할지
 
+  -- 단축키 모드: Normal, Visual, Visual Line, Visual Block, Select
+  local shortcut_modes = { n = true, v = true, V = true, ['\22'] = true, s = true }
+
+  vim.on_key(function(key)
+    local mode = vim.fn.mode()
+
+    if not shortcut_modes[mode] then
+      -- 단축키 모드가 아니면 카운터 초기화 (Insert 모드 진입 시 등)
+      capslock_count = 0
+      capslock_warned = false
+      return
+    end
+
+    -- 순수 알파벳 대문자 한 글자인지 확인
+    if #key == 1 and key:match('^[A-Z]$') then
+      capslock_count = capslock_count + 1
+
+      if capslock_count >= THRESHOLD and not capslock_warned then
+        capslock_warned = true
+        vim.schedule(function()
+          vim.notify(
+            table.concat({
+              '⚠️  CapsLock 이 켜져 있을 수 있습니다!',
+              '',
+              '현재 모드(' .. mode .. ')에서 대문자 키가 연속 입력되었습니다.',
+              '단축키가 의도대로 동작하지 않는다면 CapsLock 을 끄세요.',
+              '',
+              '  • Normal 모드 단축키는 소문자 기준으로 동작합니다.',
+              '  • CapsLock 상태에서 Shift + 영문키는 소문자가 됩니다.',
+            }, '\n'),
+            vim.log.levels.WARN,
+            {
+              title = 'CapsLock 경고',
+              timeout = 5000,
+            }
+          )
+        end)
+      end
+    else
+      -- 대문자가 아닌 키 입력 시 카운터/경고 플래그 초기화
+      capslock_count = 0
+      capslock_warned = false
+    end
+  end, vim.api.nvim_create_namespace('capslock_detect'))
+end
