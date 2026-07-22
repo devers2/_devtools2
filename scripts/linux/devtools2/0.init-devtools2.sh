@@ -36,31 +36,40 @@ echo "[작업] 시스템 필수 패키지 설치 중 (unzip, tar, curl, wget, rs
 rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null
 dpkg --configure -a 2>/dev/null
 
-# 한국 고속 카카오 미러 서버(mirror.kakao.com)로 자동 전환하여 80MB 다운로드 속도 최적화
-if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-    sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror.kakao.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null
-    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirror.kakao.com/ubuntu/|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null
-fi
-if [ -f /etc/apt/sources.list ]; then
-    sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror.kakao.com/ubuntu/|g' /etc/apt/sources.list 2>/dev/null
-    sed -i 's|http://security.ubuntu.com/ubuntu/|http://mirror.kakao.com/ubuntu/|g' /etc/apt/sources.list 2>/dev/null
+# 한국 카카오 미러 서버 연결 가능 여부 확인 후 가능하면 전환 (불가 시 원래 서버 유지)
+_use_kakao=false
+if curl -sf --max-time 3 http://mirror.kakao.com/ubuntu/ -o /dev/null 2>/dev/null; then
+    _use_kakao=true
 fi
 
-(apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1 &
-APT_PID=$!
-_spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-_spin_len=${#_spinner[@]}
-_spin_i=0
-while kill -0 "$APT_PID" 2>/dev/null; do
-    _last_log=$(tail -n 1 /tmp/_apt_install.log 2>/dev/null | cut -c1-50)
-    printf "\r\033[K  [%s] apt 설치/다운로드 진행 중... %s" "${_spinner[_spin_i]}" "$_last_log"
-    sleep 0.15
-    _spin_i=$(( (_spin_i + 1) % _spin_len ))
-done
-wait "$APT_PID"
-APT_EXIT=$?
+_switch_mirror() {
+    local from="$1" to="$2"
+    [ -f /etc/apt/sources.list.d/ubuntu.sources ] && sed -i "s|$from|$to|g" /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null
+    [ -f /etc/apt/sources.list ] && sed -i "s|$from|$to|g" /etc/apt/sources.list 2>/dev/null
+}
+
+if [ "$_use_kakao" = "true" ]; then
+    echo "  [정보] 카카오 고속 미러 서버 연결 확인 → mirror.kakao.com 으로 전환합니다."
+    _switch_mirror "http://archive.ubuntu.com/ubuntu/"  "http://mirror.kakao.com/ubuntu/"
+    _switch_mirror "http://security.ubuntu.com/ubuntu/" "http://mirror.kakao.com/ubuntu/"
+else
+    echo "  [정보] 카카오 미러 서버 연결 불가 → 기본 Ubuntu 서버(archive.ubuntu.com)를 사용합니다."
+fi
+
+(apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1
+APT_DIRECT_EXIT=$?
+
+# apt가 카카오 미러 서버로 실패한 경우 → 원래 서버로 자동 복구 후 재시도
+if [ "$APT_DIRECT_EXIT" -ne 0 ] && [ "$_use_kakao" = "true" ]; then
+    echo "  [경고] 카카오 미러 서버 실패. 기본 Ubuntu 서버로 폴백 후 재시도합니다..."
+    _switch_mirror "http://mirror.kakao.com/ubuntu/" "http://archive.ubuntu.com/ubuntu/"
+    rm -f /var/lib/apt/lists/lock 2>/dev/null
+    (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip) > /tmp/_apt_install.log 2>&1
+fi
+
 printf "\r\033[K"
-if [ "$APT_EXIT" -ne 0 ]; then
+# APT_DIRECT_EXIT: 카카오 시도 or 폴백 이후 최종 결과 확인
+if [ "${APT_DIRECT_EXIT:-0}" -ne 0 ]; then
     echo "[오류] 패키지 설치에 실패했습니다. 로그:" >&2
     cat /tmp/_apt_install.log >&2
     exit 1
