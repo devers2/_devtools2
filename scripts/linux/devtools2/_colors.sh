@@ -33,6 +33,18 @@ print_step()    { printf "${_C_MAGENTA}%s${_C_RESET}\n"         "$*"; }
 print_sep()     { printf "${_C_MAGENTA}%s${_C_RESET}\n" "==========================================================================="; }
 print_subsep()  { printf "${_C_MAGENTA}%s${_C_RESET}\n" "---------------------------------------------------------------------------"; }
 
+# ── 프롬프트 / 질문 헬퍼 ──────────────────────────────────────────────
+print_question() { printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
+print_option() {
+    local num="$1" text="$2" default_tag="${3:-}"
+    if [ -n "$default_tag" ]; then
+        printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_GREEN}${_C_BOLD}%s${_C_RESET}\n" "$num" "$text" "$default_tag"
+    else
+        printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET}\n" "$num" "$text"
+    fi
+}
+prompt_input() { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
+
 # ── 스피너 ─────────────────────────────────────────────────────────────────
 # 사용법: run_with_spinner <label> <pid>
 #         run_with_spinner_cmd <label> <command...>

@@ -101,10 +101,13 @@ SHOULD_CLONE=false
 # 1) 디렉터리 존재 여부 검사 및 신규 형상관리 추가 여부 확인
 if [ -d "$TARGET_DIR" ]; then
     echo ""
-    echo "==========================================================================="
-    echo "[알림] 이미 개발도구 디렉터리($TARGET_DIR)가 존재합니다."
+    print_sep
+    print_info "이미 개발도구 디렉터리($TARGET_DIR)가 존재합니다."
 
-    read -r -p "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? (y/N): " choice </dev/tty
+    choice="n"
+    if [ -t 0 ] || [ -c /dev/tty ]; then
+        read -r -p "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? (y/N): " choice 2>/dev/null </dev/tty || choice="n"
+    fi
     choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
     if [ "$choice" = "y" ]; then
         SHOULD_CLONE=true

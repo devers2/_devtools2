@@ -39,6 +39,20 @@ fi
 _COLORS_SH="$(dirname "$(readlink -f "$0")")/_colors.sh"
 [ -f "$_COLORS_SH" ] && source "$_COLORS_SH"
 
+# DEVTOOLS2 기본 폴더 및 필수 서브 디렉토리 존재/권한 확보
+if [ ! -d "$DEVTOOLS2" ]; then
+    if [ "$(id -u)" -eq 0 ]; then
+        mkdir -p "$DEVTOOLS2"
+    else
+        sudo mkdir -p "$DEVTOOLS2" 2>/dev/null || mkdir -p "$DEVTOOLS2" 2>/dev/null || true
+        sudo chown -R "$USER" "$DEVTOOLS2" 2>/dev/null || true
+    fi
+fi
+if [ ! -w "$DEVTOOLS2" ] && [ "$(id -u)" -ne 0 ]; then
+    sudo chown -R "$USER" "$DEVTOOLS2" 2>/dev/null || true
+    sudo chmod -R u+w "$DEVTOOLS2" 2>/dev/null || true
+fi
+
 # 바이너리가 설치될 modules 디렉토리 경로 설정
 MODULES_DIR="$DEVTOOLS2/modules"
 
@@ -173,35 +187,35 @@ for _b in "$FZF_INSTALLED" "$LAZYGIT_INSTALLED" "$RIPGREP_INSTALLED" \
 done
 
 if [ "$_HAS_INSTALLED" = true ]; then
-    echo "⚠️  이미 설치된 도구가 감지되었습니다. 중복 처리 방식을 선택하세요:"
+    print_question "⚠️  이미 설치된 도구가 감지되었습니다. 중복 처리 방식을 선택하세요:"
     echo ""
-    echo "   1) 기존 도구 삭제 후 재설치 (덮어쓰기)"
-    echo "   2) 기존 도구 유지 (건너뛰기) [기본값]"
-    echo "   3) 도구별 개별 확인 (재설치/건너뛰기 선택)"
+    print_option "1" "기존 도구 삭제 후 재설치 (덮어쓰기)"
+    print_option "2" "기존 도구 유지 (건너뛰기)" "[기본값]"
+    print_option "3" "도구별 개별 확인 (재설치/건너뛰기 선택)"
     echo ""
-    read -rp "   선택 (1-3, 기본값: 2): " _dup_choice
+    read -rp "$(prompt_input "   선택 (1-3, 기본값: 2): ")" _dup_choice
     echo ""
     case "${_dup_choice:-2}" in
-        1) DUPLICATE_MODE="remove"     ; echo "   → 중복 처리: 묻지 않고 삭제 후 재설치 선택됨" ;;
-        3) DUPLICATE_MODE="individual" ; echo "   → 중복 처리: 도구별 개별 확인 선택됨" ;;
-        *) DUPLICATE_MODE="keep"       ; echo "   → 중복 처리: 기존 도구 유지(건너뛰기) 선택됨" ;;
+        1) DUPLICATE_MODE="remove"     ; print_info "중복 처리: 묻지 않고 삭제 후 재설치 선택됨" ;;
+        3) DUPLICATE_MODE="individual" ; print_info "중복 처리: 도구별 개별 확인 선택됨" ;;
+        *) DUPLICATE_MODE="keep"       ; print_info "중복 처리: 기존 도구 유지(건너뛰기) 선택됨" ;;
     esac
     echo ""
 fi
 
 # ── 버전 설치 방식 선택 ──────────────────────────────────────────
-echo "❓ 적용할 버전 선택 방식을 선택하세요:"
+print_question "❓ 적용할 버전 선택 방식을 선택하세요:"
 echo ""
-echo "   1) 모든 도구 최신 버전으로 설치 (온라인 최신 릴리스)"
-echo "   2) 모든 도구 지정 버전으로 설치 (TOML 고정/최종 설치 버전) [기본값]"
-echo "   3) 도구별 개별 확인 (최신/지정 버전 선택)"
+print_option "1" "모든 도구 최신 버전으로 설치 (온라인 최신 릴리스)"
+print_option "2" "모든 도구 지정 버전으로 설치 (TOML 고정/최종 설치 버전)" "[기본값]"
+print_option "3" "도구별 개별 확인 (최신/지정 버전 선택)"
 echo ""
-read -rp "   선택 (1-3, 기본값: 2): " _ver_choice
+read -rp "$(prompt_input "   선택 (1-3, 기본값: 2): ")" _ver_choice
 echo ""
 case "${_ver_choice:-2}" in
-    1) VERSION_MODE="latest"     ; echo "   → 버전 선택: 모든 도구 최신 버전 선택됨" ;;
-    3) VERSION_MODE="individual" ; echo "   → 버전 선택: 도구별 개별 확인 선택됨" ;;
-    *) VERSION_MODE="pinned"     ; echo "   → 버전 선택: 모든 도구 지정(TOML) 버전 선택됨" ;;
+    1) VERSION_MODE="latest"     ; print_info "버전 선택: 모든 도구 최신 버전 선택됨" ;;
+    3) VERSION_MODE="individual" ; print_info "버전 선택: 도구별 개별 확인 선택됨" ;;
+    *) VERSION_MODE="pinned"     ; print_info "버전 선택: 모든 도구 지정(TOML) 버전 선택됨" ;;
 esac
 
 # 일괄 최신 버전 모드: 미리 모든 최신 버전 일괄 조회
