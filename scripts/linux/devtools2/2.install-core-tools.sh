@@ -494,10 +494,39 @@ cd "$DEVTOOLS2/data/.npm-packages"
 export PATH="$DEVTOOLS2/modules/nodejs/node-v24/bin:$PATH"
 
 if [ -f "package.json" ]; then
-    echo -n "   📦 글로벌 npm 패키지 복구 중 (npm install)..."
-    npm install -q &
-    show_spinner $!
-    echo " 완료"
+    _has_npm_pkgs=false
+    if [ -d "lib/node_modules" ] && [ -n "$(ls -A lib/node_modules 2>/dev/null)" ]; then
+        _has_npm_pkgs=true
+    elif [ -d "node_modules" ] && [ -n "$(ls -A node_modules 2>/dev/null)" ]; then
+        _has_npm_pkgs=true
+    fi
+
+    _do_npm_install=false
+    if [ "$_has_npm_pkgs" = true ]; then
+        echo ""
+        print_warn "이미 글로벌 npm 패키지가 설치되어 있습니다."
+        _npm_choice="n"
+        if [ -t 0 ]; then
+            read -rp "$(prompt_input "   글로벌 npm 패키지를 다시 복구(npm install)하시겠습니까? [y/N, 기본값: N]: ")" _npm_choice
+        fi
+        _npm_choice_lower=$(echo "${_npm_choice:-n}" | tr '[:upper:]' '[:lower:]')
+        if [ "$_npm_choice_lower" = "y" ]; then
+            _do_npm_install=true
+        else
+            print_info "기존 글로벌 npm 패키지를 유지합니다 (건너뜀)."
+        fi
+    else
+        _do_npm_install=true
+    fi
+
+    if [ "$_do_npm_install" = true ]; then
+        (npm install -q) >/tmp/_npm_install.log 2>&1 &
+        _npm_pid=$!
+        run_with_spinner "글로벌 npm 패키지 복구 중 (npm install)..." "$_npm_pid"
+        wait "$_npm_pid" 2>/dev/null || true
+        rm -f /tmp/_npm_install.log 2>/dev/null
+        print_done "글로벌 npm 패키지 복구 완료!"
+    fi
 fi
 
 # rsync를 사용하여 기존 node_modules 내용을 lib/node_modules로 강제 통합(덮어쓰기) 후 기존 디렉토리 삭제
