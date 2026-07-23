@@ -105,16 +105,19 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
     [Security.Principal.WindowsBuiltInRole]::Administrator
 )
 
+# 관리자 권한이 없는 경우에만 UAC 권한 승격 재실행 (이미 관리자 모드이면 이 블록 건너뜀)
 if (-not $isAdmin) {
+    # PowerShell 7(pwsh) 이 있으면 pwsh로, 없으면 powershell.exe(PS5)로 재실행
+    $psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell.exe' }
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
         # 원격 Raw 실행 시 UAC를 통해 원격 명령어를 새 창에서 관리자 권한으로 자동 재실행
         Write-Warn "관리자 권한이 필요합니다. UAC 승격 후 새 창에서 원격 설치를 계속합니다..."
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex`"" -Verb RunAs
+        Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex`"" -Verb RunAs
         exit
     } else {
         # 로컬 파일 실행 시에는 기존처럼 UAC 권한 승격 재실행
         Write-Warn "전체 환경 구축을 위해 관리자 권한으로 스크립트를 재실행합니다..."
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+        Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
         exit
     }
 }
@@ -151,16 +154,20 @@ if ($isLocalMode) {
 # ==============================================================================
 Write-Step "[Step 1] WSL2 가상 머신 인스턴스 생성"
 
+# 하위 스크립트 실행기: pwsh(PS7) 우선, 없으면 powershell.exe(PS5) 폴백
+# UTF-8 BOM 없는 파일을 PS7에서 실행해야 브레일 스피너 등 유니코드 문자 파싱 오류를 방지할 수 있음
+$_psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell.exe' }
+
 if ($isLocalMode) {
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File $setupWslScript
+    & $_psExe -NoProfile -ExecutionPolicy Bypass -File $setupWslScript
 } else {
     Write-Info "GitHub에서 WSL 설치 스크립트 다운로드 중..."
     $rawWslScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/0.setup-wsl.ps1"
-    
-    # 원격 실행 시 임시 파일로 저장 후 powershell.exe -File로 실행하여 exit 코드 확보
+
+    # 원격 실행 시 임시 파일로 저장: UTF8 NoBOM 으로 저장해야 PS7 에서 유니코드 파싱 오류 없음
     $tempWslScriptFile = Join-Path $env:TEMP "temp_setup_wsl.ps1"
-    $rawWslScript | Out-File -FilePath $tempWslScriptFile -Encoding UTF8 -Force
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tempWslScriptFile
+    [System.IO.File]::WriteAllText($tempWslScriptFile, $rawWslScript, [System.Text.UTF8Encoding]::new($false))
+    & $_psExe -NoProfile -ExecutionPolicy Bypass -File $tempWslScriptFile
     if (Test-Path $tempWslScriptFile) { Remove-Item $tempWslScriptFile -Force }
 }
 
