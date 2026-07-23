@@ -363,6 +363,32 @@ if (Test-Path $tempTarPath) {
     Remove-Item $tempTarPath -Force
 }
 
+# 9. Windows 사용자 프로필에 .wslconfig (네트워크 미러링) 자동 설정
+#    WSL2 내부 포트(8881, 8080, 5005 등)를 Windows 호스트 localhost에서 별도 포트포워딩 없이 바로 접속 가능하도록 동기화
+Write-Info "Windows-WSL2 네트워크 포트 직통 연결(mirrored)을 위한 .wslconfig 설정 확인 중..."
+$wslConfigFile = Join-Path $env:USERPROFILE ".wslconfig"
+if (Test-Path $wslConfigFile) {
+    $existing = Get-Content $wslConfigFile -Raw -ErrorAction SilentlyContinue
+    if ($existing -notmatch "networkingMode\s*=\s*mirrored") {
+        if ($existing -match "\[wsl2\]") {
+            Add-Content -Path $wslConfigFile -Value "`nnetworkingMode=mirrored`nautoProxy=true"
+        } else {
+            Add-Content -Path $wslConfigFile -Value "`n[wsl2]`nnetworkingMode=mirrored`nautoProxy=true"
+        }
+        Write-Success ".wslconfig 에 네트워크 미러링(networkingMode=mirrored) 설정이 추가되었습니다."
+    } else {
+        Write-Success ".wslconfig (networkingMode=mirrored) 설정이 이미 적용되어 있습니다."
+    }
+} else {
+    $defaultWslConfig = @"
+[wsl2]
+networkingMode=mirrored
+autoProxy=true
+"@
+    Set-Content -Path $wslConfigFile -Value $defaultWslConfig -Encoding UTF8
+    Write-Success "새 .wslconfig (networkingMode=mirrored) 파일 생성 완료!"
+}
+
 # --------------------------------------------------------------------------
 # [Step 4] 완료
 # --------------------------------------------------------------------------
