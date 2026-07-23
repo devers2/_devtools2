@@ -232,10 +232,10 @@ Write-Step "[Step 2] WSL2 내부 개발도구 디렉터리 및 권한 초기화"
 # WSL sudo 권한 획득을 위한 비밀번호 입력
 Write-Host ""
 Write-Host "┌──────────────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "│ 🔑  WSL2 sudo 관리자 권한 실행을 위한 비밀번호 입력                        │" -ForegroundColor Yellow
+Write-Host "│ 🔑  WSL2 sudo 관리자 권한 실행을 위한 비밀번호 입력                      │" -ForegroundColor Yellow
 Write-Host "├──────────────────────────────────────────────────────────────────────────┤" -ForegroundColor Yellow
-Write-Host "│  WSL2 내부의 시스템 패키지(apt) 및 개발 환경 설정을 위해                  │" -ForegroundColor White
-Write-Host "│  Ubuntu 설치 시 생성했던 계정의 비밀번호 입력이 필요합니다.               │" -ForegroundColor White
+Write-Host "│  WSL2 내부의 시스템 패키지(apt) 및 개발 환경 설정을 위해                │" -ForegroundColor White
+Write-Host "│  Ubuntu 설치 시 생성했던 계정의 비밀번호 입력이 필요합니다.             │" -ForegroundColor White
 Write-Host "└──────────────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
 Write-Host ""
 

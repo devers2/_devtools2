@@ -132,13 +132,16 @@ if [ "${APT_DIRECT_EXIT:-0}" -ne 0 ]; then
 fi
 rm -f /tmp/_apt_install.log
 
-# 한글 UTF-8 로케일 생성 및 시스템 전역 로케일 설정
+# 한글 UTF-8 로케일 생성 및 시스템 전역 로케일 설정 (스피너 표시)
 if command -v locale-gen >/dev/null 2>&1; then
-    locale-gen ko_KR.UTF-8 >/dev/null 2>&1 || true
-    update-locale LANG=ko_KR.UTF-8 >/dev/null 2>&1 || true
+    (locale-gen ko_KR.UTF-8 && update-locale LANG=ko_KR.UTF-8) >/tmp/_locale.log 2>&1 &
+    _loc_pid=$!
+    run_with_spinner "한글 로케일(ko_KR.UTF-8) 생성 및 설정 중..." "$_loc_pid"
+    wait "$_loc_pid" 2>/dev/null || true
+    rm -f /tmp/_locale.log 2>/dev/null
 fi
 
-print_done "필수 패키지 설치 완료!"
+print_done "필수 패키지 및 로케일 설치 완료!"
 
 # 스크립트를 실제 호출한 사용자(관리자가 sudo로 실행한 경우 SUDO_USER를 우선 사용)
 INVOKER="${SUDO_USER:-${USER:-root}}"
@@ -154,8 +157,9 @@ if [ -d "$TARGET_DIR" ]; then
     print_info "이미 개발도구 디렉터리($TARGET_DIR)가 존재합니다."
 
     choice="n"
-    if [ -t 0 ] || [ -c /dev/tty ]; then
-        read -r -p "$(prompt_input "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? (y/N): ")" choice 2>/dev/null </dev/tty || choice="n"
+    # 표준 입력이 실제 대화형 터미널([ -t 0 ])인 경우에만 선택 받음 (파이프/비대화형 실행 시 멈춤 방지)
+    if [ -t 0 ]; then
+        read -r -p "$(prompt_input "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? (y/N): ")" choice 2>/dev/null || choice="n"
     fi
     choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
     if [ "$choice" = "y" ]; then
