@@ -124,6 +124,10 @@ export NEOVIM_HOME="$DEVTOOLS2/modules/neovim/nvim"
 export NVIM_APPNAME="nvim"
 export ZED_HOME="$DEVTOOLS2/modules/zed"
 
+# 한글 파일명 및 문자 깨짐 방지 (UTF-8 로케일)
+export LANG="ko_KR.UTF-8"
+export LC_ALL="ko_KR.UTF-8"
+
 EOF
 
 # Ghostty 환경 변수는 WSL2가 아닌 네이티브 리눅스 환경에서만 등록한다.
