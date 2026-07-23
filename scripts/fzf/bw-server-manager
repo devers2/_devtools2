@@ -11,15 +11,24 @@
 #   4. 정상 unlock 상태   → 세션 파일 or 환경변수 로드 → 목록 조회
 #
 # BW_SESSION 지속:
-#   ~/.ghostty/bw_session 파일에 세션키를 저장해 다음 실행 시 재활용
-#   (bw vault가 잠기면 자동으로 재입력 요청)
+#   /dev/shm/bw_session_$UID (RAM tmpfs) 에 세션키를 저장 → 재부팅 시 자동 소멸
+#   /dev/shm 미지원 시 ~/.ghostty/bw_session 에 fallback
+#   (bw vault가 잠기거나 세션이 만료되면 자동으로 재인증 요청)
 # ==============================================================================
 
 FOLDER_ID="9977a5c2-ee53-4a13-8dac-b43b010afabb"
 HOME_DIR="${HOME:-$USERPROFILE}"
 GHOSTTY_DIR="${HOME_DIR}/.ghostty"
-SESSION_FILE="${GHOSTTY_DIR}/bw_session"
 mkdir -p "$GHOSTTY_DIR"
+
+# ── 세션 파일 경로 결정 ────────────────────────────────────────────────────────
+# /dev/shm 이 있으면 RAM 기반 임시 파일시스템에 저장 (재부팅 시 자동 소멸)
+# 없으면 ~/.ghostty/bw_session 에 저장 (macOS 등 fallback)
+if [ -d "/dev/shm" ]; then
+    SESSION_FILE="/dev/shm/bw_session_${UID:-$(id -u)}"
+else
+    SESSION_FILE="${GHOSTTY_DIR}/bw_session"
+fi
 
 # ── OS 판별 ────────────────────────────────────────────────────────────────────
 IS_WINDOWS=false
@@ -80,11 +89,17 @@ do_unlock() {
     fi
 
     # 세션키를 파일에 저장 (chmod 600 으로 보안)
+    # /dev/shm 사용 시: RAM 기반 → 재부팅 시 자동 소멸 (현재 로그인 세션 동안만 유지)
+    # fallback 시   : ~/.ghostty/bw_session (chmod 600)
     echo "$BW_SESSION" >"$SESSION_FILE"
     chmod 600 "$SESSION_FILE"
 
     export BW_SESSION
-    echo "✅ 잠금 해제 완료. (세션이 ${SESSION_FILE} 에 저장되었습니다)"
+    if [ -d "/dev/shm" ]; then
+        echo "✅ 잠금 해제 완료. (세션키가 메모리(tmpfs)에 저장되었습니다 → 재부팅 시 자동 삭제)"
+    else
+        echo "✅ 잠금 해제 완료. (세션이 ${SESSION_FILE} 에 저장되었습니다)"
+    fi
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
