@@ -216,6 +216,7 @@ config.window_background_opacity = 0.96 -- 투명도
 config.scroll_to_bottom_on_input = true -- 입력할 때 자동으로 맨 아래로 스크롤
 config.hide_tab_bar_if_only_one_tab = true -- 탭이 하나일 때는 숨기고, 여러 개일 때만 보여줌
 config.front_end = 'WebGpu' -- 그래픽 가속 활성화 (WebGpu / OpenGL / Software)
+config.window_close_confirmation = 'NeverPrompt' -- 창 닫기(X 버튼) 시 확인 팝업 없이 즉시 닫기
 
 if is_windows then
   -- Windows 에서 WSL2 devtools2 배포판을 기본 셸로 사용해 홈 디렉토리(~)로 바로 진입
