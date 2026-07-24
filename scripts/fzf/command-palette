@@ -564,14 +564,26 @@ elif [[ "$CHOICE" == *"JDTLS"* ]]; then
 elif [[ "$CHOICE" == *"포트 확인"* ]]; then
     read -p "🔍 조회할 포트 번호 입력: " PORT
     if [[ -n "$PORT" ]]; then
-        echo "📋 포트 $PORT 사용 프로세스 목록:"
+        echo "📋 포트 $PORT 상태 및 프로세스 정보:"
         echo "─────────────────────────────────────────"
-        # 공통 함수 사용 → Windows/Linux/macOS/WSL 모두 동일 경로, timeout 보장
-        CHECK_PIDS=$(get_pids_by_port "$PORT")
-        if [[ -z "$CHECK_PIDS" ]]; then
+        if ! is_port_in_use "$PORT"; then
             echo "  (해당 포트를 사용하는 프로세스 없음)"
         else
-            print_pids_info "$CHECK_PIDS"
+            if $IS_WINDOWS; then
+                # Windows: netstat -ano & tasklist
+                local win_pids
+                win_pids=$(netstat -ano 2>/dev/null | grep -E ":${PORT}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
+                print_pids_info "$win_pids"
+            elif $IS_MAC; then
+                # macOS: lsof -i :PORT
+                lsof -i :"$PORT" 2>/dev/null || echo "  (포트 $PORT 점유 중)"
+            else
+                # Linux / WSL2: 안전한 소켓 상태 + Java/Gradle 프로세스 정보 표시
+                echo "  ✅ 포트 $PORT 가 활성화(LISTEN) 상태입니다."
+                echo ""
+                echo "  [관련 실행 중 프로세스 목록]"
+                ps aux 2>/dev/null | grep -iE 'java|bootRun|gradle' | grep -v grep | head -5 | awk '{print "  PID: "$2"  |  명령어: "$11" "$12" "$13" "$14}'
+            fi
         fi
         echo "─────────────────────────────────────────"
     fi
@@ -609,31 +621,44 @@ elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
         exit 1
     fi
 
-    RAW_PIDS=$(get_pids_by_port "$PORT")
-
-    if [[ -z "$RAW_PIDS" ]]; then
+    if ! is_port_in_use "$PORT"; then
         echo "ℹ️  포트 $PORT 를 사용하는 프로세스가 없습니다."
         exit 0
     fi
 
-    echo "📋 포트 $PORT 를 사용하는 프로세스 목록:"
+    echo "📋 포트 $PORT 상태:"
     echo "─────────────────────────────────────────"
-    print_pids_info "$RAW_PIDS"
+    echo "  ⚠️ 포트 $PORT 가 현재 활성화(LISTEN)되어 있습니다."
     echo "─────────────────────────────────────────"
     echo ""
-    read -p "⚠️  위 프로세스를 모두 종료하시겠습니까? (y/N): " CONFIRM
+    read -p "⚠️  포트 $PORT 관련 프로세스를 종료하시겠습니까? (y/N): " CONFIRM
     if [[ "${CONFIRM,,}" != "y" ]]; then
         echo "❌ 취소되었습니다."
         exit 0
     fi
 
     echo ""
-    kill_pids "$RAW_PIDS"
+    echo "🔪 포트 $PORT 점유 프로세스 해제 중..."
+    if $IS_WINDOWS; then
+        local win_pids
+        win_pids=$(netstat -ano 2>/dev/null | grep -E ":${PORT}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
+        kill_pids "$win_pids"
+    elif $IS_MAC; then
+        local mac_pids
+        mac_pids=$(lsof -ti :"$PORT" 2>/dev/null)
+        if [[ -n "$mac_pids" ]]; then
+            kill_pids "$mac_pids"
+        fi
+    else
+        # Linux / WSL2: 멈춤 없는 안전 프로세스 종료
+        pkill -f "bootRun" &>/dev/null
+        pkill -f "java" &>/dev/null
+        if command -v fuser &>/dev/null; then
+            fuser -k -9 "$PORT/tcp" &>/dev/null
+        fi
+        echo "  ✅ 포트 $PORT 점유 프로세스 중지 명령 전송 완료"
+    fi
 
-    echo ""
-    echo "📊 결과: 성공 $KILLED 개 / 실패 $FAILED 개"
-
-    # 종료 후 포트가 실제로 해제됐는지 재확인
     sleep 0.5
     verify_port_released "$PORT" 3
 
