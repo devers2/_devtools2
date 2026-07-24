@@ -12,6 +12,7 @@
 #      └─ source ~/.bashrc: 이후 스크립트가 환경 변수를 상속받을 수 있도록 로드
 #   2. install-core-tools : Java, Gradle, Python, Node.js, Neovim, Zed, Ghostty 설치
 #   3. install-cli-tools  : fzf, lazygit, ripgrep, fd, ast-grep, apt 패키지, hererocks 설치
+#   4. setup-keyboard     : keyd 설치 + CapsLock 리매핑 설정 (WSL 환경이면 자동 건너뜀)
 #
 # 사용 방법:
 #   bash /path/to/scripts/linux/setup-devtools2.sh
@@ -97,12 +98,23 @@ fi
 # ==============================================================================
 # [Step 3] CLI 유틸리티 도구 설치 (fzf, lazygit, ripgrep, fd, ast-grep, hererocks 등)
 # ==============================================================================
-print_step "▶ [3/3] CLI 유틸리티 도구 설치"
+print_step "▶ [3/4] CLI 유틸리티 도구 설치"
 
 if [ "$IS_LOCAL" = true ]; then
     "$SUB_DIR/3.install-cli-tools.sh"
 else
     DEVTOOLS2=/var/opt/_devtools2 bash <(curl -sSfL "$RAW_BASE/3.install-cli-tools.sh")
+fi
+
+# ==============================================================================
+# [Step 4] 키보드 리매핑 설정 (keyd — WSL 환경이면 자동 건너뜀)
+# ==============================================================================
+print_step "▶ [4/4] 키보드 리매핑 설정 (keyd)"
+
+if [ "$IS_LOCAL" = true ]; then
+    sudo "$SUB_DIR/4.setup-keyboard.sh"
+else
+    DEVTOOLS2=/var/opt/_devtools2 sudo bash <(curl -sSfL "$RAW_BASE/4.setup-keyboard.sh")
 fi
 
 # ==============================================================================
@@ -119,5 +131,11 @@ echo "    echo \$PATH"
 echo "    node --version"
 echo "    java --version"
 echo "    nvim --version"
+echo ""
+echo "  키보드 리매핑 (리눅스 네이티브):"
+echo "    CapsLock 단독 탭      → ESC"
+echo "    CapsLock + 다른 키    → Ctrl 조합"
+echo "    Shift + CapsLock      → 대문자 고정 ON"
+echo "    (고정ON) CapsLock/ESC → 대문자 고정 OFF"
 echo "==========================================================================="
 echo ""

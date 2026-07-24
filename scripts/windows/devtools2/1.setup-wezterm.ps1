@@ -608,21 +608,70 @@ if (Test-Path $ahkExe) {
     } catch {}
 }
 
-# ── (5) 기존 프로세스 종료 후 재실행 ──────────────────────────────────────────
-if (Test-Path $ahkDest) {
-    Write-Success "AHK 스크립트 배포 완료: $ahkDest"
+# ── (5) keyboard-remap.ahk (CapsLock 리매핑) 배포 및 바로가기 생성 ───────────
+$kbRemapDest = "$startupDir\keyboard-remap.ahk"
 
-    # 기존 인스턴스 정리
-    Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
-        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+# 소스 파일 가져오기
+$kbRemapSourceLocal = $null
+if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+    $kbRemapSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\keyboard-remap.ahk"
+}
 
-    # 포터블 AutoHotkey 백그라운드 구동
-    if ($ahkExe -and (Test-Path $ahkExe)) {
-        Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
-        Write-Success "Ctrl+Alt+T 단축키 서비스가 즉시 활성화되었습니다."
-    }
+if ($kbRemapSourceLocal -and (Test-Path $kbRemapSourceLocal)) {
+    Write-Info "키보드 리매핑 AHK 복사 중: $kbRemapSourceLocal"
+    Copy-Item -Path $kbRemapSourceLocal -Destination $kbRemapDest -Force
 } else {
-    Write-Warn "AHK 스크립트 배포에 실패했습니다."
+    Write-Info "GitHub 에서 keyboard-remap.ahk 다운로드 중..."
+    try {
+        $kbRemapRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/keyboard-remap.ahk"
+        Invoke-WebRequest -Uri $kbRemapRaw -OutFile $kbRemapDest -ErrorAction Stop
+    } catch {
+        Write-Warn "keyboard-remap.ahk 다운로드 실패: $($_.Exception.Message)"
+    }
+}
+
+# 키보드 리매핑 부팅 자동 실행용 바로가기(.lnk) 생성
+if ((Test-Path $ahkExe) -and (Test-Path $kbRemapDest)) {
+    $kbShortcutPath = "$startupDir\Keyboard-Remap-Launcher.lnk"
+    try {
+        $wshShell2 = New-Object -ComObject WScript.Shell
+        $kbShortcut = $wshShell2.CreateShortcut($kbShortcutPath)
+        $kbShortcut.TargetPath       = $ahkExe
+        $kbShortcut.Arguments        = "`"$kbRemapDest`""
+        $kbShortcut.WorkingDirectory = $ahkModuleDir
+        $kbShortcut.WindowStyle      = 7  # 7 = Minimized / Background
+        $kbShortcut.Description      = "CapsLock Keyboard Remap (ESC / Ctrl overload)"
+        $kbShortcut.Save()
+    } catch {}
+}
+
+# ── (6) 기존 프로세스 종료 후 두 AHK 스크립트 재실행 ─────────────────────────
+if (Test-Path $ahkDest) {
+    Write-Success "WezTerm 단축키 AHK 배포 완료: $ahkDest"
+} else {
+    Write-Warn "WezTerm 단축키 AHK 배포에 실패했습니다."
+}
+if (Test-Path $kbRemapDest) {
+    Write-Success "키보드 리매핑 AHK 배포 완료: $kbRemapDest"
+} else {
+    Write-Warn "키보드 리매핑 AHK 배포에 실패했습니다."
+}
+
+# 기존 AutoHotkey 인스턴스 전체 종료
+Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
+    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+
+# 포터블 AutoHotkey 로 두 스크립트를 각각 백그라운드 구동
+if ($ahkExe -and (Test-Path $ahkExe)) {
+    if (Test-Path $ahkDest) {
+        Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
+        Write-Success "Ctrl+Alt+T WezTerm 단축키 서비스 즉시 활성화."
+    }
+    if (Test-Path $kbRemapDest) {
+        Start-Sleep -Milliseconds 200  # 스크립트 충돌 방지용 잠깐 대기
+        Start-Process -FilePath $ahkExe -ArgumentList "`"$kbRemapDest`"" -WindowStyle Hidden
+        Write-Success "CapsLock 키보드 리매핑 서비스 즉시 활성화."
+    }
 }
 
 # ==============================================================================
@@ -634,6 +683,12 @@ Write-Host "🎉 WezTerm 설정 연동 완료!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  설정 파일 공유(심볼릭 링크)가 완료되었습니다." -ForegroundColor White
 Write-Host "  이제 리눅스 혹은 윈도우 어느 쪽에서든 설정을 편집하면 양쪽 모두에 즉시 반영됩니다." -ForegroundColor White
-Write-Host "  Ctrl+Alt+T 단축키로 WezTerm 새 창을 빠르게 열 수 있습니다. (AutoHotkey)" -ForegroundColor White
+Write-Host ""
+Write-Host "  [단축키]" -ForegroundColor Cyan
+Write-Host "  Ctrl+Alt+T          : WezTerm 새 창 열기" -ForegroundColor White
+Write-Host "  CapsLock (단독 탭)  : ESC" -ForegroundColor White
+Write-Host "  CapsLock + 다른 키  : Ctrl 조합" -ForegroundColor White
+Write-Host "  Shift + CapsLock    : 대문자 고정 ON" -ForegroundColor White
+Write-Host "  (고정ON) CapsLock/ESC: 대문자 고정 OFF" -ForegroundColor White
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
