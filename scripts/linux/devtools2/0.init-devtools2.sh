@@ -47,7 +47,7 @@ _load_colors() {
     _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW='' _C_RED='' _C_MAGENTA='' _C_WHITE='' _C_GRAY=''
     if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
         _C_RESET='\033[0m' _C_BOLD='\033[1m' _C_CYAN='\033[0;36m' _C_GREEN='\033[0;32m'
-        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_MAGENTA='\033[0;35m' _C_WHITE='\033[1;37m'
+        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_MAGENTA='\033[0;36m' _C_WHITE='\033[1;37m'
     fi
 
     print_info()    { printf "${_C_CYAN}[정보]${_C_RESET} %s\n"    "$*"; }

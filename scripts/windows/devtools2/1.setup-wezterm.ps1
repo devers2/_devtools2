@@ -124,6 +124,34 @@ function Wait-ProcessWithSpinner {
     Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
 }
 
+# 조건 만족 시까지 스피너를 표시해 대기하는 일반 함수
+function Wait-WithSpinner {
+    param(
+        [string]$Message,
+        [scriptblock]$Condition,
+        [int]$MaxTimeoutSeconds = 300
+    )
+    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+    $spinIdx = 0
+    $startTime = Get-Date
+    while ($true) {
+        $elapsed = (Get-Date) - $startTime
+        if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
+            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)   " -ForegroundColor Red
+            return $false
+        }
+        $done = & $Condition
+        if ($done) {
+            Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
+            return $true
+        }
+        $char = $spinner[$spinIdx % $spinner.Count]
+        Write-Host -NoNewline "`r  [$char] $Message...   " -ForegroundColor Cyan
+        Start-Sleep -Milliseconds 150
+        $spinIdx++
+    }
+}
+
 # ==============================================================================
 # [Step 0] 관리자 권한 확인 및 재실행
 # ==============================================================================
@@ -485,7 +513,7 @@ if (-not (Test-Path $ahkExe)) {
 if (Test-Path $ahkExe) {
     Write-Info "AutoHotkey v2 포터블 이미 존재: $ahkExe"
 } else {
-    Write-Info "AutoHotkey v2 포터블을 다운로드합니다..."
+    Write-Info "AutoHotkey v2 포터블 패키지 다운로드 및 압축 해제 중..."
     Write-Info "  설치 경로: $ahkModuleDir"
 
     New-Item -ItemType Directory -Path $ahkModuleDir -Force | Out-Null
@@ -494,14 +522,34 @@ if (Test-Path $ahkExe) {
     $ahkZipTemp = Join-Path $env:TEMP "ahk-v2.zip"
 
     try {
+        # 비동기 백그라운드다운로드 및 스피너 대기
         $prevProgress = $ProgressPreference
         $ProgressPreference = 'SilentlyContinue'
-        Invoke-WebRequest -Uri $ahkZipUrl -OutFile $ahkZipTemp -ErrorAction Stop
+
+        $dlJob = Start-Job -ScriptBlock {
+            param($url, $dest)
+            Invoke-WebRequest -Uri $url -OutFile $dest -ErrorAction Stop
+        } -ArgumentList $ahkZipUrl, $ahkZipTemp
+
+        Wait-WithSpinner -Message "AutoHotkey v2 패키지 다운로드 중" -Condition { $dlJob.State -ne 'Running' } -MaxTimeoutSeconds 120
+        Receive-Job -Job $dlJob -ErrorAction SilentlyContinue | Out-Null
+        Remove-Job -Job $dlJob -Force -ErrorAction SilentlyContinue
+
         $ProgressPreference = $prevProgress
 
-        Write-Info "  압축 해제 중..."
-        Expand-Archive -Path $ahkZipTemp -DestinationPath $ahkModuleDir -Force
-        Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
+        if (Test-Path $ahkZipTemp) {
+            # 백그라운드 압축 해제 및 스피너 대기
+            $unzipJob = Start-Job -ScriptBlock {
+                param($zip, $target)
+                Expand-Archive -Path $zip -DestinationPath $target -Force
+            } -ArgumentList $ahkZipTemp, $ahkModuleDir
+
+            Wait-WithSpinner -Message "AutoHotkey v2 압축 해제 중" -Condition { $unzipJob.State -ne 'Running' } -MaxTimeoutSeconds 120
+            Receive-Job -Job $unzipJob -ErrorAction SilentlyContinue | Out-Null
+            Remove-Job -Job $unzipJob -Force -ErrorAction SilentlyContinue
+
+            Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
+        }
 
         $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
         if (-not (Test-Path $ahkExe)) {
