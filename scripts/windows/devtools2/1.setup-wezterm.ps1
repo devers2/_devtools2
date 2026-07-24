@@ -466,6 +466,86 @@ if (Get-Item -Path $WinWeztermConfig -Force -ErrorAction SilentlyContinue) {
     Write-Fail "WezTerm 심볼릭 링크 생성 실패: $mklinkResult"
 }
 
+
+# ==============================================================================
+# [Step 5] WezTerm Ctrl+Alt+T 전역 단축키 등록
+# Windows 시작 메뉴 폴더에 .lnk 바로가기를 생성하고 HotKey 속성을 설정하면
+# Windows 탐색기(Explorer)가 해당 단축키를 시스템 전역 단축키로 자동 인식합니다.
+# (AutoHotkey, 작업 스케줄러 불필요)
+# ==============================================================================
+Write-Step "[Step 5] WezTerm Ctrl+Alt+T 전역 단축키 등록"
+
+# WezTerm 실행 파일 경로 탐색
+$weztermExe = $null
+$candidatePaths = @(
+    "$env:ProgramFiles\WezTerm\wezterm-gui.exe",
+    "$env:ProgramFiles\WezTerm\wezterm.exe",
+    "${env:ProgramFiles(x86)}\WezTerm\wezterm-gui.exe",
+    "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe",
+    "$env:LOCALAPPDATA\Programs\WezTerm\wezterm-gui.exe",
+    "$env:LOCALAPPDATA\Programs\WezTerm\wezterm.exe"
+)
+foreach ($candidate in $candidatePaths) {
+    if (Test-Path $candidate) {
+        $weztermExe = $candidate
+        break
+    }
+}
+
+# 경로를 못 찾으면 PATH에서 탐색
+if (-not $weztermExe) {
+    $fromPath = Get-Command wezterm-gui -ErrorAction SilentlyContinue
+    if (-not $fromPath) { $fromPath = Get-Command wezterm -ErrorAction SilentlyContinue }
+    if ($fromPath) { $weztermExe = $fromPath.Source }
+}
+
+if (-not $weztermExe) {
+    Write-Warn "WezTerm 실행 파일을 찾을 수 없어 단축키 등록을 건너뜁니다."
+    Write-Host "  WezTerm 설치 후 이 스크립트를 다시 실행하거나 수동으로 바로가기의 HotKey 를 설정해 주세요." -ForegroundColor Gray
+} else {
+    Write-Info "WezTerm 실행 파일 감지: $weztermExe"
+
+    # 바로가기(.lnk) 저장 위치: 현재 사용자 시작 메뉴 프로그램 폴더
+    # 이 위치의 .lnk 파일에 설정된 HotKey 는 Windows 탐색기가 전역 단축키로 자동 등록합니다.
+    $startMenuDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
+    $shortcutPath = "$startMenuDir\WezTerm.lnk"
+
+    try {
+        $wshShell = New-Object -ComObject WScript.Shell
+        $shortcut = $wshShell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath  = $weztermExe
+        $shortcut.WorkingDirectory = $env:USERPROFILE
+        $shortcut.WindowStyle  = 1    # 1 = Normal window
+        $shortcut.Description  = "WezTerm Terminal (Ctrl+Alt+T)"
+        $shortcut.Hotkey       = "CTRL+ALT+T"   # Windows HotKey 속성
+        $shortcut.Save()
+
+        if (Test-Path $shortcutPath) {
+            Write-Success "WezTerm 바로가기 및 Ctrl+Alt+T 단축키 등록 완료"
+            Write-Host "  바로가기 위치: $shortcutPath" -ForegroundColor DarkGray
+            Write-Host "  ※ 단축키 적용은 로그오프 후 재로그인 또는 탐색기 재시작 후 활성화됩니다." -ForegroundColor Yellow
+
+            # 즉시 적용을 위해 탐색기(explorer) 재시작 여부 확인
+            Write-Host ""
+            Write-Host "👉 탐색기를 재시작하여 단축키를 즉시 활성화하시겠습니까? (y/N, 기본값: N): " -ForegroundColor Yellow -NoNewline
+            $restartChoice = Read-Host
+            if ($restartChoice -match '^[Yy]') {
+                Write-Info "탐색기를 재시작합니다 (잠깐 화면이 깜빡일 수 있습니다)..."
+                Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 2
+                Start-Process explorer
+                Write-Success "탐색기 재시작 완료. 이제 Ctrl+Alt+T 로 WezTerm 을 열 수 있습니다."
+            } else {
+                Write-Info "로그오프 후 재로그인하면 Ctrl+Alt+T 단축키가 활성화됩니다."
+            }
+        } else {
+            Write-Fail "바로가기 파일 생성에 실패했습니다: $shortcutPath"
+        }
+    } catch {
+        Write-Fail "단축키 등록 실패: $($_.Exception.Message)"
+    }
+}
+
 # ==============================================================================
 # 완료
 # ==============================================================================
@@ -475,5 +555,6 @@ Write-Host "🎉 WezTerm 설정 연동 완료!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  설정 파일 공유(심볼릭 링크)가 완료되었습니다." -ForegroundColor White
 Write-Host "  이제 리눅스 혹은 윈도우 어느 쪽에서든 설정을 편집하면 양쪽 모두에 즉시 반영됩니다." -ForegroundColor White
+Write-Host "  Ctrl+Alt+T 단축키로 WezTerm 을 빠르게 열 수 있습니다." -ForegroundColor White
 Write-Host "===========================================================================" -ForegroundColor Magenta
 Write-Host ""
