@@ -10,21 +10,20 @@
 ;   Shift + CapsLock           → 대문자 고정 ON
 ;   (대문자 고정 ON) CapsLock  → 대문자 고정 OFF + ESC
 ;   (대문자 고정 ON) ESC       → 대문자 고정 OFF (ESC pass-through)
-;
-; [구현 방식 - InputHook 활용]
-;   - CapsLock 누름 시 LCtrl down 전송 및 InputHook(V 모드) 시작
-;   - CapsLock 누른 상태에서 임의의 키(알파벳, 숫자, Numpad, F키 등 전 키)나
-;     마우스(클릭, 휠) 입력 발생 시 _capsUsedAsCtrl 플래그를 true 로 설정
-;   - CapsLock 뗄 때 InputHook 중단 및 LCtrl up 전송
-;   - 플래그가 false 면 단독 탭으로 판단하여 ESC 전송
 ; ==============================================================================
 
 global _capsDown := false
 global _capsUsedAsCtrl := false
 global _ih := InputHook("V")
 
+; ── 조합키 사용 등록 헬퍼 함수 ─────────────────────────────────────────────
+_MarkUsed(ih := 0, vk := 0, sc := 0) {
+    global _capsUsedAsCtrl
+    _capsUsedAsCtrl := true
+}
+
 ; InputHook 설정: 키보드의 임의 키 입력 시 조합키 플래그 설정
-_ih.OnKeyDown := (ih, vk, sc) => (global _capsUsedAsCtrl := true)
+_ih.OnKeyDown := _MarkUsed
 
 ; ── 스크립트 종료/리로드 시 정리 ─────────────────────────────────────────────
 OnExit(_CleanupOnExit)
@@ -85,11 +84,11 @@ _CleanupOnExit(reason, code) {
 
 ; ── CapsLock 누른 상태에서 마우스 입력 감지 ──────────────────────────────────
 #HotIf _capsDown
-~*LButton::   global _capsUsedAsCtrl := true
-~*RButton::   global _capsUsedAsCtrl := true
-~*MButton::   global _capsUsedAsCtrl := true
-~*WheelUp::   global _capsUsedAsCtrl := true
-~*WheelDown:: global _capsUsedAsCtrl := true
+~*LButton::
+~*RButton::
+~*MButton::
+~*WheelUp::
+~*WheelDown:: _MarkUsed()
 #HotIf
 
 ; ── ESC: 대문자 고정 ON 상태이면 함께 해제 (pass-through) ────────────────────

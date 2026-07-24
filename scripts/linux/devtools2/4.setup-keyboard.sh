@@ -170,12 +170,15 @@ print_subsep
 mkdir -p /etc/keyd
 
 if [ -f "$KEYD_CONF_SRC" ]; then
-    print_info "설정 파일 복사: $KEYD_CONF_SRC → $KEYD_CONF_DEST"
+    print_info "로컬 설정 파일 복사: $KEYD_CONF_SRC → $KEYD_CONF_DEST"
     cp -f "$KEYD_CONF_SRC" "$KEYD_CONF_DEST"
     print_success "keyd 설정 파일 배포 완료."
+elif curl -sSfL --max-time 5 "https://raw.githubusercontent.com/devers2/_devtools2/main/.config/keyd/default.conf" -o "$KEYD_CONF_DEST" 2>/dev/null; then
+    print_info "GitHub 원격에서 최신 default.conf 다운로드 완료 → $KEYD_CONF_DEST"
+    print_success "keyd 설정 파일 원격 배포 완료."
 else
-    # 소스 파일이 없으면 인라인으로 생성
-    print_warn "설정 소스($KEYD_CONF_SRC)를 찾을 수 없어 기본 설정을 인라인으로 생성합니다."
+    # 네트워크 연결 원격 다운로드 및 로컬 소스 모두 없을 때 인라인으로 생성
+    print_warn "설정 소스를 찾을 수 없어 기본 설정을 인라인으로 생성합니다."
     cat > "$KEYD_CONF_DEST" <<'EOF'
 [ids]
 *
