@@ -469,23 +469,16 @@ if (Get-Item -Path $WinWeztermConfig -Force -ErrorAction SilentlyContinue) {
 
 # ==============================================================================
 # [Step 5] AutoHotkey v2 포터블 배포 및 WezTerm Ctrl+Alt+T 단축키 등록
-# winget 설치 없이 GitHub 에서 AutoHotkey v2 포터블 zip 을 다운로드하여
-# scripts/windows/modules/autohotkey/ 폴더에 배치합니다.
+# winget 설치 없이 AutoHotkey v2 포터블 zip 을 %LOCALAPPDATA%\_devtools2\modules\autohotkey 에 설치하고
+# Windows 사용자 환경 변수(PATH) 등록 및 시작 프로그램(Startup) 폴더에 자동 실행을 연동합니다.
 # ==============================================================================
 Write-Step "[Step 5] AutoHotkey v2 포터블 배포 및 Ctrl+Alt+T 단축키 등록"
 
-# ── (1) modules/autohotkey 폴더 경로 결정 ────────────────────────────────────
-# 로컬 모드: 이 스크립트(devtools2/1.setup-wezterm.ps1) 기준 → ../modules/autohotkey
-# 온라인 모드: $PSScriptRoot 가 비어있으므로 LOCALAPPDATA 하위 폴백 경로 사용
-if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-    $ahkModuleDir = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\autohotkey"
-} else {
-    $ahkModuleDir = "$env:LOCALAPPDATA\devtools2\modules\autohotkey"
-}
-
+# ── (1) modules/autohotkey 포터블 설치 경로 결정 ─────────────────────────────
+$ahkModuleDir = "$env:LOCALAPPDATA\_devtools2\modules\autohotkey"
 $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
 if (-not (Test-Path $ahkExe)) {
-    $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"  # 32-bit 폴백
+    $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"
 }
 
 # ── (2) 포터블 AutoHotkey v2 다운로드 및 압축 해제 ───────────────────────────
@@ -510,7 +503,6 @@ if (Test-Path $ahkExe) {
         Expand-Archive -Path $ahkZipTemp -DestinationPath $ahkModuleDir -Force
         Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
 
-        # 압축 해제 후 exe 경로 재탐색
         $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
         if (-not (Test-Path $ahkExe)) {
             $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"
@@ -520,24 +512,32 @@ if (Test-Path $ahkExe) {
             Write-Success "AutoHotkey v2 포터블 배포 완료: $ahkExe"
         } else {
             Write-Warn "압축 해제 후 AutoHotkey 실행 파일을 찾지 못했습니다: $ahkModuleDir"
-            Write-Host "  폴더 내용:" -ForegroundColor Gray
-            Get-ChildItem $ahkModuleDir -ErrorAction SilentlyContinue | ForEach-Object {
-                Write-Host "    $($_.Name)" -ForegroundColor Gray
-            }
         }
     } catch {
         $ProgressPreference = $prevProgress
         Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
         Write-Warn "AutoHotkey v2 포터블 다운로드 실패: $($_.Exception.Message)"
-        Write-Host "  수동 다운로드: https://www.autohotkey.com/download/" -ForegroundColor Gray
     }
 }
 
-# ── (3) AHK 스크립트를 시작 프로그램 폴더에 복사 (설치마다 덮어쓰기) ─────────
+# ── (3) 사용자 PATH 환경변수에 AutoHotkey 디렉터리 추가 ──────────────────────
+if (Test-Path $ahkModuleDir) {
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if ($userPath -notlike "*$ahkModuleDir*") {
+        $newUserPath = "$userPath;$ahkModuleDir".Trim(';')
+        [Environment]::SetEnvironmentVariable("PATH", $newUserPath, "User")
+        $env:PATH = "$env:PATH;$ahkModuleDir"
+        Write-Success "사용자 PATH 환경 변수에 AutoHotkey 경로 추가 완료: $ahkModuleDir"
+    } else {
+        Write-Info "사용자 PATH 환경 변수에 AutoHotkey 경로가 이미 존재합니다."
+    }
+}
+
+# ── (4) AHK 스크립트 복사 및 부팅 자동 실행 연동 ─────────────────────────────
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $ahkDest    = "$startupDir\wezterm-hotkey.ahk"
 
-# 소스: 로컬 repo → ../autohotkey/wezterm-hotkey.ahk, 없으면 GitHub 다운로드
+# 소스 AHK 파일 가져오기
 $ahkSourceLocal = $null
 if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
     $ahkSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\wezterm-hotkey.ahk"
@@ -556,28 +556,36 @@ if ($ahkSourceLocal -and (Test-Path $ahkSourceLocal)) {
     }
 }
 
-# ── (4) 기존 AHK 프로세스 종료 후 즉시 재실행 ────────────────────────────────
+# 포터블 AutoHotkey 부팅 자동 실행용 바로가기(.lnk) 생성
+if (Test-Path $ahkExe) {
+    $shortcutPath = "$startupDir\WezTerm-Hotkey-Launcher.lnk"
+    try {
+        $wshShell = New-Object -ComObject WScript.Shell
+        $shortcut = $wshShell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath       = $ahkExe
+        $shortcut.Arguments        = "`"$ahkDest`""
+        $shortcut.WorkingDirectory = $ahkModuleDir
+        $shortcut.WindowStyle      = 7  # 7 = Minimized / Background
+        $shortcut.Description      = "WezTerm Ctrl+Alt+T Hotkey Launcher"
+        $shortcut.Save()
+    } catch {}
+}
+
+# ── (5) 기존 프로세스 종료 후 즉시 재실행 ──────────────────────────────────
 if (Test-Path $ahkDest) {
     Write-Success "AHK 스크립트 배포 완료: $ahkDest"
 
-    # 이미 실행 중인 wezterm-hotkey 인스턴스 종료
+    # 기존 인스턴스 강제 종료
     Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*wezterm-hotkey*" } |
         ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 
-    # 포터블 exe 로 즉시 실행
+    # 포터블 exe 로 백그라운드 구동
     if ($ahkExe -and (Test-Path $ahkExe)) {
         Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
-        Write-Success "Ctrl+Alt+T 단축키가 즉시 활성화되었습니다. (AutoHotkey 포터블)"
-        Write-Host "  AHK 실행: $ahkExe" -ForegroundColor DarkGray
-        Write-Host "  스크립트: $ahkDest" -ForegroundColor DarkGray
-    } else {
-        # 포터블 exe 없으면 .ahk 파일 연결 프로그램(시스템 AHK)으로 실행 시도
-        Start-Process $ahkDest -WindowStyle Hidden -ErrorAction SilentlyContinue
-        Write-Info "AHK 스크립트를 시작했습니다. (로그인 시 자동 실행 등록 완료)"
+        Write-Success "Ctrl+Alt+T 단축키가 즉시 활성화되었습니다 (포터블 AutoHotkey)."
     }
 } else {
-    Write-Warn "AHK 스크립트 배포에 실패했습니다. 수동으로 '$ahkDest' 에 복사해 주세요."
+    Write-Warn "AHK 스크립트 배포에 실패했습니다."
 }
 
 # ==============================================================================
