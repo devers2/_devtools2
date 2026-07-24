@@ -568,20 +568,9 @@ if (Test-Path $ahkExe) {
     }
 }
 
-# ── (3) 사용자 PATH 환경변수에 AutoHotkey 디렉터리 추가 ──────────────────────
-if (Test-Path $ahkModuleDir) {
-    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-    if ($userPath -notlike "*$ahkModuleDir*") {
-        $newUserPath = "$userPath;$ahkModuleDir".Trim(';')
-        [Environment]::SetEnvironmentVariable("PATH", $newUserPath, "User")
-        $env:PATH = "$env:PATH;$ahkModuleDir"
-        Write-Success "사용자 PATH 환경 변수에 AutoHotkey 경로 추가 완료: $ahkModuleDir"
-    } else {
-        Write-Info "사용자 PATH 환경 변수에 AutoHotkey 경로가 이미 존재합니다."
-    }
-}
 
-# ── (4) AHK 스크립트 복사 및 부팅 자동 실행 연동 ─────────────────────────────
+
+# ── (4) AHK 스크립트 복사 및 시작 프로그램 자동 실행 연동 ────────────────────
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $ahkDest    = "$startupDir\wezterm-hotkey.ahk"
 
@@ -619,18 +608,18 @@ if (Test-Path $ahkExe) {
     } catch {}
 }
 
-# ── (5) 기존 프로세스 종료 후 즉시 재실행 ──────────────────────────────────
+# ── (5) 기존 프로세스 종료 후 재실행 ──────────────────────────────────────────
 if (Test-Path $ahkDest) {
     Write-Success "AHK 스크립트 배포 완료: $ahkDest"
 
-    # 기존 인스턴스 강제 종료
+    # 기존 인스턴스 정리
     Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
         ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 
-    # 포터블 exe 로 백그라운드 구동
+    # 포터블 AutoHotkey 백그라운드 구동
     if ($ahkExe -and (Test-Path $ahkExe)) {
         Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
-        Write-Success "Ctrl+Alt+T 단축키가 즉시 활성화되었습니다 (포터블 AutoHotkey)."
+        Write-Success "Ctrl+Alt+T 단축키 서비스가 즉시 활성화되었습니다."
     }
 } else {
     Write-Warn "AHK 스크립트 배포에 실패했습니다."
