@@ -59,7 +59,197 @@ save_state() {
     mv "$tmp" "$STATE_FILE"
 }
 
+# ==============================================================================
+# OS 공통 포트 유틸리티 함수
+# ==============================================================================
+
+# 지정한 포트를 사용 중인 PID 목록을 공백 구분 문자열로 반환 (중복 제거)
+# 사용법: pids=$(get_pids_by_port <port>)
+get_pids_by_port() {
+    local port="$1"
+    local pids=""
+
+    if $IS_WINDOWS; then
+        # Windows (msys/cygwin): netstat -ano 의 마지막 컬럼에서 PID 추출
+        pids=$(netstat -ano 2>/dev/null \
+            | grep ":${port}[[:space:]]" \
+            | awk '{print $NF}' \
+            | grep -E '^[0-9]+$' \
+            | sort -u)
+    else
+        # Linux (including WSL) / macOS
+        if command -v lsof &>/dev/null; then
+            pids=$(lsof -ti :"$port" 2>/dev/null | sort -u)
+        elif command -v ss &>/dev/null; then
+            # Linux only: ss 의 "users:(("name",pid=NNN,...))" 형식에서 PID 추출
+            pids=$(ss -tulpn 2>/dev/null \
+                | grep ":${port}[[:space:]]" \
+                | grep -oE 'pid=[0-9]+' \
+                | grep -oE '[0-9]+' \
+                | sort -u)
+        fi
+    fi
+
+    echo "$pids"
+}
+
+# 지정한 포트를 사용 중인 프로세스 정보를 출력 (PID + 이름 + 명령어)
+print_pids_info() {
+    local pids="$1"
+
+    if $IS_WINDOWS; then
+        for pid in $pids; do
+            local pname
+            pname=$(tasklist /fi "PID eq $pid" /fo csv /nh 2>/dev/null \
+                | cut -d',' -f1 | tr -d '"' | head -1)
+            echo "  PID: $pid  |  프로세스: ${pname:-알 수 없음}"
+        done
+    else
+        for pid in $pids; do
+            local pname pcmd
+            pname=$(ps -p "$pid" -o comm= 2>/dev/null || echo "알 수 없음")
+            pcmd=$(ps -p "$pid" -o args= 2>/dev/null | cut -c1-72 || echo "")
+            echo "  PID: $pid  |  프로세스: $pname"
+            [[ -n "$pcmd" ]] && echo "  명령어: $pcmd"
+        done
+    fi
+}
+
+# 지정한 PID 목록을 강제 종료하고 결과를 출력, 종료 건수와 실패 건수를 전역 변수에 저장
+# 전역: KILLED, FAILED
+kill_pids() {
+    local pids="$1"
+    KILLED=0
+    FAILED=0
+
+    if $IS_WINDOWS; then
+        for pid in $pids; do
+            if taskkill /f /pid "$pid" &>/dev/null; then
+                echo "  ✅ PID $pid 종료 완료"
+                ((KILLED++))
+            else
+                echo "  ❌ PID $pid 종료 실패"
+                ((FAILED++))
+            fi
+        done
+    else
+        for pid in $pids; do
+            local pname
+            pname=$(ps -p "$pid" -o comm= 2>/dev/null || echo "알 수 없음")
+            if kill -9 "$pid" 2>/dev/null; then
+                echo "  ✅ PID $pid ($pname) 종료 완료"
+                ((KILLED++))
+            else
+                echo "  ❌ PID $pid ($pname) 종료 실패"
+                ((FAILED++))
+            fi
+        done
+    fi
+}
+
+# 포트 해제 여부를 재확인하고 결과 메시지 출력 (최대 wait_max 초 대기)
+verify_port_released() {
+    local port="$1"
+    local wait_max="${2:-3}"
+    local elapsed=0
+
+    while [[ $elapsed -lt $wait_max ]]; do
+        sleep 1
+        local remaining
+        remaining=$(get_pids_by_port "$port")
+        [[ -z "$remaining" ]] && break
+        ((elapsed++))
+    done
+
+    local remaining
+    remaining=$(get_pids_by_port "$port")
+    if [[ -z "$remaining" ]]; then
+        echo "✅ 포트 $port 가 정상적으로 해제되었습니다."
+    else
+        echo "⚠️  아직 포트 $port 를 점유하는 프로세스가 남아 있습니다: $remaining"
+        if ! $IS_WINDOWS; then
+            echo "   sudo kill -9 $remaining 으로 강제 종료를 시도해 보세요."
+        fi
+    fi
+}
+
+# bootRun 실행 전 포트 충돌 사전 확인 및 해소
+# 인수: $1 = 모듈명 (없으면 루트 기준)
+check_and_resolve_port_conflict() {
+    local mod="$1"
+
+    # --- 포트 번호 탐색 ---
+    # 탐색 대상: 루트 + 모듈 하위 src/main/resources
+    local search_dirs=()
+    search_dirs+=("$CWD/src/main/resources")
+    if [[ -n "$mod" ]]; then
+        search_dirs+=("$CWD/$mod/src/main/resources")
+    fi
+
+    local detected_port=""
+
+    for dir in "${search_dirs[@]}"; do
+        if [[ -z "$detected_port" && -d "$dir" ]]; then
+            # application.properties / application-*.properties
+            local port_from_props
+            port_from_props=$(grep -rh 'server\.port' "$dir" 2>/dev/null \
+                | grep -v '^[[:space:]]*#' \
+                | sed -n 's/.*server\.port[[:space:]]*=[[:space:]]*\([0-9]\+\).*/\1/p' \
+                | head -1)
+            [[ -n "$port_from_props" ]] && detected_port="$port_from_props"
+
+            # application.yml / application-*.yml
+            if [[ -z "$detected_port" ]]; then
+                local port_from_yml
+                port_from_yml=$(grep -rh 'port:' "$dir" 2>/dev/null \
+                    | grep -v '^[[:space:]]*#' \
+                    | sed -n 's/.*port:[[:space:]]*\([0-9]\+\).*/\1/p' \
+                    | head -1)
+                [[ -n "$port_from_yml" ]] && detected_port="$port_from_yml"
+            fi
+        fi
+    done
+
+    # 설정 파일에서 감지 실패 시 Spring Boot 기본값 사용
+    [[ -z "$detected_port" ]] && detected_port="8080"
+
+    # --- 해당 포트 사용 프로세스 확인 ---
+    local pids
+    pids=$(get_pids_by_port "$detected_port")
+
+    if [[ -z "$pids" ]]; then
+        # 충돌 없음 — 계속 진행
+        return 0
+    fi
+
+    # --- 충돌 안내 및 확인 ---
+    echo ""
+    echo "⚠️  포트 ${detected_port} 이(가) 이미 사용 중입니다."
+    echo "─────────────────────────────────────────"
+    print_pids_info "$pids"
+    echo "─────────────────────────────────────────"
+    echo ""
+    read -p "❓ 위 프로세스를 종료하고 bootRun을 시작하시겠습니까? (y/N): " CONFLICT_ANS
+    if [[ "${CONFLICT_ANS,,}" != "y" ]]; then
+        echo "❌ bootRun을 취소합니다."
+        exit 0
+    fi
+
+    # --- 기존 프로세스 종료 ---
+    echo ""
+    kill_pids "$pids"
+
+    # 포트 해제 대기 및 확인
+    echo ""
+    verify_port_released "$detected_port" 3
+    echo ""
+    echo "▶️  bootRun을 시작합니다."
+    echo ""
+}
+
+# ==============================================================================
 # 2. 프로젝트 디렉토리 내 그레이들 래퍼 확인
+# ==============================================================================
 GRADLEW_EXISTS=false
 GW_NAME="./gradlew"
 if [ -f "$CWD/gradlew" ] || [ -f "$CWD/build.gradle" ] || [ -f "$CWD/build.gradle.kts" ]; then
@@ -77,7 +267,9 @@ if $GRADLEW_EXISTS; then
     fi
 fi
 
+# ==============================================================================
 # 3. fzf에 뿌려줄 동적 메뉴 빌드
+# ==============================================================================
 MENU_OPTIONS=()
 if $GRADLEW_EXISTS; then
     MENU_OPTIONS+=("[Gradle] 실행 (bootRun)")
@@ -107,7 +299,11 @@ if [ -z "$CHOICE" ]; then
     exit 0
 fi
 
+# ==============================================================================
 # 4. 선택 항목별 실전 실행 프로세스 분기
+# ==============================================================================
+
+# ── [Gradle] 실행 (bootRun) ──────────────────────────────────────────────────
 if [[ "$CHOICE" == *"실행"* ]]; then
     PREV_INIT=$(get_state "gradle_run" "init_path")
     PREV_MOD=$(get_state "gradle_run" "module")
@@ -141,6 +337,8 @@ if [[ "$CHOICE" == *"실행"* ]]; then
     fi
 
     # 안전하게 배열로 인수 조립 (eval 대신 직접 실행)
+    # bootRun 은 gradlew 자체가 JVM 위에서 실행되므로 OS 공통 처리
+    # Windows 에서만 cmd.exe /c 래퍼 필요
     CMD_ARGS=()
     if $IS_WINDOWS; then
         CMD_ARGS+=("cmd.exe" "/c" "$GW_NAME")
@@ -169,6 +367,9 @@ if [[ "$CHOICE" == *"실행"* ]]; then
     read -p "📁 로그를 파일로 저장하시겠습니까? (y/N): " SAVE_LOG
     SAVE_LOG=${SAVE_LOG:-"n"}
 
+    # bootRun 실행 전 포트 충돌 사전 확인
+    check_and_resolve_port_conflict "$MOD"
+
     echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
     if [[ "${SAVE_LOG,,}" == "y" ]]; then
         LOG_DIR="$CWD/logs"
@@ -180,6 +381,7 @@ if [[ "$CHOICE" == *"실행"* ]]; then
         "${CMD_ARGS[@]}"
     fi
 
+# ── [Gradle] 빌드 (build) ────────────────────────────────────────────────────
 elif [[ "$CHOICE" == *"빌드"* ]]; then
     PREV_CLEAN=$(get_state "gradle_build" "clean")
     PREV_EX=$(get_state "gradle_build" "exclude")
@@ -293,6 +495,7 @@ elif [[ "$CHOICE" == *"빌드"* ]]; then
     echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
     "${CMD_ARGS[@]}"
 
+# ── [Gradle] 중앙 저장소 배포 ────────────────────────────────────────────────
 elif [[ "$CHOICE" == *"중앙 저장소 배포"* ]]; then
     CMD_ARGS=()
     if $IS_WINDOWS; then
@@ -305,6 +508,7 @@ elif [[ "$CHOICE" == *"중앙 저장소 배포"* ]]; then
     echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
     "${CMD_ARGS[@]}"
 
+# ── [JDTLS] 캐시 초기화 ──────────────────────────────────────────────────────
 elif [[ "$CHOICE" == *"JDTLS"* ]]; then
     PROJ_NAME=$(basename "$CWD")
 
@@ -330,54 +534,59 @@ elif [[ "$CHOICE" == *"JDTLS"* ]]; then
         echo "ℹ️ 삭제할 JDTLS 캐시 디렉토리가 존재하지 않습니다: $JDTLS_CACHE"
     fi
 
+# ── 포트 확인 (Port Check) ───────────────────────────────────────────────────
 elif [[ "$CHOICE" == *"포트 확인"* ]]; then
     read -p "🔍 조회할 포트 번호 입력: " PORT
     if [[ -n "$PORT" ]]; then
+        echo "📋 포트 $PORT 사용 프로세스 목록:"
+        echo "─────────────────────────────────────────"
         if $IS_WINDOWS; then
-            netstat -ano | findstr ":$PORT"
-        else
-            # lsof 우선 사용 (더 상세한 PID/프로세스명 정보 제공), 없으면 ss 폴백
-            if command -v lsof &>/dev/null; then
-                echo "📋 포트 $PORT 사용 프로세스 목록:"
-                lsof -i :"$PORT" 2>/dev/null || echo "  (해당 포트를 사용하는 프로세스 없음)"
+            # Windows: netstat -ano 로 해당 포트 행 출력 후 PID 기준 이름 보강
+            local_pids=$(get_pids_by_port "$PORT")
+            if [[ -z "$local_pids" ]]; then
+                echo "  (해당 포트를 사용하는 프로세스 없음)"
             else
-                sudo ss -tulpn | grep ":$PORT" || echo "  (해당 포트를 사용하는 프로세스 없음)"
+                print_pids_info "$local_pids"
             fi
+        elif command -v lsof &>/dev/null; then
+            # Linux / macOS: lsof 로 상세 출력 (sudo 불필요)
+            lsof -i :"$PORT" 2>/dev/null || echo "  (해당 포트를 사용하는 프로세스 없음)"
+        elif command -v ss &>/dev/null; then
+            # Linux fallback: ss (macOS 에는 ss 없으므로 위 lsof 분기에서 처리됨)
+            ss -tulpn 2>/dev/null | grep ":${PORT}[[:space:]]" \
+                || echo "  (해당 포트를 사용하는 프로세스 없음)"
+        else
+            echo "  ⚠️  lsof / ss 명령어를 찾을 수 없습니다."
         fi
+        echo "─────────────────────────────────────────"
     fi
 
+# ── 프로세스 확인 (Process Check) ────────────────────────────────────────────
 elif [[ "$CHOICE" == *"프로세스 확인"* ]]; then
     read -p "🎯 검색할 프로세스 이름 키워드: " KWD
     if [[ -n "$KWD" ]]; then
+        echo "📋 '$KWD' 관련 프로세스 목록:"
+        echo "─────────────────────────────────────────"
         if $IS_WINDOWS; then
             tasklist | findstr /i "$KWD"
         else
+            # Linux / macOS / WSL 공통: ps aux
             ps aux | grep -i "$KWD" | grep -v grep
         fi
+        echo "─────────────────────────────────────────"
     fi
 
+# ── 프로세스 종료 (Process Kill) ─────────────────────────────────────────────
 elif [[ "$CHOICE" == *"프로세스 종료"* && "$CHOICE" != *"포트로"* ]]; then
     # 다중 PID를 공백으로 구분하여 한 번에 종료 가능
     read -p "💀 종료할 프로세스 PID 입력 (여러 개면 공백으로 구분, 예: 1234 5678): " PID_INPUT
     if [[ -n "$PID_INPUT" ]]; then
         read -r -a PID_ARRAY <<<"$PID_INPUT"
-        if $IS_WINDOWS; then
-            for PID in "${PID_ARRAY[@]}"; do
-                echo "💀 PID $PID 종료 중..."
-                taskkill /f /pid "$PID" && echo "  ✅ PID $PID 종료 완료" || echo "  ❌ PID $PID 종료 실패"
-            done
-        else
-            for PID in "${PID_ARRAY[@]}"; do
-                if ps -p "$PID" &>/dev/null; then
-                    PNAME=$(ps -p "$PID" -o comm= 2>/dev/null)
-                    kill -9 "$PID" && echo "  ✅ PID $PID ($PNAME) 종료 완료" || echo "  ❌ PID $PID 종료 실패"
-                else
-                    echo "  ⚠️  PID $PID: 존재하지 않는 프로세스입니다."
-                fi
-            done
-        fi
+        echo ""
+        kill_pids "${PID_ARRAY[*]}"
     fi
 
+# ── 포트로 프로세스 종료 (Port Kill) ─────────────────────────────────────────
 elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
     read -p "🔌 종료할 포트 번호 입력: " PORT
     if [[ -z "$PORT" ]]; then
@@ -385,115 +594,35 @@ elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
         exit 1
     fi
 
-    if $IS_WINDOWS; then
-        # Windows: netstat -ano 마지막 컬럼(PID) 자동 파싱 후 일괄 종료
-        # netstat 출력 형식: TCP  0.0.0.0:PORT  0.0.0.0:0  LISTENING  <PID>
-        RAW_PIDS=$(netstat -ano 2>/dev/null | grep ":${PORT}[[:space:]]" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
+    RAW_PIDS=$(get_pids_by_port "$PORT")
 
-        if [[ -z "$RAW_PIDS" ]]; then
-            echo "ℹ️  포트 $PORT 를 사용하는 프로세스가 없습니다."
-            exit 0
-        fi
-
-        echo "📋 포트 $PORT 를 사용하는 프로세스 목록:"
-        echo "─────────────────────────────────────────"
-        for PID in $RAW_PIDS; do
-            # tasklist로 프로세스 이름 조회 (Windows)
-            PNAME=$(tasklist /fi "PID eq $PID" /fo csv /nh 2>/dev/null | cut -d',' -f1 | tr -d '"' | head -1)
-            echo "  PID: $PID  |  이름: ${PNAME:-알 수 없음}"
-        done
-        echo "─────────────────────────────────────────"
-        echo ""
-        read -p "⚠️  위 프로세스를 모두 종료하시겠습니까? (y/N): " CONFIRM
-        if [[ "${CONFIRM,,}" != "y" ]]; then
-            echo "❌ 취소되었습니다."
-            exit 0
-        fi
-
-        KILLED=0
-        FAILED=0
-        for PID in $RAW_PIDS; do
-            if taskkill /f /pid "$PID" &>/dev/null; then
-                echo "  ✅ PID $PID 종료 완료"
-                ((KILLED++))
-            else
-                echo "  ❌ PID $PID 종료 실패"
-                ((FAILED++))
-            fi
-        done
-
-        echo ""
-        echo "📊 결과: 성공 $KILLED 개 / 실패 $FAILED 개"
-
-        # 종료 후 재확인
-        sleep 0.5
-        REMAINING=$(netstat -ano 2>/dev/null | grep ":${PORT}[[:space:]]" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
-        if [[ -z "$REMAINING" ]]; then
-            echo "✅ 포트 $PORT 가 정상적으로 해제되었습니다."
-        else
-            echo "⚠️  아직 포트 $PORT 를 점유하는 프로세스가 남아 있습니다: $REMAINING"
-        fi
-    else
-        # Linux/macOS: lsof로 해당 포트의 모든 PID 자동 추출
-        if ! command -v lsof &>/dev/null; then
-            echo "❌ lsof 명령어를 찾을 수 없습니다. sudo dnf install lsof 등으로 설치 후 재시도하세요."
-            exit 1
-        fi
-
-        # 해당 포트를 사용하는 모든 PID 목록 추출 (중복 제거)
-        PIDS=$(lsof -ti :"$PORT" 2>/dev/null | sort -u)
-
-        if [[ -z "$PIDS" ]]; then
-            echo "ℹ️  포트 $PORT 를 사용하는 프로세스가 없습니다."
-            exit 0
-        fi
-
-        echo "📋 포트 $PORT 를 사용하는 프로세스 목록:"
-        echo "─────────────────────────────────────────"
-        for PID in $PIDS; do
-            PNAME=$(ps -p "$PID" -o comm= 2>/dev/null || echo "알 수 없음")
-            PCMD=$(ps -p "$PID" -o args= 2>/dev/null | cut -c1-80 || echo "")
-            echo "  PID: $PID  |  이름: $PNAME"
-            echo "  명령어: $PCMD"
-            echo ""
-        done
-        echo "─────────────────────────────────────────"
-        echo "총 ${#PIDS[@]} 개 프로세스가 발견되었습니다."
-        echo ""
-        read -p "⚠️  위 프로세스를 모두 종료하시겠습니까? (y/N): " CONFIRM
-        if [[ "${CONFIRM,,}" != "y" ]]; then
-            echo "❌ 취소되었습니다."
-            exit 0
-        fi
-
-        echo ""
-        KILLED=0
-        FAILED=0
-        for PID in $PIDS; do
-            PNAME=$(ps -p "$PID" -o comm= 2>/dev/null || echo "알 수 없음")
-            if kill -9 "$PID" 2>/dev/null; then
-                echo "  ✅ PID $PID ($PNAME) 종료 완료"
-                ((KILLED++))
-            else
-                echo "  ❌ PID $PID ($PNAME) 종료 실패 (권한 부족 시 sudo 필요)"
-                ((FAILED++))
-            fi
-        done
-
-        echo ""
-        echo "📊 결과: 성공 $KILLED 개 / 실패 $FAILED 개"
-
-        # 종료 후 포트가 실제로 해제됐는지 재확인
-        sleep 0.5
-        REMAINING=$(lsof -ti :"$PORT" 2>/dev/null | sort -u)
-        if [[ -z "$REMAINING" ]]; then
-            echo "✅ 포트 $PORT 가 정상적으로 해제되었습니다."
-        else
-            echo "⚠️  아직 포트 $PORT 를 점유하는 프로세스가 남아 있습니다: $REMAINING"
-            echo "   sudo kill -9 $REMAINING 으로 강제 종료를 시도해 보세요."
-        fi
+    if [[ -z "$RAW_PIDS" ]]; then
+        echo "ℹ️  포트 $PORT 를 사용하는 프로세스가 없습니다."
+        exit 0
     fi
 
+    echo "📋 포트 $PORT 를 사용하는 프로세스 목록:"
+    echo "─────────────────────────────────────────"
+    print_pids_info "$RAW_PIDS"
+    echo "─────────────────────────────────────────"
+    echo ""
+    read -p "⚠️  위 프로세스를 모두 종료하시겠습니까? (y/N): " CONFIRM
+    if [[ "${CONFIRM,,}" != "y" ]]; then
+        echo "❌ 취소되었습니다."
+        exit 0
+    fi
+
+    echo ""
+    kill_pids "$RAW_PIDS"
+
+    echo ""
+    echo "📊 결과: 성공 $KILLED 개 / 실패 $FAILED 개"
+
+    # 종료 후 포트가 실제로 해제됐는지 재확인
+    sleep 0.5
+    verify_port_released "$PORT" 3
+
+# ── JDK 버전 변경 (JDK Switch) ───────────────────────────────────────────────
 elif [[ "$CHOICE" == *"JDK 버전 변경"* ]]; then
     # 기준 경로 설정 (DEVTOOLS2 환경변수 백업)
     DEV_ROOT="${DEVTOOLS2}"
@@ -536,6 +665,7 @@ elif [[ "$CHOICE" == *"JDK 버전 변경"* ]]; then
             echo "❌ 스위치 스크립트를 찾을 수 없습니다: $JDK_SWITCH_PS1"
         fi
     else
+        # Linux (WSL 포함) / macOS 공통
         JDK_SWITCH_SCRIPT="$DEV_ROOT/scripts/linux/cmd/jdk_switch.sh"
         if [[ -f "$JDK_SWITCH_SCRIPT" ]]; then
             source "$JDK_SWITCH_SCRIPT" "$JDK_CHOICE"
@@ -559,6 +689,7 @@ elif [[ "$CHOICE" == *"JDK 버전 변경"* ]]; then
         echo "  - 또는 터미널을 다시 시작(새 창/새 탭)하십시오."
     fi
 
+# ── Python 버전 변경 (Python Switch) ─────────────────────────────────────────
 elif [[ "$CHOICE" == *"Python 버전 변경"* ]]; then
     # 기준 경로 설정 (DEVTOOLS2 환경변수 백업)
     DEV_ROOT="${DEVTOOLS2}"
@@ -603,6 +734,7 @@ elif [[ "$CHOICE" == *"Python 버전 변경"* ]]; then
             echo "❌ 스위치 스크립트를 찾을 수 없습니다: $PY_SWITCH_PS1"
         fi
     else
+        # Linux (WSL 포함) / macOS 공통
         PY_SWITCH_SCRIPT="$DEV_ROOT/scripts/linux/cmd/py_switch.sh"
         if [[ -f "$PY_SWITCH_SCRIPT" ]]; then
             source "$PY_SWITCH_SCRIPT" "$PY_CHOICE"
