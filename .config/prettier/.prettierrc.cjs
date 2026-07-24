@@ -3,9 +3,10 @@ const path = require('path');
 // 절대경로: NPM 전역 설치 경로를 환경 변수로부터 계산
 // const globalNodeModules = process.env.NODE_PATH;
 // 상대경로: 현재 설정 파일 위치(.config/prettier/)를 기준으로 두 단계 위로 올라가 글로벌 패키지 디렉토리를 지정
-const globalNodeModules = process.platform === 'win32'
-  ? path.join(__dirname, '../../data/.npm-packages/node_modules')
-  : path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
+const globalNodeModules =
+  process.platform === 'win32'
+    ? path.join(__dirname, '../../data/.npm-packages/node_modules')
+    : path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
 
 /** Prettier 설정 */
 module.exports = {
@@ -16,7 +17,7 @@ module.exports = {
     require.resolve('prettier-plugin-jinja-template', { paths: [globalNodeModules] })
   ],
   useEditorConfig: true, // Prettier 에서 .editorconfig 사용 → true: 활성화(.prettierrc / prettier.config.js > .editorconfig > settings.json 순으로 적용)
-  printWidth: 120, // Prettier가 줄 바꿈을 할 코드의 최대 길이 → 80: 80자(기본값)
+  printWidth: 100, // Prettier가 줄 바꿈을 할 코드의 최대 길이 → 80: 80자(기본값)
   tabWidth: 2, // 탭 간격 → 2: 기본값
   useTabs: false, // 탭 사용 → true: 탭 문자(\t) 사용, false: 스페이스 문자( ) 사용
   semi: true, // 세미콜론 사용 → true: 사용(기본값)
@@ -50,7 +51,8 @@ module.exports = {
       files: ['*.html', '*.htm'],
       options: {
         parser: 'html', // ← 디폴트 일반 HTML 파서 강제 고정하여 타임리프/표준 HTML 프로젝트 보호
-        singleAttributePerLine: true, // ← 속성 하나당 한 줄 (force-aligned 느낌 가장 비슷)
+        singleAttributePerLine: false, // ← 속성 하나당 한 줄 (force-aligned 느낌 가장 비슷)
+        bracketSameLine: true, // > 괄호를 다음 줄로 내리지 않고 끝에 붙임
         htmlWhitespaceSensitivity: 'ignore' // ← HTML 공백을 더 적극적으로 정리
       }
     },
