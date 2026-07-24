@@ -63,46 +63,50 @@ save_state() {
 # OS 공통 포트 유틸리티 함수
 # ==============================================================================
 
-# 포트가 현재 열려(LISTEN) 있는지 빠르게 확인 (bash 내장 /dev/tcp 사용, 외부 도구 불필요)
+# 포트가 현재 열려(LISTEN) 있는지 비블로킹(Non-blocking)으로 빠른 확인
 # 반환: 0 = 사용 중, 1 = 비어 있음
 is_port_in_use() {
     local port="$1"
     if $IS_WINDOWS; then
-        netstat -ano 2>/dev/null | grep -q ":${port}[[:space:]]"
+        netstat -ano 2>/dev/null | grep -E ":${port}[[:space:]].*LISTENING" &>/dev/null
+    elif command -v ss &>/dev/null; then
+        # ss -tln 은 프로세스 스캔(-p) 없이 소켓 LISTEN 상태만 조회하므로 WSL2/Linux에서 절대 멈추지 않음
+        ss -tln 2>/dev/null | grep -E ":${port}[[:space:]]" &>/dev/null
+    elif command -v netstat &>/dev/null; then
+        netstat -tln 2>/dev/null | grep -E ":${port}[[:space:]]" &>/dev/null
     else
-        # bash /dev/tcp 는 connect() 기반이므로 LISTEN 중이면 즉시 성공
-        # timeout 1 로 응답 없는 포트에서 hang 방지
-        (timeout 1 bash -c "echo > /dev/tcp/127.0.0.1/$port") 2>/dev/null
+        return 1
     fi
 }
 
 # 지정한 포트를 사용 중인 PID 목록을 줄바꿈 구분 문자열로 반환 (중복 제거)
-# 포트가 사용 중임이 확인된 뒤에 호출할 것
 # 사용법: pids=$(get_pids_by_port <port>)
 get_pids_by_port() {
     local port="$1"
     local pids=""
 
     if $IS_WINDOWS; then
-        # Windows (msys/cygwin): netstat -ano 의 마지막 컬럼에서 PID 추출
+        # Windows: netstat -ano 의 LISTENING 행에서 PID 추출
         pids=$(netstat -ano 2>/dev/null \
-            | grep ":${port}[[:space:]]" \
+            | grep -E ":${port}[[:space:]].*LISTENING" \
             | awk '{print $NF}' \
             | grep -E '^[0-9]+$' \
             | sort -u)
     else
-        # Linux (WSL 포함) / macOS
-        # lsof: 가장 상세하지만 WSL 환경에서 hang 할 수 있으므로 timeout 적용
-        if command -v lsof &>/dev/null; then
-            pids=$(timeout 2 lsof -ti :"$port" 2>/dev/null | sort -u)
+        # 1. fuser 우선 (Linux/WSL2에서 가장 빠르고 안전한 표준 PID 추출 툴)
+        if command -v fuser &>/dev/null; then
+            pids=$(fuser "$port/tcp" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' | sort -u)
         fi
-        # lsof 실패/없음 → ss 시도 (Linux 전용; macOS 는 lsof 로 이미 처리됨)
+        # 2. fuser 실패 시 ss -tlpn 활용
         if [[ -z "$pids" ]] && command -v ss &>/dev/null; then
-            pids=$(ss -tulpn 2>/dev/null \
-                | grep ":${port}[[:space:]]" \
+            pids=$(ss -tlpn "sport = :$port" 2>/dev/null \
                 | grep -oE 'pid=[0-9]+' \
                 | grep -oE '[0-9]+' \
                 | sort -u)
+        fi
+        # 3. macOS / 기타 fallback: lsof
+        if [[ -z "$pids" ]] && command -v lsof &>/dev/null; then
+            pids=$(lsof -ti :"$port" 2>/dev/null | sort -u)
         fi
     fi
 
@@ -196,7 +200,6 @@ check_and_resolve_port_conflict() {
     local mod="$1"
 
     # --- 포트 번호 탐색 ---
-    # 탐색 대상: 루트 + 모듈 하위 src/main/resources
     local search_dirs=()
     search_dirs+=("$CWD/src/main/resources")
     if [[ -n "$mod" ]]; then
@@ -207,7 +210,7 @@ check_and_resolve_port_conflict() {
 
     for dir in "${search_dirs[@]}"; do
         if [[ -z "$detected_port" && -d "$dir" ]]; then
-            # application.properties / application-*.properties
+            # application.properties / application-*.properties 탐색
             local port_from_props
             port_from_props=$(grep -rh 'server\.port' "$dir" 2>/dev/null \
                 | grep -v '^[[:space:]]*#' \
@@ -215,7 +218,7 @@ check_and_resolve_port_conflict() {
                 | head -1)
             [[ -n "$port_from_props" ]] && detected_port="$port_from_props"
 
-            # application.yml / application-*.yml
+            # application.yml / application-*.yml 탐색
             if [[ -z "$detected_port" ]]; then
                 local port_from_yml
                 port_from_yml=$(grep -rh 'port:' "$dir" 2>/dev/null \
@@ -227,32 +230,36 @@ check_and_resolve_port_conflict() {
         fi
     done
 
-    # 설정 파일에서 감지 실패 시 Spring Boot 기본값 사용
+    # 설정 파일에서 감지 실패 시 Spring Boot 기본값 8080 사용
     [[ -z "$detected_port" ]] && detected_port="8080"
 
-    # --- 1단계: 포트 열림 여부 빠른 확인 (/dev/tcp, 외부 도구 불필요) ---
+    # --- 1단계: 포트 열림 여부 비블로킹 즉시 확인 ---
     if ! is_port_in_use "$detected_port"; then
-        return 0  # 충돌 없음 — 즉시 진행
+        return 0  # 충돌 없음 — 즉시 bootRun 진행
     fi
 
-    # --- 2단계: 사용 중인 프로세스 PID 조회 (실패해도 진행 가능) ---
+    # --- 2단계: 사용 중인 프로세스 PID 조회 ---
     local pids
     pids=$(get_pids_by_port "$detected_port")
 
     # --- 충돌 안내 및 확인 ---
     echo ""
-    echo "⚠️  포트 ${detected_port} 이(가) 이미 사용 중입니다."
+    echo "⚠️  [포트 충돌 경고] 포트 ${detected_port} 가 이미 다른 프로세스에서 사용 중입니다."
     echo "─────────────────────────────────────────"
     if [[ -n "$pids" ]]; then
         print_pids_info "$pids"
     else
-        echo "  (사용 중인 프로세스 정보를 확인할 수 없습니다.)"
+        echo "  (포트 ${detected_port} 가 활성화되어 있으나 프로세스 상세 정보를 조회할 수 없습니다)"
     fi
     echo "─────────────────────────────────────────"
     echo ""
-    read -p "❓ 기존 프로세스를 종료하고 bootRun을 시작하시겠습니까? (y/N): " CONFLICT_ANS
-    if [[ "${CONFLICT_ANS,,}" != "y" ]]; then
-        echo "❌ bootRun을 취소합니다."
+
+    # 대소문자 구분 없는 y/n 입력 판별
+    read -p "❓ 기존 프로세스를 중지하고 bootRun을 시작하시겠습니까? (y/N): " CONFLICT_ANS
+    CONFLICT_ANS=$(echo "$CONFLICT_ANS" | tr '[:upper:]' '[:lower:]')
+
+    if [[ "$CONFLICT_ANS" != "y" ]]; then
+        echo "❌ bootRun을 중지합니다."
         exit 0
     fi
 
@@ -261,16 +268,17 @@ check_and_resolve_port_conflict() {
     if [[ -n "$pids" ]]; then
         kill_pids "$pids"
     else
-        echo "  ⚠️  PID 를 확인할 수 없어 자동 종료를 건너뜁니다."
-        echo "      '포트로 프로세스 종료' 메뉴를 이용해 직접 종료해 주세요."
-        exit 0
+        if ! $IS_WINDOWS && command -v fuser &>/dev/null; then
+            echo "  🔪 fuser 명령어로 포트 ${detected_port} 사용 프로세스 해제 시도 중..."
+            fuser -k -9 "$detected_port/tcp" &>/dev/null
+        fi
     fi
 
     # 포트 해제 대기 및 확인
     echo ""
     verify_port_released "$detected_port" 3
     echo ""
-    echo "▶️  bootRun을 시작합니다."
+    echo "🚀 bootRun을 시작합니다."
     echo ""
 }
 
