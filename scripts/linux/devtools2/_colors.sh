@@ -15,12 +15,12 @@ if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
     _C_GREEN='\033[0;32m'      # [성공] [완료]
     _C_YELLOW='\033[0;33m'     # [경고]
     _C_RED='\033[0;31m'        # [오류]
-    _C_MAGENTA='\033[0;36m'    # 구분선 / Step 헤더
+    _C_CYAN='\033[0;36m'    # 구분선 / Step 헤더
     _C_WHITE='\033[1;37m'      # 일반 강조
     _C_GRAY='\033[0;90m'       # 보조 설명
 else
     _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW=''
-    _C_RED='' _C_MAGENTA='' _C_WHITE='' _C_GRAY=''
+    _C_RED='' _C_CYAN='' _C_WHITE='' _C_GRAY=''
 fi
 
 # ── 출력 헬퍼 ──────────────────────────────────────────────────────────────
@@ -29,9 +29,9 @@ print_success() { printf "${_C_GREEN}[성공]${_C_RESET} %s\n"   "$*"; }
 print_done()    { printf "${_C_GREEN}[완료]${_C_RESET} %s\n"   "$*"; }
 print_warn()    { printf "${_C_YELLOW}[경고]${_C_RESET} %s\n"  "$*"; }
 print_error()   { printf "${_C_RED}[오류]${_C_RESET} %s\n"     "$*" >&2; }
-print_step()    { printf "${_C_MAGENTA}%s${_C_RESET}\n"         "$*"; }
-print_sep()     { printf "${_C_MAGENTA}%s${_C_RESET}\n" "==========================================================================="; }
-print_subsep()  { printf "${_C_MAGENTA}%s${_C_RESET}\n" "---------------------------------------------------------------------------"; }
+print_step()    { printf "${_C_CYAN}%s${_C_RESET}\n"         "$*"; }
+print_sep()     { printf "${_C_CYAN}%s${_C_RESET}\n" "==========================================================================="; }
+print_subsep()  { printf "${_C_CYAN}%s${_C_RESET}\n" "---------------------------------------------------------------------------"; }
 
 # ── 프롬프트 / 질문 헬퍼 ──────────────────────────────────────────────
 print_question() { printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }

@@ -3,7 +3,7 @@
 
 ; ==============================================================================
 ; WezTerm 전역 단축키 스크립트 (Ctrl + Alt + T)
-; WezTerm 실행 후 창을 최상단(Foreground)으로 무조건 활성화
+; 새 실행 창(PID) 1개만 무조건 최상단(Foreground)으로 포커스
 ; ==============================================================================
 
 ^!t::
@@ -19,10 +19,12 @@
         exe := EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm.exe"
 
     if exe != "" {
-        Run('"' exe '"')
-        ; 새 창이 생성되면 최상단으로 가져오고 즉시 포커스 활성화
-        if WinWait("ahk_exe wezterm-gui.exe", , 2) {
-            WinActivate("ahk_exe wezterm-gui.exe")
+        ; 새로 띄운 특정 PID의 창 정보만 가져옴
+        Run('"' exe '"', , , &pid)
+
+        ; 새로 실행한 특정 1개 창(ahk_pid)만 무조건 최상단으로 포커스 활성화
+        if WinWait("ahk_pid " pid, , 3) {
+            WinActivate("ahk_pid " pid)
         }
     } else {
         MsgBox("WezTerm 실행 파일을 찾을 수 없습니다.", "WezTerm Hotkey Error", 0x10)
