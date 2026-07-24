@@ -139,9 +139,9 @@ if (-not $isAdmin) {
 }
 
 Write-Host ""
-Write-Host "===========================================================================" -ForegroundColor Magenta
-Write-Host "🚀 WezTerm 설치 및 설정 파일 심볼릭 링크 연동" -ForegroundColor Magenta
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
+Write-Host "🚀 WezTerm 설치 및 설정 파일 심볼릭 링크 연동" -ForegroundColor DarkCyan
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
 # ==============================================================================
 # [Step 1] WSL2 배포판 이름 자동 감지
@@ -468,93 +468,127 @@ if (Get-Item -Path $WinWeztermConfig -Force -ErrorAction SilentlyContinue) {
 
 
 # ==============================================================================
-# [Step 5] WezTerm Ctrl+Alt+T 전역 단축키 등록
-# Windows 시작 메뉴 폴더에 .lnk 바로가기를 생성하고 HotKey 속성을 설정하면
-# Windows 탐색기(Explorer)가 해당 단축키를 시스템 전역 단축키로 자동 인식합니다.
-# (AutoHotkey, 작업 스케줄러 불필요)
+# [Step 5] AutoHotkey v2 포터블 배포 및 WezTerm Ctrl+Alt+T 단축키 등록
+# winget 설치 없이 GitHub 에서 AutoHotkey v2 포터블 zip 을 다운로드하여
+# scripts/windows/modules/autohotkey/ 폴더에 배치합니다.
 # ==============================================================================
-Write-Step "[Step 5] WezTerm Ctrl+Alt+T 전역 단축키 등록"
+Write-Step "[Step 5] AutoHotkey v2 포터블 배포 및 Ctrl+Alt+T 단축키 등록"
 
-# WezTerm 실행 파일 경로 탐색
-$weztermExe = $null
-$candidatePaths = @(
-    "$env:ProgramFiles\WezTerm\wezterm-gui.exe",
-    "$env:ProgramFiles\WezTerm\wezterm.exe",
-    "${env:ProgramFiles(x86)}\WezTerm\wezterm-gui.exe",
-    "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe",
-    "$env:LOCALAPPDATA\Programs\WezTerm\wezterm-gui.exe",
-    "$env:LOCALAPPDATA\Programs\WezTerm\wezterm.exe"
-)
-foreach ($candidate in $candidatePaths) {
-    if (Test-Path $candidate) {
-        $weztermExe = $candidate
-        break
-    }
-}
-
-# 경로를 못 찾으면 PATH에서 탐색
-if (-not $weztermExe) {
-    $fromPath = Get-Command wezterm-gui -ErrorAction SilentlyContinue
-    if (-not $fromPath) { $fromPath = Get-Command wezterm -ErrorAction SilentlyContinue }
-    if ($fromPath) { $weztermExe = $fromPath.Source }
-}
-
-if (-not $weztermExe) {
-    Write-Warn "WezTerm 실행 파일을 찾을 수 없어 단축키 등록을 건너뜁니다."
-    Write-Host "  WezTerm 설치 후 이 스크립트를 다시 실행하거나 수동으로 바로가기의 HotKey 를 설정해 주세요." -ForegroundColor Gray
+# ── (1) modules/autohotkey 폴더 경로 결정 ────────────────────────────────────
+# 로컬 모드: 이 스크립트(devtools2/1.setup-wezterm.ps1) 기준 → ../modules/autohotkey
+# 온라인 모드: $PSScriptRoot 가 비어있으므로 LOCALAPPDATA 하위 폴백 경로 사용
+if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+    $ahkModuleDir = Join-Path (Split-Path $PSScriptRoot -Parent) "modules\autohotkey"
 } else {
-    Write-Info "WezTerm 실행 파일 감지: $weztermExe"
+    $ahkModuleDir = "$env:LOCALAPPDATA\devtools2\modules\autohotkey"
+}
 
-    # 바로가기(.lnk) 저장 위치: 현재 사용자 시작 메뉴 프로그램 폴더
-    # 이 위치의 .lnk 파일에 설정된 HotKey 는 Windows 탐색기가 전역 단축키로 자동 등록합니다.
-    $startMenuDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs"
-    $shortcutPath = "$startMenuDir\WezTerm.lnk"
+$ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
+if (-not (Test-Path $ahkExe)) {
+    $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"  # 32-bit 폴백
+}
+
+# ── (2) 포터블 AutoHotkey v2 다운로드 및 압축 해제 ───────────────────────────
+if (Test-Path $ahkExe) {
+    Write-Info "AutoHotkey v2 포터블 이미 존재: $ahkExe"
+} else {
+    Write-Info "AutoHotkey v2 포터블을 다운로드합니다..."
+    Write-Info "  설치 경로: $ahkModuleDir"
+
+    New-Item -ItemType Directory -Path $ahkModuleDir -Force | Out-Null
+
+    $ahkZipUrl  = "https://www.autohotkey.com/download/ahk-v2.zip"
+    $ahkZipTemp = Join-Path $env:TEMP "ahk-v2.zip"
 
     try {
-        $wshShell = New-Object -ComObject WScript.Shell
-        $shortcut = $wshShell.CreateShortcut($shortcutPath)
-        $shortcut.TargetPath  = $weztermExe
-        $shortcut.WorkingDirectory = $env:USERPROFILE
-        $shortcut.WindowStyle  = 1    # 1 = Normal window
-        $shortcut.Description  = "WezTerm Terminal (Ctrl+Alt+T)"
-        $shortcut.Hotkey       = "CTRL+ALT+T"   # Windows HotKey 속성
-        $shortcut.Save()
+        $prevProgress = $ProgressPreference
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $ahkZipUrl -OutFile $ahkZipTemp -ErrorAction Stop
+        $ProgressPreference = $prevProgress
 
-        if (Test-Path $shortcutPath) {
-            Write-Success "WezTerm 바로가기 및 Ctrl+Alt+T 단축키 등록 완료"
-            Write-Host "  바로가기 위치: $shortcutPath" -ForegroundColor DarkGray
-            Write-Host "  ※ 단축키 적용은 로그오프 후 재로그인 또는 탐색기 재시작 후 활성화됩니다." -ForegroundColor Yellow
+        Write-Info "  압축 해제 중..."
+        Expand-Archive -Path $ahkZipTemp -DestinationPath $ahkModuleDir -Force
+        Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
 
-            # 즉시 적용을 위해 탐색기(explorer) 재시작 여부 확인
-            Write-Host ""
-            Write-Host "👉 탐색기를 재시작하여 단축키를 즉시 활성화하시겠습니까? (y/N, 기본값: N): " -ForegroundColor Yellow -NoNewline
-            $restartChoice = Read-Host
-            if ($restartChoice -match '^[Yy]') {
-                Write-Info "탐색기를 재시작합니다 (잠깐 화면이 깜빡일 수 있습니다)..."
-                Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
-                Start-Sleep -Seconds 2
-                Start-Process explorer
-                Write-Success "탐색기 재시작 완료. 이제 Ctrl+Alt+T 로 WezTerm 을 열 수 있습니다."
-            } else {
-                Write-Info "로그오프 후 재로그인하면 Ctrl+Alt+T 단축키가 활성화됩니다."
-            }
+        # 압축 해제 후 exe 경로 재탐색
+        $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
+        if (-not (Test-Path $ahkExe)) {
+            $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"
+        }
+
+        if (Test-Path $ahkExe) {
+            Write-Success "AutoHotkey v2 포터블 배포 완료: $ahkExe"
         } else {
-            Write-Fail "바로가기 파일 생성에 실패했습니다: $shortcutPath"
+            Write-Warn "압축 해제 후 AutoHotkey 실행 파일을 찾지 못했습니다: $ahkModuleDir"
+            Write-Host "  폴더 내용:" -ForegroundColor Gray
+            Get-ChildItem $ahkModuleDir -ErrorAction SilentlyContinue | ForEach-Object {
+                Write-Host "    $($_.Name)" -ForegroundColor Gray
+            }
         }
     } catch {
-        Write-Fail "단축키 등록 실패: $($_.Exception.Message)"
+        $ProgressPreference = $prevProgress
+        Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
+        Write-Warn "AutoHotkey v2 포터블 다운로드 실패: $($_.Exception.Message)"
+        Write-Host "  수동 다운로드: https://www.autohotkey.com/download/" -ForegroundColor Gray
     }
+}
+
+# ── (3) AHK 스크립트를 시작 프로그램 폴더에 복사 (설치마다 덮어쓰기) ─────────
+$startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+$ahkDest    = "$startupDir\wezterm-hotkey.ahk"
+
+# 소스: 로컬 repo → ../autohotkey/wezterm-hotkey.ahk, 없으면 GitHub 다운로드
+$ahkSourceLocal = $null
+if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+    $ahkSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\wezterm-hotkey.ahk"
+}
+
+if ($ahkSourceLocal -and (Test-Path $ahkSourceLocal)) {
+    Write-Info "AHK 스크립트 복사(덮어쓰기) 중: $ahkSourceLocal"
+    Copy-Item -Path $ahkSourceLocal -Destination $ahkDest -Force
+} else {
+    Write-Info "GitHub 에서 AHK 스크립트 다운로드 중..."
+    try {
+        $ahkRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/wezterm-hotkey.ahk"
+        Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkDest -ErrorAction Stop
+    } catch {
+        Write-Warn "AHK 스크립트 다운로드 실패: $($_.Exception.Message)"
+    }
+}
+
+# ── (4) 기존 AHK 프로세스 종료 후 즉시 재실행 ────────────────────────────────
+if (Test-Path $ahkDest) {
+    Write-Success "AHK 스크립트 배포 완료: $ahkDest"
+
+    # 이미 실행 중인 wezterm-hotkey 인스턴스 종료
+    Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like "*wezterm-hotkey*" } |
+        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+
+    # 포터블 exe 로 즉시 실행
+    if ($ahkExe -and (Test-Path $ahkExe)) {
+        Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
+        Write-Success "Ctrl+Alt+T 단축키가 즉시 활성화되었습니다. (AutoHotkey 포터블)"
+        Write-Host "  AHK 실행: $ahkExe" -ForegroundColor DarkGray
+        Write-Host "  스크립트: $ahkDest" -ForegroundColor DarkGray
+    } else {
+        # 포터블 exe 없으면 .ahk 파일 연결 프로그램(시스템 AHK)으로 실행 시도
+        Start-Process $ahkDest -WindowStyle Hidden -ErrorAction SilentlyContinue
+        Write-Info "AHK 스크립트를 시작했습니다. (로그인 시 자동 실행 등록 완료)"
+    }
+} else {
+    Write-Warn "AHK 스크립트 배포에 실패했습니다. 수동으로 '$ahkDest' 에 복사해 주세요."
 }
 
 # ==============================================================================
 # 완료
 # ==============================================================================
 Write-Host ""
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🎉 WezTerm 설정 연동 완료!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  설정 파일 공유(심볼릭 링크)가 완료되었습니다." -ForegroundColor White
 Write-Host "  이제 리눅스 혹은 윈도우 어느 쪽에서든 설정을 편집하면 양쪽 모두에 즉시 반영됩니다." -ForegroundColor White
-Write-Host "  Ctrl+Alt+T 단축키로 WezTerm 을 빠르게 열 수 있습니다." -ForegroundColor White
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "  Ctrl+Alt+T 단축키로 WezTerm 새 창을 빠르게 열 수 있습니다. (AutoHotkey)" -ForegroundColor White
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""

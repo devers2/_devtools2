@@ -30,9 +30,9 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 function Write-Step {
     param([string]$Message)
     Write-Host ""
-    Write-Host "===========================================================================" -ForegroundColor Magenta
-    Write-Host "  $Message" -ForegroundColor Magenta
-    Write-Host "===========================================================================" -ForegroundColor Magenta
+    Write-Host "===========================================================================" -ForegroundColor DarkCyan
+    Write-Host "  $Message" -ForegroundColor DarkCyan
+    Write-Host "===========================================================================" -ForegroundColor DarkCyan
 }
 
 function Write-SubStep {
@@ -419,9 +419,9 @@ Write-Success "VSCode 설정 연동 완료"
 # 전체 설치 완료
 # ==============================================================================
 Write-Host ""
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🎉 DevTools2 Windows 및 WSL2 전체 개발 환경 통합 구축 완료!" -ForegroundColor Green
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
 Write-Info "  윈도우와 WSL2가 완벽하게 상호 연동되어 동작합니다."
 Write-Info "  - Windows 셸에서 'wsl'을 치면 설정이 완료된 Ubuntu 개발 환경에 바로 진입합니다."
@@ -431,7 +431,7 @@ Write-Host "  설치 성공을 확인하시려면 아래 도구들을 실행해 
 Write-Host "    - Windows: WezTerm 터미널 열기 (WSL2 바로 진입 확인)" -ForegroundColor Gray
 Write-Host "    - Windows: Zed 에디터 열기" -ForegroundColor Gray
 Write-Host "    - WSL2 내부: nvim --version, java -version, node -v 실행 확인" -ForegroundColor Gray
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
 
 Pause-Script

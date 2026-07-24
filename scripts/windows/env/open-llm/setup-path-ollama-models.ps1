@@ -60,7 +60,7 @@ catch {
 # --- 작업 완료
 Write-Host ""
 Write-Host "====================================================="
-Write-Host "    모든 작업이 완료되었습니다." -ForegroundColor Magenta
+Write-Host "    모든 작업이 완료되었습니다." -ForegroundColor DarkCyan
 Write-Host "    적용을 위해 모든 터미널과 VSCode를 다시 실행하십시오."
 Write-Host "====================================================="
 Write-Host ""

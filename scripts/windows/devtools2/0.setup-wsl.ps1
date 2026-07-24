@@ -96,9 +96,9 @@ if (-not $isAdmin) {
 
 Clear-Host
 Write-Host ""
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "  🐧 WSL2 설치 및 설정 스크립트 (인스턴스명: devtools2)"
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
 # 고정된 인스턴스 이름 설정
 $wslName = "devtools2"
@@ -393,13 +393,13 @@ autoProxy=true
 # [Step 4] 완료
 # --------------------------------------------------------------------------
 Write-Host ""
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🎉 WSL2 설치 및 환경 설정 완료!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  설치된 배포판 : Ubuntu ($distroId)" -ForegroundColor White
 Write-Host "  인스턴스 이름 : $wslName" -ForegroundColor White
 Write-Host "  설치 경로     : $wslInstallPath" -ForegroundColor White
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
 
 Pause-Script

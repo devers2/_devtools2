@@ -96,9 +96,9 @@ if (-not $isAdmin) {
 }
 
 Write-Host ""
-Write-Host "===========================================================================" -ForegroundColor Magenta
-Write-Host "🚀 Zed 에디터 설치 및 설정 파일 링크 생성 스크립트" -ForegroundColor Magenta
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
+Write-Host "🚀 Zed 에디터 설치 및 설정 파일 링크 생성 스크립트" -ForegroundColor DarkCyan
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
 # ==============================================================================
 # [Step 1] WSL2 배포판 이름 자동 감지
@@ -279,7 +279,7 @@ if (Test-Path "$WslZedConfig\keymap.json") {
 # 완료
 # ==============================================================================
 Write-Host ""
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🎉 Zed 설정 완료!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  복사된 설정 파일 목록:" -ForegroundColor White
@@ -287,7 +287,7 @@ Write-Host "    $WinZedDir\settings.json" -ForegroundColor DarkGray
 Write-Host "    $WinZedDir\keymap.json" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  Zed 를 재시작하면 설정이 적용됩니다." -ForegroundColor Yellow
-Write-Host "===========================================================================" -ForegroundColor Magenta
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
 
 
