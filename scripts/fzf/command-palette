@@ -63,7 +63,21 @@ save_state() {
 # OS 공통 포트 유틸리티 함수
 # ==============================================================================
 
-# 지정한 포트를 사용 중인 PID 목록을 공백 구분 문자열로 반환 (중복 제거)
+# 포트가 현재 열려(LISTEN) 있는지 빠르게 확인 (bash 내장 /dev/tcp 사용, 외부 도구 불필요)
+# 반환: 0 = 사용 중, 1 = 비어 있음
+is_port_in_use() {
+    local port="$1"
+    if $IS_WINDOWS; then
+        netstat -ano 2>/dev/null | grep -q ":${port}[[:space:]]"
+    else
+        # bash /dev/tcp 는 connect() 기반이므로 LISTEN 중이면 즉시 성공
+        # timeout 1 로 응답 없는 포트에서 hang 방지
+        (timeout 1 bash -c "echo > /dev/tcp/127.0.0.1/$port") 2>/dev/null
+    fi
+}
+
+# 지정한 포트를 사용 중인 PID 목록을 줄바꿈 구분 문자열로 반환 (중복 제거)
+# 포트가 사용 중임이 확인된 뒤에 호출할 것
 # 사용법: pids=$(get_pids_by_port <port>)
 get_pids_by_port() {
     local port="$1"
@@ -78,12 +92,13 @@ get_pids_by_port() {
             | sort -u)
     else
         # Linux (WSL 포함) / macOS
-        # timeout 을 걸어 lsof/ss 가 hang 하는 경우를 방지 (WSL ↔ Windows 프로세스 혼용 환경 등)
+        # lsof: 가장 상세하지만 WSL 환경에서 hang 할 수 있으므로 timeout 적용
         if command -v lsof &>/dev/null; then
-            pids=$(timeout 3 lsof -ti :"$port" 2>/dev/null | sort -u)
-        elif command -v ss &>/dev/null; then
-            # Linux fallback: ss (macOS 에는 ss 없음)
-            pids=$(timeout 3 ss -tulpn 2>/dev/null \
+            pids=$(timeout 2 lsof -ti :"$port" 2>/dev/null | sort -u)
+        fi
+        # lsof 실패/없음 → ss 시도 (Linux 전용; macOS 는 lsof 로 이미 처리됨)
+        if [[ -z "$pids" ]] && command -v ss &>/dev/null; then
+            pids=$(ss -tulpn 2>/dev/null \
                 | grep ":${port}[[:space:]]" \
                 | grep -oE 'pid=[0-9]+' \
                 | grep -oE '[0-9]+' \
@@ -215,23 +230,27 @@ check_and_resolve_port_conflict() {
     # 설정 파일에서 감지 실패 시 Spring Boot 기본값 사용
     [[ -z "$detected_port" ]] && detected_port="8080"
 
-    # --- 해당 포트 사용 프로세스 확인 ---
+    # --- 1단계: 포트 열림 여부 빠른 확인 (/dev/tcp, 외부 도구 불필요) ---
+    if ! is_port_in_use "$detected_port"; then
+        return 0  # 충돌 없음 — 즉시 진행
+    fi
+
+    # --- 2단계: 사용 중인 프로세스 PID 조회 (실패해도 진행 가능) ---
     local pids
     pids=$(get_pids_by_port "$detected_port")
-
-    if [[ -z "$pids" ]]; then
-        # 충돌 없음 — 계속 진행
-        return 0
-    fi
 
     # --- 충돌 안내 및 확인 ---
     echo ""
     echo "⚠️  포트 ${detected_port} 이(가) 이미 사용 중입니다."
     echo "─────────────────────────────────────────"
-    print_pids_info "$pids"
+    if [[ -n "$pids" ]]; then
+        print_pids_info "$pids"
+    else
+        echo "  (사용 중인 프로세스 정보를 확인할 수 없습니다.)"
+    fi
     echo "─────────────────────────────────────────"
     echo ""
-    read -p "❓ 위 프로세스를 종료하고 bootRun을 시작하시겠습니까? (y/N): " CONFLICT_ANS
+    read -p "❓ 기존 프로세스를 종료하고 bootRun을 시작하시겠습니까? (y/N): " CONFLICT_ANS
     if [[ "${CONFLICT_ANS,,}" != "y" ]]; then
         echo "❌ bootRun을 취소합니다."
         exit 0
@@ -239,7 +258,13 @@ check_and_resolve_port_conflict() {
 
     # --- 기존 프로세스 종료 ---
     echo ""
-    kill_pids "$pids"
+    if [[ -n "$pids" ]]; then
+        kill_pids "$pids"
+    else
+        echo "  ⚠️  PID 를 확인할 수 없어 자동 종료를 건너뜁니다."
+        echo "      '포트로 프로세스 종료' 메뉴를 이용해 직접 종료해 주세요."
+        exit 0
+    fi
 
     # 포트 해제 대기 및 확인
     echo ""
@@ -542,23 +567,12 @@ elif [[ "$CHOICE" == *"포트 확인"* ]]; then
     if [[ -n "$PORT" ]]; then
         echo "📋 포트 $PORT 사용 프로세스 목록:"
         echo "─────────────────────────────────────────"
-        if $IS_WINDOWS; then
-            # Windows: netstat -ano 로 해당 포트 행 출력 후 PID 기준 이름 보강
-            local_pids=$(get_pids_by_port "$PORT")
-            if [[ -z "$local_pids" ]]; then
-                echo "  (해당 포트를 사용하는 프로세스 없음)"
-            else
-                print_pids_info "$local_pids"
-            fi
-        elif command -v lsof &>/dev/null; then
-            # Linux / macOS: lsof 로 상세 출력 (sudo 불필요)
-            lsof -i :"$PORT" 2>/dev/null || echo "  (해당 포트를 사용하는 프로세스 없음)"
-        elif command -v ss &>/dev/null; then
-            # Linux fallback: ss (macOS 에는 ss 없으므로 위 lsof 분기에서 처리됨)
-            ss -tulpn 2>/dev/null | grep ":${PORT}[[:space:]]" \
-                || echo "  (해당 포트를 사용하는 프로세스 없음)"
+        # 공통 함수 사용 → Windows/Linux/macOS/WSL 모두 동일 경로, timeout 보장
+        CHECK_PIDS=$(get_pids_by_port "$PORT")
+        if [[ -z "$CHECK_PIDS" ]]; then
+            echo "  (해당 포트를 사용하는 프로세스 없음)"
         else
-            echo "  ⚠️  lsof / ss 명령어를 찾을 수 없습니다."
+            print_pids_info "$CHECK_PIDS"
         fi
         echo "─────────────────────────────────────────"
     fi
