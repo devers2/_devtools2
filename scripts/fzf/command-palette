@@ -79,8 +79,7 @@ is_port_in_use() {
     fi
 }
 
-# 지정한 포트를 사용 중인 PID 목록을 줄바꿈 구분 문자열로 반환 (중복 제거)
-# 사용법: pids=$(get_pids_by_port <port>)
+# 지정한 포트를 사용 중인 PID 목록 반환
 get_pids_by_port() {
     local port="$1"
     local pids=""
@@ -92,22 +91,6 @@ get_pids_by_port() {
             | awk '{print $NF}' \
             | grep -E '^[0-9]+$' \
             | sort -u)
-    else
-        # 1. fuser 우선 (Linux/WSL2에서 가장 빠르고 안전한 표준 PID 추출 툴)
-        if command -v fuser &>/dev/null; then
-            pids=$(fuser "$port/tcp" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' | sort -u)
-        fi
-        # 2. fuser 실패 시 ss -tlpn 활용
-        if [[ -z "$pids" ]] && command -v ss &>/dev/null; then
-            pids=$(ss -tlpn "sport = :$port" 2>/dev/null \
-                | grep -oE 'pid=[0-9]+' \
-                | grep -oE '[0-9]+' \
-                | sort -u)
-        fi
-        # 3. macOS / 기타 fallback: lsof
-        if [[ -z "$pids" ]] && command -v lsof &>/dev/null; then
-            pids=$(lsof -ti :"$port" 2>/dev/null | sort -u)
-        fi
     fi
 
     echo "$pids"
@@ -238,19 +221,9 @@ check_and_resolve_port_conflict() {
         return 0  # 충돌 없음 — 즉시 bootRun 진행
     fi
 
-    # --- 2단계: 사용 중인 프로세스 PID 조회 ---
-    local pids
-    pids=$(get_pids_by_port "$detected_port")
-
-    # --- 충돌 안내 및 확인 ---
+    # --- 2단계: 충돌 안내 및 사용자 질문 ---
     echo ""
     echo "⚠️  [포트 충돌 경고] 포트 ${detected_port} 가 이미 다른 프로세스에서 사용 중입니다."
-    echo "─────────────────────────────────────────"
-    if [[ -n "$pids" ]]; then
-        print_pids_info "$pids"
-    else
-        echo "  (포트 ${detected_port} 가 활성화되어 있으나 프로세스 상세 정보를 조회할 수 없습니다)"
-    fi
     echo "─────────────────────────────────────────"
     echo ""
 
@@ -263,15 +236,20 @@ check_and_resolve_port_conflict() {
         exit 0
     fi
 
-    # --- 기존 프로세스 종료 ---
+    # --- 3단계: 기존 프로세스 안전 중지 ---
     echo ""
-    if [[ -n "$pids" ]]; then
-        kill_pids "$pids"
+    echo "🔪 기존 프로세스 중지 시도 중..."
+    if $IS_WINDOWS; then
+        local win_pids
+        win_pids=$(netstat -ano 2>/dev/null | grep -E ":${detected_port}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
+        for pid in $win_pids; do
+            taskkill /f /pid "$pid" &>/dev/null
+        done
     else
-        if ! $IS_WINDOWS && command -v fuser &>/dev/null; then
-            echo "  🔪 fuser 명령어로 포트 ${detected_port} 사용 프로세스 해제 시도 중..."
-            fuser -k -9 "$detected_port/tcp" &>/dev/null
-        fi
+        # Linux / WSL2 / macOS: 멈춤 없는 안전한 프로세스명 기반 종료
+        pkill -f "bootRun" &>/dev/null
+        pkill -f "GoonoELNApplication" &>/dev/null
+        pkill -f "spring.profiles.active" &>/dev/null
     fi
 
     # 포트 해제 대기 및 확인
