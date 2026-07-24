@@ -77,12 +77,13 @@ get_pids_by_port() {
             | grep -E '^[0-9]+$' \
             | sort -u)
     else
-        # Linux (including WSL) / macOS
+        # Linux (WSL 포함) / macOS
+        # timeout 을 걸어 lsof/ss 가 hang 하는 경우를 방지 (WSL ↔ Windows 프로세스 혼용 환경 등)
         if command -v lsof &>/dev/null; then
-            pids=$(lsof -ti :"$port" 2>/dev/null | sort -u)
+            pids=$(timeout 3 lsof -ti :"$port" 2>/dev/null | sort -u)
         elif command -v ss &>/dev/null; then
-            # Linux only: ss 의 "users:(("name",pid=NNN,...))" 형식에서 PID 추출
-            pids=$(ss -tulpn 2>/dev/null \
+            # Linux fallback: ss (macOS 에는 ss 없음)
+            pids=$(timeout 3 ss -tulpn 2>/dev/null \
                 | grep ":${port}[[:space:]]" \
                 | grep -oE 'pid=[0-9]+' \
                 | grep -oE '[0-9]+' \
@@ -153,11 +154,12 @@ verify_port_released() {
     local wait_max="${2:-3}"
     local elapsed=0
 
+    sleep 0.5
     while [[ $elapsed -lt $wait_max ]]; do
-        sleep 1
         local remaining
         remaining=$(get_pids_by_port "$port")
         [[ -z "$remaining" ]] && break
+        sleep 1
         ((elapsed++))
     done
 
