@@ -74,9 +74,17 @@ is_port_in_use() {
     local port="$1"
     
     if $IS_WINDOWS; then
+        # Windows: netstat -ano LISTENING 포트 검사
         netstat -ano 2>/dev/null | grep -E ":${port}[[:space:]].*LISTENING" &>/dev/null
+    elif $IS_MAC; then
+        # macOS (BSD): lsof 비블로킹 LISTEN 검사 (macOS 표준)
+        if command -v lsof &>/dev/null; then
+            lsof -n -iTCP:"$port" -sTCP:LISTEN &>/dev/null
+        else
+            netstat -an -p tcp 2>/dev/null | grep -qE "\.${port}[[:space:]].*LISTEN" &>/dev/null
+        fi
     else
-        # Linux / WSL2 / macOS: 외부 커맨드(ss/netstat) 호출 없이 /proc/net/tcp 텍스트 직접 조회 (멈춤 0%)
+        # Linux / WSL2: 커널 /proc/net/tcp 텍스트 직접 조회 (외부 커맨드 0개, 멈춤 0%)
         local hex_port
         hex_port=$(port_to_hex "$port")
 
@@ -87,7 +95,7 @@ is_port_in_use() {
             return 0
         fi
         
-        # /proc 접근 실패 시 폴백 (netstat/ss non-blocking)
+        # /proc 접근 불가 시 Linux 폴백
         if command -v ss &>/dev/null; then
             ss -tln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" &>/dev/null
         else
