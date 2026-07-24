@@ -60,22 +60,39 @@ save_state() {
 }
 
 # ==============================================================================
-# OS 공통 포트 유틸리티 함수
+# OS 공통 포트 유틸리티 함수 (근본적 Non-blocking /proc/net 직접 조회)
 # ==============================================================================
 
-# 포트가 현재 열려(LISTEN) 있는지 비블로킹(Non-blocking)으로 빠른 확인
+# 10진수 포트 번호를 16진수 포트 표현으로 변환 (예: 8080 -> 1F90)
+port_to_hex() {
+    printf "%04X" "$1" 2>/dev/null
+}
+
+# 포트가 현재 열려(LISTEN) 있는지 외부 커맨드 없이 직접 확인
 # 반환: 0 = 사용 중, 1 = 비어 있음
 is_port_in_use() {
     local port="$1"
+    
     if $IS_WINDOWS; then
         netstat -ano 2>/dev/null | grep -E ":${port}[[:space:]].*LISTENING" &>/dev/null
-    elif command -v ss &>/dev/null; then
-        # ss -tln 은 프로세스 스캔(-p) 없이 소켓 LISTEN 상태만 조회하므로 WSL2/Linux에서 절대 멈추지 않음
-        ss -tln 2>/dev/null | grep -E ":${port}[[:space:]]" &>/dev/null
-    elif command -v netstat &>/dev/null; then
-        netstat -tln 2>/dev/null | grep -E ":${port}[[:space:]]" &>/dev/null
     else
-        return 1
+        # Linux / WSL2 / macOS: 외부 커맨드(ss/netstat) 호출 없이 /proc/net/tcp 텍스트 직접 조회 (멈춤 0%)
+        local hex_port
+        hex_port=$(port_to_hex "$port")
+
+        if [[ -f /proc/net/tcp ]] && grep -qi ":${hex_port}[[:space:]].*0A" /proc/net/tcp 2>/dev/null; then
+            return 0
+        fi
+        if [[ -f /proc/net/tcp6 ]] && grep -qi ":${hex_port}[[:space:]].*0A" /proc/net/tcp6 2>/dev/null; then
+            return 0
+        fi
+        
+        # /proc 접근 실패 시 폴백 (netstat/ss non-blocking)
+        if command -v ss &>/dev/null; then
+            ss -tln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" &>/dev/null
+        else
+            return 1
+        fi
     fi
 }
 
@@ -181,47 +198,35 @@ verify_port_released() {
 # 인수: $1 = 모듈명 (없으면 루트 기준)
 check_and_resolve_port_conflict() {
     local mod="$1"
-
-    # --- 포트 번호 탐색 ---
-    local search_dirs=()
-    search_dirs+=("$CWD/src/main/resources")
-    if [[ -n "$mod" ]]; then
-        search_dirs+=("$CWD/$mod/src/main/resources")
-    fi
-
     local detected_port=""
 
-    for dir in "${search_dirs[@]}"; do
-        if [[ -z "$detected_port" && -d "$dir" ]]; then
-            # application.properties / application-*.properties 탐색
-            local port_from_props
-            port_from_props=$(grep -rh 'server\.port' "$dir" 2>/dev/null \
-                | grep -v '^[[:space:]]*#' \
-                | sed -n 's/.*server\.port[[:space:]]*=[[:space:]]*\([0-9]\+\).*/\1/p' \
-                | head -1)
-            [[ -n "$port_from_props" ]] && detected_port="$port_from_props"
+    # 핀포인트 설정 파일 검색 (디렉토리 무분별 grep -r 전체 스캔 제거)
+    local target_files=()
+    local search_base="$CWD/src/main/resources"
+    [[ -n "$mod" ]] && search_base="$CWD/$mod/src/main/resources"
 
-            # application.yml / application-*.yml 탐색
-            if [[ -z "$detected_port" ]]; then
-                local port_from_yml
-                port_from_yml=$(grep -rh 'port:' "$dir" 2>/dev/null \
-                    | grep -v '^[[:space:]]*#' \
-                    | sed -n 's/.*port:[[:space:]]*\([0-9]\+\).*/\1/p' \
-                    | head -1)
-                [[ -n "$port_from_yml" ]] && detected_port="$port_from_yml"
-            fi
-        fi
-    done
+    if [[ -d "$search_base" ]]; then
+        for f in "$search_base"/application*.yml "$search_base"/application*.yaml "$search_base"/application*.properties; do
+            [[ -f "$f" ]] && target_files+=("$f")
+        done
+    fi
 
-    # 설정 파일에서 감지 실패 시 Spring Boot 기본값 8080 사용
+    if [[ ${#target_files[@]} -gt 0 ]]; then
+        # server.port 또는 port: 빠른 핀포인트 추출
+        detected_port=$(grep -Eh '^[[:space:]]*server\.port[[:space:]]*=[[:space:]]*[0-9]+|^[[:space:]]*port:[[:space:]]*[0-9]+' "${target_files[@]}" 2>/dev/null \
+            | sed -E 's/.*:[[:space:]]*([0-9]+).*/\1/; s/.*=[[:space:]]*([0-9]+).*/\1/' \
+            | head -1)
+    fi
+
+    # 감지 실패 시 Spring Boot 기본값 8080 사용
     [[ -z "$detected_port" ]] && detected_port="8080"
 
-    # --- 1단계: 포트 열림 여부 비블로킹 즉시 확인 ---
+    # 1단계: 포트 열림 여부 비블로킹 즉시 확인 (/proc/net/tcp 직접 조회)
     if ! is_port_in_use "$detected_port"; then
         return 0  # 충돌 없음 — 즉시 bootRun 진행
     fi
 
-    # --- 2단계: 충돌 안내 및 사용자 질문 ---
+    # 2단계: 충돌 안내 및 사용자 질문
     echo ""
     echo "⚠️  [포트 충돌 경고] 포트 ${detected_port} 가 이미 다른 프로세스에서 사용 중입니다."
     echo "─────────────────────────────────────────"
@@ -236,7 +241,7 @@ check_and_resolve_port_conflict() {
         exit 0
     fi
 
-    # --- 3단계: 기존 프로세스 안전 중지 ---
+    # 3단계: 기존 프로세스 중지
     echo ""
     echo "🔪 기존 프로세스 중지 시도 중..."
     if $IS_WINDOWS; then
