@@ -14,8 +14,8 @@ _FindWezTerm() {
     candidates := [
         A_ProgramFiles "\WezTerm\wezterm-gui.exe",
         A_ProgramFiles "\WezTerm\wezterm.exe",
-        A_LocalAppData "\Programs\WezTerm\wezterm-gui.exe",
-        A_LocalAppData "\Programs\WezTerm\wezterm.exe"
+        EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm-gui.exe",
+        EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm.exe"
     ]
     for path in candidates {
         if FileExist(path)
