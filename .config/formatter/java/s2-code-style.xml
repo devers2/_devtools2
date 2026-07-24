@@ -2,8 +2,8 @@
 <profiles version="21">
   <profile kind="CodeFormatterProfile" name="Standard-s2" version="21">
     <!-- 줄 바꿈 관련 설정 -->
-    <setting id="org.eclipse.jdt.core.formatter.lineSplit" value="120" /> <!-- 한 줄의 최대 길이 설정 → 120: 기본값, 9999: 줄 바꿈 없음 -->
-    <setting id="org.eclipse.jdt.core.formatter.comment.line_length" value="160" /> <!-- 주석의 최대 줄 길이 설정 → 80: 기본값, 9999: 줄 바꿈 없음 -->
+    <setting id="org.eclipse.jdt.core.formatter.lineSplit" value="100" /> <!-- 한 줄의 최대 길이 설정 → 80: 기본값, 9999: 줄 바꿈 없음 -->
+    <setting id="org.eclipse.jdt.core.formatter.comment.line_length" value="150" /> <!-- 주석의 최대 줄 길이 설정 → 80: 기본값, 9999: 줄 바꿈 없음 -->
     <setting id="org.eclipse.jdt.core.formatter.join_wrapped_lines" value="false" /> <!-- 이미 줄 바꿈된 코드를 한 줄로 합칠지 여부 → false: 기본값 -->
     <setting id="org.eclipse.jdt.core.formatter.join_lines_in_comments" value="false" /> <!-- 주석에서 줄 바꿈된 텍스트를 한 줄로 합칠지 여부 → false: 기본값 -->
     <setting id="org.eclipse.jdt.core.formatter.wrap_before_binary_operator" value="true" /> <!-- 줄 바꿈 시 이진 연산자를 다음 줄의 앞에 배치할지 여부 → true: 기본값 -->

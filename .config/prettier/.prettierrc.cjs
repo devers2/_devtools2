@@ -42,6 +42,13 @@ module.exports = {
 
   overrides: [
     {
+      files: ['*.md', '*.mdx'],
+      options: {
+        printWidth: 120, // 마크다운은 줄 바꿈이 문서 가독성에 영향을 주므로 예외적으로 120으로 설정
+        proseWrap: 'preserve' // 마크다운 텍스트 원본 줄 바꿈 유지
+      }
+    },
+    {
       files: ['*.js', '*.mjs', '*.cjs', '*.jsx', '*.ts', '*.tsx']
       // options: {
       //   tabWidth: 4

@@ -768,7 +768,7 @@
   "html.format.enable": true, // 내장 포맷터 활성화 (기본 true)
   "html.format.unformatted": "script", // HTML 포맷터가 포맷하지 않을 태그 목록 → "script": <script> 태그 내 코드는 포맷하지 않음(기본 포맷터인 Prettier가 동작), "script,pre": <pre> 태그 등 추가 가능 , "" : 모든 태그 포맷팅
   "html.format.wrapAttributes": "force-aligned", // HTML 속성의 줄 바꿈 방식 → "auto", "force", force-aligned", "force-expand-multiline"
-  "html.format.wrapLineLength": 120, // HTML 코드 줄 바꿈 기준 길이 → 120: 120자(기본값)
+  "html.format.wrapLineLength": 100, // HTML 코드 줄 바꿈 기준 길이 → 100: Prettier printWidth와 통일
   "html.format.indentInnerHtml": true, // <body> 및 <head> 내부 들여쓰기 → true: 활성화
   "html.format.extraLiners": "head,body,/html", // HTML 포맷터가 빈 줄을 추가할 태그 목록 → "head,body,/html": <head>, <body>, </html> 태그 앞에 빈 줄 추가(기본값)
 
