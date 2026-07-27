@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
 # DEVTOOLS2 JDTLS Launcher Script
+# - 사용자 계정명(~), 설치 경로, JDTLS/Lombok/Debugger 버전을 하드코딩 없이 동적으로 탐색하여 실행합니다.
+# - JDTLS 구동 시 Lombok(-javaagent) 자바 에이전트를 자동으로 주입합니다.
+# - Debugger 플러그인 JAR을 고정 경로 심볼릭 링크로 유지하여 settings.json 에서 버전 하드코딩을 제거합니다.
+
+DEVTOOLS2="${DEVTOOLS2:-/var/opt/_devtools2}"
 
 JDTLS_BIN=$(find "$HOME/.local/share/zed/remote_extensions/work/java/jdtls" -name "jdtls" -type f 2>/dev/null | sort -V | tail -n 1)
 LOMBOK_JAR=$(find "$HOME/.local/share/zed/remote_extensions/work/java/lombok" -name "lombok*.jar" ! -name "*-sources.jar" -type f 2>/dev/null | sort -V | tail -n 1)
 DEBUGGER_JAR=$(find "$HOME/.local/share/zed/remote_extensions/work/java/debugger" -name "com.microsoft.java.debug.plugin-*.jar" -type f 2>/dev/null | sort -V | tail -n 1)
 
-if [ -n "$DEBUGGER_JAR" ]; then
-    ln -sf "$DEBEGGER_JAR" "/var/opt/_devtools2/scripts/java/com.microsoft.java.debug.plugin.jar" 2>/dev/null
+# Lombok fallback (Gradle 캐시)
+if [ -z "$LOMBOK_JAR" ]; then
+    LOMBOK_JAR=$(find "$DEVTOOLS2/data/.gradle/caches" -name "lombok-*.jar" ! -name "*-sources.jar" -type f 2>/dev/null | head -n 1)
 fi
 
-if [ -z "$LOMBOK_JAR" ]; then
-    LOMBOK_JAR=$(find "/var/opt/_devtools2/data/.gradle/caches" -name "lombok-*.jar" ! -name "*-sources.jar" -type f 2>/dev/null | head -n 1)
+# Debugger JAR 심볼릭 링크 갱신 (버전이 바뀌어도 settings.json 경로는 고정 유지)
+DEBUGGER_LINK="$DEVTOOLS2/scripts/java/com.microsoft.java.debug.plugin.jar"
+if [ -n "$DEBUGGER_JAR" ]; then
+    ln -sf "$DEBUGGER_JAR" "$DEBUGGER_LINK" 2>/dev/null
 fi
 
 if [ -n "$JDTLS_BIN" ] && [ -x "$JDTLS_BIN" ]; then
-    export JAVA_HOME="/var/opt/_devtools2/modules/java/jdk-21"
-    export PATH="/var/opt/_devtools2/modules/java/jdk-21/bin:/var/opt/_devtools2/modules/gradle/gradle-9/bin:$PATH"
+    export JAVA_HOME="$DEVTOOLS2/modules/java/jdk-21"
+    export PATH="$DEVTOOLS2/modules/java/jdk-21/bin:$DEVTOOLS2/modules/gradle/gradle-9/bin:$PATH"
 
     if [ -n "$LOMBOK_JAR" ]; then
         exec "$JDTLS_BIN" "--jvm-arg=-javaagent:$LOMBOK_JAR" "$@"

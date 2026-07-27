@@ -112,7 +112,7 @@ cat <<'EOF' >>~/.bashrc
 export NPM_CONFIG_PREFIX="$DEVTOOLS2/data/.npm-packages"
 export NODE_PATH="$NPM_CONFIG_PREFIX/lib/node_modules"
 
-export JAVA_HOME="$DEVTOOLS2/modules/java/jdk-25"
+export JAVA_HOME="$DEVTOOLS2/modules/java/jdk-21"
 
 export GRADLE_HOME="$DEVTOOLS2/modules/gradle/gradle-9"
 
@@ -258,12 +258,11 @@ if [ -d "$HOME/.var/app/dev.zed.Zed" ]; then
     "$CMD_SYMLINK" "$DEVTOOLS2/.config/zed" "$flatpak_zed_dir/zed"
 fi
 
-# --- VSCode 설정 (네이티브 리눅스 전용) ---
-if [ "$IS_WSL2" = false ]; then
-    mkdir -p "$cfg_dir/Code/User"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json" "$cfg_dir/Code/User/settings.json"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/keybindings.json" "$cfg_dir/Code/User/keybindings.json"
-fi
+# --- VSCode 설정 (settings.json, keybindings.json, tasks.json) ---
+mkdir -p "$cfg_dir/Code/User"
+"$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json" "$cfg_dir/Code/User/settings.json"
+"$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/keybindings.json" "$cfg_dir/Code/User/keybindings.json"
+"$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/tasks.json" "$cfg_dir/Code/User/tasks.json"
 
 # data 대상 디렉터리 결정
 if [ -n "${XDG_DATA_HOME:-}" ]; then

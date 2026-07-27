@@ -363,25 +363,25 @@ $RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/l
 
 Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l $DEVTOOLS2/scripts/linux/devtools2/1.setup-env.sh'
+    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=/var/opt/_devtools2 bash -l $DEVTOOLS2/scripts/linux/devtools2/1.setup-env.sh'
 } else {
-    wsl -d $wslDistro -- bash -c "DEVTOOLS2=\${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL '$RAW_BASE/1.setup-env.sh')"
+    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l <(curl -sSfL '$RAW_BASE/1.setup-env.sh')"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim)"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l $DEVTOOLS2/scripts/linux/devtools2/2.install-core-tools.sh'
+    wsl -d $wslDistro -- bash -c 'bash -l $DEVTOOLS2/scripts/linux/devtools2/2.install-core-tools.sh'
 } else {
-    wsl -d $wslDistro -- bash -c "DEVTOOLS2=\${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL '$RAW_BASE/2.install-core-tools.sh')"
+    wsl -d $wslDistro -- bash -c "bash -l <(curl -sSfL '$RAW_BASE/2.install-core-tools.sh')"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l $DEVTOOLS2/scripts/linux/devtools2/3.install-cli-tools.sh'
+    wsl -d $wslDistro -- bash -c 'bash -l $DEVTOOLS2/scripts/linux/devtools2/3.install-cli-tools.sh'
 } else {
-    wsl -d $wslDistro -- bash -c "DEVTOOLS2=\${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL '$RAW_BASE/3.install-cli-tools.sh')"
+    wsl -d $wslDistro -- bash -c "bash -l <(curl -sSfL '$RAW_BASE/3.install-cli-tools.sh')"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
 
@@ -412,7 +412,7 @@ if ($isLocalMode) {
     & $zedScriptBlock -WslDistro $wslDistro
 }
 
-Write-SubStep "▶ (3/3) VSCode 설정 연동 (심볼릭 링크)"
+Write-SubStep "▶ (3/3) VSCode 설정 및 Gradle 자격증명 연동 (심볼릭 링크)"
 $vscodeUserDir = "$env:APPDATA\Code\User"
 if (-not (Test-Path $vscodeUserDir)) {
     New-Item -ItemType Directory -Path $vscodeUserDir -Force | Out-Null
@@ -438,6 +438,16 @@ if (Test-Path "$vscodeUserDir\keybindings.json") {
     }
 }
 
+# tasks.json 백업 및 이전 링크 삭제
+if (Test-Path "$vscodeUserDir\tasks.json") {
+    if (-not (Test-Path "$vscodeUserDir\tasks.json.bak")) {
+        Move-Item "$vscodeUserDir\tasks.json" "$vscodeUserDir\tasks.json.bak" -Force
+        Write-Info "기존 tasks.json을 tasks.json.bak으로 백업했습니다."
+    } else {
+        Remove-Item "$vscodeUserDir\tasks.json" -Force
+    }
+}
+
 # 윈도우 사용자 환경 변수에 %DEVTOOLS2% 자동 등록
 $wslDevtools2Root = "\\wsl.localhost\$wslDistro\var\opt\_devtools2"
 if (Test-Path $wslDevtools2Root) {
@@ -446,11 +456,12 @@ if (Test-Path $wslDevtools2Root) {
     Write-Success "Windows 사용자 환경 변수 %DEVTOOLS2% 연동 완료: $wslDevtools2Root"
 }
 
-$devtools2Root = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { $wslDevtools2Root }
+$devtools2Root = if ($env:DEVTOOLS2) { $env:DEVTOOLS2 } else { $wslDevtools2Root }
 
 # cmd.exe /c mklink 를 이용해 WSL2 파일 경로를 향해 심볼릭 링크 생성
 $targetSettings = "$devtools2Root\.config\vscode\settings.json"
 $targetKeybindings = "$devtools2Root\.config\vscode\keybindings.json"
+$targetTasks = "$devtools2Root\.config\vscode\tasks.json"
 
 Write-Info "VSCode settings.json 심볼릭 링크 생성 중..."
 cmd.exe /c "mklink `"$vscodeUserDir\settings.json`" `"$targetSettings`"" | Out-Null
@@ -458,7 +469,53 @@ cmd.exe /c "mklink `"$vscodeUserDir\settings.json`" `"$targetSettings`"" | Out-N
 Write-Info "VSCode keybindings.json 심볼릭 링크 생성 중..."
 cmd.exe /c "mklink `"$vscodeUserDir\keybindings.json`" `"$targetKeybindings`"" | Out-Null
 
+if (Test-Path $targetTasks) {
+    Write-Info "VSCode tasks.json 심볼릭 링크 생성 중..."
+    cmd.exe /c "mklink `"$vscodeUserDir\tasks.json`" `"$targetTasks`"" | Out-Null
+}
+
+# 🌟 VSCode 확장 목록(extensions.txt) 동기화 자동 설치 (dotfiles에 존재 시)
+$targetExtensionsList = "$devtools2Root\.config\vscode\extensions.txt"
+if (Test-Path $targetExtensionsList) {
+    if (Get-Command code -ErrorAction SilentlyContinue) {
+        Write-Info "VSCode 확장 프로그램 동기화 목록(extensions.txt) 설치 중..."
+        Get-Content $targetExtensionsList | ForEach-Object {
+            $ext = $_.Trim()
+            if ($ext -and -not $ext.StartsWith("#")) {
+                code --install-extension $ext --force | Out-Null
+            }
+        }
+        Write-Success "VSCode 확장 프로그램 동기화 설치 완료"
+    } else {
+        Write-Warn "VSCode CLI('code')를 찾을 수 없어서 확장 프로그램 자동 설치를 건너럅니다."
+    }
+}
+
 Write-Success "VSCode 설정 연동 완료"
+
+# 🌟 [Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동]
+# - 보안 자격증명 정보(Git Token/Maven Auth) 손실 방지 및 이중 환경 호환성 확보
+# - dotfiles repository에 올리지 않고, WSL2 사용자 홈(~/.gradle/gradle.properties)을 직접 윈도우 홈으로 링크
+$winGradleDir = "$env:USERPROFILE\.gradle"
+if (-not (Test-Path $winGradleDir)) {
+    New-Item -ItemType Directory -Path $winGradleDir -Force | Out-Null
+}
+
+$wslUser = (wsl -d $wslDistro -- bash -c "whoami" 2>$null).Trim()
+if ([string]::IsNullOrEmpty($wslUser)) { $wslUser = "eseungsu" }
+$wslGradleProps = "\\wsl.localhost\$wslDistro\home\$wslUser\.gradle\gradle.properties"
+$winGradleProps = "$winGradleDir\gradle.properties"
+
+if (Test-Path $wslGradleProps) {
+    if (Test-Path $winGradleProps) {
+        Remove-Item $winGradleProps -Force -ErrorAction SilentlyContinue
+    }
+    Write-Info "Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동 중..."
+    cmd.exe /c "mklink `"$winGradleProps`" `"$wslGradleProps`"" | Out-Null
+    Write-Success "Gradle gradle.properties 연동 완료 ($wslGradleProps -> $winGradleProps)"
+} else {
+    Write-Warn "WSL2 경로에 gradle.properties 파일이 존재하지 않아 연동을 건너럅니다: $wslGradleProps"
+}
 
 # ==============================================================================
 # 전체 설치 완료

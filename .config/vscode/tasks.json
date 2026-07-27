@@ -1,0 +1,26 @@
+{
+  // ==============================================================================
+  // 🌟 DevTools2 VSCode 전역 사용자 태스크 (Command Palette 전용)
+  // - Ctrl + Shift + P -> "Tasks: Run Task" (작업: 작업 실행) 메뉴에서 즉시 실행 가능합니다.
+  // ==============================================================================
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "🌟 [DevTools2] VSCode 확장 목록 동기화 저장 (Export Extensions)",
+      "type": "shell",
+      "command": "code --list-extensions > \"$DEVTOOLS2/.config/vscode/extensions.txt\"",
+      "windows": {
+        "command": "code --list-extensions > \"$env:DEVTOOLS2\\.config\\vscode\\extensions.txt\""
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    }
+  ]
+}
