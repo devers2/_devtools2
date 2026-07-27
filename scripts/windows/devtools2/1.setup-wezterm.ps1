@@ -208,8 +208,8 @@ else {
 $WslRoot = "\\wsl.localhost\$WslDistro"
 
 # WSL 심볼릭 링크는 Windows UNC 경로에서 따라가지 못하므로
-# _devtools2 고정 경로를 직접 참조합니다: /var/opt/_devtools2
-$DevTools2Wsl = "$WslRoot\var\opt\_devtools2"
+# _devtools2 경로를 참조합니다: %DEVTOOLS2% 환경 변수 또는 /var/opt/_devtools2
+$DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { "$WslRoot\var\opt\_devtools2" }
 
 if (-not (Test-Path $DevTools2Wsl)) {
     Write-Fail "WSL2 에서 '_devtools2' 폴더를 찾을 수 없습니다: $DevTools2Wsl"
@@ -384,7 +384,7 @@ $fontNames = @(
 # 1) WSL 명령어로 폰트 존재 여부를 직접 확인 (UNC 경로는 WSL 심볼릭 링크를 못 따라가므로)
 $wslFontCount = 0
 try {
-    $wslFontCount = [int](wsl -d $WslDistro -- bash -c "ls /var/opt/_devtools2/assets/fonts/*.ttf /var/opt/_devtools2/assets/fonts/*.ttc 2>/dev/null | wc -l")
+    $wslFontCount = [int](wsl -d $WslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; ls $DEVTOOLS2/assets/fonts/*.ttf $DEVTOOLS2/assets/fonts/*.ttc 2>/dev/null | wc -l')
 } catch {}
 
 $hasWslFonts = ($wslFontCount -gt 0)
@@ -403,7 +403,7 @@ if ($hasWslFonts) {
         if (Test-Path $destPath) {
             Write-Skip "폰트 이미 설치됨: $fontName"
         } else {
-            $wslFontPath = "/var/opt/_devtools2/assets/fonts/$fontName"
+            $wslFontPath = '${DEVTOOLS2:-/var/opt/_devtools2}/assets/fonts/' + $fontName
             # Windows 경로를 WSL 경로로 변환하여 cp 명령 실행
             $winTempPath = $tempFontDir.Replace("\", "/").Replace("C:", "/mnt/c").Replace("c:", "/mnt/c")
             wsl -d $WslDistro -- bash -c "[ -f '$wslFontPath' ] && cp '$wslFontPath' '$winTempPath/$fontName'" 2>$null
@@ -474,7 +474,7 @@ $WinWeztermConfig = "$env:USERPROFILE\.wezterm.lua"
 # WezTerm 설정 파일 존재 여부 확인 및 보강
 if (-not (Test-Path $WslWeztermConfig)) {
     Write-Warn "WSL2 내 설정 파일(.wezterm.lua)이 없습니다. 기본 파일 생성 중..."
-    wsl -d $WslDistro -- bash -c "mkdir -p /var/opt/_devtools2/.config/wezterm && touch /var/opt/_devtools2/.config/wezterm/.wezterm.lua"
+    wsl -d $WslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; mkdir -p $DEVTOOLS2/.config/wezterm && touch $DEVTOOLS2/.config/wezterm/.wezterm.lua'
 }
 
 Write-Host "  공유 설정 (WSL2): $WslWeztermConfig" -ForegroundColor DarkGray
@@ -558,6 +558,18 @@ if (Test-Path $ahkExe) {
 
         if (Test-Path $ahkExe) {
             Write-Success "AutoHotkey v2 포터블 배포 완료: $ahkExe"
+
+            # ── 사용자 레지스트리(HKCU)에 .ahk 확장자 자동 연결 등록 (오프라인 환경/더블클릭 대비) ──
+            try {
+                $ahkClassKey = "HKCU:\Software\Classes\AutoHotkeyScript\shell\open\command"
+                if (-not (Test-Path $ahkClassKey)) { New-Item -Path $ahkClassKey -Force | Out-Null }
+                Set-ItemProperty -Path $ahkClassKey -Name "(default)" -Value "`"$ahkExe`" `"%1`" %*" -ErrorAction SilentlyContinue
+
+                $ahkExtKey = "HKCU:\Software\Classes\.ahk"
+                if (-not (Test-Path $ahkExtKey)) { New-Item -Path $ahkExtKey -Force | Out-Null }
+                Set-ItemProperty -Path $ahkExtKey -Name "(default)" -Value "AutoHotkeyScript" -ErrorAction SilentlyContinue
+                Write-Success ".ahk 파일 확장자가 포터블 AutoHotkey에 자동 연결되었습니다."
+            } catch {}
         } else {
             Write-Warn "압축 해제 후 AutoHotkey 실행 파일을 찾지 못했습니다: $ahkModuleDir"
         }
@@ -572,24 +584,49 @@ if (Test-Path $ahkExe) {
 
 # ── (4) AHK 스크립트 복사 및 시작 프로그램 자동 실행 연동 ────────────────────
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$ahkDest    = "$startupDir\wezterm-hotkey.ahk"
 
-# 소스 AHK 파일 가져오기
-$ahkSourceLocal = $null
-if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-    $ahkSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\wezterm-hotkey.ahk"
+# AHK 스크립트는 modules/autohotkey 디렉토리에 배치 (Startup에는 바로가기만 배치하여 부팅 팝업 방지)
+$ahkDest = Join-Path $ahkModuleDir "wezterm-hotkey.ahk"
+
+# 기존 Startup 폴더에 잔존하던 raw .ahk 파일 정리 (부팅 시 앱 선택 팝업 원인)
+Remove-Item "$startupDir\wezterm-hotkey.ahk" -Force -ErrorAction SilentlyContinue
+Remove-Item "$startupDir\keyboard-remap.ahk" -Force -ErrorAction SilentlyContinue
+
+# ── (3-1) Windows 사용자 환경 변수 %DEVTOOLS2% 연동 ─────────────────────────
+$wslDevtools2Root = "\\wsl.localhost\$WslDistro\var\opt\_devtools2"
+if (Test-Path $wslDevtools2Root) {
+    [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
+    $env:DEVTOOLS2 = $wslDevtools2Root
+    Write-Success "Windows 사용자 환경 변수 %DEVTOOLS2% 연동 완료: $wslDevtools2Root"
 }
 
-if ($ahkSourceLocal -and (Test-Path $ahkSourceLocal)) {
-    Write-Info "AHK 스크립트 복사(덮어쓰기) 중: $ahkSourceLocal"
-    Copy-Item -Path $ahkSourceLocal -Destination $ahkDest -Force
+# 소스 AHK 파일 가져오기 (Windows %DEVTOOLS2% 경로 우선 -> 로컬 소스 -> GitHub 원격)
+$wslAhk1 = if ($env:DEVTOOLS2) { Join-Path $env:DEVTOOLS2 "scripts\windows\autohotkey\wezterm-hotkey.ahk" } else { $null }
+$wslAhk2 = "\\wsl.localhost\$WslDistro\home\$WslUser\_devtools2\scripts\windows\autohotkey\wezterm-hotkey.ahk"
+
+if ($wslAhk1 -and (Test-Path $wslAhk1)) {
+    $ahkDest = $wslAhk1
+    Write-Success "WSL dotfiles 원본 AHK 직접 연동 (단일 원본): $ahkDest"
+} elseif (Test-Path $wslAhk2) {
+    $ahkDest = $wslAhk2
+    Write-Success "WSL dotfiles 원본 AHK 직접 연동 (단일 원본): $ahkDest"
 } else {
-    Write-Info "GitHub 에서 AHK 스크립트 다운로드 중..."
-    try {
-        $ahkRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/wezterm-hotkey.ahk"
-        Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkDest -ErrorAction Stop
-    } catch {
-        Write-Warn "AHK 스크립트 다운로드 실패: $($_.Exception.Message)"
+    $ahkSourceLocal = $null
+    if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+        $ahkSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\wezterm-hotkey.ahk"
+    }
+
+    if ($ahkSourceLocal -and (Test-Path $ahkSourceLocal)) {
+        Write-Info "AHK 스크립트 복사(덮어쓰기) 중: $ahkSourceLocal"
+        Copy-Item -Path $ahkSourceLocal -Destination $ahkDest -Force
+    } else {
+        Write-Info "GitHub 에서 AHK 스크립트 다운로드 중..."
+        try {
+            $ahkRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/wezterm-hotkey.ahk"
+            Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkDest -ErrorAction Stop
+        } catch {
+            Write-Warn "AHK 스크립트 다운로드 실패: $($_.Exception.Message)"
+        }
     }
 }
 
@@ -609,24 +646,35 @@ if (Test-Path $ahkExe) {
 }
 
 # ── (5) keyboard-remap.ahk (CapsLock 리매핑) 배포 및 바로가기 생성 ───────────
-$kbRemapDest = "$startupDir\keyboard-remap.ahk"
+$kbRemapDest = Join-Path $ahkModuleDir "keyboard-remap.ahk"
 
-# 소스 파일 가져오기
-$kbRemapSourceLocal = $null
-if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-    $kbRemapSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\keyboard-remap.ahk"
-}
+# 소스 파일 가져오기 (Windows %DEVTOOLS2% 경로 우선 -> 로컬 소스 -> GitHub 원격)
+$wslKb1 = if ($env:DEVTOOLS2) { Join-Path $env:DEVTOOLS2 "scripts\windows\autohotkey\keyboard-remap.ahk" } else { $null }
+$wslKb2 = "\\wsl.localhost\$WslDistro\home\$WslUser\_devtools2\scripts\windows\autohotkey\keyboard-remap.ahk"
 
-if ($kbRemapSourceLocal -and (Test-Path $kbRemapSourceLocal)) {
-    Write-Info "키보드 리매핑 AHK 복사 중: $kbRemapSourceLocal"
-    Copy-Item -Path $kbRemapSourceLocal -Destination $kbRemapDest -Force
+if ($wslKb1 -and (Test-Path $wslKb1)) {
+    $kbRemapDest = $wslKb1
+    Write-Success "WSL dotfiles 원본 AHK 직접 연동 (단일 원본): $kbRemapDest"
+} elseif (Test-Path $wslKb2) {
+    $kbRemapDest = $wslKb2
+    Write-Success "WSL dotfiles 원본 AHK 직접 연동 (단일 원본): $kbRemapDest"
 } else {
-    Write-Info "GitHub 에서 keyboard-remap.ahk 다운로드 중..."
-    try {
-        $kbRemapRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/keyboard-remap.ahk"
-        Invoke-WebRequest -Uri $kbRemapRaw -OutFile $kbRemapDest -ErrorAction Stop
-    } catch {
-        Write-Warn "keyboard-remap.ahk 다운로드 실패: $($_.Exception.Message)"
+    $kbRemapSourceLocal = $null
+    if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+        $kbRemapSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\keyboard-remap.ahk"
+    }
+
+    if ($kbRemapSourceLocal -and (Test-Path $kbRemapSourceLocal)) {
+        Write-Info "키보드 리매핑 AHK 복사 중: $kbRemapSourceLocal"
+        Copy-Item -Path $kbRemapSourceLocal -Destination $kbRemapDest -Force
+    } else {
+        Write-Info "GitHub 에서 keyboard-remap.ahk 다운로드 중..."
+        try {
+            $kbRemapRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/keyboard-remap.ahk"
+            Invoke-WebRequest -Uri $kbRemapRaw -OutFile $kbRemapDest -ErrorAction Stop
+        } catch {
+            Write-Warn "keyboard-remap.ahk 다운로드 실패: $($_.Exception.Message)"
+        }
     }
 }
 

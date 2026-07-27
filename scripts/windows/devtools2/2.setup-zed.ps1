@@ -137,8 +137,8 @@ else {
 $WslRoot = "\\wsl.localhost\$WslDistro"
 
 # WSL 심볼릭 링크는 Windows UNC 경로에서 따라가지 못하므로
-# _devtools2 고정 경로를 직접 참조합니다: /var/opt/_devtools2
-$DevTools2Wsl = "$WslRoot\var\opt\_devtools2"
+# _devtools2 경로를 참조합니다: %DEVTOOLS2% 환경 변수 또는 /var/opt/_devtools2
+$DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { "$WslRoot\var\opt\_devtools2" }
 
 if (-not (Test-Path $DevTools2Wsl)) {
     Write-Fail "WSL2 에서 '_devtools2' 폴더를 찾을 수 없습니다: $DevTools2Wsl"
@@ -229,15 +229,15 @@ Write-Host ""
 # Zed 설정 폴더가 WSL2에 없으면 기본 폴더를 생성
 if (-not (Test-Path $WslZedConfig)) {
     Write-Warn "WSL2에 Zed 설정 폴더가 없습니다. 기본 폴더를 생성합니다..."
-    wsl -d $WslDistro -- bash -c "mkdir -p /var/opt/_devtools2/.config/zed"
+    wsl -d $WslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; mkdir -p $DEVTOOLS2/.config/zed'
 }
 
 # settings.json과 keymap.json이 없으면 기본 뼈대 파일 생성
 if (-not (Test-Path "$WslZedConfig\settings.json")) {
-    wsl -d $WslDistro -- bash -c "echo '{}' > /var/opt/_devtools2/.config/zed/settings.json"
+    wsl -d $WslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; echo "{}" > $DEVTOOLS2/.config/zed/settings.json'
 }
 if (-not (Test-Path "$WslZedConfig\keymap.json")) {
-    wsl -d $WslDistro -- bash -c "echo '[]' > /var/opt/_devtools2/.config/zed/keymap.json"
+    wsl -d $WslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; echo "[]" > $DEVTOOLS2/.config/zed/keymap.json'
 }
 
 # 기존에 설정된 심볼릭 링크나 디렉터리 링크가 있을 경우 완전히 제거하고 물리 폴더 생성

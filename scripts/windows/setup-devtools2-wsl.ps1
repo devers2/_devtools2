@@ -328,25 +328,25 @@ $RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/l
 
 Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -l /var/opt/_devtools2/scripts/linux/devtools2/1.setup-env.sh
+    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l $DEVTOOLS2/scripts/linux/devtools2/1.setup-env.sh'
 } else {
-    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l <(curl -sSfL '$RAW_BASE/1.setup-env.sh')"
+    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL "$RAW_BASE/1.setup-env.sh")'
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim)"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -l /var/opt/_devtools2/scripts/linux/devtools2/2.install-core-tools.sh
+    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l $DEVTOOLS2/scripts/linux/devtools2/2.install-core-tools.sh'
 } else {
-    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l <(curl -sSfL '$RAW_BASE/2.install-core-tools.sh')"
+    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL "$RAW_BASE/2.install-core-tools.sh")'
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -l /var/opt/_devtools2/scripts/linux/devtools2/3.install-cli-tools.sh
+    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l $DEVTOOLS2/scripts/linux/devtools2/3.install-cli-tools.sh'
 } else {
-    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l <(curl -sSfL '$RAW_BASE/3.install-cli-tools.sh')"
+    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL "$RAW_BASE/3.install-cli-tools.sh")'
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
 
@@ -403,9 +403,19 @@ if (Test-Path "$vscodeUserDir\keybindings.json") {
     }
 }
 
+# 윈도우 사용자 환경 변수에 %DEVTOOLS2% 자동 등록
+$wslDevtools2Root = "\\wsl.localhost\$wslDistro\var\opt\_devtools2"
+if (Test-Path $wslDevtools2Root) {
+    [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
+    $env:DEVTOOLS2 = $wslDevtools2Root
+    Write-Success "Windows 사용자 환경 변수 %DEVTOOLS2% 연동 완료: $wslDevtools2Root"
+}
+
+$devtools2Root = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { $wslDevtools2Root }
+
 # cmd.exe /c mklink 를 이용해 WSL2 파일 경로를 향해 심볼릭 링크 생성
-$targetSettings = "\\wsl.localhost\$wslDistro\var\opt\_devtools2\.config\vscode\settings.json"
-$targetKeybindings = "\\wsl.localhost\$wslDistro\var\opt\_devtools2\.config\vscode\keybindings.json"
+$targetSettings = "$devtools2Root\.config\vscode\settings.json"
+$targetKeybindings = "$devtools2Root\.config\vscode\keybindings.json"
 
 Write-Info "VSCode settings.json 심볼릭 링크 생성 중..."
 cmd.exe /c "mklink `"$vscodeUserDir\settings.json`" `"$targetSettings`"" | Out-Null
