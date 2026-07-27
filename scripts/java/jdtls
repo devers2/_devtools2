@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# DEVTOOLS2 JDTLS Launcher Script
+
+JDTLS_BIN=$(find "$HOME/.local/share/zed/remote_extensions/work/java/jdtls" -name "jdtls" -type f 2>/dev/null | sort -V | tail -n 1)
+LOMBOK_JAR=$(find "$HOME/.local/share/zed/remote_extensions/work/java/lombok" -name "lombok*.jar" ! -name "*-sources.jar" -type f 2>/dev/null | sort -V | tail -n 1)
+DEBUGGER_JAR=$(find "$HOME/.local/share/zed/remote_extensions/work/java/debugger" -name "com.microsoft.java.debug.plugin-*.jar" -type f 2>/dev/null | sort -V | tail -n 1)
+
+if [ -n "$DEBUGGER_JAR" ]; then
+    ln -sf "$DEBEGGER_JAR" "/var/opt/_devtools2/scripts/java/com.microsoft.java.debug.plugin.jar" 2>/dev/null
+fi
+
+if [ -z "$LOMBOK_JAR" ]; then
+    LOMBOK_JAR=$(find "/var/opt/_devtools2/data/.gradle/caches" -name "lombok-*.jar" ! -name "*-sources.jar" -type f 2>/dev/null | head -n 1)
+fi
+
+if [ -n "$JDTLS_BIN" ] && [ -x "$JDTLS_BIN" ]; then
+    export JAVA_HOME="/var/opt/_devtools2/modules/java/jdk-21"
+    export PATH="/var/opt/_devtools2/modules/java/jdk-21/bin:/var/opt/_devtools2/modules/gradle/gradle-9/bin:$PATH"
+
+    if [ -n "$LOMBOK_JAR" ]; then
+        exec "$JDTLS_BIN" "--jvm-arg=-javaagent:$LOMBOK_JAR" "$@"
+    else
+        exec "$JDTLS_BIN" "$@"
+    fi
+else
+    echo "Error: jdtls binary not found in $HOME/.local/share/zed/remote_extensions/work/java/jdtls" >&2
+    exit 1
+fi

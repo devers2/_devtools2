@@ -82,16 +82,21 @@
         // 📌 [jdk_auto_download 설정 상세 설명]
         // - false: JDTLS가 인터넷(RedHat/Eclipse)에서 별도의 JDK를 자동으로 추가 다운로드하지 못하게 차단하고,
         //          아래 지정된 로컬 시스템 JDK (/var/opt/_devtools2/modules/java/jdk-21)를 고정 사용합니다.
-        // 💡 참고: "프로젝트 열자마자 바로 LS 인덱싱/빌드가 돌게 하는 옵션"은 이 옵션이 아니라 
-        //          아래의 `"autobuild": { "enabled": true }` 옵션입니다.
         "jdk_auto_download": false
       },
       "initialization_options": {
+        // 🌟 [Java Debug Adapter 번들 등록]
+        // - JDTLS는 기본적으로 디버거 기능을 내장하지 않으며, Microsoft의 Java Debug Plugin을
+        //   번들로 등록해야 중단점(Breakpoint), 스텝 실행 등 디버깅 기능이 활성화됩니다.
+        // - 등록하지 않으면 F4 실행 시 "Debugger plugin is not loaded" 오류가 발생합니다.
+        "bundles": [
+          "/var/opt/_devtools2/scripts/java/com.microsoft.java.debug.plugin.jar"
+        ],
         "settings": {
           "java": {
             // 기본 자바 언어 서버 구동 JDK 지정 (Gradle 8 호환 JDK 21)
             "home": "/var/opt/_devtools2/modules/java/jdk-21",
-            
+
             // 📌 [autobuild 설정 상세 설명]
             // - 프로젝트 오픈 또는 소스 변경 시 백그라운드 인덱싱/빌드를 즉시 자동 수행합니다.
             // - 특정 프로젝트(.zed/settings.json)에서만 켜고 싶다면 글로벌에서는 안 적거나 false로 두고,
