@@ -128,6 +128,41 @@ Write-Host "====================================================================
 Write-Host "🌟 DevTools2 Windows & WSL2 통합 설치 마스터 자동화" -ForegroundColor DarkCyan
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
+# ==============================================================================
+# [사전 정리] AutoHotkey 프로세스 종료 및 구형 Startup 항목 제거
+# ==============================================================================
+# 최초 설치 또는 재설치 시, WSL 이 아직 없는 상태에서 이전 설치로 생긴
+# Startup 폴더의 .lnk/.ahk 바로가기가 오류 팝업을 일으킬 수 있으므로
+# Step 1 (WSL 설치) 이전에 먼저 정리합니다.
+
+# 대상 WSL 배포판 이름 (코드 전체에서 고정될 상수 미리 선언)
+$wslDistro = "devtools2"
+$_startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+
+# 1. 실행 중인 AutoHotkey 인스턴스 전체 종료
+Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
+    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+
+# 2. Startup 폴더의 raw .ahk 파일은 모두 제거 (포터블 AHK 환경에서 직접 .ahk 가 있으면 앱 선택 팝업 원인)
+Get-ChildItem -Path $_startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+# 3. Startup 폴더의 .lnk 중 AutoHotkey.exe + \\wsl.localhost\$wslDistro 경로를 인수로
+#    가진 바로가기만 선택적으로 제거 (다른 용도의 .lnk 는 절대 건드리지 않음)
+$_wslUncPattern = [regex]::Escape("\\wsl.localhost\$wslDistro")
+$_wshShell = New-Object -ComObject WScript.Shell
+Get-ChildItem -Path $_startupDir -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        $sc = $_wshShell.CreateShortcut($_.FullName)
+        $isAhk     = $sc.TargetPath -match 'AutoHotkey' -or $sc.TargetPath -match '\.ahk$'
+        $isWslPath = $sc.Arguments  -match $_wslUncPattern
+        if ($isAhk -and $isWslPath) {
+            Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+            Write-Info "WSL AHK 바로가기 제거: $($_.Name)"
+        }
+    } catch {}
+}
+Write-Info "AutoHotkey Startup 항목 사전 정리 완료"
+
 $isLocalMode = $false
 if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
     $BaseDir = $PSScriptRoot
@@ -242,7 +277,7 @@ Write-Host "┌─────────────────────�
 Write-Host "│ 🔑  WSL2 sudo 관리자 권한 실행을 위한 비밀번호 입력                      │" -ForegroundColor Yellow
 Write-Host "├──────────────────────────────────────────────────────────────────────────┤" -ForegroundColor Yellow
 Write-Host "│  WSL2 내부의 시스템 패키지(apt) 및 개발 환경 설정을 위해                 │" -ForegroundColor White
-Write-Host "│  Ubuntu 설치 시 생성했던 계정의 비밀번호 입력이 필요합니다.            │" -ForegroundColor White
+Write-Host "│  Ubuntu 설치 시 생성했던 계정의 비밀번호 입력이 필요합니다.              │" -ForegroundColor White
 Write-Host "└──────────────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
 Write-Host ""
 
@@ -330,7 +365,7 @@ Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
 if ($isLocalMode) {
     wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l $DEVTOOLS2/scripts/linux/devtools2/1.setup-env.sh'
 } else {
-    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL "$RAW_BASE/1.setup-env.sh")'
+    wsl -d $wslDistro -- bash -c "DEVTOOLS2=\${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL '$RAW_BASE/1.setup-env.sh')"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
@@ -338,7 +373,7 @@ Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python
 if ($isLocalMode) {
     wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l $DEVTOOLS2/scripts/linux/devtools2/2.install-core-tools.sh'
 } else {
-    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL "$RAW_BASE/2.install-core-tools.sh")'
+    wsl -d $wslDistro -- bash -c "DEVTOOLS2=\${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL '$RAW_BASE/2.install-core-tools.sh')"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
@@ -346,7 +381,7 @@ Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
 if ($isLocalMode) {
     wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l $DEVTOOLS2/scripts/linux/devtools2/3.install-cli-tools.sh'
 } else {
-    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL "$RAW_BASE/3.install-cli-tools.sh")'
+    wsl -d $wslDistro -- bash -c "DEVTOOLS2=\${DEVTOOLS2:-/var/opt/_devtools2}; bash -l <(curl -sSfL '$RAW_BASE/3.install-cli-tools.sh')"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
 

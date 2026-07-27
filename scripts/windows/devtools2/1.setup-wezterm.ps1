@@ -582,15 +582,33 @@ if (Test-Path $ahkExe) {
 
 
 
-# ── (4) AHK 스크립트 복사 및 시작 프로그램 자동 실행 연동 ────────────────────
+# ── (3) AHK 스크립트 배포 및 시작 프로그램 자동 실행 연동 ────────────────────
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 
 # AHK 스크립트는 modules/autohotkey 디렉토리에 배치 (Startup에는 바로가기만 배치하여 부팅 팝업 방지)
 $ahkDest = Join-Path $ahkModuleDir "wezterm-hotkey.ahk"
 
-# 기존 Startup 폴더에 잔존하던 raw .ahk 파일 정리 (부팅 시 앱 선택 팝업 원인)
-Remove-Item "$startupDir\wezterm-hotkey.ahk" -Force -ErrorAction SilentlyContinue
-Remove-Item "$startupDir\keyboard-remap.ahk" -Force -ErrorAction SilentlyContinue
+# Startup 폴더의 raw .ahk 파일은 모두 제거 (포터블 AHK 환경에서 직접 .ahk 가 있으면 앱 선택 팝업 원인)
+Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+# Startup 폴더의 .lnk 중 AutoHotkey.exe + \\wsl.localhost\$WslDistro 경로를 인수로
+# 가진 바로가기만 선택적으로 제거 (다른 용도의 AHK 또는 .lnk 는 절대 건드리지 않음)
+$_wslUncPattern = [regex]::Escape("\\wsl.localhost\$WslDistro")
+$_wshShellClean = New-Object -ComObject WScript.Shell
+Get-ChildItem -Path $startupDir -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
+    try {
+        $sc = $_wshShellClean.CreateShortcut($_.FullName)
+        $isAhk     = $sc.TargetPath -match 'AutoHotkey' -or $sc.TargetPath -match '\.ahk$'
+        $isWslPath = $sc.Arguments  -match $_wslUncPattern
+        if ($isAhk -and $isWslPath) {
+            Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+            Write-Info "기존 WSL AHK 바로가기 제거: $($_.Name)"
+        }
+    } catch {}
+}
+
+
+
 
 # ── (3-1) Windows 사용자 환경 변수 %DEVTOOLS2% 연동 ─────────────────────────
 $wslDevtools2Root = "\\wsl.localhost\$WslDistro\var\opt\_devtools2"
@@ -600,15 +618,12 @@ if (Test-Path $wslDevtools2Root) {
     Write-Success "Windows 사용자 환경 변수 %DEVTOOLS2% 연동 완료: $wslDevtools2Root"
 }
 
-# 소스 AHK 파일 가져오기 (Windows %DEVTOOLS2% 경로 우선 -> 로컬 소스 -> GitHub 원격)
+# ── (4) wezterm-hotkey.ahk 소스 경로 결정 (%DEVTOOLS2% 우선 → 로컬 소스 → GitHub 원격) ───
+# 단일 원본(dotfiles WSL 내 경로)을 직접 참조하므로 복사 없이 연동
 $wslAhk1 = if ($env:DEVTOOLS2) { Join-Path $env:DEVTOOLS2 "scripts\windows\autohotkey\wezterm-hotkey.ahk" } else { $null }
-$wslAhk2 = "\\wsl.localhost\$WslDistro\home\$WslUser\_devtools2\scripts\windows\autohotkey\wezterm-hotkey.ahk"
 
 if ($wslAhk1 -and (Test-Path $wslAhk1)) {
     $ahkDest = $wslAhk1
-    Write-Success "WSL dotfiles 원본 AHK 직접 연동 (단일 원본): $ahkDest"
-} elseif (Test-Path $wslAhk2) {
-    $ahkDest = $wslAhk2
     Write-Success "WSL dotfiles 원본 AHK 직접 연동 (단일 원본): $ahkDest"
 } else {
     $ahkSourceLocal = $null
@@ -648,15 +663,11 @@ if (Test-Path $ahkExe) {
 # ── (5) keyboard-remap.ahk (CapsLock 리매핑) 배포 및 바로가기 생성 ───────────
 $kbRemapDest = Join-Path $ahkModuleDir "keyboard-remap.ahk"
 
-# 소스 파일 가져오기 (Windows %DEVTOOLS2% 경로 우선 -> 로컬 소스 -> GitHub 원격)
+# 단일 원본(dotfiles WSL 내 경로)을 직접 참조 (%DEVTOOLS2% 우선 → 로컬 소스 → GitHub)
 $wslKb1 = if ($env:DEVTOOLS2) { Join-Path $env:DEVTOOLS2 "scripts\windows\autohotkey\keyboard-remap.ahk" } else { $null }
-$wslKb2 = "\\wsl.localhost\$WslDistro\home\$WslUser\_devtools2\scripts\windows\autohotkey\keyboard-remap.ahk"
 
 if ($wslKb1 -and (Test-Path $wslKb1)) {
     $kbRemapDest = $wslKb1
-    Write-Success "WSL dotfiles 원본 AHK 직접 연동 (단일 원본): $kbRemapDest"
-} elseif (Test-Path $wslKb2) {
-    $kbRemapDest = $wslKb2
     Write-Success "WSL dotfiles 원본 AHK 직접 연동 (단일 원본): $kbRemapDest"
 } else {
     $kbRemapSourceLocal = $null
@@ -677,6 +688,7 @@ if ($wslKb1 -and (Test-Path $wslKb1)) {
         }
     }
 }
+
 
 # 키보드 리매핑 부팅 자동 실행용 바로가기(.lnk) 생성
 if ((Test-Path $ahkExe) -and (Test-Path $kbRemapDest)) {
