@@ -836,6 +836,7 @@
     "*.html": "default"
   },
   "window.openFoldersInNewWindow": "on", // 폴더 열기시 새창에서 열기 여부 → "on": 항상 새 창에서 열기, "off": 항상 현재 창에서 열기
+  "redhat.telemetry.enabled": false,
   "sqltools.connections": [],
   "cSpell.userWords": []
 }
