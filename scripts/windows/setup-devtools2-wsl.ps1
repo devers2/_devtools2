@@ -8,7 +8,7 @@
 #   4. Windows 호스트용 WezTerm 및 Zed 에디터 자동 설치 및 WSL2 설정 연동
 #
 # [중요] 한글 깨짐 방지 안내 (Encoding Notice):
-#   - 로컬 실행 시: 본 스크립트는 UTF-8(BOM 없음)로 저장되어 있어, 구버전 윈도우 기본 
+#   - 로컬 실행 시: 본 스크립트는 UTF-8(BOM 없음)로 저장되어 있어, 구버전 윈도우 기본
 #     PowerShell 5.1 콘솔에서 직접 로컬 실행할 경우 한글 주석 및 메시지가 깨질 수 있습니다.
 #     로컬 실행 시에는 가급적 PowerShell 7 (pwsh)을 설치한 후 실행하시기 바랍니다.
 #   - 온라인 실행 시: 웹 브라우저나 원격 다운로드 명령(irm | iex 등)을 사용해 온라인에서
@@ -84,13 +84,13 @@ function Wait-WithSpinner {
             Write-Host "`r  [시간 초과] $Message (제한 시간 초과)   " -ForegroundColor Red
             return $false
         }
-        
+
         $success = & $Condition
         if ($success) {
             Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
             return $true
         }
-        
+
         $char = $spinner[$i % 4]
         Write-Host -NoNewline "`r  [$char] $Message...   "
         Start-Sleep -Milliseconds 150
@@ -107,20 +107,47 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 
 # 관리자 권한이 없는 경우에만 UAC 권한 승격 재실행 (이미 관리자 모드이면 이 블록 건너뜀)
 if (-not $isAdmin) {
-    # PowerShell 7(pwsh) 이 있으면 pwsh로, 없으면 powershell.exe(PS5)로 재실행
-    $psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell.exe' }
+    # PowerShell 7(pwsh) UAC 승격 가능 여부 판단:
+    # - Microsoft Store 설치 경로(WindowsApps)는 Start-Process -Verb RunAs 가 차단됩니다.
+    # - winget 직접 설치(C:\Program Files\PowerShell\)는 UAC 승격이 정상 동작합니다.
+    $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source
+    $isStorePwsh = $pwshPath -and ($pwshPath -like '*WindowsApps*')
+
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
-        # 원격 Raw 실행 시 UAC를 통해 원격 명령어를 새 창에서 관리자 권한으로 자동 재실행
+        # ── 온라인 실행 모드 (irm ... | iex) ──────────────────────────────────
+        # 스크립트가 메모리에서 실행되므로 BOM/인코딩 문제 없음
+        # Store pwsh 여부와 관계없이 기본 powershell.exe 로 UAC 승격 후 재실행 가능
         Write-Warn "관리자 권한이 필요합니다. UAC 승격 후 새 창에서 원격 설치를 계속합니다..."
-        Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex`"" -Verb RunAs
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex`"" -Verb RunAs
         exit
     } else {
-        # 로컬 파일 실행 시에는 기존처럼 UAC 권한 승격 재실행
-        Write-Warn "전체 환경 구축을 위해 관리자 권한으로 스크립트를 재실행합니다..."
-        Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
-        exit
+        # ── 로컬 파일 실행 모드 ────────────────────────────────────────────────
+        # 파일을 디스크에서 읽으므로 UTF-8(BOM 없음) 처리를 위해 반드시 PowerShell 7 필요
+        if ($isStorePwsh) {
+            # Store 버전 pwsh는 -Verb RunAs 차단됨 → 사용자에게 수동 실행 안내
+            Write-Host ""
+            Write-Host "=============================================================================" -ForegroundColor Red
+            Write-Host " [오류] Microsoft Store 설치 PowerShell 은 UAC 자동 권한 승격이 차단됩니다." -ForegroundColor Red
+            Write-Host "=============================================================================" -ForegroundColor Red
+            Write-Host ""
+            Write-Host " PowerShell 7 을 '관리자 권한으로 실행' 후 아래 명령어를 다시 입력해 주세요:" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "   Set-ExecutionPolicy Bypass -Scope Process -Force; & `"$PSCommandPath`"" -ForegroundColor Cyan
+            Write-Host ""
+            Write-Host " (또는 탐색기에서 setup-devtools2-wsl.ps1 우클릭 → PowerShell 7 관리자로 실행)" -ForegroundColor DarkGray
+            Write-Host ""
+            Read-Host "엔터를 누르면 종료합니다"
+            exit 1
+        } else {
+            # 직접 설치 pwsh → UAC 자동 승격 재실행
+            $psExe = if ($pwshPath) { $pwshPath } else { 'powershell.exe' }
+            Write-Warn "전체 환경 구축을 위해 관리자 권한으로 스크립트를 재실행합니다..."
+            Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+            exit
+        }
     }
 }
+
 
 Clear-Host
 Write-Host ""
@@ -230,7 +257,7 @@ $sIdx = 0
 while ($retryCount -lt $maxRetry) {
     # WSL ready 확인을 백그라운드로 띄워 스피너 표시
     $checkProc = Start-Process wsl.exe -ArgumentList "-d $wslDistro -- echo ready" -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wsl_ready_check.txt" -ErrorAction SilentlyContinue
-    
+
     # 2초 동안 스피너 회전 대기
     for ($i = 0; $i -lt 8; $i++) {
         $char = $spinner[$sIdx % 4]
@@ -239,7 +266,7 @@ while ($retryCount -lt $maxRetry) {
         $sIdx++
         if ($checkProc.HasExited) { break }
     }
-    
+
     if ($checkProc.HasExited) {
         $testResult = Get-Content "$env:TEMP\wsl_ready_check.txt" -Raw 2>$null
         # ready 문자열이 포함되어 있으면 통과 (경고 메세지와 섞여 있어도 검출 가능)
