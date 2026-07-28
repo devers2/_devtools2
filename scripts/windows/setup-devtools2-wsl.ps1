@@ -110,7 +110,8 @@ if (-not $isAdmin) {
     # PowerShell 7(pwsh) UAC 승격 가능 여부 판단:
     # - Microsoft Store 설치 경로(WindowsApps)는 Start-Process -Verb RunAs 가 차단됩니다.
     # - winget 직접 설치(C:\Program Files\PowerShell\)는 UAC 승격이 정상 동작합니다.
-    $pwshPath = (Get-Command pwsh -ErrorAction SilentlyContinue)?.Source
+    $pwshCmd = Get-Command pwsh -ErrorAction SilentlyContinue
+    $pwshPath = if ($pwshCmd) { $pwshCmd.Source } else { $null }
     $isStorePwsh = $pwshPath -and ($pwshPath -like '*WindowsApps*')
 
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
