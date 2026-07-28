@@ -509,7 +509,7 @@ if (Test-Path $targetExtensionsList) {
         Write-Info "VSCode 확장 프로그램 동기화 목록(extensions.txt) 설치 중..."
         Get-Content $targetExtensionsList | ForEach-Object {
             $ext = $_.Trim()
-            if ($ext -and -not $ext.StartsWith("#")) {
+            if ($ext -and -not $ext.StartsWith("#") -and ($ext -match '\.')) {
                 code --install-extension $ext --force | Out-Null
             }
         }

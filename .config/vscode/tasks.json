@@ -8,9 +8,9 @@
     {
       "label": "🌟 [DevTools2] VSCode 확장 목록 동기화 저장 (Export Extensions)",
       "type": "shell",
-      "command": "bash -lc 'code --list-extensions > \"${DEVTOOLS2:-/var/opt/_devtools2}/.config/vscode/extensions.txt\" && echo \"✅ extensions.txt 저장 완료\"'",
+      "command": "bash -lc 'code --list-extensions | grep \"\\.\" > \"${DEVTOOLS2:-/var/opt/_devtools2}/.config/vscode/extensions.txt\" && echo \"✅ extensions.txt 저장 완료 (순수 확장 ID 필터링 적용)\"'",
       "windows": {
-        "command": "code --list-extensions > \"$env:DEVTOOLS2\\.config\\vscode\\extensions.txt\""
+        "command": "powershell -Command \"code --list-extensions | Where-Object { $_ -match '\\.' } | Out-File -Encoding utf8 '$env:DEVTOOLS2\\.config\\vscode\\extensions.txt'\""
       },
       "problemMatcher": [],
       "presentation": {
