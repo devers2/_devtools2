@@ -47,6 +47,11 @@ function Write-Success {
     Write-Host "[성공] $Message" -ForegroundColor Green
 }
 
+function Write-Skip {
+    param([string]$Message)
+    Write-Host "[건너뜀] $Message" -ForegroundColor Yellow
+}
+
 function Write-Info {
     param([string]$Message)
     Write-Host "[정보] $Message" -ForegroundColor White
