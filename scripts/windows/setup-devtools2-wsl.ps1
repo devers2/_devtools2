@@ -423,24 +423,45 @@ Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
 if ($isLocalMode) {
-    Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (로컬)"
+    Write-SubStep "▶ (1/4) WezTerm 설치 및 설정 연동 (로컬)"
     & $setupWeztermScript -WslDistro $wslDistro
 
-    Write-SubStep "▶ (2/3) Zed 에디터 설치 및 설정 연동 (로컬)"
+    Write-SubStep "▶ (2/4) Zed 에디터 설치 및 설정 연동 (로컬)"
     & $setupZedScript -WslDistro $wslDistro
 } else {
-    Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (온라인)"
+    Write-SubStep "▶ (1/4) WezTerm 설치 및 설정 연동 (온라인)"
     $rawWeztermScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/1.setup-wezterm.ps1"
     $weztermScriptBlock = [scriptblock]::Create($rawWeztermScript)
     & $weztermScriptBlock -WslDistro $wslDistro
 
-    Write-SubStep "▶ (2/3) Zed 에디터 설치 및 설정 연동 (온라인)"
+    Write-SubStep "▶ (2/4) Zed 에디터 설치 및 설정 연동 (온라인)"
     $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/2.setup-zed.ps1"
     $zedScriptBlock = [scriptblock]::Create($rawZedScript)
     & $zedScriptBlock -WslDistro $wslDistro
 }
 
-Write-SubStep "▶ (3/3) VSCode 설정 및 Gradle 자격증명 연동 (심볼릭 링크)"
+Write-SubStep "▶ (3/4) VSCode 에디터 설치 (미설치 시 winget 자동 설치)"
+$vscodeInstalled = $false
+try {
+    if (Get-Command code -ErrorAction SilentlyContinue) {
+        $vscodeInstalled = $true
+    } elseif (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") {
+        $vscodeInstalled = $true
+    } elseif (Test-Path "$env:ProgramFiles\Microsoft VS Code\Code.exe") {
+        $vscodeInstalled = $true
+    }
+} catch {}
+
+if ($vscodeInstalled) {
+    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
+} else {
+    Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
+    $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+    Wait-ProcessWithSpinner -Process $p -Message "VSCode 패키지 설치 진행 중"
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+}
+
+Write-SubStep "▶ (4/4) VSCode 설정, 확장 목록 및 Gradle 자격증명 연동 (심볼릭 링크)"
 $vscodeUserDir = "$env:APPDATA\Code\User"
 if (-not (Test-Path $vscodeUserDir)) {
     New-Item -ItemType Directory -Path $vscodeUserDir -Force | Out-Null
