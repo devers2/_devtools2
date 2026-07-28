@@ -588,23 +588,18 @@ $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 # AHK 스크립트는 modules/autohotkey 디렉토리에 배치 (Startup에는 바로가기만 배치하여 부팅 팝업 방지)
 $ahkDest = Join-Path $ahkModuleDir "wezterm-hotkey.ahk"
 
-# Startup 폴더의 raw .ahk 파일은 모두 제거 (포터블 AHK 환경에서 직접 .ahk 가 있으면 앱 선택 팝업 원인)
+# 🌟 기존 AutoHotkey 관련 중복 항목 완전 정리 (Startup 폴더 바로가기 & 레지스트리 Run 키)
 Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $startupDir -Filter "*WezTerm-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -Path $startupDir -Filter "*Keyboard-Remap*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
-# Startup 폴더의 .lnk 중 AutoHotkey.exe + \\wsl.localhost\$WslDistro 경로를 인수로
-# 가진 바로가기만 선택적으로 제거 (다른 용도의 AHK 또는 .lnk 는 절대 건드리지 않음)
-$_wslUncPattern = [regex]::Escape("\\wsl.localhost\$WslDistro")
-$_wshShellClean = New-Object -ComObject WScript.Shell
-Get-ChildItem -Path $startupDir -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
-    try {
-        $sc = $_wshShellClean.CreateShortcut($_.FullName)
-        $isAhk     = $sc.TargetPath -match 'AutoHotkey' -or $sc.TargetPath -match '\.ahk$'
-        $isWslPath = $sc.Arguments  -match $_wslUncPattern
-        if ($isAhk -and $isWslPath) {
-            Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
-            Write-Info "기존 WSL AHK 바로가기 제거: $($_.Name)"
-        }
-    } catch {}
+$runRegPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+if (Test-Path $runRegPath) {
+    Remove-ItemProperty -Path $runRegPath -Name "AutoHotkey" -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $runRegPath -Name "AutoHotkey 64-bit" -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $runRegPath -Name "AutoHotkey64" -ErrorAction SilentlyContinue
+    Remove-ItemProperty -Path $runRegPath -Name "AutoHotkey64.exe" -ErrorAction SilentlyContinue
 }
 
 

@@ -259,10 +259,29 @@ if [ -d "$HOME/.var/app/dev.zed.Zed" ]; then
 fi
 
 # --- VSCode 설정 (settings.json, keybindings.json, tasks.json) ---
-mkdir -p "$cfg_dir/Code/User"
-"$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json" "$cfg_dir/Code/User/settings.json"
-"$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/keybindings.json" "$cfg_dir/Code/User/keybindings.json"
-"$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/tasks.json" "$cfg_dir/Code/User/tasks.json"
+# 환경에 따라 VSCode 설정 경로가 다릅니다:
+#   - 네이티브 Linux (VSCode 앱 직접 실행): ~/.config/Code/User/
+#   - WSL Remote (wsl에서 `code .` 실행):   ~/.vscode-server/data/Machine/
+#
+# /proc/version 에 "microsoft" 문자열이 있으면 WSL 환경으로 판단합니다.
+
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    # === WSL 환경 ===
+    # VSCode Remote WSL 은 vscode-server 가 WSL 안에서 동작하며
+    # 사용자 설정을 ~/.vscode-server/data/Machine/ 에서 읽습니다.
+    vscode_server_user="$HOME/.vscode-server/data/Machine"
+    mkdir -p "$vscode_server_user"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json"    "$vscode_server_user/settings.json"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/keybindings.json" "$vscode_server_user/keybindings.json"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/tasks.json"       "$vscode_server_user/tasks.json"
+else
+    # === 네이티브 Linux 환경 ===
+    # VSCode 를 Linux 앱으로 직접 실행하는 경우 ~/.config/Code/User/ 에서 읽습니다.
+    mkdir -p "$cfg_dir/Code/User"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json"    "$cfg_dir/Code/User/settings.json"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/keybindings.json" "$cfg_dir/Code/User/keybindings.json"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/tasks.json"       "$cfg_dir/Code/User/tasks.json"
+fi
 
 # data 대상 디렉터리 결정
 if [ -n "${XDG_DATA_HOME:-}" ]; then
