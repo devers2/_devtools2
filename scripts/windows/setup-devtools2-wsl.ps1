@@ -532,14 +532,28 @@ if (Test-Path $targetTasks) {
 $targetExtensionsList = "$devtools2Root\.config\vscode\extensions.txt"
 if (Test-Path $targetExtensionsList) {
     if (Get-Command code -ErrorAction SilentlyContinue) {
-        Write-Info "VSCode 확장 프로그램 동기화 목록(extensions.txt) 설치 중..."
+        Write-Info "VSCode 확장 프로그램 목록(extensions.txt) 동기화 검사 중..."
+        $installedExts = @((code --list-extensions 2>$null) | ForEach-Object { $_.Trim().ToLower() })
+
+        $toInstall = @()
         Get-Content $targetExtensionsList | ForEach-Object {
             $ext = $_.Trim()
             if ($ext -and -not $ext.StartsWith("#") -and ($ext -match '^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$')) {
-                code --install-extension $ext --force | Out-Null
+                if (-not ($installedExts -contains $ext.ToLower())) {
+                    $toInstall += $ext
+                }
             }
         }
-        Write-Success "VSCode 확장 프로그램 동기화 설치 완료"
+
+        if ($toInstall.Count -gt 0) {
+            Write-Info "신규/미설치 확장 프로그램 $($toInstall.Count)개 설치 중..."
+            foreach ($ext in $toInstall) {
+                code --install-extension $ext | Out-Null
+            }
+            Write-Success "신규 확장 프로그램 $($toInstall.Count)개 설치 완료"
+        } else {
+            Write-Skip "모든 확장 프로그램이 이미 설치되어 있습니다."
+        }
     } else {
         Write-Warn "VSCode CLI('code')를 찾을 수 없어서 확장 프로그램 자동 설치를 건너럅니다."
     }
