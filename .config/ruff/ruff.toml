@@ -1,3 +1,4 @@
-[format]
-quote-style = 'single'
 line-length = 100 # Prettier printWidth와 통일
+
+[format]
+quote-style = "single"

@@ -8,7 +8,7 @@
     {
       "label": "🌟 [DevTools2] VSCode 확장 목록 동기화 저장 (Export Extensions)",
       "type": "shell",
-      "command": "code --list-extensions > \"$DEVTOOLS2/.config/vscode/extensions.txt\"",
+      "command": "bash -lc 'code --list-extensions > \"${DEVTOOLS2:-/var/opt/_devtools2}/.config/vscode/extensions.txt\" && echo \"✅ extensions.txt 저장 완료\"'",
       "windows": {
         "command": "code --list-extensions > \"$env:DEVTOOLS2\\.config\\vscode\\extensions.txt\""
       },
