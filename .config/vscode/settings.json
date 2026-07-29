@@ -69,8 +69,8 @@
       "path": "/var/opt/_devtools2/modules/java/jdk-1.8"
     }
   ],
-  "java.jdt.ls.java.home": "/var/opt/_devtools2/modules/java/jdk-25", // Java Language Server의 JDK 경로
-  "spring-boot.ls.java.home": "/var/opt/_devtools2/modules/java/jdk-25", // Spring Boot Language Server의 JDK 경로
+  // "java.jdt.ls.java.home": "/var/opt/_devtools2/modules/java/jdk-25", // Java Language Server의 JDK 경로 (미 설정 시 Language Support for Java 확장의 기본 JRE 사용)
+  // "spring-boot.ls.java.home": "/var/opt/_devtools2/modules/java/jdk-25", // Spring Boot Language Server의 JDK 경로 (미 설정 시 JAVA_HOME 또는 PATH 의 JDK 사용)
 
   // Java 프로젝트 세부 설정 파일(Eclipse JDT) 경로
   "java.settings.url": "file:////var/opt/_devtools2/.config/java/org.eclipse.jdt.core.prefs",
