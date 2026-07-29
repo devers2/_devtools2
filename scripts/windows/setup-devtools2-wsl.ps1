@@ -433,7 +433,9 @@ if ($isLocalMode) {
 
     Write-SubStep "▶ (2/4) Zed 에디터 설치 및 설정 연동 (로컬)"
     Write-Host ""
-    Write-Host "👉 Zed 에디터를 설치하시겠습니까? (y/N, 기본값: N): " -ForegroundColor Yellow -NoNewline
+    Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+    Write-Host "N" -ForegroundColor Green -NoNewline
+    Write-Host "]: " -ForegroundColor Yellow -NoNewline
     $installZed = Read-Host
     if ($installZed -match '^[Yy]') {
         & $setupZedScript -WslDistro $wslDistro
@@ -448,7 +450,9 @@ if ($isLocalMode) {
 
     Write-SubStep "▶ (2/4) Zed 에디터 설치 및 설정 연동 (온라인)"
     Write-Host ""
-    Write-Host "👉 Zed 에디터를 설치하시겠습니까? (y/N, 기본값: N): " -ForegroundColor Yellow -NoNewline
+    Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+    Write-Host "N" -ForegroundColor Green -NoNewline
+    Write-Host "]: " -ForegroundColor Yellow -NoNewline
     $installZed = Read-Host
     if ($installZed -match '^[Yy]') {
         $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/2.setup-zed.ps1"
@@ -461,7 +465,9 @@ if ($isLocalMode) {
 
 Write-SubStep "▶ (3/4) VSCode 에디터 설치 및 설정 연동"
 Write-Host ""
-Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? (y/N, 기본값: N): " -ForegroundColor Yellow -NoNewline
+Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+Write-Host "N" -ForegroundColor Green -NoNewline
+Write-Host "]: " -ForegroundColor Yellow -NoNewline
 $installVscode = Read-Host
 $skipVsCode = -not ($installVscode -match '^[Yy]')
 
