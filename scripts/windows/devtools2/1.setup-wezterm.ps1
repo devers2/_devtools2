@@ -656,160 +656,145 @@ if (Test-Path $ahkExe) {
 # ── (3) AHK 스크립트 배포 및 시작 프로그램 자동 실행 연동 ────────────────────
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 
-# AHK 스크립트는 modules/autohotkey 디렉토리에 배치 (Startup에는 바로가기만 배치하여 부팅 팝업 방지)
-$ahkDest = Join-Path $ahkModuleDir "wezterm-hotkey.ahk"
+$ahkSetupJob = Start-Job -ScriptBlock {
+    param($WslDistro, $startupDir, $ahkModuleDir, $ahkExe, $PSScriptRoot)
 
-# 🌟 기존 AutoHotkey 관련 중복 항목 완전 정리 (Startup 폴더 바로가기 & 레지스트리 Run 키)
-Write-Host "  ├─ 기존 AHK 관련 항목 정리 중..." -ForegroundColor DarkGray
-Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $startupDir -Filter "*WezTerm-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem -Path $startupDir -Filter "*Keyboard-Remap*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-
-$runRegPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-if (Test-Path $runRegPath) {
-    Remove-ItemProperty -Path $runRegPath -Name "AutoHotkey" -ErrorAction SilentlyContinue
-    Remove-ItemProperty -Path $runRegPath -Name "AutoHotkey 64-bit" -ErrorAction SilentlyContinue
-    Remove-ItemProperty -Path $runRegPath -Name "AutoHotkey64" -ErrorAction SilentlyContinue
-    Remove-ItemProperty -Path $runRegPath -Name "AutoHotkey64.exe" -ErrorAction SilentlyContinue
-}
-
-
-
-
-# ── (3-1) Windows 사용자 환경 변수 %DEVTOOLS2% 연동 ─────────────────────────
-$wslDevtools2Root = "\\wsl.localhost\$WslDistro\var\opt\_devtools2"
-if (Test-Path $wslDevtools2Root) {
-    [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
-    $env:DEVTOOLS2 = $wslDevtools2Root
-    Write-Success "Windows 사용자 환경 변수 %DEVTOOLS2% 연동 완료: $wslDevtools2Root"
-}
-
-# ── (4) wezterm-hotkey.ahk 소스 경로 결정 (%DEVTOOLS2% 우선 → 로컬 소스 → GitHub 원격) ───
-# 단일 원본(dotfiles WSL 내 경로)을 직접 참조하므로 복사 없이 연동
-$wslAhk1 = if ($env:DEVTOOLS2) { Join-Path $env:DEVTOOLS2 "scripts\windows\autohotkey\wezterm-hotkey.ahk" } else { $null }
-
-if ($wslAhk1 -and (Test-Path $wslAhk1)) {
-    $ahkDest = $wslAhk1
-    Write-Success "WSL dotfiles 원본 AHK 직접 연동 (단일 원본): $ahkDest"
-} else {
-    $ahkSourceLocal = $null
-    if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-        $ahkSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\wezterm-hotkey.ahk"
+    # 헬퍼: WSL2 파일 존재 여부를 UNC Test-Path 대신 wsl test -f 로 0.01초만에 빠르게 검사
+    function Test-WslFileFast {
+        param($distro, $linuxPath)
+        $res = wsl -d $distro -- bash -c "test -f '$linuxPath' && echo 'OK'" 2>$null
+        return ($res -eq 'OK')
+    }
+    function Test-WslDirFast {
+        param($distro, $linuxPath)
+        $res = wsl -d $distro -- bash -c "test -d '$linuxPath' && echo 'OK'" 2>$null
+        return ($res -eq 'OK')
     }
 
-    if ($ahkSourceLocal -and (Test-Path $ahkSourceLocal)) {
-        Write-Info "AHK 스크립트 복사(덮어쓰기) 중: $ahkSourceLocal"
-        Copy-Item -Path $ahkSourceLocal -Destination $ahkDest -Force
+    # AHK 스크립트는 modules/autohotkey 디렉토리에 배치
+    $ahkDest = Join-Path $ahkModuleDir "wezterm-hotkey.ahk"
+    $kbRemapDest = Join-Path $ahkModuleDir "keyboard-remap.ahk"
+
+    # 🌟 기존 AutoHotkey 관련 중복 항목 정리 (Startup 바로가기 & 레지스트리 Run 키)
+    Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path $startupDir -Filter "*WezTerm-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path $startupDir -Filter "*Keyboard-Remap*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+    $runRegPaths = @(
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+    )
+    foreach ($regPath in $runRegPaths) {
+        if (Test-Path $regPath) {
+            $props = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+            if ($props) {
+                $props.psobject.Properties | Where-Object { $_.Name -like "*AutoHotkey*" } | ForEach-Object {
+                    Remove-ItemProperty -Path $regPath -Name $_.Name -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+
+    # %DEVTOOLS2% 환경 변수 연동
+    $wslDevtools2Root = "\\wsl.localhost\$WslDistro\var\opt\_devtools2"
+    if (Test-WslDirFast $WslDistro "/var/opt/_devtools2") {
+        [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
+        $env:DEVTOOLS2 = $wslDevtools2Root
+    }
+
+    # 1) wezterm-hotkey.ahk 연동
+    $wslAhkRel = "/var/opt/_devtools2/scripts/windows/autohotkey/wezterm-hotkey.ahk"
+    if (Test-WslFileFast $WslDistro $wslAhkRel) {
+        $ahkDest = "$wslDevtools2Root\scripts\windows\autohotkey\wezterm-hotkey.ahk"
     } else {
-        $ahkRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/wezterm-hotkey.ahk"
-        $dlAhkJob = Start-Job -ScriptBlock {
-            param($uri, $out)
-            Invoke-WebRequest -Uri $uri -OutFile $out -ErrorAction Stop
-        } -ArgumentList $ahkRaw, $ahkDest
-        Wait-WithSpinner -Message "wezterm-hotkey.ahk 다운로드 중" -Condition { $dlAhkJob.State -ne 'Running' } -MaxTimeoutSeconds 60
-        try { Receive-Job -Job $dlAhkJob -ErrorAction SilentlyContinue | Out-Null } catch {}
-        if ($dlAhkJob.State -eq 'Failed') { Write-Warn "AHK 스크립트 다운로드 실패" }
-        Remove-Job -Job $dlAhkJob -Force -ErrorAction SilentlyContinue
-    }
-}
-
-# 포터블 AutoHotkey 부팅 자동 실행용 바로가기(.lnk) 생성
-Write-Host "  ├─ WezTerm 단축키 시작 프로그램 바로가기 등록 중..." -ForegroundColor DarkGray
-if (Test-Path $ahkExe) {
-    $shortcutPath = "$startupDir\WezTerm-Hotkey-Launcher.lnk"
-    try {
-        $wshShell = New-Object -ComObject WScript.Shell
-        $shortcut = $wshShell.CreateShortcut($shortcutPath)
-        $shortcut.TargetPath       = $ahkExe
-        $shortcut.Arguments        = "`"$ahkDest`""
-        $shortcut.WorkingDirectory = $ahkModuleDir
-        $shortcut.WindowStyle      = 7  # 7 = Minimized / Background
-        $shortcut.Description      = "WezTerm Ctrl+Alt+T Hotkey Launcher"
-        $shortcut.Save()
-        Write-Host "  │   └─ 완료: $shortcutPath" -ForegroundColor DarkGray
-    } catch {}
-}
-
-# ── (5) keyboard-remap.ahk (CapsLock 리매핑) 배포 및 바로가기 생성 ───────────
-$kbRemapDest = Join-Path $ahkModuleDir "keyboard-remap.ahk"
-
-# 단일 원본(dotfiles WSL 내 경로)을 직접 참조 (%DEVTOOLS2% 우선 → 로컬 소스 → GitHub)
-$wslKb1 = if ($env:DEVTOOLS2) { Join-Path $env:DEVTOOLS2 "scripts\windows\autohotkey\keyboard-remap.ahk" } else { $null }
-
-if ($wslKb1 -and (Test-Path $wslKb1)) {
-    $kbRemapDest = $wslKb1
-    Write-Success "WSL dotfiles 원본 AHK 직접 연동 (단일 원본): $kbRemapDest"
-} else {
-    $kbRemapSourceLocal = $null
-    if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-        $kbRemapSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\keyboard-remap.ahk"
+        $ahkSourceLocal = $null
+        if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+            $ahkSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\wezterm-hotkey.ahk"
+        }
+        if ($ahkSourceLocal -and (Test-Path $ahkSourceLocal)) {
+            Copy-Item -Path $ahkSourceLocal -Destination $ahkDest -Force
+        } else {
+            try {
+                $ahkRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/wezterm-hotkey.ahk"
+                Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkDest -ErrorAction Stop
+            } catch {}
+        }
     }
 
-    if ($kbRemapSourceLocal -and (Test-Path $kbRemapSourceLocal)) {
-        Write-Info "키보드 리매핑 AHK 복사 중: $kbRemapSourceLocal"
-        Copy-Item -Path $kbRemapSourceLocal -Destination $kbRemapDest -Force
+    # WezTerm 바로가기 생성
+    if (Test-Path $ahkExe) {
+        $shortcutPath = "$startupDir\WezTerm-Hotkey-Launcher.lnk"
+        try {
+            $wshShell = New-Object -ComObject WScript.Shell
+            $shortcut = $wshShell.CreateShortcut($shortcutPath)
+            $shortcut.TargetPath       = $ahkExe
+            $shortcut.Arguments        = "`"$ahkDest`""
+            $shortcut.WorkingDirectory = $ahkModuleDir
+            $shortcut.WindowStyle      = 7
+            $shortcut.Description      = "WezTerm Ctrl+Alt+T Hotkey Launcher"
+            $shortcut.Save()
+        } catch {}
+    }
+
+    # 2) keyboard-remap.ahk 연동
+    $wslKbRel = "/var/opt/_devtools2/scripts/windows/autohotkey/keyboard-remap.ahk"
+    if (Test-WslFileFast $WslDistro $wslKbRel) {
+        $kbRemapDest = "$wslDevtools2Root\scripts\windows\autohotkey\keyboard-remap.ahk"
     } else {
-        $kbRemapRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/keyboard-remap.ahk"
-        $dlKbJob = Start-Job -ScriptBlock {
-            param($uri, $out)
-            Invoke-WebRequest -Uri $uri -OutFile $out -ErrorAction Stop
-        } -ArgumentList $kbRemapRaw, $kbRemapDest
-        Wait-WithSpinner -Message "keyboard-remap.ahk 다운로드 중" -Condition { $dlKbJob.State -ne 'Running' } -MaxTimeoutSeconds 60
-        try { Receive-Job -Job $dlKbJob -ErrorAction SilentlyContinue | Out-Null } catch {}
-        if ($dlKbJob.State -eq 'Failed') { Write-Warn "keyboard-remap.ahk 다운로드 실패" }
-        Remove-Job -Job $dlKbJob -Force -ErrorAction SilentlyContinue
+        $kbRemapSourceLocal = $null
+        if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
+            $kbRemapSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\keyboard-remap.ahk"
+        }
+        if ($kbRemapSourceLocal -and (Test-Path $kbRemapSourceLocal)) {
+            Copy-Item -Path $kbRemapSourceLocal -Destination $kbRemapDest -Force
+        } else {
+            try {
+                $kbRemapRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/keyboard-remap.ahk"
+                Invoke-WebRequest -Uri $kbRemapRaw -OutFile $kbRemapDest -ErrorAction Stop
+            } catch {}
+        }
     }
-}
 
-
-# 키보드 리매핑 부팅 자동 실행용 바로가기(.lnk) 생성
-Write-Host "  ├─ CapsLock 리매핑 시작 프로그램 바로가기 등록 중..." -ForegroundColor DarkGray
-if ((Test-Path $ahkExe) -and (Test-Path $kbRemapDest)) {
-    $kbShortcutPath = "$startupDir\Keyboard-Remap-Launcher.lnk"
-    try {
-        $wshShell2 = New-Object -ComObject WScript.Shell
-        $kbShortcut = $wshShell2.CreateShortcut($kbShortcutPath)
-        $kbShortcut.TargetPath       = $ahkExe
-        $kbShortcut.Arguments        = "`"$kbRemapDest`""
-        $kbShortcut.WorkingDirectory = $ahkModuleDir
-        $kbShortcut.WindowStyle      = 7  # 7 = Minimized / Background
-        $kbShortcut.Description      = "CapsLock Keyboard Remap (ESC / Ctrl overload)"
-        $kbShortcut.Save()
-        Write-Host "  │   └─ 완료: $kbShortcutPath" -ForegroundColor DarkGray
-    } catch {}
-}
-
-# ── (6) 기존 프로세스 종료 후 두 AHK 스크립트 재실행 ─────────────────────────
-if (Test-Path $ahkDest) {
-    Write-Success "WezTerm 단축키 AHK 연동 완료"
-} else {
-    Write-Warn "WezTerm 단축키 AHK 배포에 실패했습니다."
-}
-if (Test-Path $kbRemapDest) {
-    Write-Success "키보드 리매핑 AHK 연동 완료"
-} else {
-    Write-Warn "키보드 리매핑 AHK 배포에 실패했습니다."
-}
-
-# 기존 AutoHotkey 인스턴스 전체 종료
-Write-Host "  ├─ 기존 AHK 프로세스 종료 후 재실행 중..." -ForegroundColor DarkGray
-Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
-    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-
-# 포터블 AutoHotkey 로 두 스크립트를 각각 백그라운드 구동
-if ($ahkExe -and (Test-Path $ahkExe)) {
-    if (Test-Path $ahkDest) {
-        Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
-        Write-Host "  │   ├─ Ctrl+Alt+T WezTerm 단축키 활성화" -ForegroundColor DarkGray
+    # Keyboard Remap 바로가기 생성
+    if (Test-Path $ahkExe) {
+        $kbShortcutPath = "$startupDir\Keyboard-Remap-Launcher.lnk"
+        try {
+            $wshShell2 = New-Object -ComObject WScript.Shell
+            $kbShortcut = $wshShell2.CreateShortcut($kbShortcutPath)
+            $kbShortcut.TargetPath       = $ahkExe
+            $kbShortcut.Arguments        = "`"$kbRemapDest`""
+            $kbShortcut.WorkingDirectory = $ahkModuleDir
+            $kbShortcut.WindowStyle      = 7
+            $kbShortcut.Description      = "CapsLock Keyboard Remap (ESC / Ctrl overload)"
+            $kbShortcut.Save()
+        } catch {}
     }
-    if (Test-Path $kbRemapDest) {
-        Start-Sleep -Milliseconds 200  # 스크립트 충돌 방지용 잠깐 대기
-        Start-Process -FilePath $ahkExe -ArgumentList "`"$kbRemapDest`"" -WindowStyle Hidden
-        Write-Host "  │   └─ CapsLock 키보드 리매핑 활성화" -ForegroundColor DarkGray
+
+    # 기존 AutoHotkey 프로세스 전체 종료 후 재실행
+    Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+
+    if ($ahkExe -and (Test-Path $ahkExe)) {
+        if ($ahkDest) {
+            Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
+        }
+        if ($kbRemapDest) {
+            Start-Sleep -Milliseconds 200
+            Start-Process -FilePath $ahkExe -ArgumentList "`"$kbRemapDest`"" -WindowStyle Hidden
+        }
     }
-    Write-Success "AHK 서비스 즉시 시작 완료."
-}
+
+    return @{ AhkDest = $ahkDest; KbRemapDest = $kbRemapDest }
+} -ArgumentList $WslDistro, $startupDir, $ahkModuleDir, $ahkExe, $PSScriptRoot
+
+# 스피너로 백그라운드 작업 대기
+Wait-WithSpinner -Message "AutoHotkey 기능 연동 및 시작 프로그램 구성 중" -Condition { $ahkSetupJob.State -ne 'Running' } -MaxTimeoutSeconds 60
+
+$jobRes = Receive-Job -Job $ahkSetupJob -ErrorAction SilentlyContinue
+Remove-Job -Job $ahkSetupJob -Force -ErrorAction SilentlyContinue
+
+Write-Success "AutoHotkey 기능(WezTerm Ctrl+Alt+T 단축키 및 CapsLock 리매핑)이 정상 연동되었습니다."
 } # end if ($installAhk -notmatch '^[Nn]')
 
 # ==============================================================================
