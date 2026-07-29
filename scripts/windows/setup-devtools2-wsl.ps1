@@ -432,7 +432,14 @@ if ($isLocalMode) {
     & $setupWeztermScript -WslDistro $wslDistro
 
     Write-SubStep "▶ (2/4) Zed 에디터 설치 및 설정 연동 (로컬)"
-    & $setupZedScript -WslDistro $wslDistro
+    Write-Host ""
+    Write-Host "👉 Zed 에디터를 설치하시겠습니까? (y/N, 기본값: N): " -ForegroundColor Yellow -NoNewline
+    $installZed = Read-Host
+    if ($installZed -match '^[Yy]') {
+        & $setupZedScript -WslDistro $wslDistro
+    } else {
+        Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+    }
 } else {
     Write-SubStep "▶ (1/4) WezTerm 설치 및 설정 연동 (온라인)"
     $rawWeztermScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/1.setup-wezterm.ps1"
@@ -440,33 +447,52 @@ if ($isLocalMode) {
     & $weztermScriptBlock -WslDistro $wslDistro
 
     Write-SubStep "▶ (2/4) Zed 에디터 설치 및 설정 연동 (온라인)"
-    $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/2.setup-zed.ps1"
-    $zedScriptBlock = [scriptblock]::Create($rawZedScript)
-    & $zedScriptBlock -WslDistro $wslDistro
+    Write-Host ""
+    Write-Host "👉 Zed 에디터를 설치하시겠습니까? (y/N, 기본값: N): " -ForegroundColor Yellow -NoNewline
+    $installZed = Read-Host
+    if ($installZed -match '^[Yy]') {
+        $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/2.setup-zed.ps1"
+        $zedScriptBlock = [scriptblock]::Create($rawZedScript)
+        & $zedScriptBlock -WslDistro $wslDistro
+    } else {
+        Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+    }
 }
 
-Write-SubStep "▶ (3/4) VSCode 에디터 설치 (미설치 시 winget 자동 설치)"
-$vscodeInstalled = $false
-try {
-    if (Get-Command code -ErrorAction SilentlyContinue) {
-        $vscodeInstalled = $true
-    } elseif (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") {
-        $vscodeInstalled = $true
-    } elseif (Test-Path "$env:ProgramFiles\Microsoft VS Code\Code.exe") {
-        $vscodeInstalled = $true
-    }
-} catch {}
+Write-SubStep "▶ (3/4) VSCode 에디터 설치 및 설정 연동"
+Write-Host ""
+Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? (y/N, 기본값: N): " -ForegroundColor Yellow -NoNewline
+$installVscode = Read-Host
+$skipVsCode = -not ($installVscode -match '^[Yy]')
 
-if ($vscodeInstalled) {
-    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
+if ($skipVsCode) {
+    Write-Skip "VS Code 설치를 건너뜁니다. 기존 설정은 유지됩니다."
 } else {
-    Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
-    $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
-    Wait-ProcessWithSpinner -Process $p -Message "VSCode 패키지 설치 진행 중"
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    $vscodeInstalled = $false
+    try {
+        if (Get-Command code -ErrorAction SilentlyContinue) {
+            $vscodeInstalled = $true
+        } elseif (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") {
+            $vscodeInstalled = $true
+        } elseif (Test-Path "$env:ProgramFiles\Microsoft VS Code\Code.exe") {
+            $vscodeInstalled = $true
+        }
+    } catch {}
+
+    if ($vscodeInstalled) {
+        Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
+    } else {
+        Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
+        $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+        Wait-ProcessWithSpinner -Process $p -Message "VSCode 패키지 설치 진행 중"
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    }
 }
 
 Write-SubStep "▶ (4/4) VSCode 설정, 확장 목록 및 Gradle 자격증명 연동 (심볼릭 링크)"
+if ($skipVsCode) {
+    Write-Skip "VS Code 설치를 건너뜀 — 설정 연동 단계도 건너뜁니다."
+} else {
 $vscodeUserDir = "$env:APPDATA\Code\User"
 if (-not (Test-Path $vscodeUserDir)) {
     New-Item -ItemType Directory -Path $vscodeUserDir -Force | Out-Null
@@ -559,7 +585,8 @@ if (Test-Path $targetExtensionsList) {
     }
 }
 
-Write-Success "VSCode 설정 연동 완료"
+    Write-Success "VSCode 설정 연동 완료"
+} # end if -not skipVsCode
 
 # 🌟 [Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동]
 # - 보안 자격증명 정보(Git Token/Maven Auth) 손실 방지 및 이중 환경 호환성 확보

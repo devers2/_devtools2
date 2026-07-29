@@ -502,6 +502,75 @@ if (Get-Item -Path $WinWeztermConfig -Force -ErrorAction SilentlyContinue) {
 # ==============================================================================
 Write-Step "[Step 5] AutoHotkey v2 포터블 배포 및 Ctrl+Alt+T 단축키 등록"
 
+# ── AutoHotkey 설치 여부 확인 ─────────────────────────────────────────────────
+Write-Host ""
+Write-Host "👉 AutoHotKey를 설치하시겠습니까? (Y/n, 기본값: Y): " -ForegroundColor Yellow -NoNewline
+$installAhk = Read-Host
+
+if ($installAhk -match '^[Nn]') {
+    # ── n 선택: devtools2 관련 AHK만 동적으로 감지하여 정리 ─────────────────────
+    # 파일명을 하드코딩하지 않고, 'wsl.localhost\<distro>' 경로를 가리키는 것만 대상으로 삼아
+    # 나중에 ahk 스크립트가 추가되어도 이 정리 코드를 수정할 필요가 없습니다.
+    Write-Info "AutoHotKey 설치를 건너뜁니다. devtools2 WSL 연동 AHK만 동적으로 정리합니다..."
+
+    $ahkModuleDir = "$env:LOCALAPPDATA\_devtools2\modules\autohotkey"
+    $startupDir   = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+
+    # devtools2 WSL 경로 식별 패턴 — wsl.localhost\<배포판명> 을 가리키는 것만 대상
+    $wslDevtools2Pattern = [regex]::Escape("wsl.localhost\$WslDistro")
+
+    # (1) CommandLine이 devtools2 WSL 경로를 포함하는 AHK 프로세스만 종료
+    #     관련 없는 AutoHotkey 프로세스는 절대 건드리지 않음
+    try {
+        $killedCount = 0
+        Get-CimInstance Win32_Process -Filter "Name like 'AutoHotkey%'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -match $wslDevtools2Pattern } |
+            ForEach-Object {
+                Write-Info "devtools2 AHK 프로세스 종료: PID=$($_.ProcessId) / $($_.CommandLine)"
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+                $killedCount++
+            }
+        if ($killedCount -eq 0) {
+            Write-Info "종료할 devtools2 AHK 프로세스가 없습니다."
+        }
+    } catch {
+        Write-Warn "AHK 프로세스 확인 중 오류 (WMI 사용 불가): $($_.Exception.Message)"
+    }
+
+    # (2) Startup 폴더의 .lnk 중 devtools2 관련 경로를 가리키는 것만 삭제
+    #     감지 패턴 두 가지:
+    #       a) WSL 정상 연동 케이스: Arguments/TargetPath 에 wsl.localhost\<distro> 포함
+    #       b) 로컬 폴백 케이스   : Arguments/TargetPath 에 _devtools2\modules\autohotkey 포함
+    #     두 패턴 모두 devtools2 전용 경로라서 무관한 AHK 바로가기는 절대 매칭되지 않음
+    $localAhkModulePattern = [regex]::Escape("_devtools2\modules\autohotkey")
+    $wshShellClean = New-Object -ComObject WScript.Shell
+    Get-ChildItem -Path $startupDir -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            $sc = $wshShellClean.CreateShortcut($_.FullName)
+            $combined = "$($sc.Arguments) $($sc.TargetPath)"
+            $isDevtools2Link = ($combined -match $wslDevtools2Pattern) -or
+                               ($combined -match $localAhkModulePattern)
+            if ($isDevtools2Link) {
+                Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+                Write-Info "devtools2 AHK 바로가기 제거: $($_.Name) (대상: $($sc.Arguments))"
+            }
+        } catch {}
+    }
+    Write-Info "Startup 폴더 devtools2 AHK 바로가기 정리 완료."
+
+    # (3) modules/autohotkey 폴더의 *.ahk 삭제 (WSL 연동 실패 시 폴백으로 로컬에 복사된 파일들)
+    #     ※ WSL 정상 연동 시에는 물리 파일이 WSL 내부에만 있고 여기에 파일이 없는 게 정상
+    #     ※ WSL 내부 원본(\\wsl.localhost\...\scripts\windows\autohotkey\*.ahk)은 삭제하지 않음
+    $localAhkFiles = Get-ChildItem -Path $ahkModuleDir -Filter "*.ahk" -ErrorAction SilentlyContinue
+    if ($localAhkFiles) {
+        $localAhkFiles | Remove-Item -Force -ErrorAction SilentlyContinue
+        Write-Info "로컬 폴백 AHK 파일 제거: $ahkModuleDir\*.ahk ($($localAhkFiles.Count)개)"
+    }
+
+    Write-Success "devtools2 AHK 정리 완료. WezTerm 단축키(Ctrl+Alt+T) 및 CapsLock 리매핑이 비활성화됩니다."
+    Write-Info "다른 용도의 AutoHotkey 프로세스는 영향을 받지 않습니다."
+} else {
+
 # ── (1) modules/autohotkey 포터블 설치 경로 결정 ─────────────────────────────
 $ahkModuleDir = "$env:LOCALAPPDATA\_devtools2\modules\autohotkey"
 $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
@@ -728,6 +797,7 @@ if ($ahkExe -and (Test-Path $ahkExe)) {
         Write-Success "CapsLock 키보드 리매핑 서비스 즉시 활성화."
     }
 }
+} # end if ($installAhk -notmatch '^[Nn]')
 
 # ==============================================================================
 # 완료
@@ -739,11 +809,16 @@ Write-Host ""
 Write-Host "  설정 파일 공유(심볼릭 링크)가 완료되었습니다." -ForegroundColor White
 Write-Host "  이제 리눅스 혹은 윈도우 어느 쪽에서든 설정을 편집하면 양쪽 모두에 즉시 반영됩니다." -ForegroundColor White
 Write-Host ""
-Write-Host "  [단축키]" -ForegroundColor Cyan
-Write-Host "  Ctrl+Alt+T          : WezTerm 새 창 열기" -ForegroundColor White
-Write-Host "  CapsLock (단독 탭)  : ESC" -ForegroundColor White
-Write-Host "  CapsLock + 다른 키  : Ctrl 조합" -ForegroundColor White
-Write-Host "  Shift + CapsLock    : 대문자 고정 ON" -ForegroundColor White
-Write-Host "  (고정ON) CapsLock/ESC: 대문자 고정 OFF" -ForegroundColor White
+if (-not ($installAhk -match '^[Nn]')) {
+    Write-Host "  [단축키]" -ForegroundColor Cyan
+    Write-Host "  Ctrl+Alt+T          : WezTerm 새 창 열기" -ForegroundColor White
+    Write-Host "  CapsLock (단독 탭)  : ESC" -ForegroundColor White
+    Write-Host "  CapsLock + 다른 키  : Ctrl 조합" -ForegroundColor White
+    Write-Host "  Shift + CapsLock    : 대문자 고정 ON" -ForegroundColor White
+    Write-Host "  (고정ON) CapsLock/ESC: 대문자 고정 OFF" -ForegroundColor White
+} else {
+    Write-Host "  [안내] AutoHotKey를 설치하지 않아 단축키 기능이 비활성화됩니다." -ForegroundColor Yellow
+    Write-Host "         WezTerm 단축키(Ctrl+Alt+T) 및 CapsLock 리매핑은 동작하지 않습니다." -ForegroundColor Yellow
+}
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
