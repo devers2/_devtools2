@@ -660,6 +660,7 @@ $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $ahkDest = Join-Path $ahkModuleDir "wezterm-hotkey.ahk"
 
 # 🌟 기존 AutoHotkey 관련 중복 항목 완전 정리 (Startup 폴더 바로가기 & 레지스트리 Run 키)
+Write-Host "  ├─ 기존 AHK 관련 항목 정리 중..." -ForegroundColor DarkGray
 Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path $startupDir -Filter "*WezTerm-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -714,6 +715,7 @@ if ($wslAhk1 -and (Test-Path $wslAhk1)) {
 }
 
 # 포터블 AutoHotkey 부팅 자동 실행용 바로가기(.lnk) 생성
+Write-Host "  ├─ WezTerm 단축키 시작 프로그램 바로가기 등록 중..." -ForegroundColor DarkGray
 if (Test-Path $ahkExe) {
     $shortcutPath = "$startupDir\WezTerm-Hotkey-Launcher.lnk"
     try {
@@ -725,6 +727,7 @@ if (Test-Path $ahkExe) {
         $shortcut.WindowStyle      = 7  # 7 = Minimized / Background
         $shortcut.Description      = "WezTerm Ctrl+Alt+T Hotkey Launcher"
         $shortcut.Save()
+        Write-Host "  │   └─ 완료: $shortcutPath" -ForegroundColor DarkGray
     } catch {}
 }
 
@@ -761,6 +764,7 @@ if ($wslKb1 -and (Test-Path $wslKb1)) {
 
 
 # 키보드 리매핑 부팅 자동 실행용 바로가기(.lnk) 생성
+Write-Host "  ├─ CapsLock 리매핑 시작 프로그램 바로가기 등록 중..." -ForegroundColor DarkGray
 if ((Test-Path $ahkExe) -and (Test-Path $kbRemapDest)) {
     $kbShortcutPath = "$startupDir\Keyboard-Remap-Launcher.lnk"
     try {
@@ -772,22 +776,24 @@ if ((Test-Path $ahkExe) -and (Test-Path $kbRemapDest)) {
         $kbShortcut.WindowStyle      = 7  # 7 = Minimized / Background
         $kbShortcut.Description      = "CapsLock Keyboard Remap (ESC / Ctrl overload)"
         $kbShortcut.Save()
+        Write-Host "  │   └─ 완료: $kbShortcutPath" -ForegroundColor DarkGray
     } catch {}
 }
 
 # ── (6) 기존 프로세스 종료 후 두 AHK 스크립트 재실행 ─────────────────────────
 if (Test-Path $ahkDest) {
-    Write-Success "WezTerm 단축키 AHK 배포 완료: $ahkDest"
+    Write-Success "WezTerm 단축키 AHK 연동 완료"
 } else {
     Write-Warn "WezTerm 단축키 AHK 배포에 실패했습니다."
 }
 if (Test-Path $kbRemapDest) {
-    Write-Success "키보드 리매핑 AHK 배포 완료: $kbRemapDest"
+    Write-Success "키보드 리매핑 AHK 연동 완료"
 } else {
     Write-Warn "키보드 리매핑 AHK 배포에 실패했습니다."
 }
 
 # 기존 AutoHotkey 인스턴스 전체 종료
+Write-Host "  ├─ 기존 AHK 프로세스 종료 후 재실행 중..." -ForegroundColor DarkGray
 Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
     ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 
@@ -795,13 +801,14 @@ Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
 if ($ahkExe -and (Test-Path $ahkExe)) {
     if (Test-Path $ahkDest) {
         Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
-        Write-Success "Ctrl+Alt+T WezTerm 단축키 서비스 즉시 활성화."
+        Write-Host "  │   ├─ Ctrl+Alt+T WezTerm 단축키 활성화" -ForegroundColor DarkGray
     }
     if (Test-Path $kbRemapDest) {
         Start-Sleep -Milliseconds 200  # 스크립트 충돌 방지용 잠깐 대기
         Start-Process -FilePath $ahkExe -ArgumentList "`"$kbRemapDest`"" -WindowStyle Hidden
-        Write-Success "CapsLock 키보드 리매핑 서비스 즉시 활성화."
+        Write-Host "  │   └─ CapsLock 키보드 리매핑 활성화" -ForegroundColor DarkGray
     }
+    Write-Success "AHK 서비스 즉시 시작 완료."
 }
 } # end if ($installAhk -notmatch '^[Nn]')
 
