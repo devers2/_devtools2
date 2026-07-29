@@ -235,7 +235,7 @@ if [ "$_HAS_INSTALLED" = true ]; then
     print_option "2" "기존 도구 유지 (건너뛰기)" "[기본값]"
     print_option "3" "도구별 개별 확인 (재설치/건너뛰기 선택)"
     echo ""
-    read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m/3]: ")" _dup_choice
+    read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}/3]: ")" _dup_choice
     echo ""
     case "${_dup_choice:-2}" in
         1) DUPLICATE_MODE="remove"     ; print_info "중복 처리: 묻지 않고 삭제 후 재설치 선택됨" ;;
@@ -252,7 +252,7 @@ print_option "1" "모든 도구 최신 버전으로 설치 (온라인 최신 릴
 print_option "2" "모든 도구 지정 버전으로 설치 (TOML 고정/최종 설치 버전)" "[기본값]"
 print_option "3" "도구별 개별 확인 (최신/지정 버전 선택)"
 echo ""
-read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m/3]: ")" _ver_choice
+read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}/3]: ")" _ver_choice
 echo ""
 case "${_ver_choice:-2}" in
     1) VERSION_MODE="latest"     ; print_info "버전 선택: 모든 도구 최신 버전 선택됨" ;;
@@ -350,7 +350,7 @@ _resolve_action() {
         individual)
             echo ""
             echo "   ⚠️  ${tool_name}이(가) 이미 설치되어 있습니다."
-            read -rp "$(prompt_input "   삭제 후 재설치하시겠습니까? [y/\033[32mN\033[0m]: ")" _dup_sel
+            read -rp "$(prompt_input "   삭제 후 재설치하시겠습니까? [y/${_C_GREEN}N${_C_RESET}]: ")" _dup_sel
             case "${_dup_sel:-N}" in
                 y|Y) echo "reinstall" ;;
                 *)   echo "skip" ;;
@@ -376,7 +376,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_fzf_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $FZF_PINNED [기본값]"
     echo ""
-    read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m]: ")" _fzf_vs
+    read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}]: ")" _fzf_vs
     case "${_fzf_vs:-2}" in
         1) [ -n "$_fzf_latest" ] && FZF_VERSION="$_fzf_latest" || FZF_VERSION="$FZF_PINNED" ;;
         *) FZF_VERSION="$FZF_PINNED" ;;
@@ -420,7 +420,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_lg_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $LAZYGIT_PINNED [기본값]"
     echo ""
-    read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m]: ")" _lg_vs
+    read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}]: ")" _lg_vs
     case "${_lg_vs:-2}" in
         1) [ -n "$_lg_latest" ] && LAZYGIT_VERSION="$_lg_latest" || LAZYGIT_VERSION="$LAZYGIT_PINNED" ;;
         *) LAZYGIT_VERSION="$LAZYGIT_PINNED" ;;
@@ -464,7 +464,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_rg_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $RIPGREP_PINNED [기본값]"
     echo ""
-    read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m]: ")" _rg_vs
+    read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}]: ")" _rg_vs
     case "${_rg_vs:-2}" in
         1) [ -n "$_rg_latest" ] && RIPGREP_VERSION="$_rg_latest" || RIPGREP_VERSION="$RIPGREP_PINNED" ;;
         *) RIPGREP_VERSION="$RIPGREP_PINNED" ;;
@@ -508,7 +508,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_fd_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $FD_PINNED [기본값]"
     echo ""
-    read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m]: ")" _fd_vs
+    read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}]: ")" _fd_vs
     case "${_fd_vs:-2}" in
         1) [ -n "$_fd_latest" ] && FD_VERSION="$_fd_latest" || FD_VERSION="$FD_PINNED" ;;
         *) FD_VERSION="$FD_PINNED" ;;
@@ -552,7 +552,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_sg_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $ASTGREP_PINNED [기본값]"
     echo ""
-    read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m]: ")" _sg_vs
+    read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}]: ")" _sg_vs
     case "${_sg_vs:-2}" in
         1) [ -n "$_sg_latest" ] && ASTGREP_VERSION="$_sg_latest" || ASTGREP_VERSION="$ASTGREP_PINNED" ;;
         *) ASTGREP_VERSION="$ASTGREP_PINNED" ;;
@@ -606,7 +606,7 @@ if [ "$VERSION_MODE" = "individual" ] && [ "$IS_ARM64" = true ]; then
     echo "   1) 최신 버전: ${_bw_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $BITWARDEN_ARM_PINNED [기본값]"
     echo ""
-    read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m]: ")" _bw_vs
+    read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}]: ")" _bw_vs
     case "${_bw_vs:-2}" in
         1) [ -n "$_bw_latest" ] && BITWARDEN_ARM_VERSION="$_bw_latest" || BITWARDEN_ARM_VERSION="$BITWARDEN_ARM_PINNED" ;;
         *) BITWARDEN_ARM_VERSION="$BITWARDEN_ARM_PINNED" ;;
@@ -652,7 +652,7 @@ if [ "$IS_WSL2" = true ]; then
         echo "   1) 최신 버전: ${_wy_latest:-[조회 실패 - 선택 불가]}"
         echo "   2) 최종 설치 버전: $WIN32YANK_PINNED [기본값]"
         echo ""
-        read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m]: ")" _wy_vs
+        read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}]: ")" _wy_vs
         case "${_wy_vs:-2}" in
             1) [ -n "$_wy_latest" ] && WIN32YANK_VERSION="$_wy_latest" || WIN32YANK_VERSION="$WIN32YANK_PINNED" ;;
             *) WIN32YANK_VERSION="$WIN32YANK_PINNED" ;;
@@ -747,7 +747,7 @@ print_info "💡 Neovim 사용 안내:"
 echo "      - <leader> + d + a 단축키로 실행 중인 JVM에 attach 합니다."
 echo "      - ※ :Mason 에서 java-debug-adapter 가 설치되어 있어야 함."
 echo ""
-read -rp "$(prompt_input "❓ Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [\033[32mY\033[0m/n]: ")" dap_answer
+read -rp "$(prompt_input "❓ Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [${_C_GREEN}Y${_C_RESET}/n]: ")" dap_answer
 
 # 기본값 y: 아무것도 입력 안 하거나 Y/y 입력 시 설치
 dap_answer_lower=$(echo "${dap_answer:-y}" | tr '[:upper:]' '[:lower:]')
@@ -763,7 +763,7 @@ if [ "$dap_answer_lower" = "y" ]; then
     if [ -f "$GRADLE_DEBUG_FILE" ]; then
         echo ""
         print_warn "파일이 이미 존재합니다: $GRADLE_DEBUG_FILE"
-        read -rp "$(prompt_input "   기존 파일을 새 설정으로 교체할까요? [y/\033[32mN\033[0m]: ")" overwrite_answer
+        read -rp "$(prompt_input "   기존 파일을 새 설정으로 교체할까요? [y/${_C_GREEN}N${_C_RESET}]: ")" overwrite_answer
         overwrite_lower=$(echo "${overwrite_answer:-n}" | tr '[:upper:]' '[:lower:]')
         if [ "$overwrite_lower" != "y" ]; then
             do_write=false

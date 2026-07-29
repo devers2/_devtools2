@@ -245,7 +245,7 @@ if [ "$_HAS_INSTALLED" = true ]; then
     print_option "2" "기존 도구 유지 (건너뛰기)" "[기본값]"
     print_option "3" "도구별 개별 확인 (재설치/건너뛰기 선택)"
     echo ""
-    read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m/3]: ")" _dup_choice
+    read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}/3]: ")" _dup_choice
     echo ""
     case "${_dup_choice:-2}" in
         1) DUPLICATE_MODE="remove"     ; print_info "중복 처리: 묻지 않고 삭제 후 재설치 선택됨" ;;
@@ -262,7 +262,7 @@ print_option "1" "모든 도구 최신 버전으로 설치 (온라인 최신 릴
 print_option "2" "모든 도구 지정 버전으로 설치 (TOML 고정/최종 설치 버전)" "[기본값]"
 print_option "3" "도구별 개별 확인 (최신/지정 버전 선택)"
 echo ""
-read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m/3]: ")" _ver_choice
+read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}/3]: ")" _ver_choice
 echo ""
 case "${_ver_choice:-2}" in
     1) VERSION_MODE="latest"     ; print_info "버전 선택: 모든 도구 최신 버전 선택됨" ;;
@@ -439,7 +439,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_nl_ind:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $NODEJS_PINNED [기본값]"
     echo ""
-    read -rp "$(prompt_input "   선택 [1/\033[32m2\033[0m]: ")" _nv_sel
+    read -rp "$(prompt_input "   선택 [1/${_C_GREEN}2${_C_RESET}]: ")" _nv_sel
     case "${_nv_sel:-2}" in
         1) [ -n "$_nl_ind" ] && NODEJS_VERSION="$_nl_ind" || NODEJS_VERSION="$NODEJS_PINNED" ;;
         *) NODEJS_VERSION="$NODEJS_PINNED" ;;
@@ -456,7 +456,7 @@ if [ "$NODEJS_INSTALLED" = true ]; then
             ;;
         individual)
             echo "   ⚠️  node-v24 디렉토리가 이미 존재합니다."
-            read -rp "$(prompt_input "   삭제 후 재설치하시겠습니까? [y/\033[32mN\033[0m]: ")" _nd_dup
+            read -rp "$(prompt_input "   삭제 후 재설치하시겠습니까? [y/${_C_GREEN}N${_C_RESET}]: ")" _nd_dup
             case "${_nd_dup:-N}" in
                 y|Y) _nodejs_action="reinstall" ;;
                 *)   _nodejs_action="skip" ;;
@@ -507,7 +507,7 @@ if [ -f "package.json" ]; then
         print_warn "이미 글로벌 npm 패키지가 설치되어 있습니다."
         _npm_choice="n"
         if [ -t 0 ]; then
-            read -rp "$(prompt_input "   글로벌 npm 패키지를 다시 복구(npm install)하시겠습니까? [y/\033[32mN\033[0m]: ")" _npm_choice
+            read -rp "$(prompt_input "   글로벌 npm 패키지를 다시 복구(npm install)하시겠습니까? [y/${_C_GREEN}N${_C_RESET}]: ")" _npm_choice
         fi
         _npm_choice_lower=$(echo "${_npm_choice:-n}" | tr '[:upper:]' '[:lower:]')
         if [ "$_npm_choice_lower" = "y" ]; then
@@ -549,7 +549,7 @@ cd "$DEVTOOLS2/modules/neovim"
 
 if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
     # 사용자에게 선택 입력 요청
-    read -rp "$(prompt_input "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까? [y/\033[32mN\033[0m]: ")" choice
+    read -rp "$(prompt_input "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까? [y/${_C_GREEN}N${_C_RESET}]: ")" choice
 
     case "$choice" in
     y | Y)

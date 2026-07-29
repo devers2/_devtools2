@@ -613,7 +613,7 @@ if (Test-Path $wslGradleProps) {
     }
     Write-Info "Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동 중..."
     cmd.exe /c "mklink `"$winGradleProps`" `"$wslGradleProps`"" | Out-Null
-    Write-Success "Gradle gradle.properties 연동 완료 ($wslGradleProps -> $winGradleProps)"
+    Write-Success "Gradle gradle.properties 연동 완료:`n    $wslGradleProps -> $winGradleProps"
 } else {
     Write-Warn "WSL2 경로에 gradle.properties 파일이 존재하지 않아 연동을 건너럅니다: $wslGradleProps"
 }

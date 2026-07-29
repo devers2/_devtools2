@@ -159,7 +159,7 @@ if [ -d "$TARGET_DIR" ]; then
     choice="n"
     # 표준 입력이 실제 대화형 터미널([ -t 0 ])인 경우에만 선택 받음 (파이프/비대화형 실행 시 멈춤 방지)
     if [ -t 0 ]; then
-        read -r -p "$(prompt_input "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? [y/\033[32mN\033[0m]: ")" choice 2>/dev/null || choice="n"
+        read -r -p "$(prompt_input "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? [y/${_C_GREEN}N${_C_RESET}]: ")" choice 2>/dev/null || choice="n"
     fi
     choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
     if [ "$choice" = "y" ]; then

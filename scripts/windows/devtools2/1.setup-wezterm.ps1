@@ -493,7 +493,7 @@ cmd.exe /c "del /f /q /a `"$WinWeztermConfig`"" 2>$null | Out-Null
 
 $mklinkResult = cmd.exe /c "mklink `"$WinWeztermConfig`" `"$WslWeztermConfig`"" 2>&1
 if (Get-Item -Path $WinWeztermConfig -Force -ErrorAction SilentlyContinue) {
-    Write-Success "WezTerm 심볼릭 링크 연동 완료: '$WinWeztermConfig' -> '$WslWeztermConfig'"
+    Write-Success "WezTerm 심볼릭 링크 연동 완료:`n    $WinWeztermConfig -> $WslWeztermConfig"
 } else {
     Write-Fail "WezTerm 심볼릭 링크 생성 실패: $mklinkResult"
 }
