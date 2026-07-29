@@ -9,14 +9,14 @@
 
 # ANSI 색상 코드 (터미널 미지원 환경에서 비활성화)
 if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
-    _C_RESET='\033[0m'
-    _C_BOLD='\033[1m'
-    _C_CYAN='\033[0;36m'       # [정보] / 구분선 / Step 헤더
-    _C_GREEN='\033[0;32m'      # [성공] [완료]
-    _C_YELLOW='\033[0;33m'     # [경고]
-    _C_RED='\033[0;31m'        # [오류]
-    _C_WHITE='\033[1;37m'      # 일반 강조
-    _C_GRAY='\033[0;90m'       # 보조 설명
+    _C_RESET=$'\033[0m'
+    _C_BOLD=$'\033[1m'
+    _C_CYAN=$'\033[0;36m'       # [정보] / 구분선 / Step 헤더
+    _C_GREEN=$'\033[0;32m'      # [성공] [완료]
+    _C_YELLOW=$'\033[0;33m'     # [경고]
+    _C_RED=$'\033[0;31m'        # [오류]
+    _C_WHITE=$'\033[1;37m'      # 일반 강조
+    _C_GRAY=$'\033[0;90m'       # 보조 설명
 else
     _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW=''
     _C_RED='' _C_WHITE='' _C_GRAY=''
