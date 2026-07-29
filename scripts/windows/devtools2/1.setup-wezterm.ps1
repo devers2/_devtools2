@@ -582,6 +582,7 @@ if (-not (Test-Path $ahkExe)) {
 # ── (2) 포터블 AutoHotkey v2 다운로드 및 압축 해제 ───────────────────────────
 if (Test-Path $ahkExe) {
     Write-Info "AutoHotkey v2 포터블 이미 존재: $ahkExe"
+    Write-Info "AHK 스크립트 배포 및 시작 프로그램 연동 중..."
 } else {
     Write-Info "AutoHotkey v2 포터블 패키지 다운로드 및 압축 해제 중..."
     Write-Info "  설치 경로: $ahkModuleDir"
@@ -700,13 +701,15 @@ if ($wslAhk1 -and (Test-Path $wslAhk1)) {
         Write-Info "AHK 스크립트 복사(덮어쓰기) 중: $ahkSourceLocal"
         Copy-Item -Path $ahkSourceLocal -Destination $ahkDest -Force
     } else {
-        Write-Info "GitHub 에서 AHK 스크립트 다운로드 중..."
-        try {
-            $ahkRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/wezterm-hotkey.ahk"
-            Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkDest -ErrorAction Stop
-        } catch {
-            Write-Warn "AHK 스크립트 다운로드 실패: $($_.Exception.Message)"
-        }
+        $ahkRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/wezterm-hotkey.ahk"
+        $dlAhkJob = Start-Job -ScriptBlock {
+            param($uri, $out)
+            Invoke-WebRequest -Uri $uri -OutFile $out -ErrorAction Stop
+        } -ArgumentList $ahkRaw, $ahkDest
+        Wait-WithSpinner -Message "wezterm-hotkey.ahk 다운로드 중" -Condition { $dlAhkJob.State -ne 'Running' } -MaxTimeoutSeconds 60
+        try { Receive-Job -Job $dlAhkJob -ErrorAction SilentlyContinue | Out-Null } catch {}
+        if ($dlAhkJob.State -eq 'Failed') { Write-Warn "AHK 스크립트 다운로드 실패" }
+        Remove-Job -Job $dlAhkJob -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -744,13 +747,15 @@ if ($wslKb1 -and (Test-Path $wslKb1)) {
         Write-Info "키보드 리매핑 AHK 복사 중: $kbRemapSourceLocal"
         Copy-Item -Path $kbRemapSourceLocal -Destination $kbRemapDest -Force
     } else {
-        Write-Info "GitHub 에서 keyboard-remap.ahk 다운로드 중..."
-        try {
-            $kbRemapRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/keyboard-remap.ahk"
-            Invoke-WebRequest -Uri $kbRemapRaw -OutFile $kbRemapDest -ErrorAction Stop
-        } catch {
-            Write-Warn "keyboard-remap.ahk 다운로드 실패: $($_.Exception.Message)"
-        }
+        $kbRemapRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/keyboard-remap.ahk"
+        $dlKbJob = Start-Job -ScriptBlock {
+            param($uri, $out)
+            Invoke-WebRequest -Uri $uri -OutFile $out -ErrorAction Stop
+        } -ArgumentList $kbRemapRaw, $kbRemapDest
+        Wait-WithSpinner -Message "keyboard-remap.ahk 다운로드 중" -Condition { $dlKbJob.State -ne 'Running' } -MaxTimeoutSeconds 60
+        try { Receive-Job -Job $dlKbJob -ErrorAction SilentlyContinue | Out-Null } catch {}
+        if ($dlKbJob.State -eq 'Failed') { Write-Warn "keyboard-remap.ahk 다운로드 실패" }
+        Remove-Job -Job $dlKbJob -Force -ErrorAction SilentlyContinue
     }
 }
 

@@ -17,9 +17,10 @@ if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
     _C_RED=$'\033[0;31m'        # [오류]
     _C_WHITE=$'\033[1;37m'      # 일반 강조
     _C_GRAY=$'\033[0;90m'       # 보조 설명
+    _C_DEFAULT=$'\033[1;32m'    # 기본값 강조 (초록+볼드) — [기본값] 태그 및 선택 프롬프트 기본값 문자에 사용
 else
     _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW=''
-    _C_RED='' _C_WHITE='' _C_GRAY=''
+    _C_RED='' _C_WHITE='' _C_GRAY='' _C_DEFAULT=''
 fi
 
 # ── 출력 헬퍼 ──────────────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ print_question() { printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
 print_option() {
     local num="$1" text="$2" default_tag="${3:-}"
     if [ -n "$default_tag" ]; then
-        printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_GREEN}${_C_BOLD}%s${_C_RESET}\n" "$num" "$text" "$default_tag"
+        printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_DEFAULT}%s${_C_RESET}\n" "$num" "$text" "$default_tag"
     else
         printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET}\n" "$num" "$text"
     fi
