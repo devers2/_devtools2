@@ -174,6 +174,7 @@ systemctl --user daemon-reload 2>/dev/null || true
 systemctl --user enable "$SERVICE_NAME.service" 2>/dev/null || true
 systemctl --user restart "$SERVICE_NAME.service" 2>/dev/null || true
 
+
 # ==============================================================================
 # 4. Python 가상환경(venv_math) 생성 및 패키지 설치
 # ==============================================================================
@@ -182,7 +183,6 @@ SETUP_VENV_SCRIPT="$TARGET_DIR/setup-venv.sh"
 if [ -f "$SETUP_VENV_SCRIPT" ]; then
     echo ""
     echo "⏳ [Step 4] Python 가상환경 설정을 시작합니다..."
-    # source 로 호출 → 가상환경 activate 상태를 이 셸에도 유지
     source "$SETUP_VENV_SCRIPT" "$TARGET_DIR"
 else
     echo "⚠️  setup-venv.sh 를 찾을 수 없습니다. 가상환경 설정을 건너뜁니다: $SETUP_VENV_SCRIPT"
@@ -203,12 +203,9 @@ if [ -f "$VSCODE_DIR/settings.json" ]; then
 else
     cat > "$VSCODE_DIR/settings.json" << 'SETTINGS_EOF'
 {
-  // venv_math 가상환경의 Python 인터프리터를 사용
   "python.defaultInterpreterPath": "${workspaceFolder}/venv_math/bin/python3",
   "python.terminal.activateEnvironment": true,
   "python.terminal.activateEnvInCurrentTerminal": true,
-
-  // Pylance/Pyright 분석도 venv_math 기준으로
   "python.analysis.extraPaths": [
     "${workspaceFolder}"
   ]
@@ -226,47 +223,25 @@ else
   "version": "0.2.0",
   "configurations": [
     {
-      // ──────────────────────────────────────────────────────────
-      // [권장] uvicorn 직접 실행 (핫-리로드 + 브레이크포인트 동작)
-      // ──────────────────────────────────────────────────────────
       "name": "▶ FastAPI (uvicorn, debug)",
       "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
-      "args": [
-        "main:app",
-        "--host", "0.0.0.0",
-        "--port", "8095",
-        "--reload"
-      ],
+      "args": ["main:app", "--host", "0.0.0.0", "--port", "8095", "--reload"],
       "jinja": true,
       "python": "${workspaceFolder}/venv_math/bin/python3",
       "cwd": "${workspaceFolder}",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      },
+      "env": { "PYTHONPATH": "${workspaceFolder}" },
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal"
     },
     {
-      // ──────────────────────────────────────────────────────────
-      // [참고용] gunicorn 실행 (start.sh 와 동일한 방식)
-      // ※ gunicorn + UvicornWorker 조합에서는 브레이크포인트가
-      //   제대로 동작하지 않을 수 있습니다.
-      // ──────────────────────────────────────────────────────────
       "name": "▶ FastAPI (gunicorn, start.sh 방식)",
       "type": "debugpy",
       "request": "launch",
       "module": "gunicorn",
-      "args": [
-        "-w", "1",
-        "-k", "uvicorn.workers.UvicornWorker",
-        "-t", "600",
-        "-b", "0.0.0.0:8095",
-        "main:app",
-        "--access-logfile", "-",
-        "--error-logfile", "-"
-      ],
+      "args": ["-w", "1", "-k", "uvicorn.workers.UvicornWorker", "-t", "600",
+               "-b", "0.0.0.0:8095", "main:app", "--access-logfile", "-", "--error-logfile", "-"],
       "python": "${workspaceFolder}/venv_math/bin/python3",
       "cwd": "${workspaceFolder}",
       "envFile": "${workspaceFolder}/.env",
@@ -278,7 +253,7 @@ LAUNCH_EOF
     echo "✅ .vscode/launch.json 생성 완료"
 fi
 
-# ── pyrightconfig.json 보완 (venvPath / venv 명시) ────────────────────────────
+# ── pyrightconfig.json 보완 ────────────────────────────────────────────────────
 PYRIGHT_CONFIG="$TARGET_DIR/pyrightconfig.json"
 if [ ! -f "$PYRIGHT_CONFIG" ]; then
     cat > "$PYRIGHT_CONFIG" << 'PYRIGHT_EOF'
@@ -313,14 +288,13 @@ for _bin in code code-insiders; do
 done
 
 _REQUIRED_EXTENSIONS=(
-    "ms-python.python"          # Python 언어 지원 (IntelliSense, 린터 등)
-    "ms-python.debugpy"         # Python 디버거 (브레이크포인트 핵심)
-    "ms-python.pylance"         # Pylance: 빠른 타입 체크 / 자동완성
+    "ms-python.python"
+    "ms-python.debugpy"
+    "ms-python.pylance"
 )
 
 if [ -z "$VSCODE_BIN" ]; then
     echo "⚠️  VSCode(code) 명령어를 찾을 수 없습니다. 익스텐션 설치를 건너뜁니다."
-    echo "   → VSCode 가 설치되어 있지 않거나 PATH 에 등록되지 않았습니다."
     echo "   → https://code.visualstudio.com 에서 설치 후 아래 익스텐션을 수동으로 설치하세요:"
     for _ext in "${_REQUIRED_EXTENSIONS[@]}"; do
         echo "      • $_ext"
@@ -340,15 +314,17 @@ else
 fi
 
 # ==============================================================================
-# 최종 안내 로그: VSCode 디버깅을 위해 추가로 해야 할 일
+# 최종 안내 로그: 에디터별 디버깅 방법
 # ==============================================================================
 PYTHON_INTERPRETER="$TARGET_DIR/venv_math/bin/python3.12"
+
+# ── VSCode ────────────────────────────────────────────────────────────────────
 echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "📋 VSCode 디버깅을 위해 추가로 해야 할 일"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "┌─────────────────────────────────────────────────────────────────────────────┐"
+echo "│  💻  VSCode 디버깅 방법                                                     │"
+echo "└─────────────────────────────────────────────────────────────────────────────┘"
 echo ""
-echo "  [필수] ① VSCode 에서 프로젝트 폴더 열기"
+echo "  [필수] ① 프로젝트 폴더 열기"
 echo "         → code $TARGET_DIR"
 echo ""
 echo "  [필수] ② Python 인터프리터 지정"
@@ -357,7 +333,7 @@ echo "         → 목록에서 아래 경로를 선택하세요:"
 echo "            $PYTHON_INTERPRETER"
 echo "         ※ 목록에 없으면 'Enter interpreter path...' 로 직접 경로 입력"
 echo ""
-echo "  [선택] ③ VSCode 재시작 (인터프리터 변경 후 익스텐션이 갱신되도록)"
+echo "  [선택] ③ 창 새로고침 (인터프리터 변경 후 익스텐션이 갱신되도록)"
 echo "         → Ctrl+Shift+P  →  'Developer: Reload Window'"
 echo ""
 echo "  [필수] ④ 디버그 실행"
@@ -366,17 +342,48 @@ echo "         → 상단 드롭다운에서 '▶ FastAPI (uvicorn, debug)' 선�
 echo "         → F5 또는 ▶ 버튼 클릭"
 echo ""
 echo "  ─────────────────────────────────────────────────────────────────────────────"
-echo "  💡 브레이크포인트 사용법"
-echo "     → 소스 코드 좌측 줄번호 옆 클릭 → 빨간 점(●) 생성"
-echo "     → F5 로 실행하면 해당 줄에서 자동 일시정지"
-echo "     → F10: 한 줄씩 실행(Step Over)  F11: 함수 안으로(Step Into)"
-echo "     → F5:  다음 브레이크포인트까지 계속 실행"
+echo "  💡 브레이크포인트"
+echo "     → 줄번호 옆 클릭으로 빨간 점(●) 생성  →  F5 실행 시 해당 줄 자동 정지"
+echo "     → F10: Step Over  │  F11: Step Into  │  F5: Continue"
+echo ""
+echo "  ⚠️  주의: gunicorn 구성은 멀티프로세스로 브레이크포인트가 제한적으로 동작"
+echo "     디버깅 중 서버: http://localhost:8095  │  .env 환경변수 자동 로드됨"
+
+# ── Neovim ────────────────────────────────────────────────────────────────────
+echo ""
+echo "┌─────────────────────────────────────────────────────────────────────────────┐"
+echo "│  📝  Neovim 디버깅 방법  (nvim-dap + nvim-dap-python + nvim-dap-view)      │"
+echo "└─────────────────────────────────────────────────────────────────────────────┘"
+echo ""
+echo "  [필수] ① 가상환경 활성화 후 nvim 실행 (VIRTUAL_ENV 변수를 nvim에 전달)"
+echo "         → cd $TARGET_DIR"
+echo "         → source venv_math/bin/activate"
+echo "         → nvim main.py"
+echo ""
+echo "  [필수] ② 브레이크포인트 설정"
+echo "         → 멈추고 싶은 줄로 커서 이동"
+echo "         → <leader> d b   (브레이크포인트 토글 — 빨간 점 표시)"
+echo ""
+echo "  [필수] ③ 디버그 시작"
+echo "         → <leader> d a"
+echo "         → 'FastAPI Debug Port:' 입력창에서 Enter (기본값: 8095)"
+echo "         → 하단에 DAP View 패널 자동 열림 (Scopes / Watches / REPL 탭)"
+echo ""
+echo "  [필수] ④ 브레이크포인트에서 멈춘 후 스텝 실행"
+echo "         → <leader> d e   Step Over  (현재 줄 실행, 함수 안에 안 들어감)"
+echo "         → <leader> d i   Step Into  (함수 안으로 진입)"
+echo "         → <leader> d o   Step Out   (현재 함수에서 빠져나옴)"
+echo "         → <leader> d d   Continue   (다음 브레이크포인트까지 계속 실행)"
+echo "         → <leader> d c   Run to Cursor (커서 위치까지 실행)"
+echo ""
+echo "  [선택] ⑤ 변수 확인 및 REPL"
+echo "         → <leader> d v   DAP View 패널 토글 (Scopes 탭에서 변수 확인)"
+echo "         → <leader> d r   REPL 토글 (파이썬 표현식 직접 평가)"
+echo ""
+echo "  [필수] ⑥ 디버깅 종료"
+echo "         → <leader> d t   Terminate"
 echo ""
 echo "  ─────────────────────────────────────────────────────────────────────────────"
-echo "  ⚠️  주의사항"
-echo "     • '▶ FastAPI (gunicorn, start.sh 방식)' 구성은 운영 방식과 동일하지만"
-echo "       멀티프로세스 구조로 인해 브레이크포인트가 제한적으로 동작합니다."
-echo "     • 디버깅 중 서버는 8095 포트로 접근 가능합니다: http://localhost:8095"
-echo "     • .env 파일의 환경변수는 디버그 실행 시 자동으로 로드됩니다."
+echo "  ⚠️  주의: source venv_math/bin/activate 없이 nvim 실행 시"
+echo "     시스템 Python(3.14)을 사용해 패키지를 찾지 못합니다."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
