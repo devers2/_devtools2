@@ -424,9 +424,11 @@ elif [[ "$ACTION" == *"SFTP 마운트"* ]]; then
         echo ""
 
         # 마운트할 원격 경로와 로컬 경로 입력 (기본값 ~/mount, ~ 확장 지원)
+        # ※ 원격 경로의 ~ 는 서버 접속 계정(/home/$USERNAME)으로 치환
+        # ※ 로컬 경로의 ~ 는 현재 로컬 사용자($HOME)으로 치환
         read -rp "📂 마운트할 원격 경로 입력 [기본값: ~/mount]: " INPUT_REMOTE_PATH
         INPUT_REMOTE_PATH="${INPUT_REMOTE_PATH:-~/mount}"
-        REMOTE_PATH="${INPUT_REMOTE_PATH/#\~/$HOME}"
+        REMOTE_PATH="${INPUT_REMOTE_PATH/#\~//home/$USERNAME}"
 
         read -rp "📂 마운트할 로컬 경로 입력 [기본값: ~/mount]: " INPUT_LOCAL_PATH
         INPUT_LOCAL_PATH="${INPUT_LOCAL_PATH:-~/mount}"
