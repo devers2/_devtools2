@@ -16,7 +16,8 @@
 #   (bw vault가 잠기거나 세션이 만료되면 자동으로 재인증 요청)
 # ==============================================================================
 
-FOLDER_ID="9977a5c2-ee53-4a13-8dac-b43b010afabb"
+FOLDER_NAME="RemoteServer"
+FOLDER_ID=""
 HOME_DIR="${HOME:-$USERPROFILE}"
 GHOSTTY_DIR="${HOME_DIR}/.ghostty"
 mkdir -p "$GHOSTTY_DIR"
@@ -143,18 +144,7 @@ unauthenticated)
     exit 1
     ;;
 locked)
-    # 저장된 세션으로 실제 조회를 시도해보고 실패하면 재unlock
-    if [ -n "${BW_SESSION:-}" ]; then
-        TEST=$(bw list items --folderid "$FOLDER_ID" --session "$BW_SESSION" </dev/null 2>&1)
-        if echo "$TEST" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
-            echo "⚠️  저장된 세션이 만료되었습니다. 다시 인증합니다."
-            rm -f "$SESSION_FILE"
-            BW_SESSION=""
-        fi
-    fi
-    if [ -z "${BW_SESSION:-}" ]; then
-        do_unlock
-    fi
+    do_unlock
     ;;
 unlocked)
     # 세션키가 없으면 unlock 수행
@@ -170,106 +160,138 @@ unlocked)
 esac
 
 # ──────────────────────────────────────────────────────────────────────────────
-# STEP 4: 서버 목록 조회
+# STEP 3.5: 'RemoteServer' 폴더 ID 목록 동적 조회 (복수 동명 폴더 지원)
 # ──────────────────────────────────────────────────────────────────────────────
-echo "⏳ 서버 목록 불러오는 중..."
-HOST_JSON=$(bw list items --folderid "$FOLDER_ID" --session "$BW_SESSION" </dev/null 2>&1)
+echo "⏳ '${FOLDER_NAME}' 폴더 정보 조회 중..."
+FOLDERS_JSON=$(bw list folders --session "$BW_SESSION" </dev/null 2>&1)
 
 # 세션 만료 재감지
-if echo "$HOST_JSON" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
+if echo "$FOLDERS_JSON" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
     echo "❌ Bitwarden 세션이 만료되었습니다."
-    echo "   저장된 세션을 삭제하고 다시 실행해주세요: rm -f $SESSION_FILE"
     rm -f "$SESSION_FILE"
     exit 1
 fi
 
-if [ -z "$HOST_JSON" ] || [ "$HOST_JSON" = "[]" ]; then
-    echo "ℹ️  해당 폴더에 항목이 없습니다. (folder: $FOLDER_ID)"
+# 이름이 'RemoteServer'인 모든 폴더 ID 추출 (공백 구분)
+FOLDER_IDS=$(echo "$FOLDERS_JSON" | python3 -c "
+import sys, json
+
+try:
+    raw = sys.stdin.read()
+    start_idx = raw.find('[')
+    end_idx = raw.rfind(']')
+    if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+        folders = json.loads(raw[start_idx:end_idx+1], strict=False)
+        target = '${FOLDER_NAME}'.strip()
+        matched = [f.get('id', '') for f in folders if isinstance(f, dict) and str(f.get('name', '')).strip() == target and f.get('id')]
+        print(' '.join(matched))
+except Exception:
+    pass
+" 2>/dev/null)
+
+if [ -z "$FOLDER_IDS" ]; then
+    echo "❌ Bitwarden에서 '${FOLDER_NAME}' 폴더를 찾을 수 없습니다."
+    echo "   Bitwarden 보관함에 '${FOLDER_NAME}' 폴더를 생성하고 서버 항목들을 이동시켜주세요."
+    exit 1
+fi
+
+# ──────────────────────────────────────────────────────────────────────────────
+# STEP 4: 모든 'RemoteServer' 폴더의 서버 목록 통합 조회
+# ──────────────────────────────────────────────────────────────────────────────
+echo "⏳ 서버 목록 불러오는 중..."
+RAW_ITEMS_LIST=""
+for fid in $FOLDER_IDS; do
+    ITEMS=$(bw list items --folderid "$fid" --session "$BW_SESSION" </dev/null 2>&1)
+    if echo "$ITEMS" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
+        echo "❌ Bitwarden 세션이 만료되었습니다."
+        echo "   저장된 세션을 삭제하고 다시 실행해주세요: rm -f $SESSION_FILE"
+        rm -f "$SESSION_FILE"
+        exit 1
+    fi
+    if [ -n "$ITEMS" ] && [ "$ITEMS" != "[]" ]; then
+        RAW_ITEMS_LIST="${RAW_ITEMS_LIST}${ITEMS}"$'\n---ITEM_SPLIT---\n'
+    fi
+done
+
+if [ -z "$RAW_ITEMS_LIST" ]; then
+    echo "ℹ️  '${FOLDER_NAME}' 폴더에 항목이 없습니다."
     exit 0
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
-# STEP 5: JSON 파싱 (stdin으로 전달 → 제어문자 문제 완전 해결)
+# STEP 5: JSON 파싱 (복수 폴더 데이터 통합)
 # 비밀번호는 목록에 절대 표시하지 않음
 # 표시 형식: "서버이름 | 사용자명@호스트:포트  🔑(키있음)"
 # 내부 형식: [표시]\t[itemID]\t[username]\t[uri]\t[has_key]
+#
+# ※ printf | python3 - <<HEREDOC 구조는 파이프(stdin)와 heredoc(stdin)이 충돌하여
+#   데이터가 파이썬에 전달되지 않는 문제가 있으므로
+#   파이썬 스크립트를 임시 파일로 분리 후 파이프로 데이터만 전달합니다.
 # ──────────────────────────────────────────────────────────────────────────────
-export HOST_JSON
-HOST_LIST=$(
-    python3 - <<'PYEOF'
-import sys, json, re, os
+_PY_SCRIPT=$(mktemp /tmp/bw_parse_XXXXXX.py)
+cat > "$_PY_SCRIPT" <<'PYEOF'
+import sys, json, re
 
-raw = os.environ.get('HOST_JSON', '')
+raw_all = sys.stdin.read()
+chunks = raw_all.split('---ITEM_SPLIT---')
 
-# 원본 데이터가 비었는지 확인
-if not raw.strip():
-    print("❌ 오류: Bitwarden으로부터 가져온 데이터가 비어 있습니다.", file=sys.stderr)
-    sys.exit(1)
+all_items = []
+for chunk in chunks:
+    chunk = chunk.strip()
+    if not chunk:
+        continue
+    start_idx = chunk.find('[')
+    end_idx = chunk.rfind(']')
+    if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+        try:
+            items = json.loads(chunk[start_idx:end_idx+1], strict=False)
+            if isinstance(items, list):
+                all_items.extend(items)
+        except Exception:
+            pass
 
-# 정규식 대신 첫 대괄호와 마지막 대괄호 위치를 찾아 잘라냅니다.
-start_idx = raw.find('[')
-end_idx = raw.rfind(']')
+if not all_items:
+    sys.exit(0)
 
-if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
-    print("❌ 오류: Bitwarden 출력물에서 JSON 배열[...] 형식을 찾을 수 없습니다.", file=sys.stderr)
-    print("--- [원본 출력물 시작] ---", file=sys.stderr)
-    print(raw, file=sys.stderr)
-    print("--- [원본 출력물 끝] ---", file=sys.stderr)
-    sys.exit(1)
-
-json_str = raw[start_idx:end_idx+1]
-
-try:
-    # strict=False: notes 필드 내 SSH 키의 개행(\n) 등 제어문자 허용
-    data = json.loads(json_str, strict=False)
-except json.JSONDecodeError as e:
-    print(f"❌ JSON 파싱 오류: {e}", file=sys.stderr)
-    print("--- [파싱 시도한 문자열] ---", file=sys.stderr)
-    print(json_str[:1000] + ("..." if len(json_str) > 1000 else ""), file=sys.stderr)
-    sys.exit(1)
-
-for item in data:
+for item in all_items:
     if not isinstance(item, dict):
         continue
     name     = item.get('name', '이름없음')
     item_id  = item.get('id', '')
-    
-    # 방어적으로 login 정보 파싱
+
     login = item.get('login')
     if not isinstance(login, dict):
         login = {}
-        
+
     username = login.get('username') or ''
     uris     = login.get('uris') or []
-    
+
     raw_uri = ''
     if isinstance(uris, list) and len(uris) > 0:
         first_uri = uris[0]
         if isinstance(first_uri, dict):
             raw_uri = first_uri.get('uri') or ''
-            
+
     notes = item.get('notes') or ''
     if not isinstance(notes, str):
         notes = ''
 
-    # ssh:// 등 스킴 제거
     clean_uri = re.sub(r'^[a-z]+://', '', raw_uri)
-
-    # SSH 키 여부 (notes에 PRIVATE KEY 헤더가 있으면)
     has_key = 'KEY' if re.search(r'BEGIN .* PRIVATE KEY', notes) else ''
 
     display = f"{name} | {username}@{clean_uri}"
     if has_key:
         display += " 🔑"
 
-    # 탭으로 내부 데이터 구분 (fzf는 --with-nth=1 으로 display만 표시)
     print(f"{display}\t{item_id}\t{username}\t{clean_uri}\t{has_key}")
 PYEOF
-)
+
+HOST_LIST=$(printf "%s" "$RAW_ITEMS_LIST" | python3 "$_PY_SCRIPT")
+rm -f "$_PY_SCRIPT"
 
 if [ -z "$HOST_LIST" ]; then
-    echo "❌ 서버 목록 파싱에 실패했습니다."
-    exit 1
+    echo "ℹ️  '${FOLDER_NAME}' 폴더에 등록된 서버 항목이 없습니다."
+    exit 0
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
