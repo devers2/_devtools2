@@ -217,7 +217,7 @@ if [ "$HAS_KEY" = "KEY" ]; then
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
-# STEP 8: 접속 방식 선택 (SSH / SFTP / RSYNC)
+# STEP 8: 접속 방식 선택 (SSH / SFTP / Rsync / SFTP 마운트)
 # ──────────────────────────────────────────────────────────────────────────────
 echo ""
 echo "🖥️  [$HOST_NAME]  →  $USERNAME@$ACTUAL_HOST:$PORT"
@@ -225,7 +225,7 @@ echo ""
 
 ACTION_OPTIONS=("1. 원격 접속 (SSH)" "2. 파일 전송 (SFTP)")
 if ! $IS_WINDOWS; then
-    ACTION_OPTIONS+=("3. 파일 동기화 (RSYNC)")
+    ACTION_OPTIONS+=("3. 파일 동기화 (Rsync)" "4. SFTP 마운트 (Rclone)")
 fi
 
 ACTION=$(
@@ -242,7 +242,7 @@ if [ -z "$ACTION" ]; then
 fi
 
 # ── SSH ───────────────────────────────────────────────────────────────────────
-if [[ "$ACTION" == *"SSH"* ]]; then
+if [[ "$ACTION" == *"원격 접속"* ]]; then
     SSH_ARGS=(-p "$PORT")
     [ -n "$SSH_KEY_OPT" ] && SSH_ARGS+=($SSH_KEY_OPT)
     SSH_ARGS+=("$USERNAME@$ACTUAL_HOST")
@@ -252,7 +252,7 @@ if [[ "$ACTION" == *"SSH"* ]]; then
     ssh "${SSH_ARGS[@]}"
 
 # ── SFTP ──────────────────────────────────────────────────────────────────────
-elif [[ "$ACTION" == *"SFTP"* ]]; then
+elif [[ "$ACTION" == *"파일 전송"* ]]; then
     # SFTP는 포트 옵션이 대문자 -P
     SFTP_ARGS=(-P "$PORT")
     [ -n "$SSH_KEY_OPT" ] && SFTP_ARGS+=($SSH_KEY_OPT)
@@ -269,13 +269,13 @@ elif [[ "$ACTION" == *"SFTP"* ]]; then
     echo ""
     sftp "${SFTP_ARGS[@]}"
 
-# ── RSYNC ─────────────────────────────────────────────────────────────────────
-elif [[ "$ACTION" == *"RSYNC"* ]]; then
+# ── Rsync ─────────────────────────────────────────────────────────────────────
+elif [[ "$ACTION" == *"파일 동기화"* ]]; then
     RSYNC_SSH="ssh -p $PORT"
     [ -n "$SSH_KEY_OPT" ] && RSYNC_SSH="$RSYNC_SSH $SSH_KEY_OPT"
 
     echo ""
-    echo "📦 RSYNC 안내 [$HOST_NAME]"
+    echo "📦 Rsync 안내 [$HOST_NAME]"
     echo ""
     echo "  ✔ 로컬 → 원격 (업로드):"
     echo "    rsync -avzP -e \"$RSYNC_SSH\" [로컬경로] $USERNAME@$ACTUAL_HOST:[원격경로]"
@@ -310,4 +310,192 @@ elif [[ "$ACTION" == *"RSYNC"* ]]; then
     else
         echo "🚪 취소되었습니다."
     fi
+
+# ── SFTP 마운트 (Rclone) ──────────────────────────────────────────────────────
+elif [[ "$ACTION" == *"SFTP 마운트"* ]]; then
+    SERVICE_NAME="rclone-${USERNAME}@${ACTUAL_HOST}_${PORT}"
+    SERVICE_FILE="$HOME/.config/systemd/user/${SERVICE_NAME}.service"
+
+    # 1. WSL 인 경우 systemd 활성화 여부 미리 확인
+    if $IS_WSL; then
+        if ! ps -p 1 -o comm= 2>/dev/null | grep -q systemd && ! systemctl is-system-running &>/dev/null; then
+            echo "⚠️  WSL에서 systemd가 활성화되어 있지 않습니다."
+            if ! grep -q "systemd=true" /etc/wsl.conf 2>/dev/null; then
+                echo "⏳ /etc/wsl.conf 파일에 [boot] systemd=true 설정을 추가합니다..."
+                if [ -w /etc/wsl.conf ]; then
+                    printf "\n[boot]\nsystemd=true\n" >> /etc/wsl.conf
+                else
+                    sudo bash -c 'printf "\n[boot]\nsystemd=true\n" >> /etc/wsl.conf'
+                fi
+            fi
+            echo ""
+            echo "❌ systemd 활성화 설정 후 WSL 재부팅이 필요합니다."
+            echo "   PowerShell에서 아래 명령어를 실행하여 WSL을 재부팅(종료 후 재시작)한 뒤 다시 진행해주세요:"
+            echo ""
+            echo "   👉  wsl --shutdown"
+            echo ""
+            exit 0
+        fi
+    fi
+
+    # 2. 해당 서비스 유무 확인
+    if [ -f "$SERVICE_FILE" ]; then
+        # 서비스가 존재하는 경우 -> 상태 확인 및 토글/삭제 메뉴 제공
+        while true; do
+            echo ""
+            echo "========================================================"
+            echo "📦 Rclone 마운트 서비스 관리: $SERVICE_NAME"
+            echo "========================================================"
+
+            IS_ACTIVE=$(systemctl --user is-active "$SERVICE_NAME.service" 2>/dev/null || echo "inactive")
+            IS_ENABLED=$(systemctl --user is-enabled "$SERVICE_NAME.service" 2>/dev/null || echo "disabled")
+
+            echo "● 서비스 실행 상태 (active): $IS_ACTIVE"
+            echo "● 부팅 시 자동 실행 (enabled): $IS_ENABLED"
+            echo "--------------------------------------------------------"
+
+            MGMT_OPTIONS=()
+            if [ "$IS_ACTIVE" = "active" ]; then
+                MGMT_OPTIONS+=("1. ⏹️  서비스 중지 (systemctl --user stop)")
+            else
+                MGMT_OPTIONS+=("1. ▶️  서비스 시작 (systemctl --user start)")
+            fi
+
+            if [ "$IS_ENABLED" = "enabled" ]; then
+                MGMT_OPTIONS+=("2. 🛑  부팅 시 자동 실행 비활성화 (systemctl --user disable)")
+            else
+                MGMT_OPTIONS+=("2. 🔄  부팅 시 자동 실행 활성화 (systemctl --user enable)")
+            fi
+
+            MGMT_OPTIONS+=("3. 📊  상세 상태 확인 (systemctl --user status)")
+            MGMT_OPTIONS+=("4. 🗑️  서비스 삭제 (서비스 및 설정 완전 제거)")
+            MGMT_OPTIONS+=("5. 🚪  나가기")
+
+            MGMT_CHOICE=$(
+                printf "%s\n" "${MGMT_OPTIONS[@]}" | fzf \
+                    --prompt="🛠️  서비스 작업 선택 > " \
+                    --height=40% \
+                    --reverse \
+                    --header="[$SERVICE_NAME] 실행: $IS_ACTIVE | 자동실행: $IS_ENABLED"
+            )
+
+            if [ -z "$MGMT_CHOICE" ] || [[ "$MGMT_CHOICE" == *"나가기"* ]]; then
+                echo "🚪 종료합니다."
+                break
+            elif [[ "$MGMT_CHOICE" == *"서비스 시작"* ]]; then
+                echo "🚀 systemctl --user start ${SERVICE_NAME}.service 실행 중..."
+                systemctl --user start "$SERVICE_NAME.service"
+            elif [[ "$MGMT_CHOICE" == *"서비스 중지"* ]]; then
+                echo "⏹️ systemctl --user stop ${SERVICE_NAME}.service 실행 중..."
+                systemctl --user stop "$SERVICE_NAME.service"
+            elif [[ "$MGMT_CHOICE" == *"자동 실행 활성화"* ]]; then
+                echo "🔄 systemctl --user enable ${SERVICE_NAME}.service 실행 중..."
+                systemctl --user enable "$SERVICE_NAME.service"
+            elif [[ "$MGMT_CHOICE" == *"자동 실행 비활성화"* ]]; then
+                echo "🛑 systemctl --user disable ${SERVICE_NAME}.service 실행 중..."
+                systemctl --user disable "$SERVICE_NAME.service"
+            elif [[ "$MGMT_CHOICE" == *"상세 상태"* ]]; then
+                echo ""
+                systemctl --user status "$SERVICE_NAME.service" --no-pager
+                read -rp "엔터를 누르면 메뉴로 돌아갑니다..."
+            elif [[ "$MGMT_CHOICE" == *"서비스 삭제"* ]]; then
+                read -rp "⚠️ 정말로 서비스 ($SERVICE_NAME)를 삭제하시겠습니까? (y/N): " CONFIRM_DEL
+                if [[ "${CONFIRM_DEL,,}" == "y" ]]; then
+                    echo "🗑️ 서비스 중지 및 비활성화 중..."
+                    systemctl --user stop "$SERVICE_NAME.service" 2>/dev/null
+                    systemctl --user disable "$SERVICE_NAME.service" 2>/dev/null
+                    rm -f "$SERVICE_FILE"
+                    rclone config delete "$SERVICE_NAME" 2>/dev/null
+                    systemctl --user daemon-reload
+                    echo "✅ '$SERVICE_NAME' 서비스 및 Rclone 설정이 완전히 삭제되었습니다."
+                    break
+                else
+                    echo "취소되었습니다."
+                fi
+            fi
+        done
+
+    else
+        # 서비스가 없는 경우 -> 원격/로컬 경로 입력, Rclone 설정 및 systemd 서비스 생성/활성화
+        echo ""
+        echo "========================================================"
+        echo "⚙️  새 Rclone 마운트 서비스 설정 ($SERVICE_NAME)"
+        echo "========================================================"
+        echo ""
+
+        # 마운트할 원격 경로와 로컬 경로 입력 (기본값 ~/mount, ~ 확장 지원)
+        read -rp "📂 마운트할 원격 경로 입력 [기본값: ~/mount]: " INPUT_REMOTE_PATH
+        INPUT_REMOTE_PATH="${INPUT_REMOTE_PATH:-~/mount}"
+        REMOTE_PATH="${INPUT_REMOTE_PATH/#\~/$HOME}"
+
+        read -rp "📂 마운트할 로컬 경로 입력 [기본값: ~/mount]: " INPUT_LOCAL_PATH
+        INPUT_LOCAL_PATH="${INPUT_LOCAL_PATH:-~/mount}"
+        LOCAL_PATH="${INPUT_LOCAL_PATH/#\~/$HOME}"
+
+        echo "📂 로컬 마운트 디렉터리 확인 및 생성 중: $LOCAL_PATH"
+        mkdir -p "$LOCAL_PATH"
+
+        RCLONE_BIN=$(command -v rclone 2>/dev/null || echo "/usr/bin/rclone")
+        if [ ! -x "$RCLONE_BIN" ]; then
+            echo "❌ Rclone 실행 파일을 찾을 수 없습니다. Rclone이 설치되어 있는지 확인해주세요."
+            exit 1
+        fi
+
+        FUSERMOUNT_BIN=$(command -v fusermount 2>/dev/null || command -v fusermount3 2>/dev/null || echo "/usr/bin/fusermount")
+
+        # 비트워든 정보 기반 Rclone SFTP 리모트 설정
+        echo "⏳ Rclone SFTP 리모트 설정 중 ($SERVICE_NAME)..."
+        RCLONE_ARGS=(config create "$SERVICE_NAME" sftp host "$ACTUAL_HOST" user "$USERNAME" port "$PORT")
+        if [ -n "$SERVER_PASS" ]; then
+            RCLONE_ARGS+=(pass "$SERVER_PASS")
+        fi
+        if [ "$HAS_KEY" = "KEY" ] && [ -n "$KEY_PATH" ] && [ -f "$KEY_PATH" ]; then
+            RCLONE_ARGS+=(key_file "$KEY_PATH")
+        fi
+
+        RCLONE_ERR=$("${RCLONE_BIN}" "${RCLONE_ARGS[@]}" 2>&1)
+        if [ $? -eq 0 ]; then
+            echo "✅ Rclone 리모트 ($SERVICE_NAME) 설정 완료!"
+        else
+            echo "❌ Rclone 리모트 설정에 실패했습니다."
+            echo "   오류 상세 내용: $RCLONE_ERR"
+            exit 1
+        fi
+
+        RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
+        mkdir -p "$HOME/.config/systemd/user"
+
+        # 서비스 파일 작성
+        cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=rclone SFTP Mount for ${SERVICE_NAME}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${RCLONE_BIN} mount ${SERVICE_NAME}:${REMOTE_PATH} ${LOCAL_PATH} \\
+    --vfs-cache-mode full \\
+    --config=${RCLONE_CONF}
+ExecStop=${FUSERMOUNT_BIN} -u ${LOCAL_PATH}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+
+        echo "✅ 서비스 파일 작성 완료: $SERVICE_FILE"
+        echo ""
+        echo "⏳ systemd 서비스 활성화 및 시작 중..."
+        systemctl --user daemon-reload
+        systemctl --user enable "$SERVICE_NAME.service"
+        systemctl --user start "$SERVICE_NAME.service"
+
+        echo ""
+        echo "🎉 '$SERVICE_NAME' 서비스가 정상적으로 생성 및 활성화되었습니다!"
+        echo "--------------------------------------------------------"
+        systemctl --user status "$SERVICE_NAME.service" --no-pager
+    fi
 fi
+
