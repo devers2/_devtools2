@@ -230,7 +230,7 @@ if ($isLocalMode) {
     & $_psExe -NoProfile -ExecutionPolicy Bypass -File $setupWslScript
 } else {
     Write-Info "GitHub에서 WSL 설치 스크립트 다운로드 중..."
-    $rawWslScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/0.setup-wsl.ps1"
+    $rawWslScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/0.setup-wsl.ps1"
 
     # 원격 실행 시 임시 파일로 저장: UTF8 NoBOM 으로 저장해야 PS7 에서 유니코드 파싱 오류 없음
     $tempWslScriptFile = Join-Path $env:TEMP "temp_setup_wsl.ps1"
@@ -363,7 +363,7 @@ if ($isLocalMode) {
     Write-Success "스크립트 전송 완료"
 } else {
     Write-Info "WSL2 내부에서 curl을 통해 원격 0.init-devtools2.sh 직접 다운로드 중..."
-    wsl -d $wslDistro -- curl -sSfL "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/devtools2/0.init-devtools2.sh" -o /tmp/0.init-devtools2.sh
+    wsl -d $wslDistro -- curl -sSfL "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/0.init-devtools2.sh" -o /tmp/0.init-devtools2.sh
     if ($LASTEXITCODE -ne 0) {
         Write-Fail "원격 초기화 스크립트 다운로드에 실패했습니다. 네트워크 연결 상태를 확인해주세요."
         Pause-Script
@@ -389,14 +389,14 @@ Write-Success "WSL2 내에 개발도구 저장소 클론 및 권한 설정 완�
 # ==============================================================================
 Write-Step "[Step 3] WSL2 개발 환경 빌드 및 패키지 일괄 설치"
 
-$RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/devtools2"
+$RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
 
 # 온라인 모드: GitHub에서 직접 스크립트를 다운로드해 /tmp에서 실행 (로컬 파일 영향 없음)
 # 로컬 모드 : /var/opt/_devtools2 로컬 복사본에서 실행
 
 Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=/var/opt/_devtools2 bash -l $DEVTOOLS2/scripts/linux/devtools2/1.setup-env.sh'
+    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=/var/opt/_devtools2 bash -l $DEVTOOLS2/scripts/linux/dev-env/1.setup-env.sh'
 } else {
     wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l <(curl -sSfL '$RAW_BASE/1.setup-env.sh')"
 }
@@ -404,7 +404,7 @@ if ($LASTEXITCODE -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Scrip
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim)"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -c 'bash -l $DEVTOOLS2/scripts/linux/devtools2/2.install-core-tools.sh'
+    wsl -d $wslDistro -- bash -c 'bash -l $DEVTOOLS2/scripts/linux/dev-env/2.install-core-tools.sh'
 } else {
     wsl -d $wslDistro -- bash -c "bash -l <(curl -sSfL '$RAW_BASE/2.install-core-tools.sh')"
 }
@@ -412,7 +412,7 @@ if ($LASTEXITCODE -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Scrip
 
 Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -c 'bash -l $DEVTOOLS2/scripts/linux/devtools2/3.install-cli-tools.sh'
+    wsl -d $wslDistro -- bash -c 'bash -l $DEVTOOLS2/scripts/linux/dev-env/3.install-cli-tools.sh'
 } else {
     wsl -d $wslDistro -- bash -c "bash -l <(curl -sSfL '$RAW_BASE/3.install-cli-tools.sh')"
 }
@@ -444,7 +444,7 @@ if ($isLocalMode) {
     }
 } else {
     Write-SubStep "▶ (1/4) WezTerm 설치 및 설정 연동 (온라인)"
-    $rawWeztermScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/1.setup-wezterm.ps1"
+    $rawWeztermScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/1.setup-wezterm.ps1"
     $weztermScriptBlock = [scriptblock]::Create($rawWeztermScript)
     & $weztermScriptBlock -WslDistro $wslDistro
 
@@ -455,7 +455,7 @@ if ($isLocalMode) {
     Write-Host "]: " -ForegroundColor Yellow -NoNewline
     $installZed = Read-Host
     if ($installZed -match '^[Yy]') {
-        $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/devtools2/2.setup-zed.ps1"
+        $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/2.setup-zed.ps1"
         $zedScriptBlock = [scriptblock]::Create($rawZedScript)
         & $zedScriptBlock -WslDistro $wslDistro
     } else {

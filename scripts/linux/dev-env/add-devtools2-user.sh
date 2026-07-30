@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # DevTools2 사용자 그룹 추가 및 umask 설정 스크립트
-# 사용법: sudo /var/opt/_devtools2/scripts/linux/devtools2/add-devtools2-user.sh <username> [<username> ...]
+# 사용법: sudo /var/opt/_devtools2/scripts/linux/dev-env/add-devtools2-user.sh <username> [<username> ...]
 # 목적:
 # - 지정한 사용자들을 'devers' 그룹에 추가
 # - 각 사용자의 홈 디렉터리 ~/.profile에 umask 002 설정을 추가하여 그룹 쓰기 권한을 보장

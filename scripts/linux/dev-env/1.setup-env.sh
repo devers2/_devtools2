@@ -14,7 +14,7 @@ if [ -z "${DEVTOOLS2:-}" ]; then
     DEVTOOLS2=$(readlink -f "$SCRIPT_DIR/../../..")
 fi
 # 유효한 DEVTOOLS2 폴더가 아니면 표준 경로를 기본값으로 사용
-if [ ! -f "$DEVTOOLS2/scripts/linux/devtools2/1.setup-env.sh" ]; then
+if [ ! -f "$DEVTOOLS2/scripts/linux/dev-env/1.setup-env.sh" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
 
@@ -26,8 +26,8 @@ _load_colors() {
     script_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo ".")")
     local colors_file="$script_dir/_colors.sh"
 
-    if [ ! -f "$colors_file" ] && [ -n "${DEVTOOLS2:-}" ] && [ -f "$DEVTOOLS2/scripts/linux/devtools2/_colors.sh" ]; then
-        colors_file="$DEVTOOLS2/scripts/linux/devtools2/_colors.sh"
+    if [ ! -f "$colors_file" ] && [ -n "${DEVTOOLS2:-}" ] && [ -f "$DEVTOOLS2/scripts/linux/dev-env/_colors.sh" ]; then
+        colors_file="$DEVTOOLS2/scripts/linux/dev-env/_colors.sh"
     fi
 
     if [ -f "$colors_file" ]; then
@@ -35,7 +35,7 @@ _load_colors() {
         source "$colors_file" 2>/dev/null && _COLORS_LOADED=true && return 0
     fi
 
-    if curl -sSfL --max-time 5 "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/devtools2/_colors.sh" -o /tmp/_colors_remote.sh 2>/dev/null; then
+    if curl -sSfL --max-time 5 "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_colors.sh" -o /tmp/_colors_remote.sh 2>/dev/null; then
         # shellcheck disable=SC1091
         source /tmp/_colors_remote.sh 2>/dev/null && _COLORS_LOADED=true && return 0
     fi

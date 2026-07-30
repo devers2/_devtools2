@@ -3,7 +3,7 @@
 # DevTools2 전체 환경 자동 설치 마스터 스크립트 (setup-devtools2.sh)
 #
 # 목적:
-#   scripts/linux/devtools2/ 하위의 0~3번 스크립트를 순서대로 자동 실행하여
+#   scripts/linux/dev-env/ 하위의 0~3번 스크립트를 순서대로 자동 실행하여
 #   DevTools2 포터블 개발 환경을 한 번에 완전히 구축합니다.
 #
 # 실행 순서:
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
-SUB_DIR="$SCRIPT_DIR/devtools2"
+SUB_DIR="$SCRIPT_DIR/dev-env"
 
 
 # 컬러 출력 헬퍼
@@ -47,7 +47,7 @@ if [ -f "$SUB_DIR/0.init-devtools2.sh" ]; then
     IS_LOCAL=true
 fi
 
-RAW_BASE="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/devtools2"
+RAW_BASE="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
 
 # ==============================================================================
 # [Step 0] Git 인증 설정 + 저장소 클론 + 그룹/권한 초기화
