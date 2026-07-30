@@ -6,10 +6,13 @@
 #          또는 source "$DEVTOOLS2/scripts/fzf/bw-lib"
 #
 # 이 파일을 source 하면 아래 함수들이 현재 셸에 로드됩니다.
-#   bw_ensure_session   → BW_SESSION 을 보장 (없으면 unlock 수행)
-#   bw_get_folder_ids   → 폴더명으로 일치하는 모든 폴더 ID 목록 반환
+#   bw_ensure_session            → BW_SESSION 을 보장 (없으면 unlock 수행)
+#   bw_get_folder_ids            → 폴더명으로 일치하는 모든 폴더 ID 목록 반환
 #   bw_get_items_by_folder_name  → 폴더명으로 아이템 JSON 청크 목록 반환
 #   bw_find_item_by_name         → 이름이 정확히 일치하는 첫 번째 아이템 JSON 반환
+#   bw_git_clone                 → Bitwarden PAT 인증으로 git clone 수행
+#                                  사용법: bw_git_clone <repo_url> <target_dir> [bw_item_name]
+#                                  bw_item_name 기본값: github.com-main
 # ==============================================================================
 
 # ── 세션 파일 경로 결정 ────────────────────────────────────────────────────────
@@ -219,4 +222,78 @@ PYEOF
 
     printf "%s" "$_RAW" | python3 "$_PY" "$_TARGET_NAME"
     rm -f "$_PY"
+}
+
+# ── Bitwarden PAT 인증으로 git clone 수행 ─────────────────────────────────────
+# 인수:
+#   $1 = 클론할 저장소 URL (필수)
+#   $2 = 로컬 대상 경로 (필수)
+#   $3 = Bitwarden 아이템 이름 (선택, 기본값: github.com-main)
+#        → login.username = 이메일, login.totp = PAT 토큰
+# 반환: 0 = 성공, 1 = 실패
+# 전제: bw_ensure_session 이 선행 호출되어 BW_SESSION 이 유효한 상태여야 함
+bw_git_clone() {
+    local _REPO_URL="$1"
+    local _TARGET_DIR="$2"
+    local _BW_ITEM="${3:-github.com-main}"
+
+    if [ -z "$_REPO_URL" ] || [ -z "$_TARGET_DIR" ]; then
+        echo "❌ bw_git_clone: repo_url 과 target_dir 은 필수입니다." >&2
+        return 1
+    fi
+
+    # 세션 유효 확인
+    if [ -z "${BW_SESSION:-}" ]; then
+        echo "❌ bw_git_clone: BW_SESSION 이 없습니다. bw_ensure_session 을 먼저 호출하세요." >&2
+        return 1
+    fi
+
+    echo "⏳ Bitwarden에서 '${_BW_ITEM}' 계정 정보 조회 중..."
+    local _ALL_ITEMS_RAW
+    _ALL_ITEMS_RAW=$(bw list items --search "$_BW_ITEM" --session "$BW_SESSION" </dev/null 2>&1)
+
+    # bw_find_item_by_name 은 ---ITEM_SPLIT--- 구분 형식을 받으므로 단일 청크로 래핑
+    local _RAW_LIST="${_ALL_ITEMS_RAW}"$'\n---ITEM_SPLIT---\n'
+    local _PARSED
+    _PARSED=$(bw_find_item_by_name "$_RAW_LIST" "$_BW_ITEM")
+
+    if [ -z "$_PARSED" ]; then
+        echo "❌ Bitwarden에서 '${_BW_ITEM}' 항목을 찾을 수 없습니다." >&2
+        return 1
+    fi
+
+    # bw_find_item_by_name 반환 형식: username\tpassword\ttotp\tnotes
+    # github.com-main 구조: username=이메일, totp=PAT 토큰
+    local _GIT_EMAIL _GIT_PAT _GIT_USERNAME
+    _GIT_EMAIL=$(printf "%s" "$_PARSED"    | cut -f1)
+    _GIT_PAT=$(printf "%s" "$_PARSED"      | cut -f3)   # totp 필드 = PAT
+    _GIT_USERNAME=$(printf "%s" "$_GIT_EMAIL" | cut -d'@' -f1)
+
+    echo "✅ GitHub 계정 확인: $_GIT_USERNAME ($_GIT_EMAIL)"
+    mkdir -p "$(dirname "$_TARGET_DIR")"
+
+    local _ASKPASS
+    _ASKPASS=$(mktemp /tmp/bw_askpass_XXXXXX.sh)
+    chmod 700 "$_ASKPASS"
+    cat > "$_ASKPASS" <<ASKEOF
+#!/usr/bin/env bash
+case "\$1" in
+  Username*) echo "${_GIT_USERNAME}" ;;
+  Password*) echo "${_GIT_PAT}"      ;;
+esac
+ASKEOF
+
+    echo "🚀 저장소 클론 중: $_REPO_URL -> $_TARGET_DIR"
+    GIT_ASKPASS="$_ASKPASS" \
+    GIT_TERMINAL_PROMPT=0 \
+    git clone "$_REPO_URL" "$_TARGET_DIR"
+    local _RC=$?
+    rm -f "$_ASKPASS"
+
+    if [ $_RC -eq 0 ]; then
+        echo "✅ 깃 클론 완료!"
+    else
+        echo "❌ 깃 클론 실패 (종료 코드: $_RC)" >&2
+    fi
+    return $_RC
 }

@@ -96,7 +96,7 @@ function Wait-WithSpinner {
             return $true
         }
 
-        $char = $spinner[$i % 4]
+        $char = $spinner[$i % $spinner.Count]
         Write-Host -NoNewline "`r  [$char] $Message...   "
         Start-Sleep -Milliseconds 150
         $i++
@@ -266,7 +266,7 @@ while ($retryCount -lt $maxRetry) {
 
     # 2초 동안 스피너 회전 대기
     for ($i = 0; $i -lt 8; $i++) {
-        $char = $spinner[$sIdx % 4]
+        $char = $spinner[$sIdx % $spinner.Count]
         Write-Host -NoNewline "`r  [$char] WSL2 배포판 준비 상태 조회 중...   "
         Start-Sleep -Milliseconds 150
         $sIdx++

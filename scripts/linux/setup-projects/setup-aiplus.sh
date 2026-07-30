@@ -9,7 +9,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVTOOLS2="${DEVTOOLS2:-$(readlink -f "$SCRIPT_DIR/../..")}"
 
-# bw-lib 로드 (bw_ensure_session / bw_get_items_by_folder_name / bw_find_item_by_name 포함)
+# bw-lib 로드 (bw_ensure_session / bw_git_clone / bw_get_items_by_folder_name 포함)
 if [ -f "$DEVTOOLS2/scripts/fzf/bw-lib" ]; then
     source "$DEVTOOLS2/scripts/fzf/bw-lib"
 else
@@ -33,62 +33,26 @@ echo "⏳ Bitwarden 상태 확인 중..."
 bw_ensure_session || exit 1
 
 # ==============================================================================
-# 2. 깃 클론 (bw-lib: bw_find_item_by_name 으로 github.com-main PAT 조회)
+# 2. 깃 클론 (bw-lib: bw_git_clone — Bitwarden PAT 인증 자동)
 # ==============================================================================
 if [ -d "$TARGET_DIR/.git" ]; then
     echo "ℹ️  이미 깃 저장소가 존재합니다. 클론 단계를 건너뜁니다."
 else
-    GIT_ITEM_NAME="github.com-main"
-    echo "⏳ Bitwarden에서 '${GIT_ITEM_NAME}' 계정 정보 조회 중..."
-
-    # bw-lib의 bw_get_items_by_folder_name 대신 전체 검색 후 bw_find_item_by_name 활용
-    _ALL_GIT_ITEMS=$(bw list items --search "$GIT_ITEM_NAME" --session "$BW_SESSION" </dev/null 2>&1)
-    # bw_find_item_by_name 은 ---ITEM_SPLIT--- 구분 형식을 받으므로 단일 청크로 래핑
-    _GIT_RAW_LIST="${_ALL_GIT_ITEMS}"$'\n---ITEM_SPLIT---\n'
-    _GIT_PARSED=$(bw_find_item_by_name "$_GIT_RAW_LIST" "$GIT_ITEM_NAME")
-
-    if [ -z "$_GIT_PARSED" ]; then
-        echo "❌ Bitwarden에서 '${GIT_ITEM_NAME}' 항목을 찾을 수 없습니다."
-        exit 1
-    fi
-
-    # bw_find_item_by_name 반환: username\tpassword\ttotp\tnotes
-    # github.com-main 구조: username=이메일, totp=PAT 토큰
-    GIT_EMAIL=$(printf "%s" "$_GIT_PARSED" | cut -f1)
-    GIT_PAT=$(printf "%s"   "$_GIT_PARSED" | cut -f3)   # totp 필드 = PAT
-    GIT_USERNAME=$(printf "%s" "$GIT_EMAIL" | cut -d'@' -f1)
-
-    echo "✅ GitHub 계정 확인: $GIT_USERNAME ($GIT_EMAIL)"
-    mkdir -p "$(dirname "$TARGET_DIR")"
-
-    _ASKPASS=$(mktemp /tmp/bw_askpass_XXXXXX.sh)
-    chmod 700 "$_ASKPASS"
-    cat > "$_ASKPASS" <<ASKEOF
-#!/usr/bin/env bash
-case "\$1" in
-  Username*) echo "${GIT_USERNAME}" ;;
-  Password*) echo "${GIT_PAT}"      ;;
-esac
-ASKEOF
-
-    echo "🚀 저장소 클론 중: $REPO_URL -> $TARGET_DIR"
-    GIT_ASKPASS="$_ASKPASS" \
-    GIT_TERMINAL_PROMPT=0 \
-    git clone "$REPO_URL" "$TARGET_DIR"
-    rm -f "$_ASKPASS"
-    echo "✅ 깃 클론 완료!"
+    bw_git_clone "$REPO_URL" "$TARGET_DIR" || exit 1
 fi
 
 # ==============================================================================
 # 3. SFTP 마운트 설정 (bw-lib: bw_get_items_by_folder_name 으로 서버 정보 조회)
 #    대상 서버: namupia@aiplus.im:222
+#    bw-server-manager 는 인터랙티브 스크립트라 직접 재사용 불가 → 동일 로직 인라인
 # ==============================================================================
 echo "⚙️  SFTP 마운트 설정 진행 중 (namupia@aiplus.im:222)..."
 
 # bw-lib: RemoteServer 폴더의 모든 아이템 조회
 RAW_SERVER_ITEMS=$(bw_get_items_by_folder_name "RemoteServer") || exit 1
 
-# namupia@aiplus.im 서버 항목 파싱 (username+host 기준 탐색 — bw_find_item_by_name은 이름 기준이라 커스텀 사용)
+# namupia@aiplus.im 서버 항목 파싱
+# bw_find_item_by_name 은 이름(item.name) 기준이라 username+host 검색은 커스텀 Python 사용
 _PY_SERVER=$(mktemp /tmp/bw_server_XXXXXX.py)
 cat > "$_PY_SERVER" <<'PYEOF'
 import sys, json, re
@@ -144,7 +108,7 @@ else
     PORT="22"
 fi
 
-# bw-lib의 BW_SESSION을 활용하여 비밀번호 조회 (bw-server-manager 와 동일한 방식)
+# bw-lib의 BW_SESSION을 활용하여 비밀번호 조회
 SERVER_PASS=$(bw get password "$ITEM_ID" --session "$BW_SESSION" 2>/dev/null || echo "")
 
 SERVICE_NAME="rclone-${USERNAME}@${ACTUAL_HOST}_${PORT}"

@@ -32,14 +32,14 @@ FOLDER_NAME="python-$VERSION"
 # scripts/linux/cmd -> ../../../modules/python/
 TARGET_PATH="$(cd "$SCRIPT_DIR/../../../modules/python/$FOLDER_NAME" 2>/dev/null && pwd)"
 
-# 만약 상대 경로 계산에 실패하거나 해당 폴더가 없으면 요청하신 고정 경로를 차선책으로 탐색
+# 만약 상대 경로 계산에 실패하거나 해당 폴더가 없으면 DEVTOOLS2 경로를 차선책으로 탐색
 if [ -z "$TARGET_PATH" ] || [ ! -d "$TARGET_PATH" ]; then
-    TARGET_PATH="/home/eseungsu/_devtools2/modules/python/$FOLDER_NAME"
+    TARGET_PATH="$DEVTOOLS2/modules/python/$FOLDER_NAME"
 fi
 
 if [ ! -d "$TARGET_PATH" ]; then
     echo "[Error] 해당 파이썬 경로를 찾을 수 없습니다."
-    echo "예상 경로: $SCRIPT_DIR/../../../modules/python/$FOLDER_NAME 또는 /home/eseungsu/_devtools2/modules/python/$FOLDER_NAME"
+    echo "예상 경로: $SCRIPT_DIR/../../../modules/python/$FOLDER_NAME 또는 $DEVTOOLS2/modules/python/$FOLDER_NAME"
     return 1 2>/dev/null || exit 1
 fi
 
