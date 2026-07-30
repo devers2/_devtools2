@@ -355,19 +355,20 @@ elif [[ "$ACTION" == *"SFTP 마운트"* ]]; then
             echo "--------------------------------------------------------"
 
             MGMT_OPTIONS=()
+            MGMT_OPTIONS+=("1. 📊  상세 상태 확인 (systemctl --user status)")
+
             if [ "$IS_ACTIVE" = "active" ]; then
-                MGMT_OPTIONS+=("1. ⏹️  서비스 중지 (systemctl --user stop)")
+                MGMT_OPTIONS+=("2. ⏹️  서비스 중지 (systemctl --user stop)")
             else
-                MGMT_OPTIONS+=("1. ▶️  서비스 시작 (systemctl --user start)")
+                MGMT_OPTIONS+=("2. ▶️  서비스 시작 (systemctl --user start)")
             fi
 
             if [ "$IS_ENABLED" = "enabled" ]; then
-                MGMT_OPTIONS+=("2. 🛑  부팅 시 자동 실행 비활성화 (systemctl --user disable)")
+                MGMT_OPTIONS+=("3. 🛑  부팅 시 자동 실행 비활성화 (systemctl --user disable)")
             else
-                MGMT_OPTIONS+=("2. 🔄  부팅 시 자동 실행 활성화 (systemctl --user enable)")
+                MGMT_OPTIONS+=("3. 🔄  부팅 시 자동 실행 활성화 (systemctl --user enable)")
             fi
 
-            MGMT_OPTIONS+=("3. 📊  상세 상태 확인 (systemctl --user status)")
             MGMT_OPTIONS+=("4. 🗑️  서비스 삭제 (서비스 및 설정 완전 제거)")
             MGMT_OPTIONS+=("5. 🚪  나가기")
 
