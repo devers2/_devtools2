@@ -3,6 +3,15 @@
 # [ALT+c] 독립형 명령어 팔레트 (OS 호환 및 Gradle 상태 동적 감지)
 # ==============================================================================
 
+# ── bw-lib 공유 라이브러리 로드 (Bitwarden 인증 모듈) ─────────────────────────
+_CP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$_CP_SCRIPT_DIR/bw-lib" ]; then
+    source "$_CP_SCRIPT_DIR/bw-lib"
+elif [ -f "${DEVTOOLS2}/scripts/fzf/bw-lib" ]; then
+    source "${DEVTOOLS2}/scripts/fzf/bw-lib"
+fi
+# bw-lib 없어도 다른 기능은 계속 동작하도록 에러 없이 진행
+
 # 1. 현재 작업 환경 분석 및 OS 판별
 CWD=$(pwd)
 IS_WINDOWS=false
@@ -305,6 +314,7 @@ if $GRADLEW_EXISTS; then
     fi
 fi
 MENU_OPTIONS+=("[JDTLS] 캐시 초기화")
+MENU_OPTIONS+=("[Git] Clone (Bitwarden 인증 자동)")
 MENU_OPTIONS+=("포트 확인 (Port Check)")
 MENU_OPTIONS+=("프로세스 확인 (Process Check)")
 MENU_OPTIONS+=("프로세스 종료 (Process Kill)")
@@ -797,4 +807,191 @@ elif [[ "$CHOICE" == *"Python 버전 변경"* ]]; then
         fi
         echo "  - 또는 터미널을 다시 시작(새 창/새 탭)하십시오."
     fi
+
+# ── [Git] Clone (Bitwarden 인증 자동) ────────────────────────────────────────
+elif [[ "$CHOICE" == *"Git"* && "$CHOICE" == *"Clone"* ]]; then
+
+    # ── 0. git 설치 여부 확인 ─────────────────────────────────────────────────
+    if ! command -v git &>/dev/null; then
+        echo "❌ git이 설치되어 있지 않습니다."
+        echo ""
+        echo "   설치 방법:"
+        if [[ -f /etc/debian_version ]] || [[ -f /etc/ubuntu-release ]]; then
+            echo "   sudo apt update && sudo apt install -y git"
+        elif [[ -f /etc/redhat-release ]] || [[ -f /etc/fedora-release ]]; then
+            echo "   sudo dnf install -y git"
+        elif [[ "$OSTYPE" == "darwin"* ]]; then
+            echo "   brew install git  또는  xcode-select --install"
+        else
+            echo "   패키지 매니저로 git 을 설치해주세요."
+        fi
+        exit 1
+    fi
+
+    # ── 1. bw-lib 로드 확인 ───────────────────────────────────────────────────
+    if ! declare -f bw_ensure_session &>/dev/null; then
+        echo "❌ bw-lib 라이브러리를 찾을 수 없습니다."
+        echo "   ${_CP_SCRIPT_DIR}/bw-lib 파일이 존재하는지 확인해주세요."
+        exit 1
+    fi
+
+    # ── 2. Bitwarden 세션 확보 ────────────────────────────────────────────────
+    echo "⏳ Bitwarden 상태 확인 중..."
+    bw_ensure_session || exit 1
+
+    # ── 3. github.com-main 아이템 조회 ───────────────────────────────────────
+    _GIT_ITEM_NAME="github.com-main"
+    echo "⏳ Bitwarden에서 '${_GIT_ITEM_NAME}' 계정 정보 조회 중..."
+
+    # 전체 아이템 중에서 이름으로 검색 (어느 폴더에 있든 찾음)
+    _ALL_ITEMS_RAW=$(bw list items --search "$_GIT_ITEM_NAME" --session "$BW_SESSION" </dev/null 2>&1)
+    if echo "$_ALL_ITEMS_RAW" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
+        echo "❌ Bitwarden 세션이 만료되었습니다. 다시 실행해주세요."
+        rm -f "$_BW_SESSION_FILE"
+        exit 1
+    fi
+
+    # 이름 정확 일치 아이템에서 username(이메일), totp(인증 키=PAT) 추출
+    # Bitwarden 구조:
+    #   login.username → 이메일 (user.email 로 사용)
+    #   login.totp     → 인증 키 = GitHub PAT 토큰 (git clone 인증에 사용)
+    #   login.password → 비밀번호 (GitHub 계정 비밀번호, 사용 안 함)
+    _PY_GIT=$(mktemp /tmp/bw_git_XXXXXX.py)
+    cat > "$_PY_GIT" <<'PYEOF'
+import sys, json
+
+target_name = sys.argv[1] if len(sys.argv) > 1 else ''
+try:
+    raw = sys.stdin.read()
+    start = raw.find('[')
+    end = raw.rfind(']')
+    if start != -1 and end != -1 and start < end:
+        items = json.loads(raw[start:end+1], strict=False)
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get('name', '')).strip() == target_name:
+                login = item.get('login') or {}
+                username = (login.get('username') or '').strip()
+                # 인증 키 필드(totp)가 PAT 토큰
+                totp = (login.get('totp') or '').strip()
+                print(f"{username}\t{totp}")
+                sys.exit(0)
+except Exception as e:
+    sys.stderr.write(f'parse error: {e}\n')
+PYEOF
+
+    _GIT_PARSED=$(printf "%s" "$_ALL_ITEMS_RAW" | python3 "$_PY_GIT" "$_GIT_ITEM_NAME")
+    rm -f "$_PY_GIT"
+
+    if [ -z "$_GIT_PARSED" ]; then
+        echo "❌ Bitwarden에서 '${_GIT_ITEM_NAME}' 항목을 찾을 수 없습니다."
+        echo "   Bitwarden에 이름이 정확히 '${_GIT_ITEM_NAME}' 인 로그인 항목을 만들어주세요."
+        exit 1
+    fi
+
+    # 탭 구분으로 이메일과 PAT(비밀번호 필드) 분리
+    _GIT_EMAIL=$(printf "%s" "$_GIT_PARSED" | cut -f1)
+    _GIT_PAT=$(printf "%s" "$_GIT_PARSED" | cut -f2)
+    # user.name: 이메일의 @ 앞 부분
+    _GIT_USERNAME=$(printf "%s" "$_GIT_EMAIL" | cut -d'@' -f1)
+
+    echo ""
+    echo "✅ GitHub 계정 정보 확인:"
+    echo "   user.name : $_GIT_USERNAME"
+    echo "   이메일    : $_GIT_EMAIL"
+    echo "   PAT       : (인증 키 필드에서 자동 로드)"
+    echo ""
+
+    # ── 4. git config 설정 (아직 설정 안 된 경우만) ──────────────────────────
+    _CUR_GIT_NAME=$(git config --global user.name 2>/dev/null || echo "")
+    _CUR_GIT_EMAIL=$(git config --global user.email 2>/dev/null || echo "")
+
+    if [ -z "$_CUR_GIT_NAME" ] || [ -z "$_CUR_GIT_EMAIL" ]; then
+        echo "⚙️  git 전역 설정이 없습니다. Bitwarden 정보로 자동 설정합니다..."
+        git config --global user.name "$_GIT_USERNAME"
+        git config --global user.email "$_GIT_EMAIL"
+        git config --global core.quotepath false
+        git config --global credential.helper store
+        echo "✅ git config 설정 완료:"
+        echo "   user.name         = $_GIT_USERNAME"
+        echo "   user.email        = $_GIT_EMAIL"
+        echo "   core.quotepath    = false"
+        echo "   credential.helper = store"
+    else
+        echo "ℹ️  git 전역 설정이 이미 존재합니다:"
+        echo "   user.name  = $_CUR_GIT_NAME"
+        echo "   user.email = $_CUR_GIT_EMAIL"
+    fi
+    echo ""
+
+    # ── 5. clone 할 URL 입력 ──────────────────────────────────────────────────
+    read -rp "📋 Clone 할 저장소 URL 입력 (예: https://github.com/user/repo.git): " _CLONE_URL
+    if [ -z "$_CLONE_URL" ]; then
+        echo "❌ URL이 입력되지 않았습니다. 취소합니다."
+        exit 0
+    fi
+
+    # ── 6. clone 대상 디렉토리 입력 ──────────────────────────────────────────
+    _DEFAULT_DIR=$(basename "$_CLONE_URL" .git)
+    read -rp "📁 Clone 경로 (기본: 현재폴더/${_DEFAULT_DIR}) [엔터=기본값]: " _CLONE_DIR
+    _CLONE_DIR=${_CLONE_DIR:-"./$_DEFAULT_DIR"}
+
+    echo ""
+    echo "🚀 git clone 시작합니다..."
+    echo "   URL       : $_CLONE_URL"
+    echo "   대상 경로 : $_CLONE_DIR"
+    echo ""
+
+    # ── 7. GIT_ASKPASS 방식으로 PAT 자동 주입 ────────────────────────────────
+    # URL은 입력받은 그대로 사용하고, 인증 정보만 환경변수로 분리 주입
+    # git이 비밀번호를 요청할 때 _GIT_ASKPASS_SCRIPT 가 대신 응답함
+    # → 터미널에 비밀번호 입력창이 뜨지 않음
+    _GIT_ASKPASS_SCRIPT=$(mktemp /tmp/bw_askpass_XXXXXX.sh)
+    chmod 700 "$_GIT_ASKPASS_SCRIPT"
+    # git은 Username/Password 를 물어볼 때 GIT_ASKPASS 스크립트를 호출함
+    # 인수로 "Username" 또는 "Password" 가 전달됨
+    cat > "$_GIT_ASKPASS_SCRIPT" <<ASKEOF
+#!/usr/bin/env bash
+case "\$1" in
+  Username*) echo "${_GIT_EMAIL}" ;;
+  Password*) echo "${_GIT_PAT}"   ;;
+esac
+ASKEOF
+
+    GIT_ASKPASS="$_GIT_ASKPASS_SCRIPT" \
+    GIT_TERMINAL_PROMPT=0 \
+    git clone "$_CLONE_URL" "$_CLONE_DIR"
+    _CLONE_EXIT=$?
+
+    rm -f "$_GIT_ASKPASS_SCRIPT"
+
+    if [ $_CLONE_EXIT -eq 0 ]; then
+        echo ""
+        echo "✅ Clone 완료: $_CLONE_DIR"
+        echo ""
+
+        # PAT 저장 여부 사용자에게 질의 (기본값 N)
+        read -rp "🔑 이후 git push/pull 시에도 자동 인증되도록 인증 정보를 저장(credential store)하시겠습니까? (y/N): " _SAVE_CRED_ANS
+        _SAVE_CRED_ANS=$(echo "$_SAVE_CRED_ANS" | tr '[:upper:]' '[:lower:]')
+
+        if [[ "$_SAVE_CRED_ANS" == "y" ]]; then
+            _CRED_HOST=$(echo "$_CLONE_URL" | sed -E 's|^https?://||' | cut -d'/' -f1)
+            _CRED_LINE="https://${_GIT_EMAIL}:${_GIT_PAT}@${_CRED_HOST}"
+            touch ~/.git-credentials
+            chmod 600 ~/.git-credentials
+            grep -v "@${_CRED_HOST}" ~/.git-credentials > /tmp/_git_creds_tmp 2>/dev/null || true
+            echo "$_CRED_LINE" >> /tmp/_git_creds_tmp
+            mv /tmp/_git_creds_tmp ~/.git-credentials
+            echo "✅ PAT가 ~/.git-credentials 에 저장되었습니다."
+        else
+            echo "ℹ️  인증 정보를 별도로 저장하지 않았습니다."
+        fi
+    else
+        echo ""
+        echo "❌ Clone 실패. URL 또는 PAT를 확인해주세요."
+        exit 1
+    fi
+
 fi
+

@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# bw-lib: Bitwarden 인증 / 세션 공유 라이브러리
+# ==============================================================================
+# 사용법: source "$(dirname "${BASH_SOURCE[0]}")/bw-lib"
+#          또는 source "$DEVTOOLS2/scripts/fzf/bw-lib"
+#
+# 이 파일을 source 하면 아래 함수들이 현재 셸에 로드됩니다.
+#   bw_ensure_session   → BW_SESSION 을 보장 (없으면 unlock 수행)
+#   bw_get_folder_ids   → 폴더명으로 일치하는 모든 폴더 ID 목록 반환
+#   bw_get_items_by_folder_name  → 폴더명으로 아이템 JSON 청크 목록 반환
+#   bw_find_item_by_name         → 이름이 정확히 일치하는 첫 번째 아이템 JSON 반환
+# ==============================================================================
+
+# ── 세션 파일 경로 결정 ────────────────────────────────────────────────────────
+_BW_HOME_DIR="${HOME:-$USERPROFILE}"
+_BW_GHOSTTY_DIR="${_BW_HOME_DIR}/.ghostty"
+mkdir -p "$_BW_GHOSTTY_DIR"
+
+if [ -d "/dev/shm" ]; then
+    _BW_SESSION_FILE="/dev/shm/bw_session_${UID:-$(id -u)}"
+else
+    _BW_SESSION_FILE="${_BW_GHOSTTY_DIR}/bw_session"
+fi
+
+# ── bw vault 잠금 해제 수행 ───────────────────────────────────────────────────
+_bw_do_unlock() {
+    echo ""
+    read -rsp "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒 " _MASTER_PASS
+    echo ""
+
+    if [ -z "$_MASTER_PASS" ]; then
+        echo "❌ 비밀번호가 입력되지 않았습니다."
+        return 1
+    fi
+
+    echo "🔓 Bitwarden vault 잠금 해제 중..."
+    local _UNLOCK_OUTPUT
+    _UNLOCK_OUTPUT=$(bw unlock "$_MASTER_PASS" 2>&1)
+    unset _MASTER_PASS
+
+    BW_SESSION=$(echo "$_UNLOCK_OUTPUT" | grep -oP '(?<=export BW_SESSION=")[^"]+' | head -1)
+
+    if [ -z "$BW_SESSION" ]; then
+        echo "❌ 잠금 해제에 실패했습니다. 마스터 비밀번호를 확인해주세요."
+        return 1
+    fi
+
+    echo "$BW_SESSION" > "$_BW_SESSION_FILE"
+    chmod 600 "$_BW_SESSION_FILE"
+    export BW_SESSION
+
+    if [ -d "/dev/shm" ]; then
+        echo "✅ 잠금 해제 완료. (세션키가 메모리(tmpfs)에 저장되었습니다)"
+    else
+        echo "✅ 잠금 해제 완료. (세션이 ${_BW_SESSION_FILE} 에 저장되었습니다)"
+    fi
+}
+
+# ── BW_SESSION 보장 (핵심 진입점) ─────────────────────────────────────────────
+# 호출 후 BW_SESSION 이 유효한 상태를 보장합니다.
+# 반환: 0 = 성공, 1 = 실패
+bw_ensure_session() {
+    # bw CLI 존재 확인
+    if ! command -v bw &>/dev/null; then
+        echo "❌ Bitwarden CLI(bw)를 찾을 수 없습니다."
+        echo "   설치 방법: https://bitwarden.com/help/cli/"
+        return 1
+    fi
+
+    # 저장된 세션키 로드 (환경변수 우선, 없으면 파일)
+    if [ -z "${BW_SESSION:-}" ] && [ -f "$_BW_SESSION_FILE" ]; then
+        BW_SESSION=$(cat "$_BW_SESSION_FILE")
+        export BW_SESSION
+    fi
+
+    # bw 상태 확인
+    local _STATUS_JSON _STATUS
+    _STATUS_JSON=$(bw status 2>/dev/null)
+    _STATUS=$(echo "$_STATUS_JSON" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get('status', 'unknown'))
+except:
+    print('unknown')
+")
+
+    case "$_STATUS" in
+    unauthenticated)
+        echo "🔑 Bitwarden에 로그인되어 있지 않습니다."
+        echo "   아래 명령어로 먼저 로그인해주세요:"
+        echo ""
+        echo "   bw login"
+        echo ""
+        return 1
+        ;;
+    locked)
+        _bw_do_unlock || return 1
+        ;;
+    unlocked)
+        if [ -z "${BW_SESSION:-}" ]; then
+            _bw_do_unlock || return 1
+        fi
+        ;;
+    *)
+        echo "❌ Bitwarden 상태를 확인할 수 없습니다. (status: $_STATUS)"
+        return 1
+        ;;
+    esac
+
+    return 0
+}
+
+# ── 폴더명으로 일치하는 폴더 ID 목록 반환 (공백 구분) ─────────────────────────
+# 인수: $1 = 폴더명 (정확 일치)
+# 출력: 폴더 ID 목록 (공백 구분) → 일치 없으면 빈 문자열
+bw_get_folder_ids() {
+    local _FOLDER_NAME="$1"
+    local _FOLDERS_JSON
+
+    _FOLDERS_JSON=$(bw list folders --session "$BW_SESSION" </dev/null 2>&1)
+
+    if echo "$_FOLDERS_JSON" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
+        echo "❌ Bitwarden 세션이 만료되었습니다." >&2
+        rm -f "$_BW_SESSION_FILE"
+        return 1
+    fi
+
+    echo "$_FOLDERS_JSON" | python3 -c "
+import sys, json
+
+try:
+    raw = sys.stdin.read()
+    start = raw.find('[')
+    end = raw.rfind(']')
+    if start != -1 and end != -1 and start < end:
+        folders = json.loads(raw[start:end+1], strict=False)
+        target = '''$_FOLDER_NAME'''.strip()
+        matched = [f.get('id','') for f in folders if isinstance(f, dict) and str(f.get('name','')).strip() == target and f.get('id')]
+        print(' '.join(matched))
+except Exception:
+    pass
+" 2>/dev/null
+}
+
+# ── 폴더명으로 아이템 전체 조회 후 RAW_ITEMS_LIST 반환 ────────────────────────
+# 인수: $1 = 폴더명
+# 출력: ---ITEM_SPLIT--- 로 구분된 JSON 청크 문자열
+# 반환: 0 = 성공, 1 = 세션 오류
+bw_get_items_by_folder_name() {
+    local _FOLDER_NAME="$1"
+    local _FOLDER_IDS _ITEMS _RAW=""
+
+    _FOLDER_IDS=$(bw_get_folder_ids "$_FOLDER_NAME") || return 1
+
+    if [ -z "$_FOLDER_IDS" ]; then
+        return 0
+    fi
+
+    for _FID in $_FOLDER_IDS; do
+        _ITEMS=$(bw list items --folderid "$_FID" --session "$BW_SESSION" </dev/null 2>&1)
+        if echo "$_ITEMS" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
+            echo "❌ Bitwarden 세션이 만료되었습니다." >&2
+            rm -f "$_BW_SESSION_FILE"
+            return 1
+        fi
+        if [ -n "$_ITEMS" ] && [ "$_ITEMS" != "[]" ]; then
+            _RAW="${_RAW}${_ITEMS}"$'\n---ITEM_SPLIT---\n'
+        fi
+    done
+
+    printf "%s" "$_RAW"
+}
+
+# ── 이름이 정확히 일치하는 첫 번째 아이템의 필드를 추출 ───────────────────────
+# 인수: $1 = RAW_ITEMS_LIST (---ITEM_SPLIT--- 구분 문자열)
+#       $2 = 찾을 아이템 이름 (정확 일치)
+# 출력: username\tpassword\ttotp\tnotes (탭 구분)
+#   없으면 빈 출력
+bw_find_item_by_name() {
+    local _RAW="$1"
+    local _TARGET_NAME="$2"
+
+    # 임시 파이썬 스크립트로 파싱 (stdin 충돌 방지)
+    local _PY
+    _PY=$(mktemp /tmp/bw_find_XXXXXX.py)
+    cat > "$_PY" <<'PYEOF'
+import sys, json
+
+raw_all = sys.stdin.read()
+target_name = sys.argv[1] if len(sys.argv) > 1 else ''
+
+chunks = raw_all.split('---ITEM_SPLIT---')
+for chunk in chunks:
+    chunk = chunk.strip()
+    if not chunk:
+        continue
+    start = chunk.find('[')
+    end = chunk.rfind(']')
+    if start == -1 or end == -1 or start >= end:
+        continue
+    try:
+        items = json.loads(chunk[start:end+1], strict=False)
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get('name', '')).strip() == target_name:
+                login = item.get('login') or {}
+                username = login.get('username') or ''
+                password = login.get('password') or ''
+                totp = login.get('totp') or ''
+                notes = str(item.get('notes') or '')
+                print(f"{username}\t{password}\t{totp}\t{notes}")
+                sys.exit(0)
+    except Exception:
+        pass
+PYEOF
+
+    printf "%s" "$_RAW" | python3 "$_PY" "$_TARGET_NAME"
+    rm -f "$_PY"
+}
