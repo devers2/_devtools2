@@ -903,19 +903,35 @@ PYEOF
     echo "   PAT       : (인증 키 필드에서 자동 로드)"
     echo ""
 
-    # ── 4. git config 설정 (아직 설정 안 된 경우만) ──────────────────────────
+    # ── 4. git config 설정 ──────────────────────────────────────────────────
     _CUR_GIT_NAME=$(git config --global user.name 2>/dev/null || echo "")
     _CUR_GIT_EMAIL=$(git config --global user.email 2>/dev/null || echo "")
 
+    # Bitwarden 기본값 세팅 (@ 제거한 이름)
+    _BW_DEFAULT_NAME=$(echo "$_GIT_USERNAME" | tr -d '@')
+    _BW_DEFAULT_EMAIL="$_GIT_EMAIL"
+
     if [ -z "$_CUR_GIT_NAME" ] || [ -z "$_CUR_GIT_EMAIL" ]; then
-        echo "⚙️  git 전역 설정이 없습니다. Bitwarden 정보로 자동 설정합니다..."
-        git config --global user.name "$_GIT_USERNAME"
-        git config --global user.email "$_GIT_EMAIL"
+        echo "⚙️  git 전역 기본 설정(user.name / user.email)을 입력해주세요."
+        echo "   [엔터]를 누르면 Bitwarden 기본값이 적용됩니다."
+        echo ""
+        read -rp "👤 user.name  [기본값: $_BW_DEFAULT_NAME]: " _INPUT_GIT_NAME
+        read -rp "📧 user.email [기본값: $_BW_DEFAULT_EMAIL]: " _INPUT_GIT_EMAIL
+
+        _FINAL_GIT_NAME="${_INPUT_GIT_NAME:-$_BW_DEFAULT_NAME}"
+        _FINAL_GIT_EMAIL="${_INPUT_GIT_EMAIL:-$_BW_DEFAULT_EMAIL}"
+
+        # 이름에서 @ 문자 혹시 모를 포함 시 제거
+        _FINAL_GIT_NAME=$(echo "$_FINAL_GIT_NAME" | tr -d '@')
+
+        git config --global user.name "$_FINAL_GIT_NAME"
+        git config --global user.email "$_FINAL_GIT_EMAIL"
         git config --global core.quotepath false
         git config --global credential.helper store
-        echo "✅ git config 설정 완료:"
-        echo "   user.name         = $_GIT_USERNAME"
-        echo "   user.email        = $_GIT_EMAIL"
+        echo ""
+        echo "✅ git config 전역 설정이 완료되었습니다:"
+        echo "   user.name         = $_FINAL_GIT_NAME"
+        echo "   user.email        = $_FINAL_GIT_EMAIL"
         echo "   core.quotepath    = false"
         echo "   credential.helper = store"
     else
@@ -949,12 +965,14 @@ PYEOF
     # → 터미널에 비밀번호 입력창이 뜨지 않음
     _GIT_ASKPASS_SCRIPT=$(mktemp /tmp/bw_askpass_XXXXXX.sh)
     chmod 700 "$_GIT_ASKPASS_SCRIPT"
-    # git은 Username/Password 를 물어볼 때 GIT_ASKPASS 스크립트를 호출함
-    # 인수로 "Username" 또는 "Password" 가 전달됨
+
+    # Username 에는 @가 없는 순수 user.name 사용
+    _ASK_USER=$(git config --global user.name 2>/dev/null || echo "$_BW_DEFAULT_NAME")
+
     cat > "$_GIT_ASKPASS_SCRIPT" <<ASKEOF
 #!/usr/bin/env bash
 case "\$1" in
-  Username*) echo "${_GIT_EMAIL}" ;;
+  Username*) echo "${_ASK_USER}" ;;
   Password*) echo "${_GIT_PAT}"   ;;
 esac
 ASKEOF
@@ -977,7 +995,10 @@ ASKEOF
 
         if [[ "$_SAVE_CRED_ANS" == "y" ]]; then
             _CRED_HOST=$(echo "$_CLONE_URL" | sed -E 's|^https?://||' | cut -d'/' -f1)
-            _CRED_LINE="https://${_GIT_EMAIL}:${_GIT_PAT}@${_CRED_HOST}"
+            # URL에 @가 두 번 들어가는 것을 막기 위해 pure username 사용 (예: https://devers2:PAT@github.com)
+            _CRED_USER=$(git config --global user.name 2>/dev/null || echo "$_BW_DEFAULT_NAME")
+            _CRED_USER=$(echo "$_CRED_USER" | tr -d '@')
+            _CRED_LINE="https://${_CRED_USER}:${_GIT_PAT}@${_CRED_HOST}"
             touch ~/.git-credentials
             chmod 600 ~/.git-credentials
             grep -v "@${_CRED_HOST}" ~/.git-credentials > /tmp/_git_creds_tmp 2>/dev/null || true
