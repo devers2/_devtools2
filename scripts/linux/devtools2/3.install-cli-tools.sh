@@ -100,7 +100,10 @@ MODULES_DIR="$DEVTOOLS2/modules"
 
 # 경로 생성
 # 각 도구별로 독립된 폴더를 생성하여 관리를 용이하게 합니다.
-mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODULES_DIR/fd" "$MODULES_DIR/ast-grep" "$MODULES_DIR/bitwarden"
+mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODULES_DIR/fd" "$MODULES_DIR/ast-grep" "$MODULES_DIR/bitwarden" "$MODULES_DIR/rclone"
+
+# rclone 구성 파일 디렉터리 사전 확보 ($DEVTOOLS2/.config/rclone)
+mkdir -p "$DEVTOOLS2/.config/rclone"
 
 # tool-versions.toml 경로
 TOOL_VERSIONS_TOML="$DEVTOOLS2/scripts/linux/devtools2/tool-versions.toml"
@@ -162,7 +165,7 @@ show_spinner() {
 }
 
 # ─────────────────────────────────────────────────────────────────
-# ⚙️  PRE-FLIGHT: 설치 방식 선택 (CLI 도구 7종)
+# ⚙️  PRE-FLIGHT: 설치 방식 선택 (CLI 도구 8종)
 # ─────────────────────────────────────────────────────────────────
 
 # 최종 설치 버전 읽기
@@ -173,6 +176,7 @@ FD_PINNED=$(get_pinned_version "fd")
 ASTGREP_PINNED=$(get_pinned_version "ast_grep")
 BITWARDEN_ARM_PINNED=$(get_pinned_version "bitwarden_arm")
 WIN32YANK_PINNED=$(get_pinned_version "win32yank")
+RCLONE_PINNED=$(get_pinned_version "rclone")
 
 # 설치 상태 확인
 FZF_INSTALLED=false;      [ -f "$MODULES_DIR/fzf/fzf" ]           && FZF_INSTALLED=true
@@ -181,6 +185,7 @@ RIPGREP_INSTALLED=false;  [ -f "$MODULES_DIR/ripgrep/rg" ]         && RIPGREP_IN
 FD_INSTALLED=false;       [ -f "$MODULES_DIR/fd/fd" ]              && FD_INSTALLED=true
 ASTGREP_INSTALLED=false;  [ -f "$MODULES_DIR/ast-grep/sg" ]        && ASTGREP_INSTALLED=true
 BITWARDEN_INSTALLED=false;[ -f "$MODULES_DIR/bitwarden/bw" ]       && BITWARDEN_INSTALLED=true
+RCLONE_INSTALLED=false;   [ -f "$MODULES_DIR/rclone/rclone" ]      && RCLONE_INSTALLED=true
 WIN32YANK_INSTALLED=false
 [ "$IS_WSL2" = true ] && [ -f "$MODULES_DIR/win32yank/win32yank.exe" ] && WIN32YANK_INSTALLED=true
 
@@ -192,6 +197,7 @@ FD_VERSION="$FD_PINNED"
 ASTGREP_VERSION="$ASTGREP_PINNED"
 BITWARDEN_ARM_VERSION="$BITWARDEN_ARM_PINNED"
 WIN32YANK_VERSION="$WIN32YANK_PINNED"
+RCLONE_VERSION="$RCLONE_PINNED"
 
 # 상태 포매팅 헬퍼
 _fmts() { [ "$1" = true ] && echo '✅ 설치됨' || echo '⬜ 미설치'; }
@@ -210,6 +216,7 @@ printf "   %-16s  최종 설치 버전: %-12s  %s\n" "lazygit"        "$LAZYGIT_
 printf "   %-16s  최종 설치 버전: %-12s  %s\n" "ripgrep"        "$RIPGREP_PINNED" "$(_fmts "$RIPGREP_INSTALLED")"
 printf "   %-16s  최종 설치 버전: %-12s  %s\n" "fd-find"        "$FD_PINNED"      "$(_fmts "$FD_INSTALLED")"
 printf "   %-16s  최종 설치 버전: %-12s  %s\n" "ast-grep"       "$ASTGREP_PINNED" "$(_fmts "$ASTGREP_INSTALLED")"
+printf "   %-16s  최종 설치 버전: %-12s  %s\n" "rclone"         "$RCLONE_PINNED"  "$(_fmts "$RCLONE_INSTALLED")"
 if [ "$IS_ARM64" = true ]; then
     printf "   %-16s  최종 설치 버전: %-12s  %s\n" "bitwarden-cli" "$BITWARDEN_ARM_PINNED" "$(_fmts "$BITWARDEN_INSTALLED")"
 else
@@ -224,7 +231,7 @@ echo ""
 DUPLICATE_MODE="keep"
 _HAS_INSTALLED=false
 for _b in "$FZF_INSTALLED" "$LAZYGIT_INSTALLED" "$RIPGREP_INSTALLED" \
-           "$FD_INSTALLED" "$ASTGREP_INSTALLED" "$BITWARDEN_INSTALLED" "$WIN32YANK_INSTALLED"; do
+           "$FD_INSTALLED" "$ASTGREP_INSTALLED" "$BITWARDEN_INSTALLED" "$RCLONE_INSTALLED" "$WIN32YANK_INSTALLED"; do
     [ "$_b" = true ] && _HAS_INSTALLED=true && break
 done
 
@@ -303,6 +310,14 @@ if [ "$VERSION_MODE" = "latest" ]; then
         echo "   ✓ ast-grep:     최신 → $_v  (최종 설치: $ASTGREP_PINNED)"
     else
         echo "   ⚠️  ast-grep:    조회 실패 → 최종 설치 버전 사용: $ASTGREP_PINNED"
+    fi
+
+    _v=$(fetch_latest_github "rclone/rclone" | sed 's/^v//')
+    if [ -n "$_v" ]; then
+        RCLONE_VERSION="$_v"
+        echo "   ✓ rclone:       최신 → $_v  (최종 설치: $RCLONE_PINNED)"
+    else
+        echo "   ⚠️  rclone:      조회 실패 → 최종 설치 버전 사용: $RCLONE_PINNED"
     fi
 
     # bitwarden: ARM64만 버전 관리 (x86_64는 항상 최신 직접 다운로드)
@@ -639,7 +654,58 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────
-# 7. (WSL2 전용) win32yank 설치 (Neovim의 Windows 클립보드 공유 용도)
+# 7. rclone 설치 - 클라우드 스토리지 동기화 도구
+# ─────────────────────────────────────────────────────────────────
+
+# 개별 선택 모드: rclone 버전 결정
+if [ "$VERSION_MODE" = "individual" ]; then
+    echo -n "   🔍 rclone 최신 버전 조회 중... "
+    _rc_latest=$(fetch_latest_github "rclone/rclone" | sed 's/^v//')
+    [ -n "$_rc_latest" ] && echo "완료 ($_rc_latest)" || echo "실패"
+    echo ""
+    echo "   rclone 설치 버전 선택:"
+    echo "   1) 최신 버전: ${_rc_latest:-[조회 실패 - 선택 불가]}"
+    echo "   2) 최종 설치 버전: $RCLONE_PINNED [기본값]"
+    echo ""
+    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "; read -r _rc_vs
+    case "${_rc_vs:-2}" in
+        1) [ -n "$_rc_latest" ] && RCLONE_VERSION="$_rc_latest" || RCLONE_VERSION="$RCLONE_PINNED" ;;
+        *) RCLONE_VERSION="$RCLONE_PINNED" ;;
+    esac
+    echo ""
+fi
+
+_rc_action=$(_resolve_action "$RCLONE_INSTALLED" "rclone")
+
+echo -n "📦 rclone $RCLONE_VERSION 설치 중..."
+if [ "$_rc_action" = "skip" ]; then
+    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
+else
+    if [ "$_rc_action" = "reinstall" ]; then
+        rm -f "$MODULES_DIR/rclone/rclone"
+    fi
+    mkdir -p "$MODULES_DIR/rclone"
+    if [ "$IS_ARM64" = true ]; then
+        _rc_url="https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-arm64.zip"
+    else
+        _rc_url="https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+    fi
+    (curl -sL "$_rc_url" -o /tmp/rclone.zip && \
+     unzip -qo /tmp/rclone.zip -d /tmp/rclone_tmp && \
+     mv -f /tmp/rclone_tmp/rclone-*/rclone "$MODULES_DIR/rclone/rclone" && \
+     rm -rf /tmp/rclone.zip /tmp/rclone_tmp) &
+    show_spinner $!
+    echo " 완료"
+    if [ "$RCLONE_VERSION" != "$RCLONE_PINNED" ]; then
+        update_pinned_version "rclone" "$RCLONE_VERSION"
+    fi
+fi
+
+# rclone 구성 파일 디렉터리 보장 ($DEVTOOLS2/.config/rclone)
+mkdir -p "$DEVTOOLS2/.config/rclone"
+
+# ─────────────────────────────────────────────────────────────────
+# 8. (WSL2 전용) win32yank 설치 (Neovim의 Windows 클립보드 공유 용도)
 # ─────────────────────────────────────────────────────────────────
 if [ "$IS_WSL2" = true ]; then
     # 개별 선택 모드: win32yank 버전 결정
@@ -688,7 +754,7 @@ fi
 # ─────────────────────────────────────────────────────────────────
 echo "🔐 실행 권한 부여 및 검증 중..."
 for cmd in "$MODULES_DIR/ripgrep/rg" "$MODULES_DIR/fd/fd" "$MODULES_DIR/fzf/fzf" \
-           "$MODULES_DIR/lazygit/lazygit" "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/bitwarden/bw"; do
+           "$MODULES_DIR/lazygit/lazygit" "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/bitwarden/bw" "$MODULES_DIR/rclone/rclone"; do
     if [ -s "$cmd" ]; then
         chmod +x "$cmd"
     else

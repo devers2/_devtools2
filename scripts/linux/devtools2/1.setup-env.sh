@@ -22,7 +22,8 @@ fi
 _load_colors() {
     [ -n "${_COLORS_LOADED:-}" ] && return 0
 
-    local script_dir; script_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo ".")")
+    local script_dir
+    script_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo ".")")
     local colors_file="$script_dir/_colors.sh"
 
     if [ ! -f "$colors_file" ] && [ -n "${DEVTOOLS2:-}" ] && [ -f "$DEVTOOLS2/scripts/linux/devtools2/_colors.sh" ]; then
@@ -45,23 +46,23 @@ _load_colors() {
         _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_CYAN='\033[0;36m' _C_WHITE='\033[1;37m'
     fi
 
-    print_info()    { printf "${_C_CYAN}[정보]${_C_RESET} %s\n"    "$*"; }
-    print_success() { printf "${_C_GREEN}[성공]${_C_RESET} %s\n"   "$*"; }
-    print_done()    { printf "${_C_GREEN}[완료]${_C_RESET} %s\n"   "$*"; }
-    print_warn()    { printf "${_C_YELLOW}[경고]${_C_RESET} %s\n"  "$*"; }
-    print_error()   { printf "${_C_RED}[오류]${_C_RESET} %s\n"     "$*" >&2; }
-    print_step()    { printf "${_C_CYAN}%s${_C_RESET}\n"         "$*"; }
-    print_sep()     { printf "${_C_CYAN}%s${_C_RESET}\n" "==========================================================================="; }
-    print_subsep()  { printf "${_C_CYAN}%s${_C_RESET}\n" "---------------------------------------------------------------------------"; }
-    print_question(){ printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
-    print_option()  {
+    print_info() { printf "${_C_CYAN}[정보]${_C_RESET} %s\n" "$*"; }
+    print_success() { printf "${_C_GREEN}[성공]${_C_RESET} %s\n" "$*"; }
+    print_done() { printf "${_C_GREEN}[완료]${_C_RESET} %s\n" "$*"; }
+    print_warn() { printf "${_C_YELLOW}[경고]${_C_RESET} %s\n" "$*"; }
+    print_error() { printf "${_C_RED}[오류]${_C_RESET} %s\n" "$*" >&2; }
+    print_step() { printf "${_C_CYAN}%s${_C_RESET}\n" "$*"; }
+    print_sep() { printf "${_C_CYAN}%s${_C_RESET}\n" "==========================================================================="; }
+    print_subsep() { printf "${_C_CYAN}%s${_C_RESET}\n" "---------------------------------------------------------------------------"; }
+    print_question() { printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
+    print_option() {
         if [ -n "${3:-}" ]; then
             printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_GREEN}${_C_BOLD}%s${_C_RESET}\n" "$1" "$2" "$3"
         else
             printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET}\n" "$1" "$2"
         fi
     }
-    prompt_input()  { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
+    prompt_input() { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
     _COLORS_LOADED=true
 }
 _load_colors
@@ -123,6 +124,7 @@ export PIP_CACHE_DIR="$DEVTOOLS2/data/.cache/pip"
 export NEOVIM_HOME="$DEVTOOLS2/modules/neovim/nvim"
 export NVIM_APPNAME="nvim"
 export ZED_HOME="$DEVTOOLS2/modules/zed"
+export RCLONE_CONFIG="$DEVTOOLS2/.config/rclone/rclone.conf"
 
 # 한글 파일명 및 문자 깨짐 방지 (UTF-8 로케일)
 export LANG="ko_KR.UTF-8"
@@ -132,7 +134,7 @@ EOF
 
 # Ghostty 환경 변수는 WSL2가 아닌 네이티브 리눅스 환경에서만 등록한다.
 if [ "$IS_WSL2" = false ]; then
-cat <<'EOF' >>~/.bashrc
+    cat <<'EOF' >>~/.bashrc
 export GHOSTTY_HOME="$DEVTOOLS2/modules/ghostty"
 
 EOF
@@ -145,7 +147,7 @@ fi
 # WSL2 여부에 따라 GHOSTTY_HOME 경로 포함 여부를 다르게 처리한다.
 if [ "$IS_WSL2" = false ]; then
     print_info "네이티브 리눅스 환경: Ghostty PATH를 포함하여 등록합니다."
-cat <<'EOF' >>~/.bashrc
+    cat <<'EOF' >>~/.bashrc
 export PATH="\
 $NODE_HOME/bin:\
 $NPM_CONFIG_PREFIX/bin:\
@@ -165,13 +167,14 @@ $DEVTOOLS2/modules/fzf:\
 $DEVTOOLS2/modules/lazygit:\
 $DEVTOOLS2/modules/ast-grep:\
 $DEVTOOLS2/modules/bitwarden:\
+$DEVTOOLS2/modules/rclone:\
 $PATH"
 # === DEVTOOLS2 환경 변수 끝 ===
 
 EOF
 else
     print_warn "WSL2 환경 감지: Ghostty PATH 등록을 건너뜁니다."
-cat <<'EOF' >>~/.bashrc
+    cat <<'EOF' >>~/.bashrc
 export PATH="\
 $NODE_HOME/bin:\
 $NPM_CONFIG_PREFIX/bin:\
@@ -189,6 +192,7 @@ $DEVTOOLS2/modules/fzf:\
 $DEVTOOLS2/modules/lazygit:\
 $DEVTOOLS2/modules/ast-grep:\
 $DEVTOOLS2/modules/bitwarden:\
+$DEVTOOLS2/modules/rclone:\
 $DEVTOOLS2/modules/win32yank:\
 $PATH"
 
@@ -271,16 +275,16 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
     # 사용자 설정을 ~/.vscode-server/data/Machine/ 에서 읽습니다.
     vscode_server_user="$HOME/.vscode-server/data/Machine"
     mkdir -p "$vscode_server_user"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json"    "$vscode_server_user/settings.json"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json" "$vscode_server_user/settings.json"
     "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/keybindings.json" "$vscode_server_user/keybindings.json"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/tasks.json"       "$vscode_server_user/tasks.json"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/tasks.json" "$vscode_server_user/tasks.json"
 else
     # === 네이티브 Linux 환경 ===
     # VSCode 를 Linux 앱으로 직접 실행하는 경우 ~/.config/Code/User/ 에서 읽습니다.
     mkdir -p "$cfg_dir/Code/User"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json"    "$cfg_dir/Code/User/settings.json"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json" "$cfg_dir/Code/User/settings.json"
     "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/keybindings.json" "$cfg_dir/Code/User/keybindings.json"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/tasks.json"       "$cfg_dir/Code/User/tasks.json"
+    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/tasks.json" "$cfg_dir/Code/User/tasks.json"
 fi
 
 # data 대상 디렉터리 결정
