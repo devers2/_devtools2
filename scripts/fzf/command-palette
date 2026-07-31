@@ -287,7 +287,7 @@ check_and_resolve_port_conflict() {
 # ==============================================================================
 GRADLEW_EXISTS=false
 GW_NAME="./gradlew"
-if [ -f "$CWD/gradlew" ] || [ -f "$CWD/build.gradle" ] || [ -f "$CWD/build.gradle.kts" ]; then
+if [ -f "$CWD/gradlew" ] || [ -f "$CWD/build.gradle" ] || [ -f "$CWD/build.gradle.kts" ] || [ -f "$CWD/settings.gradle" ] || [ -f "$CWD/settings.gradle.kts" ]; then
     GRADLEW_EXISTS=true
     if $IS_WINDOWS; then
         GW_NAME="gradlew.bat"

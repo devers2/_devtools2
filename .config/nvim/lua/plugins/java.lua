@@ -14,7 +14,7 @@ Neovim은 실행 디렉토리의 `.nvim.lua` 파일을 읽어 프로젝트별 �
 
   - JDK_VERSION (number): 프로젝트에서 사용할 Java 버전을 명시합니다. (8, 17, 21, 25 중 하나)
     (예: JDK_VERSION = 17)
-    지정 시 build.gradle/pom.xml 탐색 없이 해당 버전의 JDK를 즉시 할당합니다.
+    지정 시 build.gradle/build.gradle.kts/pom.xml 탐색 없이 해당 버전의 JDK를 즉시 할당합니다.
 
   - MAIN_CLASS (string): 프로젝트의 메인 실행 클래스(패키지 포함)를 지정합니다.
     (예: MAIN_CLASS = "com.example.DemoApplication")
@@ -73,7 +73,7 @@ return {
 
       -- [루트 탐색 로직]
       -- 파일 위치에서 위로 거슬러 올라가며 프로젝트 최상위 루트를 검색
-      -- 멀티 모듈(settings.gradle / parent pom.xml)과 일반 프로젝트 모두 자동 인식
+      -- 멀티 모듈(settings.gradle / settings.gradle.kts / parent pom.xml)과 일반 프로젝트 모두 자동 인식
       opts.root_dir = function(path)
         -- 0. 로컬 설정(.nvim.lua)에 PROJECT_ROOT가 정의된 경우 우선 사용 (상대 경로 대응)
         ---@diagnostic disable-next-line: undefined-field
@@ -85,7 +85,7 @@ return {
         local current_path = path or vim.api.nvim_buf_get_name(0)
         local cwd = vim.fn.getcwd()
         -- 워크스페이스를 식별하는 핵심 마커 (멀티 모듈 루트 탐색용)
-        local root_markers = { '.git', 'settings.gradle', 'gradlew', 'mvnw' }
+        local root_markers = { '.git', 'settings.gradle', 'settings.gradle.kts', 'gradlew', 'mvnw' }
 
         -- 1. nvim 실행 디렉토리(CWD) 기준 탐색 우선
         -- 현재 파일이 nvim이 실행된 위치(또는 그 상위 루트)의 하위에 있다면 해당 루트를 선택
@@ -120,7 +120,7 @@ return {
           return root
         end
         -- 4. 폴백: 일반 프로젝트 또는 개별 모듈 마커 탐색
-        return require('jdtls.setup').find_root({ 'build.gradle', 'pom.xml' }, current_path) or cwd
+        return require('jdtls.setup').find_root({ 'build.gradle', 'build.gradle.kts', 'pom.xml' }, current_path) or cwd
       end
 
       -- 프로젝트 루트 경로 확보
@@ -135,7 +135,7 @@ return {
       _G.log_jdtls('================================================================================')
 
       -- [자바 버전 탐색 및 JDK 결정]
-      -- 프로젝트 설정 파일(build.gradle, pom.xml 등)을 분석하여 최적의 JDK를 자동으로 선택합니다.
+      -- 프로젝트 설정 파일(build.gradle, build.gradle.kts, pom.xml 등)을 분석하여 최적의 JDK를 자동으로 선택합니다.
       local function get_java_version()
         local project_root_local = root_str
         if not project_root_local or project_root_local == 'nil' then
