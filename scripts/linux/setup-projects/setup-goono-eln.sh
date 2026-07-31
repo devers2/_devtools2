@@ -86,25 +86,36 @@ echo "   Key  : $FULL_KEY"
 echo "   Value: $TARGET_VAL"
 
 # ==============================================================================
-# 5. .vscode 설정 생성 (settings.json, launch.json)
+# 5. .vscode 설정 생성 (settings.json, launch.json) - 멱등성 보장
 # ==============================================================================
 echo "⚙️  .vscode 설정 파일 생성 중..."
-mkdir -p "$TARGET_DIR/.vscode"
+VSCODE_DIR="$TARGET_DIR/.vscode"
+mkdir -p "$VSCODE_DIR"
 
-cat > "$TARGET_DIR/.vscode/settings.json" <<'EOF'
+JDK21_PATH="${DEVTOOLS2}/modules/java/jdk-21"
+
+if [ -f "$VSCODE_DIR/settings.json" ]; then
+    echo "ℹ️  .vscode/settings.json 이 이미 존재합니다. 덮어쓰지 않습니다."
+else
+    cat > "$VSCODE_DIR/settings.json" <<EOF
 {
   "java.configuration.runtimes": [
     {
       "name": "JavaSE-21",
-      "path": "/var/opt/_devtools2/modules/java/jdk-21",
+      "path": "${JDK21_PATH}",
       "default": true
     }
   ],
-  "java.import.gradle.java.home": "/var/opt/_devtools2/modules/java/jdk-21"
+  "java.import.gradle.java.home": "${JDK21_PATH}"
 }
 EOF
+    echo "✅ .vscode/settings.json 생성 완료"
+fi
 
-cat > "$TARGET_DIR/.vscode/launch.json" <<'EOF'
+if [ -f "$VSCODE_DIR/launch.json" ]; then
+    echo "ℹ️  .vscode/launch.json 이 이미 존재합니다. 덮어쓰지 않습니다."
+else
+    cat > "$VSCODE_DIR/launch.json" <<'EOF'
 {
   "version": "0.2.0",
   "configurations": [
@@ -114,12 +125,49 @@ cat > "$TARGET_DIR/.vscode/launch.json" <<'EOF'
       "request": "launch",
       "mainClass": "so.goono.GoonoELNApplication",
       "projectName": "goono-eln",
-      "vmArgs": ["-Dfile.encoding=UTF-8", "-Dspring.profiles.active=0_DEVVELOP,0_LOCAL,s2"]
+      "vmArgs": ["-Dfile.encoding=UTF-8", "-Dspring.profiles.active=0_DEVELOP,0_LOCAL,s2"]
     }
   ]
 }
 EOF
-echo "✅ .vscode/settings.json 및 .vscode/launch.json 생성 완료!"
+    echo "✅ .vscode/launch.json 생성 완료!"
+fi
+
+# ==============================================================================
+# 6. VSCode 필수 확장 프로그램 검사/설치 (Java 개발용)
+# ==============================================================================
+echo ""
+echo "⏳ [Step 6] VSCode Java 확장 프로그램을 확인/설치합니다..."
+
+VSCODE_BIN=""
+for _bin in code code-insiders; do
+    if command -v "$_bin" &>/dev/null; then
+        VSCODE_BIN="$_bin"
+        break
+    fi
+done
+
+_REQUIRED_EXTENSIONS=(
+    "redhat.java"
+    "vscjava.vscode-java-debug"
+    "vscjava.vscode-java-dependency"
+)
+
+if [ -z "$VSCODE_BIN" ]; then
+    echo "⚠️  VSCode(code) 명령어를 찾을 수 없습니다. 확장 설치를 건너뜁니다."
+else
+    _INSTALLED_EXTS=$("$VSCODE_BIN" --list-extensions 2>/dev/null || echo "")
+    for _ext in "${_REQUIRED_EXTENSIONS[@]}"; do
+        if echo "$_INSTALLED_EXTS" | grep -qi "^${_ext}$"; then
+            echo "   ✅ 이미 설치됨: $_ext"
+        else
+            echo "   📦 설치 중: $_ext ..."
+            "$VSCODE_BIN" --install-extension "$_ext" --force 2>/dev/null && \
+                echo "   ✅ 설치 완료: $_ext" || \
+                echo "   ⚠️  설치 실패: $_ext"
+        fi
+    done
+fi
 
 echo ""
 echo "🎉 [Goono-ELN] 프로젝트 설정이 성공적으로 완료되었습니다!"
