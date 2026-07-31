@@ -532,7 +532,7 @@ if ($isLocalMode) {
 
 Write-SubStep "▶ (4/4) VSCode 에디터 설치 및 설정 연동"
 # 로컬/온라인 모드에서 (2/4) 단계에 미리 물어본 선택값을 통합
-$userChoseVscode = if ($isLocalMode) { $userChoseVscodeLocal } else { $userChoseVscodeOnline }'
+$userChoseVscode = if ($isLocalMode) { $userChoseVscodeLocal } else { $userChoseVscodeOnline }
 
 # VSCode 설치 여부 사전 확인
 $vscodeAlreadyInstalled = $false
@@ -578,7 +578,7 @@ if (-not $userChoseVscode -and -not $vscodeAlreadyInstalled) {
     }
 }
 
-Write-SubStep "▶ (4/4) VSCode 설정, 확장 목록 및 Gradle 자격증명 연동 (심볼릭 링크)"
+Write-Info "VSCode 설정, 확장 목록 및 Gradle 자격증명 연동 (심볼릭 링크)"
 if ($skipVsCodeLink) {
     Write-Skip "VS Code 미설치 + 설치 거부 — 설정 연동 단계도 건너뜁니다."
 } else {
