@@ -431,13 +431,5 @@ echo ""
 echo "설정 확인 명령어:"
 echo "    echo \$DEVTOOLS2"
 echo "    echo \$PATH"
-
-if [ "$IS_WSL2" = true ]; then
-    echo ""
-    print_info "💡 [WSL2 트러블슈팅 안내]"
-    echo "   터미널에서 'code .' 실행 시 'Exec format error'가 발생하는 경우:"
-    echo "   -> 윈도우 PowerShell에서 'wsl --shutdown' 실행 후 WSL 터미널을 재열기 해주세요."
-fi
-
 print_sep
 echo ""
