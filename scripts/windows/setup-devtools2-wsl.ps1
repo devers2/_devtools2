@@ -682,12 +682,14 @@ $targetExtensionsList = "$devtools2Root\.config\vscode\extensions.txt"
 if (Test-Path $targetExtensionsList) {
     if (Get-Command code -ErrorAction SilentlyContinue) {
         Write-Info "VSCode 확장 프로그램 목록(extensions.txt) 동기화 검사 중..."
+
+        # [1] Windows 로친 확장 설치
         $installedExts = @((code --list-extensions 2>$null) | ForEach-Object { $_.Trim().ToLower() })
 
         $toInstall = @()
         Get-Content $targetExtensionsList | ForEach-Object {
             $ext = $_.Trim()
-            if ($ext -and -not $ext.StartsWith("#") -and ($ext -match '^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$')) {
+            if ($ext -and -not $ext.StartsWith("#") -and ($ext -match '^[a-zA-Z0-9][a-zA-Z0-9_-]*\.[a-zA-Z0-9][a-zA-Z0-9_-]*$')) {
                 if (-not ($installedExts -contains $ext.ToLower())) {
                     $toInstall += $ext
                 }
@@ -695,16 +697,25 @@ if (Test-Path $targetExtensionsList) {
         }
 
         if ($toInstall.Count -gt 0) {
-            Write-Info "신규/미설치 확장 프로그램 $($toInstall.Count)개 설치 중..."
+            Write-Info "Windows 로친: 신규/미설치 확장 $($toInstall.Count)개 설치 중..."
             foreach ($ext in $toInstall) {
-                code --install-extension $ext | Out-Null
+                code --install-extension $ext --force | Out-Null
             }
-            Write-Success "신규 확장 프로그램 $($toInstall.Count)개 설치 완료"
+            Write-Success "Windows 로친 확장 $($toInstall.Count)개 설치 완료"
         } else {
-            Write-Skip "모든 확장 프로그램이 이미 설치되어 있습니다."
+            Write-Skip "Windows 로친: 모든 확장 프로그램이 이미 설치되어 있습니다."
+        }
+
+        # [2] WSL Remote 확장 설치 (WSL Remote Server에 별도 설치 필요)
+        Write-Info "WSL Remote: VSCode 확장 프로그램 설치 중 (WSL 내부 bash 실행)..."
+        $wslExtScript = 'VSCODE_BIN=""; command -v code >/dev/null 2>&1 && VSCODE_BIN="code"; [ -z "$VSCODE_BIN" ] && { echo "[WSL-SKIP] code CLI not found"; exit 0; }; EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"; [ ! -f "$EXT_LIST" ] && { echo "[WSL-SKIP] extensions.txt not found"; exit 0; }; _INST=$("$VSCODE_BIN" --list-extensions 2>/dev/null | tr [:upper:] [:lower:]); _cnt=0; while IFS= read -r line || [ -n "$line" ]; do ext=$(echo "$line" | tr -d \r | sed "s/#.*//" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"); [ -z "$ext" ] && continue; ext_lower=$(echo "$ext" | tr [:upper:] [:lower:]); if echo "$_INST" | grep -qF "$ext_lower"; then echo "[SKIP] $ext"; else echo "[Install] $ext"; "$VSCODE_BIN" --install-extension "$ext" --force >/dev/null 2>&1 && echo "[OK] $ext" || echo "[FAIL] $ext"; _cnt=$((_cnt+1)); fi; done < "$EXT_LIST"; echo "[WSL Done] New installs: ${_cnt}"'
+        try {
+            wsl -d $wslDistro -- bash -c "DEVTOOLS2='$devtools2WslRoot'; $wslExtScript" 2>$null
+        } catch {
+            Write-Warn "WSL Remote 확장 설치 중 오류: $_"
         }
     } else {
-        Write-Warn "VSCode CLI('code')를 찾을 수 없어서 확장 프로그램 자동 설치를 건너뜁니다."
+        Write-Warn "VSCode CLI('code')를 찾을 수 없어서 확장 프로그램 자동 설치를 건너럹니다."
     }
 }
 
