@@ -777,6 +777,10 @@ Write-Host "  설치 성공을 확인하시려면 아래 도구들을 실행해 
 Write-Host "    - Windows: WezTerm 터미널 열기 (WSL2 바로 진입 확인)" -ForegroundColor Gray
 Write-Host "    - Windows: Zed 에디터 열기" -ForegroundColor Gray
 Write-Host "    - WSL2 내부: nvim --version, java -version, node -v 실행 확인" -ForegroundColor Gray
+Write-Host ""
+Write-Info "💡 [참고: 'Exec format error' 트러블슈팅]"
+Write-Info "  WSL2 터미널에서 'code .' 실행 시 'Exec format error'가 발생하는 경우:"
+Write-Info "  -> PowerShell에서 'wsl --shutdown' 실행 후 WSL 터미널을 다시 열어주시면 해결됩니다."
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
 
