@@ -125,7 +125,7 @@ export PIP_CACHE_DIR="$DEVTOOLS2/data/.cache/pip"
 export NEOVIM_HOME="$DEVTOOLS2/modules/neovim/nvim"
 export NVIM_APPNAME="nvim"
 export ZED_HOME="$DEVTOOLS2/modules/zed"
-export RCLONE_CONFIG="$DEVTOOLS2/.config/rclone/rclone.conf"
+export RCLONE_CONFIG="$DEVTOOLS2/modules/rclone/.config/rclone.conf"
 
 # 한글 파일명 및 문자 깨짐 방지 (UTF-8 로케일)
 export LANG="ko_KR.UTF-8"

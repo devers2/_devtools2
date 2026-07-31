@@ -102,8 +102,14 @@ MODULES_DIR="$DEVTOOLS2/modules"
 # 각 도구별로 독립된 폴더를 생성하여 관리를 용이하게 합니다.
 mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODULES_DIR/fd" "$MODULES_DIR/ast-grep" "$MODULES_DIR/bitwarden" "$MODULES_DIR/rclone"
 
-# rclone 구성 파일 디렉터리 사전 확보 ($DEVTOOLS2/.config/rclone)
-mkdir -p "$DEVTOOLS2/.config/rclone"
+# rclone 구성 파일 디렉터리 사전 확보 ($DEVTOOLS2/modules/rclone/.config — git 미추적 영역)
+mkdir -p "$MODULES_DIR/rclone/.config"
+if [ -d "$DEVTOOLS2/.config/rclone" ]; then
+    if [ -f "$DEVTOOLS2/.config/rclone/rclone.conf" ]; then
+        mv -f "$DEVTOOLS2/.config/rclone/rclone.conf" "$MODULES_DIR/rclone/.config/rclone.conf" 2>/dev/null || true
+    fi
+    rm -rf "$DEVTOOLS2/.config/rclone" 2>/dev/null || true
+fi
 
 # tool-versions.toml 경로
 TOOL_VERSIONS_TOML="$DEVTOOLS2/scripts/linux/dev-env/tool-versions.toml"
@@ -701,8 +707,8 @@ else
     fi
 fi
 
-# rclone 구성 파일 디렉터리 보장 ($DEVTOOLS2/.config/rclone)
-mkdir -p "$DEVTOOLS2/.config/rclone"
+# rclone 구성 파일 디렉터리 보장 ($DEVTOOLS2/modules/rclone/.config — git 미추적 영역)
+mkdir -p "$MODULES_DIR/rclone/.config"
 
 # ─────────────────────────────────────────────────────────────────
 # 8. (WSL2 전용) win32yank 설치 (Neovim의 Windows 클립보드 공유 용도)
