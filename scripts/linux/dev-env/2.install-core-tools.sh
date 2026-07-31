@@ -590,22 +590,35 @@ echo ""
 # [6-1] VSCode 바이너리 설치 (Linux 네이티브 전용)
 #   WSL은 Windows 호스트에 VSCode가 이미 설치되어 있으므로 리눅스 내부 설치 건너뜀
 if [ "$IS_WSL2" = true ]; then
-    echo "   ⚠️  [WSL2 환경] VSCode는 Windows 호스트에 설치되으므로 Linux 내부 설치를 건너뜁니다."
+    echo "   ⚠️  [WSL2 환경] VSCode는 Windows 호스트에 설치되므로 Linux 내부 설치를 건너뜁니다."
+elif command -v code >/dev/null 2>&1; then
+    echo "   ⏭️ [건너뜀] VSCode가 이미 설치되어 있습니다: $(command -v code)"
 else
-    if command -v code >/dev/null 2>&1; then
-        echo "   ⏭️ [건너뜀] VSCode가 이미 설치되어 있습니다: $(command -v code)"
+    echo ""
+    printf "   👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/\\033[1;32mN\\033[0m]: "
+    if [ -t 0 ]; then
+        read -r _vscode_choice
     else
-        echo "   📦 VSCode .deb 패키지 다운로드 및 설치 중..."
-        _vscode_tmp="/tmp/vscode_install_$$.deb"
-        if curl -Ls "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" -o "$_vscode_tmp"; then
-            sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true
-            rm -f "$_vscode_tmp"
-            echo "   ✅ VSCode 설치 완료"
-        else
-            echo "   ⚠️  VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
-            rm -f "$_vscode_tmp"
-        fi
+        _vscode_choice="N"
     fi
+    echo ""
+    case "${_vscode_choice:-N}" in
+        y|Y)
+            echo "   📦 VSCode .deb 패키지 다운로드 및 설치 중..."
+            _vscode_tmp="/tmp/vscode_install_$$.deb"
+            if curl -Ls "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" -o "$_vscode_tmp"; then
+                sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true
+                rm -f "$_vscode_tmp"
+                echo "   ✅ VSCode 설치 완료"
+            else
+                echo "   ⚠️  VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
+                rm -f "$_vscode_tmp"
+            fi
+            ;;
+        *)
+            echo "   ⏭️ VSCode 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+            ;;
+    esac
 fi
 
 # [6-2] VSCode 확장 자동 설치 (extensions.txt 기반)
@@ -649,24 +662,37 @@ echo ""
 
 echo "---------------------------------------------------------------------------"
 # 7. Zed 설치
-if [ "$IS_WSL2" = false ]; then
-    echo "⚡ 7. Zed 설치 중..."
-    if [ -d "$DEVTOOLS2/modules/zed" ]; then
-        echo "   ⏭️ [건너뜀] zed 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/zed'"
-    else
-        echo "   📦 Zed stable 다운로드 및 압축 해제..."
-        mkdir -p "$DEVTOOLS2/modules"
-        cd "$DEVTOOLS2/modules"
+echo "⚡ 7. Zed 설치 단계"
+echo ""
 
-        install_tool \
-            'https://github.com/zed-industries/zed/releases/latest/download/zed-linux-{ARCH}.tar.gz' \
-            'x86_64' \
-            'aarch64' \
-            'zed'
-    fi
-else
-    echo "⚡ 7. Zed 설치 단계"
+if [ "$IS_WSL2" = true ]; then
     echo "   ⚠️  [WSL2 환경 감지] WSL2 환경에서는 Windows 호스트에 Zed를 설치하므로 리눅스 내부 Zed 설치는 건너뜁니다."
+elif [ -d "$DEVTOOLS2/modules/zed" ]; then
+    echo "   ⏭️ [건너뜀] zed 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/zed'"
+else
+    echo ""
+    printf "   👉 Zed 에디터를 설치하시겠습니까? [y/\033[1;32mN\033[0m]: "
+    if [ -t 0 ]; then
+        read -r _zed_choice
+    else
+        _zed_choice="N"
+    fi
+    echo ""
+    case "${_zed_choice:-N}" in
+        y|Y)
+            echo "   📦 Zed stable 다운로드 및 압축 해제..."
+            mkdir -p "$DEVTOOLS2/modules"
+            cd "$DEVTOOLS2/modules"
+            install_tool \
+                'https://github.com/zed-industries/zed/releases/latest/download/zed-linux-{ARCH}.tar.gz' \
+                'x86_64' \
+                'aarch64' \
+                'zed'
+            ;;
+        *)
+            echo "   ⏭️ Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+            ;;
+    esac
 fi
 echo ""
 

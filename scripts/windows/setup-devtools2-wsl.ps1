@@ -482,7 +482,15 @@ if ($isLocalMode) {
     Write-SubStep "▶ (1/4) WezTerm 설치 및 설정 연동 (로컬)"
     & $setupWeztermScript -WslDistro $wslDistro
 
-    Write-SubStep "▶ (2/4) Zed 에디터 설치 및 설정 연동 (로컬)"
+    Write-SubStep "▶ (2/4) VSCode 에디터 설치 및 설정 연동 (로컬)"
+    Write-Host ""
+    Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+    Write-Host "N" -ForegroundColor Green -NoNewline
+    Write-Host "]: " -ForegroundColor Yellow -NoNewline
+    $installVscodeLocal = Read-Host
+    $userChoseVscodeLocal = $installVscodeLocal -match '^[Yy]'
+
+    Write-SubStep "▶ (3/4) Zed 에디터 설치 및 설정 연동 (로컬)"
     Write-Host ""
     Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
     Write-Host "N" -ForegroundColor Green -NoNewline
@@ -499,7 +507,15 @@ if ($isLocalMode) {
     $weztermScriptBlock = [scriptblock]::Create($rawWeztermScript)
     & $weztermScriptBlock -WslDistro $wslDistro
 
-    Write-SubStep "▶ (2/4) Zed 에디터 설치 및 설정 연동 (온라인)"
+    Write-SubStep "▶ (2/4) VSCode 에디터 설치 및 설정 연동 (온라인)"
+    Write-Host ""
+    Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+    Write-Host "N" -ForegroundColor Green -NoNewline
+    Write-Host "]: " -ForegroundColor Yellow -NoNewline
+    $installVscodeOnline = Read-Host
+    $userChoseVscodeOnline = $installVscodeOnline -match '^[Yy]'
+
+    Write-SubStep "▶ (3/4) Zed 에디터 설치 및 설정 연동 (온라인)"
     Write-Host ""
     Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
     Write-Host "N" -ForegroundColor Green -NoNewline
@@ -514,13 +530,9 @@ if ($isLocalMode) {
     }
 }
 
-Write-SubStep "▶ (3/4) VSCode 에디터 설치 및 설정 연동"
-Write-Host ""
-Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-Write-Host "N" -ForegroundColor Green -NoNewline
-Write-Host "]: " -ForegroundColor Yellow -NoNewline
-$installVscode = Read-Host
-$userChoseVscode = $installVscode -match '^[Yy]'
+Write-SubStep "▶ (4/4) VSCode 에디터 설치 및 설정 연동"
+# 로컬/온라인 모드에서 (2/4) 단계에 미리 물어본 선택값을 통합
+$userChoseVscode = if ($isLocalMode) { $userChoseVscodeLocal } else { $userChoseVscodeOnline }'
 
 # VSCode 설치 여부 사전 확인
 $vscodeAlreadyInstalled = $false
