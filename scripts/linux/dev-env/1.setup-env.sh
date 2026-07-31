@@ -72,6 +72,14 @@ _load_colors
 IS_WSL2=false
 if grep -qi 'microsoft' /proc/version 2>/dev/null; then
     IS_WSL2=true
+    # /etc/wsl.conf Interop 설정 보장 (Windows .exe 실행 보장)
+    if [ -w /etc/wsl.conf ] || [ "$(id -u)" -eq 0 ]; then
+        grep -q "\[interop\]" /etc/wsl.conf 2>/dev/null || printf "\n[interop]\nenabled=true\nappendWindowsPath=true\n" >> /etc/wsl.conf
+    fi
+    # binfmt_misc WSLInterop 복구 (Exec format error 예방)
+    if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ] && [ -w /proc/sys/fs/binfmt_misc/register ]; then
+        echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
+    fi
 fi
 
 # --- [권한 체크] 시스템 설정 권한 확인
