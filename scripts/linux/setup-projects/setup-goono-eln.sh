@@ -17,6 +17,11 @@ else
     exit 1
 fi
 
+# 공통 프로젝트 설정 모듈 로드 (setup_gpr_gradle_properties 포함)
+if [ -f "$SCRIPT_DIR/common-setup.sh" ]; then
+    source "$SCRIPT_DIR/common-setup.sh"
+fi
+
 TARGET_DIR="$HOME/workspaces/goono/Goono_ELN"
 REPO_URL="https://github.com/redwit-dev/Goono-ELN.git"
 
@@ -36,6 +41,13 @@ if [ -d "$TARGET_DIR/.git" ]; then
     echo "ℹ️  이미 깃 저장소가 존재합니다. 클론 단계를 건너뜁니다."
 else
     bw_git_clone "$REPO_URL" "$TARGET_DIR" || exit 1
+fi
+
+# ==============================================================================
+# 2-1. GitHub Packages 의존성 설정 (gpr.user / gpr.key)
+# ==============================================================================
+if command -v setup_gpr_gradle_properties &>/dev/null; then
+    setup_gpr_gradle_properties "$TARGET_DIR"
 fi
 
 # ==============================================================================
