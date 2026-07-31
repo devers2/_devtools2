@@ -2,7 +2,7 @@
 
 # =================================================================
 # DevTools2 핵심 포터블 도구 설치 스크립트 (2.install-core-tools.sh)
-# 대상: Java(8/17/21/25), Gradle, Python, Node.js, Neovim, Ghostty
+# 대상: Java(8/17/21/25), Gradle, Python, Node.js, Neovim, VSCode, Zed, Ghostty
 # =================================================================
 
 if [ -z "${DEVTOOLS2:-}" ]; then
@@ -583,9 +583,71 @@ echo "✅ Neovim 설치 완료 ($ARCH)"
 echo ""
 
 echo "---------------------------------------------------------------------------"
-# 6. Zed 설치
+# 6. VSCode 설치 (Linux 네이티브 전용 - WSL은 Windows에서 관리)
+echo "💻 6. VSCode 설치 단계"
+echo ""
+
+if [ "$IS_WSL2" = true ]; then
+    echo "   ⚠️  [WSL2 환경 감지] WSL2에서는 Windows 호스트에 VSCode가 설치되므로 Linux 내부 설치를 건너뜁니다."
+else
+    # code 명령이 이미 존재하는지 확인
+    if command -v code >/dev/null 2>&1; then
+        echo "   ⏭️ [건너뜀] VSCode가 이미 설치되어 있습니다: $(command -v code)"
+    else
+        echo "   📦 VSCode .deb 패키지 다운로드 및 설치 중..."
+        _vscode_tmp="/tmp/vscode_install_$$.deb"
+        if curl -Ls "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" -o "$_vscode_tmp"; then
+            sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true
+            rm -f "$_vscode_tmp"
+            echo "   ✅ VSCode 설치 완료"
+        else
+            echo "   ⚠️  VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
+            rm -f "$_vscode_tmp"
+        fi
+    fi
+
+    # VSCode 확장 자동 설치 (extensions.txt 기반)
+    VSCODE_EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"
+    if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
+        echo ""
+        echo "   📋 VSCode 확장 프로그램 설치 중 (extensions.txt 기반)..."
+        _INSTALLED_EXTS=$(code --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
+        _vscode_install_count=0
+        _vscode_skip_count=0
+        _vscode_fail_count=0
+        while IFS= read -r ext_line || [ -n "$ext_line" ]; do
+            ext=$(echo "$ext_line" | tr -d '\r' | sed 's/#.*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            [ -z "$ext" ] && continue
+            ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+            if echo "$_INSTALLED_EXTS" | grep -qF "$ext_lower"; then
+                echo "   ⏭️  [SKIP] $ext"
+                _vscode_skip_count=$((_vscode_skip_count + 1))
+            else
+                echo -n "   📥 [설치] $ext ..."
+                if code --install-extension "$ext" --force >/dev/null 2>&1; then
+                    echo " ✅"
+                    _vscode_install_count=$((_vscode_install_count + 1))
+                else
+                    echo " ⚠️  실패"
+                    _vscode_fail_count=$((_vscode_fail_count + 1))
+                fi
+            fi
+        done < "$VSCODE_EXT_LIST"
+        echo ""
+        echo "   [요약] 신규 설치: ${_vscode_install_count}개 / 이미 설치: ${_vscode_skip_count}개 / 실패: ${_vscode_fail_count}개"
+    elif ! command -v code >/dev/null 2>&1; then
+        echo "   ⚠️  code 명령을 찾을 수 없어 확장 설치를 건너뜁니다."
+    else
+        echo "   ⚠️  extensions.txt 없음: $VSCODE_EXT_LIST"
+    fi
+fi
+echo "✅ VSCode 단계 완료"
+echo ""
+
+echo "---------------------------------------------------------------------------"
+# 7. Zed 설치
 if [ "$IS_WSL2" = false ]; then
-    echo "⚡ 6. Zed 설치 중..."
+    echo "⚡ 7. Zed 설치 중..."
     if [ -d "$DEVTOOLS2/modules/zed" ]; then
         echo "   ⏭️ [건너뜀] zed 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/zed'"
     else
@@ -600,21 +662,21 @@ if [ "$IS_WSL2" = false ]; then
             'zed'
     fi
 else
-    echo "⚡ 6. Zed 설치 단계"
+    echo "⚡ 7. Zed 설치 단계"
     echo "   ⚠️  [WSL2 환경 감지] WSL2 환경에서는 Windows 호스트에 Zed를 설치하므로 리눅스 내부 Zed 설치는 건너뜁니다."
 fi
 echo ""
 
 echo "---------------------------------------------------------------------------"
-# 7. Ghostty 포터블 설치: https://ghostty.org/
-echo "💚 7. Ghostty 포터블 설치 단계"
+# 8. Ghostty 포터블 설치: https://ghostty.org/
+echo "💚 8. Ghostty 포터블 설치 단계"
 echo ""
 
 if [ "$IS_WSL2" = true ]; then
     echo "   ⚠️  [WSL2 환경 감지] Ghostty는 WSL2에서 지원되지 않으므로 설치를 건너뜁니다."
     echo "   💬 Windows 네이티브 환경에서 Ghostty를 설치해주세요: https://ghostty.org/"
 else
-    echo "💚 7. Ghostty 포터블 설치 중..."
+    echo "💚 8. Ghostty 포터블 설치 중..."
     mkdir -p "$DEVTOOLS2/modules/ghostty"
     cd "$DEVTOOLS2/modules/ghostty"
 

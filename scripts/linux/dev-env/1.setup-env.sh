@@ -423,69 +423,6 @@ inject_gradle_property "org.gradle.java.installations.paths" "$GRADLE_INSTALLS_V
 echo "[완료] Gradle 사용자 전역 설정 적용 완료!"
 echo ""
 
-print_sep
-echo ""
-
-# ==============================================================================
-# [Step 8] VSCode 확장 프로그램 자동 설치 (extensions.txt 기반)
-# - WSL / Linux 네이티브 양쪽에서 동작
-# - code 명령이 없으면 자동 스킵
-# ==============================================================================
-print_step "[Step 8] VSCode 확장 프로그램 자동 설치"
-echo ""
-
-VSCODE_EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"
-VSCODE_BIN=""
-
-# code 명령 위치 탐색 (WSL: remote CLI / 네이티브: 패키지 설치된 code)
-if command -v code >/dev/null 2>&1; then
-    VSCODE_BIN="code"
-else
-    echo "[SKIP] 'code' 명령을 찾을 수 없습니다. VSCode가 설치되어 있지 않습니다."
-    VSCODE_BIN=""
-fi
-
-if [ -n "$VSCODE_BIN" ] && [ -f "$VSCODE_EXT_LIST" ]; then
-    echo "[INFO] extensions.txt 경로: $VSCODE_EXT_LIST"
-
-    # 현재 설치된 확장 목록 캐시 (소문자 비교용)
-    _INSTALLED_EXTS=$("$VSCODE_BIN" --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
-
-    _install_count=0
-    _skip_count=0
-    _fail_count=0
-
-    while IFS= read -r ext_line || [ -n "$ext_line" ]; do
-        # 빈 줄 / #주석 / \r 제거
-        ext=$(echo "$ext_line" | tr -d '\r' | sed 's/#.*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        [ -z "$ext" ] && continue
-
-        ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
-        if echo "$_INSTALLED_EXTS" | grep -qF "$ext_lower"; then
-            echo "[SKIP] 이미 설치됨: $ext"
-            _skip_count=$((_skip_count + 1))
-        else
-            echo "[설치] $ext ..."
-            if "$VSCODE_BIN" --install-extension "$ext" --force >/dev/null 2>&1; then
-                echo "[완료] $ext 설치 성공"
-                _install_count=$((_install_count + 1))
-            else
-                echo "[경고] $ext 설치 실패 (네트워크 또는 마켓플레이스 문제일 수 있음)"
-                _fail_count=$((_fail_count + 1))
-            fi
-        fi
-    done < "$VSCODE_EXT_LIST"
-
-    echo ""
-    echo "[요약] 신규 설치: ${_install_count}개 / 이미 설치: ${_skip_count}개 / 실패: ${_fail_count}개"
-elif [ -z "$VSCODE_BIN" ]; then
-    : # 위에서 이미 SKIP 메시지 출력
-else
-    echo "[SKIP] extensions.txt 파일이 없습니다: $VSCODE_EXT_LIST"
-fi
-
-echo ""
-
 print_subsep
 print_done "모든 설정이 완료되었습니다! (~/.bashrc 변수에 등록됨)"
 echo "현재 터미널에 즉시 적용하려면 아래 명령어를 직접 입력하세요:"
