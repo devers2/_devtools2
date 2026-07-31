@@ -329,6 +329,7 @@ Write-Info "(몇 분 정도 소요될 수 있습니다)"
 wsl --export $distroId $tempTarPath
 if ($LASTEXITCODE -ne 0) {
     Write-Fail "배포판 내보내기(Export)에 실패했습니다. (종료 코드: $LASTEXITCODE)"
+    if (Test-Path $tempTarPath) { Remove-Item $tempTarPath -Force }
     Pause-Script
     exit 1
 }
@@ -349,7 +350,7 @@ Write-Info "(몇 분 정도 소요될 수 있습니다)"
 wsl --import $wslName $wslInstallPath $tempTarPath
 if ($LASTEXITCODE -ne 0) {
     Write-Fail "배포판 가져오기(Import)에 실패했습니다. (종료 코드: $LASTEXITCODE)"
-    if (Test-Path $tempTarPath) { Remove-Item $tempTarPath -Force }
+    Write-Warn "데이터 보존을 위해 백업 파일($tempTarPath)을 유지합니다. 원인 파악 후 'wsl --import $wslName $wslInstallPath $tempTarPath'로 직접 시도하세요."
     Pause-Script
     exit 1
 }
@@ -371,9 +372,9 @@ if (Test-Path $wslConfigFile) {
     $existing = Get-Content $wslConfigFile -Raw -ErrorAction SilentlyContinue
     if ($existing -notmatch "networkingMode\s*=\s*mirrored") {
         if ($existing -match "\[wsl2\]") {
-            Add-Content -Path $wslConfigFile -Value "`nnetworkingMode=mirrored`nautoProxy=true"
+            Add-Content -Path $wslConfigFile -Value "`nnetworkingMode=mirrored`nautoProxy=true" -Encoding UTF8
         } else {
-            Add-Content -Path $wslConfigFile -Value "`n[wsl2]`nnetworkingMode=mirrored`nautoProxy=true"
+            Add-Content -Path $wslConfigFile -Value "`n[wsl2]`nnetworkingMode=mirrored`nautoProxy=true" -Encoding UTF8
         }
         Write-Success ".wslconfig 에 네트워크 미러링(networkingMode=mirrored) 설정이 추가되었습니다."
     } else {

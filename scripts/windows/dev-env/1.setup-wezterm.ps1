@@ -62,6 +62,11 @@ function Write-Info {
     Write-Host "[정보] $Message" -ForegroundColor White
 }
 
+function Write-Warn {
+    param([string]$Message)
+    Write-Host "[경고] $Message" -ForegroundColor Yellow
+}
+
 # 심볼릭 링크를 안전하게 생성하는 함수
 function New-SafeSymlink {
     param(
@@ -407,10 +412,9 @@ if ($hasWslFonts) {
         if (Test-Path $destPath) {
             Write-Skip "폰트 이미 설치됨: $fontName"
         } else {
-            $wslFontPath = '${DEVTOOLS2:-/var/opt/_devtools2}/assets/fonts/' + $fontName
             # Windows 경로를 WSL 경로로 변환하여 cp 명령 실행
             $winTempPath = $tempFontDir.Replace("\", "/").Replace("C:", "/mnt/c").Replace("c:", "/mnt/c")
-            wsl -d $WslDistro -- bash -c "[ -f '$wslFontPath' ] && cp '$wslFontPath' '$winTempPath/$fontName'" 2>$null
+            wsl -d $WslDistro -- bash -c "DEVTOOLS2=`${DEVTOOLS2:-/var/opt/_devtools2}; src=`"`$DEVTOOLS2/assets/fonts/$fontName`"; [ -f `"`$src`" ] && cp `"`$src`" `"$winTempPath/$fontName`"" 2>$null
 
             $copiedFile = Join-Path $tempFontDir $fontName
             if (Test-Path $copiedFile) {

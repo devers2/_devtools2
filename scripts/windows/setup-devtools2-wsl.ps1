@@ -73,6 +73,57 @@ function Pause-Script {
     [void][System.Console]::ReadLine()
 }
 
+# 파일/심볼릭 링크(dangling 포함)를 안전하게 제거하는 헬퍼
+# Test-Path는 대상이 없는 dangling symlink를 $false로 반환하여 기존 링크가 남아
+# mklink 재실행 시 "파일이 이미 있습니다" 오류를 유발하므로, Get-Item -Force 로 실제 존재 여부를 확인합니다.
+function Remove-FileOrSymlink {
+    param([string]$Path)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if ($null -ne $item) {
+        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        return $true   # 삭제 수행
+    }
+    # Get-Item도 못 찾은 경우 cmd dir로 최종 확인 (극히 드문 케이스 대비)
+    $cmdCheck = cmd.exe /c "if exist `"$Path`" echo exists" 2>$null
+    if ($cmdCheck -match 'exists') {
+        cmd.exe /c "del /f /q `"$Path`"" 2>$null | Out-Null
+        return $true
+    }
+    return $false  # 애초에 없었음
+}
+
+# 심볼릭 링크를 멱등성 있게 생성하는 헬퍼 (dangling symlink 포함 기존 항목 자동 정리 후 재생성)
+function New-SymlinkIdempotent {
+    param(
+        [string]$LinkPath,
+        [string]$TargetPath,
+        [string]$Description = ""
+    )
+    $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
+
+    # 1) 대상(WSL 경로)이 존재하는지 확인
+    if (-not (Test-Path $TargetPath)) {
+        Write-Warn "$label 대상 경로가 존재하지 않아 심볼릭 링크를 건너뜁니다: $TargetPath"
+        return $false
+    }
+
+    # 2) 기존 파일/링크(dangling 포함) 제거
+    $removed = Remove-FileOrSymlink -Path $LinkPath
+    if ($removed) {
+        Write-Info "$label 기존 항목 제거 완료: $LinkPath"
+    }
+
+    # 3) 심볼릭 링크 생성
+    Write-Info "$label 심볼릭 링크 생성 중..."
+    $result = cmd.exe /c "mklink `"$LinkPath`" `"$TargetPath`"" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "$label 심볼릭 링크 생성 실패: $result"
+        return $false
+    }
+    Write-Success "$label 심볼릭 링크 생성 완료"
+    return $true
+}
+
 # 단순 프로세스/조건 대기형 스피너 헬퍼
 function Wait-WithSpinner {
     param(
@@ -199,7 +250,7 @@ Write-Info "AutoHotkey Startup 항목 사전 정리 완료"
 $isLocalMode = $false
 if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
     $BaseDir = $PSScriptRoot
-    $ToolsDir = Join-Path $BaseDir "devtools2"
+    $ToolsDir = Join-Path $BaseDir "dev-env"
 
     # 로컬 하위 스크립트 경로 존재 여부 점검 (로컬 모드/온라인 모드 자동 판정)
     $setupWslScript = Join-Path $ToolsDir "0.setup-wsl.ps1"
@@ -342,7 +393,7 @@ while ($true) {
 }
 
 if ($isLocalMode) {
-    $linuxInitScriptSource = Join-Path $BaseDir "..\linux\devtools2\0.init-devtools2.sh"
+    $linuxInitScriptSource = Join-Path $BaseDir "..\linux\dev-env\0.init-devtools2.sh"
     if (-not (Test-Path $linuxInitScriptSource)) {
         Write-Fail "리눅스 초기화 스크립트 원본을 찾을 수 없습니다: $linuxInitScriptSource"
         Pause-Script
@@ -469,69 +520,59 @@ Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" 
 Write-Host "N" -ForegroundColor Green -NoNewline
 Write-Host "]: " -ForegroundColor Yellow -NoNewline
 $installVscode = Read-Host
-$skipVsCode = -not ($installVscode -match '^[Yy]')
+$userChoseVscode = $installVscode -match '^[Yy]'
 
-if ($skipVsCode) {
+# VSCode 설치 여부 사전 확인
+$vscodeAlreadyInstalled = $false
+try {
+    if (Get-Command code -ErrorAction SilentlyContinue) {
+        $vscodeAlreadyInstalled = $true
+    } elseif (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") {
+        $vscodeAlreadyInstalled = $true
+    } elseif (Test-Path "$env:ProgramFiles\Microsoft VS Code\Code.exe") {
+        $vscodeAlreadyInstalled = $true
+    }
+} catch {}
+
+# 심볼릭 링크 연동 단계는: 사용자가 y를 선택했거나, 이미 VSCode가 설치되어 있는 경우에도 실행
+# (VSCode가 이미 있는데 재설치 시 N을 눠르면 dangling symlink 제거가 동작해야 함)
+$skipVsCodeLink = -not ($userChoseVscode -or $vscodeAlreadyInstalled)
+
+if (-not $userChoseVscode -and -not $vscodeAlreadyInstalled) {
     Write-Skip "VS Code 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+} elseif ($vscodeAlreadyInstalled -and -not $userChoseVscode) {
+    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다. 설치를 건너뜁니다만 설정 연동은 계속 진행합니다."
 } else {
-    $vscodeInstalled = $false
-    try {
-        if (Get-Command code -ErrorAction SilentlyContinue) {
-            $vscodeInstalled = $true
-        } elseif (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") {
-            $vscodeInstalled = $true
-        } elseif (Test-Path "$env:ProgramFiles\Microsoft VS Code\Code.exe") {
-            $vscodeInstalled = $true
-        }
-    } catch {}
-
-    if ($vscodeInstalled) {
+    if ($vscodeAlreadyInstalled) {
         Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
     } else {
         Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
         $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
-        Wait-ProcessWithSpinner -Process $p -Message "VSCode 패키지 설치 진행 중"
+        # 스피너를 표시하며 winget 프로세스 완료 대기
+        $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+        $sIdx = 0
+        while (-not $p.HasExited) {
+            $char = $spinner[$sIdx % $spinner.Count]
+            Write-Host -NoNewline "`r  [$char] VSCode 패키지 설치 진행 중...   "
+            Start-Sleep -Milliseconds 150
+            $sIdx++
+        }
+        Write-Host "`r  [완료] VSCode 패키지 설치 완료!   " -ForegroundColor Green
+        if ($p.ExitCode -ne 0) {
+            Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
+        }
+        # PATH 갱신: winget 설치 후 code CLI를 현재 세션에서 즉시 사용 가능하게 함
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
     }
 }
 
 Write-SubStep "▶ (4/4) VSCode 설정, 확장 목록 및 Gradle 자격증명 연동 (심볼릭 링크)"
-if ($skipVsCode) {
-    Write-Skip "VS Code 설치를 건너뜀 — 설정 연동 단계도 건너뜁니다."
+if ($skipVsCodeLink) {
+    Write-Skip "VS Code 미설치 + 설치 거부 — 설정 연동 단계도 건너뜁니다."
 } else {
 $vscodeUserDir = "$env:APPDATA\Code\User"
 if (-not (Test-Path $vscodeUserDir)) {
     New-Item -ItemType Directory -Path $vscodeUserDir -Force | Out-Null
-}
-
-# settings.json 백업 및 이전 링크 삭제
-if (Test-Path "$vscodeUserDir\settings.json") {
-    if (-not (Test-Path "$vscodeUserDir\settings.json.bak")) {
-        Move-Item "$vscodeUserDir\settings.json" "$vscodeUserDir\settings.json.bak" -Force
-        Write-Info "기존 settings.json을 settings.json.bak으로 백업했습니다."
-    } else {
-        Remove-Item "$vscodeUserDir\settings.json" -Force
-    }
-}
-
-# keybindings.json 백업 및 이전 링크 삭제
-if (Test-Path "$vscodeUserDir\keybindings.json") {
-    if (-not (Test-Path "$vscodeUserDir\keybindings.json.bak")) {
-        Move-Item "$vscodeUserDir\keybindings.json" "$vscodeUserDir\keybindings.json.bak" -Force
-        Write-Info "기존 keybindings.json을 keybindings.json.bak으로 백업했습니다."
-    } else {
-        Remove-Item "$vscodeUserDir\keybindings.json" -Force
-    }
-}
-
-# tasks.json 백업 및 이전 링크 삭제
-if (Test-Path "$vscodeUserDir\tasks.json") {
-    if (-not (Test-Path "$vscodeUserDir\tasks.json.bak")) {
-        Move-Item "$vscodeUserDir\tasks.json" "$vscodeUserDir\tasks.json.bak" -Force
-        Write-Info "기존 tasks.json을 tasks.json.bak으로 백업했습니다."
-    } else {
-        Remove-Item "$vscodeUserDir\tasks.json" -Force
-    }
 }
 
 # 윈도우 사용자 환경 변수에 %DEVTOOLS2% 자동 등록
@@ -544,20 +585,96 @@ if (Test-Path $wslDevtools2Root) {
 
 $devtools2Root = if ($env:DEVTOOLS2) { $env:DEVTOOLS2 } else { $wslDevtools2Root }
 
-# cmd.exe /c mklink 를 이용해 WSL2 파일 경로를 향해 심볼릭 링크 생성
-$targetSettings = "$devtools2Root\.config\vscode\settings.json"
+# WSL2 내 대상 파일 경로
+$targetSettings    = "$devtools2Root\.config\vscode\settings.json"
 $targetKeybindings = "$devtools2Root\.config\vscode\keybindings.json"
-$targetTasks = "$devtools2Root\.config\vscode\tasks.json"
+$targetTasks       = "$devtools2Root\.config\vscode\tasks.json"
 
-Write-Info "VSCode settings.json 심볼릭 링크 생성 중..."
-cmd.exe /c "mklink `"$vscodeUserDir\settings.json`" `"$targetSettings`"" | Out-Null
+# ------------------------------------------------------------------
+# [멱등성 처리] settings.json / keybindings.json / tasks.json
+#
+# 문제 원인: WSL 삭제 후 재설치 시 이전 심볼릭 링크(dangling symlink)가 남아있음.
+# Test-Path는 dangling symlink를 $false로 반환하므로 기존 링크를 감지하지 못하고,
+# mklink 실행 시 "파일이 이미 있습니다" 오류가 발생하여 링크 재생성에 실패합니다.
+#
+# 해결: Remove-FileOrSymlink(Get-Item -Force + cmd dir 이중 확인)로 dangling symlink도 안전하게 제거하고,
+#       New-SymlinkIdempotent으로 재생성합니다.
+# ------------------------------------------------------------------
 
-Write-Info "VSCode keybindings.json 심볼릭 링크 생성 중..."
-cmd.exe /c "mklink `"$vscodeUserDir\keybindings.json`" `"$targetKeybindings`"" | Out-Null
+# settings.json: 최초 설치 시 일반 파일이 있으면 .bak 으로 보존, 이후 재실행 시 링크/dangling 링크만 제거
+$settingsItem = Get-Item -LiteralPath "$vscodeUserDir\settings.json" -Force -ErrorAction SilentlyContinue
+if ($null -ne $settingsItem) {
+    $isLink = $settingsItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+    if (-not $isLink) {
+        # 일반 파일인 경우 → 최초 설치 상황: .bak으로 백업
+        if (-not (Test-Path "$vscodeUserDir\settings.json.bak")) {
+            Move-Item "$vscodeUserDir\settings.json" "$vscodeUserDir\settings.json.bak" -Force
+            Write-Info "기존 settings.json을 settings.json.bak으로 백업했습니다."
+        } else {
+            Remove-Item "$vscodeUserDir\settings.json" -Force
+        }
+    } else {
+        # 심볼릭 링크(정상 또는 dangling)인 경우 → 재설치 상황: 그냥 삭제
+        Remove-Item -LiteralPath "$vscodeUserDir\settings.json" -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    # Get-Item도 실패하면 cmd로 dangling symlink 확인 후 제거
+    $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\settings.json`" echo exists" 2>$null
+    if ($cmdCheck -match 'exists') {
+        cmd.exe /c "del /f /q `"$vscodeUserDir\settings.json`"" 2>$null | Out-Null
+        Write-Info "settings.json dangling symlink 제거 완료"
+    }
+}
 
+# keybindings.json: 동일 패턴
+$kbItem = Get-Item -LiteralPath "$vscodeUserDir\keybindings.json" -Force -ErrorAction SilentlyContinue
+if ($null -ne $kbItem) {
+    $isLink = $kbItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+    if (-not $isLink) {
+        if (-not (Test-Path "$vscodeUserDir\keybindings.json.bak")) {
+            Move-Item "$vscodeUserDir\keybindings.json" "$vscodeUserDir\keybindings.json.bak" -Force
+            Write-Info "기존 keybindings.json을 keybindings.json.bak으로 백업했습니다."
+        } else {
+            Remove-Item "$vscodeUserDir\keybindings.json" -Force
+        }
+    } else {
+        Remove-Item -LiteralPath "$vscodeUserDir\keybindings.json" -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\keybindings.json`" echo exists" 2>$null
+    if ($cmdCheck -match 'exists') {
+        cmd.exe /c "del /f /q `"$vscodeUserDir\keybindings.json`"" 2>$null | Out-Null
+        Write-Info "keybindings.json dangling symlink 제거 완료"
+    }
+}
+
+# tasks.json: 동일 패턴
+$tasksItem = Get-Item -LiteralPath "$vscodeUserDir\tasks.json" -Force -ErrorAction SilentlyContinue
+if ($null -ne $tasksItem) {
+    $isLink = $tasksItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+    if (-not $isLink) {
+        if (-not (Test-Path "$vscodeUserDir\tasks.json.bak")) {
+            Move-Item "$vscodeUserDir\tasks.json" "$vscodeUserDir\tasks.json.bak" -Force
+            Write-Info "기존 tasks.json을 tasks.json.bak으로 백업했습니다."
+        } else {
+            Remove-Item "$vscodeUserDir\tasks.json" -Force
+        }
+    } else {
+        Remove-Item -LiteralPath "$vscodeUserDir\tasks.json" -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\tasks.json`" echo exists" 2>$null
+    if ($cmdCheck -match 'exists') {
+        cmd.exe /c "del /f /q `"$vscodeUserDir\tasks.json`"" 2>$null | Out-Null
+        Write-Info "tasks.json dangling symlink 제거 완료"
+    }
+}
+
+# 심볼릭 링크 생성 (New-SymlinkIdempotent: 대상 없으면 경고 후 스킵, 생성 실패 시 경고)
+New-SymlinkIdempotent -LinkPath "$vscodeUserDir\settings.json"    -TargetPath $targetSettings    -Description "VSCode settings.json"
+New-SymlinkIdempotent -LinkPath "$vscodeUserDir\keybindings.json" -TargetPath $targetKeybindings -Description "VSCode keybindings.json"
 if (Test-Path $targetTasks) {
-    Write-Info "VSCode tasks.json 심볼릭 링크 생성 중..."
-    cmd.exe /c "mklink `"$vscodeUserDir\tasks.json`" `"$targetTasks`"" | Out-Null
+    New-SymlinkIdempotent -LinkPath "$vscodeUserDir\tasks.json" -TargetPath $targetTasks -Description "VSCode tasks.json"
 }
 
 # 🌟 VSCode 확장 목록(extensions.txt) 동기화 자동 설치 (dotfiles에 존재 시)
@@ -587,12 +704,12 @@ if (Test-Path $targetExtensionsList) {
             Write-Skip "모든 확장 프로그램이 이미 설치되어 있습니다."
         }
     } else {
-        Write-Warn "VSCode CLI('code')를 찾을 수 없어서 확장 프로그램 자동 설치를 건너럅니다."
+        Write-Warn "VSCode CLI('code')를 찾을 수 없어서 확장 프로그램 자동 설치를 건너뜁니다."
     }
 }
 
     Write-Success "VSCode 설정 연동 완료"
-} # end if -not skipVsCode
+} # end if -not skipVsCodeLink
 
 # 🌟 [Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동]
 # - 보안 자격증명 정보(Git Token/Maven Auth) 손실 방지 및 이중 환경 호환성 확보
@@ -608,14 +725,17 @@ $wslGradleProps = "\\wsl.localhost\$wslDistro\home\$wslUser\.gradle\gradle.prope
 $winGradleProps = "$winGradleDir\gradle.properties"
 
 if (Test-Path $wslGradleProps) {
-    if (Test-Path $winGradleProps) {
-        Remove-Item $winGradleProps -Force -ErrorAction SilentlyContinue
-    }
+    # dangling symlink 포함 기존 항목 안전 제거 후 재생성 (멱등성 보장)
+    Remove-FileOrSymlink -Path $winGradleProps | Out-Null
     Write-Info "Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동 중..."
-    cmd.exe /c "mklink `"$winGradleProps`" `"$wslGradleProps`"" | Out-Null
-    Write-Success "Gradle gradle.properties 연동 완료:`n    $wslGradleProps -> $winGradleProps"
+    $result = cmd.exe /c "mklink `"$winGradleProps`" `"$wslGradleProps`"" 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Success "Gradle gradle.properties 연동 완료:`n    $wslGradleProps -> $winGradleProps"
+    } else {
+        Write-Warn "Gradle gradle.properties 심볼릭 링크 생성 실패 (수동으로 확인해 주세요): $result"
+    }
 } else {
-    Write-Warn "WSL2 경로에 gradle.properties 파일이 존재하지 않아 연동을 건너럅니다: $wslGradleProps"
+    Write-Warn "WSL2 경로에 gradle.properties 파일이 존재하지 않아 연동을 건너뜁니다: $wslGradleProps"
 }
 
 # ==============================================================================

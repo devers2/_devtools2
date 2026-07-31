@@ -61,6 +61,16 @@ function Write-Fail {
     Write-Host "[오류] $Message" -ForegroundColor Red
 }
 
+function Write-Info {
+    param([string]$Message)
+    Write-Host "[정보] $Message" -ForegroundColor White
+}
+
+function Write-Warn {
+    param([string]$Message)
+    Write-Host "[경고] $Message" -ForegroundColor Yellow
+}
+
 
 
 # 프로세스 종료 시까지 스피너를 표시해 대기하는 함수

@@ -24,7 +24,6 @@ set -euo pipefail
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 SUB_DIR="$SCRIPT_DIR/dev-env"
 
-
 # 컬러 출력 헬퍼
 print_banner() {
     echo ""
@@ -41,6 +40,28 @@ print_step() {
     echo "---------------------------------------------------------------------------"
 }
 
+print_info()  { echo "[정보] $*"; }
+print_warn()  { echo "[경고] $*" >&2; }
+print_error() { echo "[오류] $*" >&2; }
+print_done()  { echo "[완료] $*"; }
+
+# 온라인 모드에서 서브스크립트를 안전하게 실행하는 헬퍼
+# process substitution <(curl ...) 은 일부 환경에서 동작하지 않으므로 임시 파일 방식 사용
+run_remote_script() {
+    local url="$1"
+    shift
+    local tmp_script
+    tmp_script=$(mktemp /tmp/_devtools2_script_XXXXXX.sh)
+    # 스크립트 종료 시 임시 파일 자동 삭제
+    trap "rm -f '$tmp_script'" RETURN
+    if ! curl -sSfL "$url" -o "$tmp_script"; then
+        print_error "원격 스크립트 다운로드 실패: $url"
+        return 1
+    fi
+    chmod +x "$tmp_script"
+    bash "$tmp_script" "$@"
+}
+
 # 로컬 실행 모드 여부 판정
 IS_LOCAL=false
 if [ -f "$SUB_DIR/0.init-devtools2.sh" ]; then
@@ -55,12 +76,20 @@ RAW_BASE="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linu
 print_step "▶ [0/3] DevTools2 초기화 (sudo 권한 필요)"
 
 if [ "$IS_LOCAL" = true ]; then
-    echo "[정보] 로컬 초기화 스크립트 실행 중..."
+    print_info "로컬 초기화 스크립트 실행 중..."
+    chmod +x "$SUB_DIR/0.init-devtools2.sh"
     sudo "$SUB_DIR/0.init-devtools2.sh"
 else
-    echo "[정보] 온라인 원격 초기화 스크립트 다운로드 및 실행 중..."
+    print_info "온라인 원격 초기화 스크립트 다운로드 및 실행 중..."
     curl -sSfL "$RAW_BASE/0.init-devtools2.sh" -o /tmp/0.init-devtools2.sh
+    chmod +x /tmp/0.init-devtools2.sh
     sudo bash /tmp/0.init-devtools2.sh
+    rm -f /tmp/0.init-devtools2.sh
+fi
+
+if [ $? -ne 0 ]; then
+    print_error "[Step 0] 초기화 스크립트 실행 실패."
+    exit 1
 fi
 
 # ==============================================================================
@@ -69,20 +98,26 @@ fi
 print_step "▶ [1/3] 환경 변수 설정 (~/.bashrc)"
 
 if [ "$IS_LOCAL" = true ]; then
-    "$SUB_DIR/1.setup-env.sh"
+    chmod +x "$SUB_DIR/1.setup-env.sh"
+    DEVTOOLS2=/var/opt/_devtools2 "$SUB_DIR/1.setup-env.sh"
 else
-    DEVTOOLS2=/var/opt/_devtools2 bash <(curl -sSfL "$RAW_BASE/1.setup-env.sh")
+    DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/1.setup-env.sh"
+fi
+
+if [ $? -ne 0 ]; then
+    print_error "[Step 1] 환경 변수 설정 실패."
+    exit 1
 fi
 
 # source ~/.bashrc 를 마스터 스크립트 프로세스 내에서 실행하면,
 # 이후 호출되는 2, 3번 스크립트(자식 프로세스)가 환경 변수를 상속받습니다.
-echo "[로드] source ~/.bashrc 실행 중..."
-# 시스템 bashrc 내부의 정의되지 않은 변수로 인한 nounset(set -u) 에러 방지
-set +u
+print_info "source ~/.bashrc 실행 중..."
+# 멱등성 보장: bashrc 내부의 미정의 변수, pipefail, errexit 오류를 모두 억제하고 source 진행
+set +euo pipefail
 # shellcheck source=/dev/null
-source "$HOME/.bashrc"
-set -u
-echo "[완료] 환경 변수가 현재 세션에 적용되었습니다."
+source "$HOME/.bashrc" 2>/dev/null || true
+set -euo pipefail
+print_done "환경 변수가 현재 세션에 적용되었습니다."
 
 # ==============================================================================
 # [Step 2] 핵심 포터블 도구 설치 (Java, Node.js, Python, Neovim, Zed, Ghostty 등)
@@ -90,9 +125,15 @@ echo "[완료] 환경 변수가 현재 세션에 적용되었습니다."
 print_step "▶ [2/3] 핵심 포터블 도구 설치"
 
 if [ "$IS_LOCAL" = true ]; then
-    "$SUB_DIR/2.install-core-tools.sh"
+    chmod +x "$SUB_DIR/2.install-core-tools.sh"
+    DEVTOOLS2=/var/opt/_devtools2 "$SUB_DIR/2.install-core-tools.sh"
 else
-    DEVTOOLS2=/var/opt/_devtools2 bash <(curl -sSfL "$RAW_BASE/2.install-core-tools.sh")
+    DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/2.install-core-tools.sh"
+fi
+
+if [ $? -ne 0 ]; then
+    print_error "[Step 2] 핵심 도구 설치 실패."
+    exit 1
 fi
 
 # ==============================================================================
@@ -101,9 +142,15 @@ fi
 print_step "▶ [3/4] CLI 유틸리티 도구 설치"
 
 if [ "$IS_LOCAL" = true ]; then
-    "$SUB_DIR/3.install-cli-tools.sh"
+    chmod +x "$SUB_DIR/3.install-cli-tools.sh"
+    DEVTOOLS2=/var/opt/_devtools2 "$SUB_DIR/3.install-cli-tools.sh"
 else
-    DEVTOOLS2=/var/opt/_devtools2 bash <(curl -sSfL "$RAW_BASE/3.install-cli-tools.sh")
+    DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/3.install-cli-tools.sh"
+fi
+
+if [ $? -ne 0 ]; then
+    print_error "[Step 3] CLI 유틸리티 설치 실패."
+    exit 1
 fi
 
 # ==============================================================================
@@ -112,9 +159,23 @@ fi
 print_step "▶ [4/4] 키보드 리매핑 설정 (keyd)"
 
 if [ "$IS_LOCAL" = true ]; then
-    sudo "$SUB_DIR/4.setup-keyboard.sh"
+    chmod +x "$SUB_DIR/4.setup-keyboard.sh"
+    DEVTOOLS2=/var/opt/_devtools2 sudo "$SUB_DIR/4.setup-keyboard.sh"
 else
-    DEVTOOLS2=/var/opt/_devtools2 sudo bash <(curl -sSfL "$RAW_BASE/4.setup-keyboard.sh")
+    # 온라인 모드: 임시 파일로 저장 후 sudo로 실행 (process substitution은 sudo와 함께 동작 안 함)
+    _kb_tmp=$(mktemp /tmp/_devtools2_keyboard_XXXXXX.sh)
+    if curl -sSfL "$RAW_BASE/4.setup-keyboard.sh" -o "$_kb_tmp"; then
+        chmod +x "$_kb_tmp"
+        DEVTOOLS2=/var/opt/_devtools2 sudo bash "$_kb_tmp"
+        _kb_exit=$?
+    else
+        print_warn "[Step 4] 키보드 스크립트 다운로드 실패 — 건너뜁니다."
+        _kb_exit=0
+    fi
+    rm -f "$_kb_tmp"
+    if [ "$_kb_exit" -ne 0 ]; then
+        print_warn "[Step 4] 키보드 설정 실패 (비치명적, 계속 진행합니다)."
+    fi
 fi
 
 # ==============================================================================

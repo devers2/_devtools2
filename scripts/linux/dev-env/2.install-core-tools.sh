@@ -36,10 +36,11 @@ _load_colors() {
         source /tmp/_colors_remote.sh 2>/dev/null && _COLORS_LOADED=true && return 0
     fi
 
-    _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW='' _C_RED='' _C_CYAN='' _C_WHITE='' _C_GRAY=''
+    _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW='' _C_RED='' _C_WHITE='' _C_GRAY='' _C_DEFAULT=''
     if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
         _C_RESET='\033[0m' _C_BOLD='\033[1m' _C_CYAN='\033[0;36m' _C_GREEN='\033[0;32m'
-        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_CYAN='\033[0;36m' _C_WHITE='\033[1;37m'
+        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_WHITE='\033[1;37m' _C_GRAY='\033[0;90m'
+        _C_DEFAULT='\033[1;32m'
     fi
 
     print_info()    { printf "${_C_CYAN}[정보]${_C_RESET} %s\n"    "$*"; }
@@ -53,12 +54,14 @@ _load_colors() {
     print_question(){ printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
     print_option()  {
         if [ -n "${3:-}" ]; then
-            printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_GREEN}${_C_BOLD}%s${_C_RESET}\n" "$1" "$2" "$3"
+            printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_DEFAULT}%s${_C_RESET}\n" "$1" "$2" "$3"
         else
             printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET}\n" "$1" "$2"
         fi
     }
     prompt_input()  { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
+    run_with_spinner() { show_spinner "$2"; }
+    run_with_spinner_cmd() { "$@" & show_spinner $!; wait $!; }
     _COLORS_LOADED=true
 }
 _load_colors
@@ -523,7 +526,7 @@ if [ -f "package.json" ]; then
     if [ "$_do_npm_install" = true ]; then
         (npm install -q) >/tmp/_npm_install.log 2>&1 &
         _npm_pid=$!
-        run_with_spinner "글로벌 npm 패키지 복구 중 (npm install)..." "$_npm_pid"
+        show_spinner "$_npm_pid"
         wait "$_npm_pid" 2>/dev/null || true
         rm -f /tmp/_npm_install.log 2>/dev/null
         print_done "글로벌 npm 패키지 복구 완료!"

@@ -44,10 +44,11 @@ _load_colors() {
         source /tmp/_colors_remote.sh 2>/dev/null && _COLORS_LOADED=true && return 0
     fi
 
-    _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW='' _C_RED='' _C_CYAN='' _C_WHITE='' _C_GRAY=''
+    _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW='' _C_RED='' _C_WHITE='' _C_GRAY='' _C_DEFAULT=''
     if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
         _C_RESET='\033[0m' _C_BOLD='\033[1m' _C_CYAN='\033[0;36m' _C_GREEN='\033[0;32m'
-        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_CYAN='\033[0;36m' _C_WHITE='\033[1;37m'
+        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_WHITE='\033[1;37m' _C_GRAY='\033[0;90m'
+        _C_DEFAULT='\033[1;32m'
     fi
 
     print_info()    { printf "${_C_CYAN}[정보]${_C_RESET} %s\n"    "$*"; }
@@ -61,12 +62,25 @@ _load_colors() {
     print_question(){ printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
     print_option()  {
         if [ -n "${3:-}" ]; then
-            printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_GREEN}${_C_BOLD}%s${_C_RESET}\n" "$1" "$2" "$3"
+            printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_DEFAULT}%s${_C_RESET}\n" "$1" "$2" "$3"
         else
             printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET}\n" "$1" "$2"
         fi
     }
     prompt_input()  { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
+    run_with_spinner() {
+        local pid=$2
+        local delay=0.15
+        local spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+        local spin_len=${#spinner[@]}
+        local i=0
+        while kill -0 "$pid" 2>/dev/null; do
+            printf " [%s] %s\r" "${spinner[i]}" "$1"
+            i=$(( (i + 1) % spin_len ))
+            sleep $delay
+        done
+        printf "     \r"
+    }
     _COLORS_LOADED=true
 }
 _load_colors
@@ -90,7 +104,7 @@ _use_kakao=false
 curl -sf --max-time 3 http://mirror.kakao.com/ubuntu/ -o /dev/null 2>/dev/null &
 _kakao_pid=$!
 run_with_spinner "카카오 미러 서버 연결 확인 중..." "$_kakao_pid"
-wait "$_kakao_pid" && _use_kakao=true || _use_kakao=false
+wait "$_kakao_pid" 2>/dev/null && _use_kakao=true || _use_kakao=false
 
 _switch_mirror() {
     local from="$1" to="$2"
@@ -110,8 +124,8 @@ print_info "apt 패키지 다운로드 및 설치 중 (locales, language-pack-ko
 (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko) > /tmp/_apt_install.log 2>&1 &
 _apt_pid=$!
 run_with_spinner "apt 설치/다운로드 진행 중..." "$_apt_pid"
-wait "$_apt_pid"
-APT_DIRECT_EXIT=$?
+APT_DIRECT_EXIT=0
+wait "$_apt_pid" || APT_DIRECT_EXIT=$?
 
 # apt가 카카오 미러 서버로 실패한 경우 → 원래 서버로 자동 복구 후 재시도
 if [ "$APT_DIRECT_EXIT" -ne 0 ] && [ "$_use_kakao" = "true" ]; then
@@ -121,8 +135,8 @@ if [ "$APT_DIRECT_EXIT" -ne 0 ] && [ "$_use_kakao" = "true" ]; then
     (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko) > /tmp/_apt_install.log 2>&1 &
     _apt_pid=$!
     run_with_spinner "폴백 서버로 apt 재시도 중..." "$_apt_pid"
-    wait "$_apt_pid"
-    APT_DIRECT_EXIT=$?
+    APT_DIRECT_EXIT=0
+    wait "$_apt_pid" || APT_DIRECT_EXIT=$?
 fi
 
 if [ "${APT_DIRECT_EXIT:-0}" -ne 0 ]; then
@@ -203,6 +217,10 @@ if [ "$SHOULD_CLONE" = true ]; then
     echo "  ✅ 깃 클론 완료!"
 
     # 클론 완료 후 이 스크립트의 실행 경로 및 DEVTOOLS2 변수를 클론된 경로로 덮어씌움
+    DEVTOOLS2="$TARGET_DIR"
+fi
+
+if [ -d "$TARGET_DIR" ]; then
     DEVTOOLS2="$TARGET_DIR"
 fi
 

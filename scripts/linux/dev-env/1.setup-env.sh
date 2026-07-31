@@ -40,10 +40,11 @@ _load_colors() {
         source /tmp/_colors_remote.sh 2>/dev/null && _COLORS_LOADED=true && return 0
     fi
 
-    _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW='' _C_RED='' _C_CYAN='' _C_WHITE='' _C_GRAY=''
+    _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW='' _C_RED='' _C_WHITE='' _C_GRAY='' _C_DEFAULT=''
     if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
         _C_RESET='\033[0m' _C_BOLD='\033[1m' _C_CYAN='\033[0;36m' _C_GREEN='\033[0;32m'
-        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_CYAN='\033[0;36m' _C_WHITE='\033[1;37m'
+        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_WHITE='\033[1;37m' _C_GRAY='\033[0;90m'
+        _C_DEFAULT='\033[1;32m'
     fi
 
     print_info() { printf "${_C_CYAN}[정보]${_C_RESET} %s\n" "$*"; }
@@ -57,7 +58,7 @@ _load_colors() {
     print_question() { printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
     print_option() {
         if [ -n "${3:-}" ]; then
-            printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_GREEN}${_C_BOLD}%s${_C_RESET}\n" "$1" "$2" "$3"
+            printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_DEFAULT}%s${_C_RESET}\n" "$1" "$2" "$3"
         else
             printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET}\n" "$1" "$2"
         fi
@@ -174,34 +175,37 @@ $PATH"
 EOF
 else
     print_warn "WSL2 환경 감지: Ghostty PATH 등록을 건너뜁니다."
-    cat <<'EOF' >>~/.bashrc
+    WIN_USERPROFILE=$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')" 2>/dev/null || echo "")
+    cat <<EOF >>~/.bashrc
 export PATH="\
-$NODE_HOME/bin:\
-$NPM_CONFIG_PREFIX/bin:\
-$JAVA_HOME/bin:\
-$GRADLE_HOME/bin:\
-$PYTHON_HOME/bin:\
-$PYTHONUSERBASE/bin:\
-$NEOVIM_HOME/bin:\
-$DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin:\
-$DEVTOOLS2/data/nvim/mason/bin:\
-$DEVTOOLS2/scripts/linux/cmd:\
-$DEVTOOLS2/modules/ripgrep:\
-$DEVTOOLS2/modules/fd:\
-$DEVTOOLS2/modules/fzf:\
-$DEVTOOLS2/modules/lazygit:\
-$DEVTOOLS2/modules/ast-grep:\
-$DEVTOOLS2/modules/bitwarden:\
-$DEVTOOLS2/modules/rclone:\
-$DEVTOOLS2/modules/win32yank:\
-$PATH"
+\$NODE_HOME/bin:\
+\$NPM_CONFIG_PREFIX/bin:\
+\$JAVA_HOME/bin:\
+\$GRADLE_HOME/bin:\
+\$PYTHON_HOME/bin:\
+\$PYTHONUSERBASE/bin:\
+\$NEOVIM_HOME/bin:\
+\$DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin:\
+\$DEVTOOLS2/data/nvim/mason/bin:\
+\$DEVTOOLS2/scripts/linux/cmd:\
+\$DEVTOOLS2/modules/ripgrep:\
+\$DEVTOOLS2/modules/fd:\
+\$DEVTOOLS2/modules/fzf:\
+\$DEVTOOLS2/modules/lazygit:\
+\$DEVTOOLS2/modules/ast-grep:\
+\$DEVTOOLS2/modules/bitwarden:\
+\$DEVTOOLS2/modules/rclone:\
+\$DEVTOOLS2/modules/win32yank:\
+\$PATH"
 
 # Windows-mounted NTFS 디렉터리 배경색 수정 (WSL2에서 WezTerm Kanagawa 테마 가독성 확보)
-LS_COLORS=$(echo "$LS_COLORS" | sed "s/ow=[^:]*:/ow=01;37;48;5;24:/g; s/tw=[^:]*:/tw=01;37;48;5;58:/g")
-export LS_COLORS
+if [ -n "\${LS_COLORS:-}" ]; then
+    LS_COLORS=\$(echo "\$LS_COLORS" | sed "s/ow=[^:]*:/ow=01;37;48;5;24:/g; s/tw=[^:]*:/tw=01;37;48;5;58:/g")
+    export LS_COLORS
+fi
 
 # 윈도우 사용자 홈 환경 변수 추가
-export userprofile=$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')")
+export userprofile="$WIN_USERPROFILE"
 
 # === DEVTOOLS2 환경 변수 끝 ===
 
@@ -217,7 +221,7 @@ SOURCE_STR='if [ -f ~/.bashrc ]; then . ~/.bashrc; fi'
 
 for P_FILE in "${PROFILE_FILES[@]}"; do
     if [ -f "$P_FILE" ]; then
-        if ! grep -q ". ~/.bashrc" "$P_FILE"; then
+        if ! grep -qF ". ~/.bashrc" "$P_FILE" && ! grep -qF "bashrc" "$P_FILE"; then
             echo -e "\n# Load .bashrc for login shells\n$SOURCE_STR" >>"$P_FILE"
             echo "[성공] $P_FILE 에 .bashrc 로드 로직을 추가했습니다."
         fi
@@ -236,6 +240,7 @@ print_step "[Step 3] 에디터(Neovim, Zed) 설정: 심볼릭 링크 생성 및 
 echo ""
 # 별도의 공통 유틸리티 스크립트를 호출하여 심볼릭 링크를 안전하게 생성합니다.
 CMD_SYMLINK="$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh"
+[ -f "$CMD_SYMLINK" ] && chmod +x "$CMD_SYMLINK"
 
 # config 대상 디렉터리 결정
 if [ -n "${XDG_CONFIG_HOME:-}" ]; then
@@ -333,16 +338,20 @@ print_subsep
 print_step "[Step 4] 폰트 설치"
 echo ""
 mkdir -p ~/.local/share/fonts
-\cp -r "$DEVTOOLS2/assets/fonts/." ~/.local/share/fonts/
+if [ -d "$DEVTOOLS2/assets/fonts" ]; then
+    \cp -r "$DEVTOOLS2/assets/fonts/." ~/.local/share/fonts/ 2>/dev/null || true
+fi
 # 폰트 캐시 갱신
-fc-cache -fv >/dev/null
+if command -v fc-cache >/dev/null 2>&1; then
+    fc-cache -fv >/dev/null 2>&1 || true
+fi
 echo "[완료] 폰트 설치 완료!"
 echo ""
 
 print_subsep
 print_step "[Step 5] 레거시 설정 파일 정리"
 echo ""
-if [ -f "$HOME/.npmrc" ]; then
+if [ -f "$HOME/.npmrc" ] && [ ! -L "$HOME/.npmrc" ]; then
     rm -f "$HOME/.npmrc"
     echo "[성공] 사용자 홈의 구형 .npmrc를 제거했습니다."
 else
@@ -356,6 +365,8 @@ print_step "[Step 6] Gradle/Maven 심볼릭 링크 생성 (용량 최적화)"
 echo ""
 
 # Gradle 의 사용자 설정은 홈 디렉토리에 유지하고 용량이 큰 Caches 와 Wrapper 는 공용 저장소로 링크를 생성한다.
+mkdir -p "$DEVTOOLS2/data/.gradle/caches" "$DEVTOOLS2/data/.gradle/wrapper" "$DEVTOOLS2/data/.m2"
+
 "$CMD_SYMLINK" "$DEVTOOLS2/data/.gradle/caches" "$HOME/.gradle/caches"
 "$CMD_SYMLINK" "$DEVTOOLS2/data/.gradle/wrapper" "$HOME/.gradle/wrapper"
 

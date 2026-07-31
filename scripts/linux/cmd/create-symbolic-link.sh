@@ -27,8 +27,14 @@ source_dir="$1"
 target_link="$2"
 
 # 1. 소스 보장 — 파일이면 mkdir 스킵, 디렉터리이거나 아직 없는 경우에만 생성
-if [ ! -f "$source_dir" ]; then
-    mkdir -p "$source_dir"
+if [ ! -e "$source_dir" ]; then
+    filename=$(basename "$source_dir")
+    if [[ "$filename" == *.* ]]; then
+        mkdir -p "$(dirname "$source_dir")"
+        touch "$source_dir"
+    else
+        mkdir -p "$source_dir"
+    fi
 fi
 
 # 2. 타겟 링크 부모 디렉터리 보장
