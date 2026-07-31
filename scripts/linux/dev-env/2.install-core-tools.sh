@@ -584,13 +584,14 @@ echo ""
 
 echo "---------------------------------------------------------------------------"
 # 6. VSCode 설치 (Linux 네이티브 전용 - WSL은 Windows에서 관리)
-echo "💻 6. VSCode 설치 단계"
+echo "💻 6. VSCode 단계"
 echo ""
 
+# [6-1] VSCode 바이너리 설치 (Linux 네이티브 전용)
+#   WSL은 Windows 호스트에 VSCode가 이미 설치되어 있으므로 리눅스 내부 설치 건너뜀
 if [ "$IS_WSL2" = true ]; then
-    echo "   ⚠️  [WSL2 환경 감지] WSL2에서는 Windows 호스트에 VSCode가 설치되므로 Linux 내부 설치를 건너뜁니다."
+    echo "   ⚠️  [WSL2 환경] VSCode는 Windows 호스트에 설치되으므로 Linux 내부 설치를 건너뜁니다."
 else
-    # code 명령이 이미 존재하는지 확인
     if command -v code >/dev/null 2>&1; then
         echo "   ⏭️ [건너뜀] VSCode가 이미 설치되어 있습니다: $(command -v code)"
     else
@@ -605,41 +606,43 @@ else
             rm -f "$_vscode_tmp"
         fi
     fi
+fi
 
-    # VSCode 확장 자동 설치 (extensions.txt 기반)
-    VSCODE_EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"
-    if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
-        echo ""
-        echo "   📋 VSCode 확장 프로그램 설치 중 (extensions.txt 기반)..."
-        _INSTALLED_EXTS=$(code --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
-        _vscode_install_count=0
-        _vscode_skip_count=0
-        _vscode_fail_count=0
-        while IFS= read -r ext_line || [ -n "$ext_line" ]; do
-            ext=$(echo "$ext_line" | tr -d '\r' | sed 's/#.*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-            [ -z "$ext" ] && continue
-            ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
-            if echo "$_INSTALLED_EXTS" | grep -qF "$ext_lower"; then
-                echo "   ⏭️  [SKIP] $ext"
-                _vscode_skip_count=$((_vscode_skip_count + 1))
+# [6-2] VSCode 확장 자동 설치 (extensions.txt 기반)
+#   WSL / Linux 네이티브 상관없이 code 명령이 존재하면 항상 실행
+#   WSL: Windows code CLI 가 interop으로 동작 / Linux 네이티브: /usr/bin/code
+VSCODE_EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"
+if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
+    echo ""
+    echo "   📋 VSCode 확장 프로그램 설치 중 (extensions.txt 기반)..."
+    _INSTALLED_EXTS=$(code --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
+    _vscode_install_count=0
+    _vscode_skip_count=0
+    _vscode_fail_count=0
+    while IFS= read -r ext_line || [ -n "$ext_line" ]; do
+        ext=$(echo "$ext_line" | tr -d '\r' | sed 's/#.*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        [ -z "$ext" ] && continue
+        ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+        if echo "$_INSTALLED_EXTS" | grep -qF "$ext_lower"; then
+            echo "   ⏭️  [SKIP] $ext"
+            _vscode_skip_count=$((_vscode_skip_count + 1))
+        else
+            echo -n "   📥 [설치] $ext ..."
+            if code --install-extension "$ext" --force >/dev/null 2>&1; then
+                echo " ✅"
+                _vscode_install_count=$((_vscode_install_count + 1))
             else
-                echo -n "   📥 [설치] $ext ..."
-                if code --install-extension "$ext" --force >/dev/null 2>&1; then
-                    echo " ✅"
-                    _vscode_install_count=$((_vscode_install_count + 1))
-                else
-                    echo " ⚠️  실패"
-                    _vscode_fail_count=$((_vscode_fail_count + 1))
-                fi
+                echo " ⚠️  실패"
+                _vscode_fail_count=$((_vscode_fail_count + 1))
             fi
-        done < "$VSCODE_EXT_LIST"
-        echo ""
-        echo "   [요약] 신규 설치: ${_vscode_install_count}개 / 이미 설치: ${_vscode_skip_count}개 / 실패: ${_vscode_fail_count}개"
-    elif ! command -v code >/dev/null 2>&1; then
-        echo "   ⚠️  code 명령을 찾을 수 없어 확장 설치를 건너뜁니다."
-    else
-        echo "   ⚠️  extensions.txt 없음: $VSCODE_EXT_LIST"
-    fi
+        fi
+    done < "$VSCODE_EXT_LIST"
+    echo ""
+    echo "   [요약] 신규 설치: ${_vscode_install_count}개 / 이미 설치: ${_vscode_skip_count}개 / 실패: ${_vscode_fail_count}개"
+elif ! command -v code >/dev/null 2>&1; then
+    echo "   ⚠️  code 명령을 찾을 수 없어 확장 설치를 건너뜁니다."
+else
+    echo "   ⚠️  extensions.txt 없음: $VSCODE_EXT_LIST"
 fi
 echo "✅ VSCode 단계 완료"
 echo ""

@@ -3,3 +3,7 @@
 
 /github-copilot/
 
+# vim 스왑 파일 제외 (vim 편집 중 자동 생성)
+.*.swp
+.*.swo
+.*.swn
