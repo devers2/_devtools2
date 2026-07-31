@@ -147,7 +147,10 @@ fi
 "$RCLONE_BIN" "${RCLONE_ARGS[@]}" >/dev/null 2>&1
 echo "✅ Rclone 리모트 설정 완료!"
 
-RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
+RCLONE_CONF="$DEVTOOLS2/modules/rclone/.config/rclone.conf"
+if [ ! -f "$RCLONE_CONF" ] && [ -f "$HOME/.config/rclone/rclone.conf" ]; then
+    RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
+fi
 mkdir -p "$HOME/.config/systemd/user"
 
 cat > "$SERVICE_FILE" <<EOF
