@@ -9,6 +9,30 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEVTOOLS2="${DEVTOOLS2:-$(readlink -f "$SCRIPT_DIR/../..")}"
 
+# ==============================================================================
+# [사전 점검] Python 3.12 버전 확인 및 자동 전환
+# aiplus 프로젝트의 venv_math 가상환경은 Python 3.12 기준으로 생성됩니다.
+# 현재 활성 Python이 3.12가 아닌 경우 py_switch.sh를 통해 자동으로 전환합니다.
+# ==============================================================================
+REQUIRED_PY_VERSION="312"
+_CURRENT_PY_VER=$(python3 --version 2>&1 | grep -oP '3\.\d+' | head -1 | tr -d '.')
+if [ "$_CURRENT_PY_VER" != "$REQUIRED_PY_VERSION" ]; then
+    echo "⚠️  현재 Python 버전: $(python3 --version 2>&1)  →  Python 3.12로 자동 전환합니다..."
+    _PY_SWITCH_SCRIPT="$DEVTOOLS2/scripts/linux/cmd/py_switch.sh"
+    if [ -f "$_PY_SWITCH_SCRIPT" ]; then
+        source "$_PY_SWITCH_SCRIPT" "$REQUIRED_PY_VERSION"
+        if [ $? -ne 0 ]; then
+            echo "❌ Python 3.12 전환에 실패했습니다. py_switch.sh 스크립트를 확인해주세요."
+            exit 1
+        fi
+        echo "✅ Python 3.12로 전환 완료: $(python3 --version 2>&1)"
+    else
+        echo "❌ py_switch.sh를 찾을 수 없습니다: $_PY_SWITCH_SCRIPT"
+        echo "   이 스크립트는 Python 3.12 가 필요합니다. Python 3.12를 활성화한 후 다시 실행해주세요."
+        exit 1
+    fi
+fi
+
 # bw-lib 로드 (bw_ensure_session / bw_git_clone / bw_get_items_by_folder_name 포함)
 if [ -f "$DEVTOOLS2/scripts/fzf/bw-lib" ]; then
     source "$DEVTOOLS2/scripts/fzf/bw-lib"
@@ -319,7 +343,12 @@ fi
 # ==============================================================================
 # 최종 안내 로그: 에디터별 디버깅 방법
 # ==============================================================================
-PYTHON_INTERPRETER="$TARGET_DIR/venv_math/bin/python3.12"
+# venv 내 실제 python3 인터프리터 경로 동적 검출
+if [ -f "$TARGET_DIR/venv_math/bin/python3" ]; then
+    PYTHON_INTERPRETER="$(readlink -f "$TARGET_DIR/venv_math/bin/python3")"
+else
+    PYTHON_INTERPRETER="$TARGET_DIR/venv_math/bin/python3"
+fi
 
 # ── VSCode ────────────────────────────────────────────────────────────────────
 echo ""
@@ -388,5 +417,5 @@ echo "         → <leader> d t   Terminate"
 echo ""
 echo "  ─────────────────────────────────────────────────────────────────────────────"
 echo "  ⚠️  주의: source venv_math/bin/activate 없이 nvim 실행 시"
-echo "     시스템 Python(3.14)을 사용해 패키지를 찾지 못합니다."
+echo "     시스템 Python($(python3 --version 2>&1 | grep -oP '3\.[0-9]+\.[0-9]+' || echo '시스템 버전'))을 사용해 패키지를 찾지 못합니다."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

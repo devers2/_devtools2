@@ -81,7 +81,7 @@ port_to_hex() {
 # 반환: 0 = 사용 중, 1 = 비어 있음
 is_port_in_use() {
     local port="$1"
-    
+
     if $IS_WINDOWS; then
         # Windows: netstat -ano LISTENING 포트 검사
         netstat -ano 2>/dev/null | grep -E ":${port}[[:space:]].*LISTENING" &>/dev/null
@@ -103,7 +103,7 @@ is_port_in_use() {
         if [[ -f /proc/net/tcp6 ]] && grep -qi ":${hex_port}[[:space:]].*0A" /proc/net/tcp6 2>/dev/null; then
             return 0
         fi
-        
+
         # /proc 접근 불가 시 Linux 폴백
         if command -v ss &>/dev/null; then
             ss -tln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" &>/dev/null
