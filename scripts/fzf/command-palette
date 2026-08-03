@@ -903,42 +903,9 @@ PYEOF
     echo "   PAT       : (인증 키 필드에서 자동 로드)"
     echo ""
 
-    # ── 4. git config 설정 ──────────────────────────────────────────────────
-    _CUR_GIT_NAME=$(git config --global user.name 2>/dev/null || echo "")
-    _CUR_GIT_EMAIL=$(git config --global user.email 2>/dev/null || echo "")
-
-    # Bitwarden 기본값 세팅 (@ 제거한 이름)
+    # ── 4. git config 설정 (bw-lib: bw_setup_git_config) ────────────────────
     _BW_DEFAULT_NAME=$(echo "$_GIT_USERNAME" | tr -d '@')
-    _BW_DEFAULT_EMAIL="$_GIT_EMAIL"
-
-    if [ -z "$_CUR_GIT_NAME" ] || [ -z "$_CUR_GIT_EMAIL" ]; then
-        echo "⚙️  git 전역 기본 설정(user.name / user.email)을 입력해주세요."
-        echo "   [엔터]를 누르면 Bitwarden 기본값이 적용됩니다."
-        echo ""
-        read -rp "👤 user.name  [기본값: $_BW_DEFAULT_NAME]: " _INPUT_GIT_NAME
-        read -rp "📧 user.email [기본값: $_BW_DEFAULT_EMAIL]: " _INPUT_GIT_EMAIL
-
-        _FINAL_GIT_NAME="${_INPUT_GIT_NAME:-$_BW_DEFAULT_NAME}"
-        _FINAL_GIT_EMAIL="${_INPUT_GIT_EMAIL:-$_BW_DEFAULT_EMAIL}"
-
-        # 이름에서 @ 문자 혹시 모를 포함 시 제거
-        _FINAL_GIT_NAME=$(echo "$_FINAL_GIT_NAME" | tr -d '@')
-
-        git config --global user.name "$_FINAL_GIT_NAME"
-        git config --global user.email "$_FINAL_GIT_EMAIL"
-        git config --global core.quotepath false
-        git config --global credential.helper store
-        echo ""
-        echo "✅ git config 전역 설정이 완료되었습니다:"
-        echo "   user.name         = $_FINAL_GIT_NAME"
-        echo "   user.email        = $_FINAL_GIT_EMAIL"
-        echo "   core.quotepath    = false"
-        echo "   credential.helper = store"
-    else
-        echo "ℹ️  git 전역 설정이 이미 존재합니다:"
-        echo "   user.name  = $_CUR_GIT_NAME"
-        echo "   user.email = $_CUR_GIT_EMAIL"
-    fi
+    bw_setup_git_config "$_BW_DEFAULT_NAME" "$_GIT_EMAIL"
     echo ""
 
     # ── 5. clone 할 URL 입력 ──────────────────────────────────────────────────
@@ -989,25 +956,8 @@ ASKEOF
         echo "✅ Clone 완료: $_CLONE_DIR"
         echo ""
 
-        # PAT 저장 여부 사용자에게 질의 (기본값 N)
-        read -rp "🔑 이후 git push/pull 시에도 자동 인증되도록 인증 정보를 저장(credential store)하시겠습니까? (y/N): " _SAVE_CRED_ANS
-        _SAVE_CRED_ANS=$(echo "$_SAVE_CRED_ANS" | tr '[:upper:]' '[:lower:]')
-
-        if [[ "$_SAVE_CRED_ANS" == "y" ]]; then
-            _CRED_HOST=$(echo "$_CLONE_URL" | sed -E 's|^https?://||' | cut -d'/' -f1)
-            # URL에 @가 두 번 들어가는 것을 막기 위해 pure username 사용 (예: https://devers2:PAT@github.com)
-            _CRED_USER=$(git config --global user.name 2>/dev/null || echo "$_BW_DEFAULT_NAME")
-            _CRED_USER=$(echo "$_CRED_USER" | tr -d '@')
-            _CRED_LINE="https://${_CRED_USER}:${_GIT_PAT}@${_CRED_HOST}"
-            touch ~/.git-credentials
-            chmod 600 ~/.git-credentials
-            grep -v "@${_CRED_HOST}" ~/.git-credentials > /tmp/_git_creds_tmp 2>/dev/null || true
-            echo "$_CRED_LINE" >> /tmp/_git_creds_tmp
-            mv /tmp/_git_creds_tmp ~/.git-credentials
-            echo "✅ PAT가 ~/.git-credentials 에 저장되었습니다."
-        else
-            echo "ℹ️  인증 정보를 별도로 저장하지 않았습니다."
-        fi
+        # PAT 저장 여부 질의 (bw-lib: bw_save_git_credentials)
+        bw_save_git_credentials "$_CLONE_URL" "$_GIT_PAT" "$_BW_DEFAULT_NAME"
     else
         echo ""
         echo "❌ Clone 실패. URL 또는 PAT를 확인해주세요."

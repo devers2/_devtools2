@@ -10,7 +10,12 @@
 #   bw_get_folder_ids            → 폴더명으로 일치하는 모든 폴더 ID 목록 반환
 #   bw_get_items_by_folder_name  → 폴더명으로 아이템 JSON 청크 목록 반환
 #   bw_find_item_by_name         → 이름이 정확히 일치하는 첫 번째 아이템 JSON 반환
+#   bw_setup_git_config          → git 전역 설정 (user.name / user.email) — 없는 경우에만 대화형 설정
+#                                  사용법: bw_setup_git_config <default_name> <default_email>
+#   bw_save_git_credentials      → PAT 를 ~/.git-credentials 에 저장 (사용자 확인 후)
+#                                  사용법: bw_save_git_credentials <repo_url> <pat> <username>
 #   bw_git_clone                 → Bitwarden PAT 인증으로 git clone 수행
+#                                  (성공 시 bw_setup_git_config + bw_save_git_credentials 자동 호출)
 #                                  사용법: bw_git_clone <repo_url> <target_dir> [bw_item_name]
 #                                  bw_item_name 기본값: github.com-main
 # ==============================================================================
@@ -224,6 +229,121 @@ PYEOF
     rm -f "$_PY"
 }
 
+# ── git 전역 설정 (user.name / user.email) ────────────────────────────────────
+# 인수:
+#   $1 = 기본 user.name (Bitwarden 이메일의 @ 앞 부분, @ 제거된 값)
+#   $2 = 기본 user.email (Bitwarden 이메일)
+# 동작:
+#   - user.name 또는 user.email 이 없는 경우에만 대화형 입력 실행
+#   - Bitwarden 기본값을 제안하며 사용자 입력을 받음
+#   - core.quotepath, credential.helper 도 함께 설정
+# 반환: 0 = 성공 (설정 완료 또는 이미 존재)
+bw_setup_git_config() {
+    local _bw_default_name="${1:-}"
+    local _bw_default_email="${2:-}"
+
+    local _cur_git_name _cur_git_email
+    _cur_git_name=$(git config --global user.name 2>/dev/null || echo "")
+    _cur_git_email=$(git config --global user.email 2>/dev/null || echo "")
+
+    if [ -n "$_cur_git_name" ] && [ -n "$_cur_git_email" ]; then
+        echo "ℹ️  git 전역 설정이 이미 존재합니다:"
+        echo "   user.name  = $_cur_git_name"
+        echo "   user.email = $_cur_git_email"
+        return 0
+    fi
+
+    echo "⚙️  git 전역 기본 설정(user.name / user.email)을 입력해주세요."
+    echo "   [엔터]를 누르면 Bitwarden 기본값이 적용됩니다."
+    echo ""
+    read -rp "👤 user.name  [기본값: $_bw_default_name]: " _input_git_name
+    read -rp "📧 user.email [기본값: $_bw_default_email]: " _input_git_email
+
+    local _final_git_name _final_git_email
+    _final_git_name="${_input_git_name:-$_bw_default_name}"
+    _final_git_email="${_input_git_email:-$_bw_default_email}"
+    # 이름에서 @ 문자 제거 (혹시 포함 시)
+    _final_git_name=$(echo "$_final_git_name" | tr -d '@')
+
+    git config --global user.name "$_final_git_name"
+    git config --global user.email "$_final_git_email"
+    git config --global core.quotepath false
+    git config --global credential.helper store
+    echo ""
+    echo "✅ git config 전역 설정이 완료되었습니다:"
+    echo "   user.name         = $_final_git_name"
+    echo "   user.email        = $_final_git_email"
+    echo "   core.quotepath    = false"
+    echo "   credential.helper = store"
+}
+
+# ── git 인증 정보 저장 (~/.git-credentials) ──────────────────────────────────
+# 인수:
+#   $1 = 저장소 URL (host 추출에 사용, 예: https://github.com/user/repo.git)
+#   $2 = PAT 토큰 (Bitwarden에서 가져온 값)
+#   $3 = git user.name (@ 제거된 값, credential user 로 사용)
+# 동작:
+#   [기존 PAT 없음]  → 저장 여부 질의 후 저장
+#   [기존 PAT 동일]  → 이미 최신임을 알리고 스킵
+#   [기존 PAT 다름]  → 교체 여부 질의 후 교체
+# 반환: 0 = 성공
+bw_save_git_credentials() {
+    local _repo_url="${1:-}"
+    local _pat="${2:-}"
+    local _username="${3:-}"
+
+    if [ -z "$_pat" ]; then
+        return 0
+    fi
+
+    local _cred_host
+    _cred_host=$(echo "$_repo_url" | sed -E 's|^https?://||' | cut -d'/' -f1)
+
+    # git config user.name 우선, 없으면 전달된 username 사용 (@ 제거 보장)
+    local _cred_user
+    _cred_user=$(git config --global user.name 2>/dev/null || echo "$_username")
+    _cred_user=$(echo "$_cred_user" | tr -d '@')
+
+    # ── 기존 credential 확인 ──────────────────────────────────────────────────
+    local _existing_line=""
+    if [ -f ~/.git-credentials ]; then
+        _existing_line=$(grep "@${_cred_host}" ~/.git-credentials 2>/dev/null | head -1 || echo "")
+    fi
+
+    local _save_ans
+    if [ -n "$_existing_line" ]; then
+        # 기존 PAT 추출 (형식: https://user:PAT@host)
+        local _existing_pat
+        _existing_pat=$(echo "$_existing_line" | sed -E 's|^https?://[^:]+:([^@]+)@.*|\1|')
+
+        if [ "$_existing_pat" = "$_pat" ]; then
+            echo "ℹ️  ~/.git-credentials 에 동일한 PAT 가 이미 저장되어 있습니다. (host: $_cred_host)"
+            return 0
+        fi
+
+        echo "⚠️  ~/.git-credentials 에 ${_cred_host} 의 기존 PAT 가 있으나 Bitwarden PAT 와 다릅니다."
+        read -rp "🔄 기존 PAT 를 Bitwarden PAT 로 교체하시겠습니까? (y/N): " _save_ans
+    else
+        read -rp "🔑 이후 git push/pull 시에도 자동 인증되도록 PAT 를 저장하시겠습니까? (y/N): " _save_ans
+    fi
+
+    _save_ans=$(echo "$_save_ans" | tr '[:upper:]' '[:lower:]')
+    if [[ "$_save_ans" != "y" ]]; then
+        echo "ℹ️  인증 정보를 변경하지 않았습니다."
+        return 0
+    fi
+
+    local _cred_line="https://${_cred_user}:${_pat}@${_cred_host}"
+    local _tmp_creds
+    _tmp_creds=$(mktemp)
+    touch ~/.git-credentials
+    chmod 600 ~/.git-credentials
+    grep -v "@${_cred_host}" ~/.git-credentials > "$_tmp_creds" 2>/dev/null || true
+    echo "$_cred_line" >> "$_tmp_creds"
+    mv "$_tmp_creds" ~/.git-credentials
+    echo "✅ PAT 가 ~/.git-credentials 에 저장되었습니다. (host: $_cred_host)"
+}
+
 # ── Bitwarden PAT 인증으로 git clone 수행 ─────────────────────────────────────
 # 인수:
 #   $1 = 클론할 저장소 URL (필수)
@@ -292,6 +412,13 @@ ASKEOF
 
     if [ $_RC -eq 0 ]; then
         echo "✅ 깃 클론 완료!"
+        # git 전역 설정 (user.name / user.email) — 없는 경우에만 대화형 설정
+        local _bw_cfg_name
+        _bw_cfg_name=$(echo "$_GIT_USERNAME" | tr -d '@')
+        bw_setup_git_config "$_bw_cfg_name" "$_GIT_EMAIL"
+        echo ""
+        # PAT 저장 여부 질의 (credential store)
+        bw_save_git_credentials "$_REPO_URL" "$_GIT_PAT" "$_bw_cfg_name"
     else
         echo "❌ 깃 클론 실패 (종료 코드: $_RC)" >&2
     fi
