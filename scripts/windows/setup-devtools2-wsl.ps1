@@ -269,6 +269,75 @@ if ($isLocalMode) {
 }
 
 # ==============================================================================
+# [Step 0-1] 순정 Windows 감지: WSL 기능 미설치 시 자동 활성화 및 재부팅 처리
+# ==============================================================================
+$_wslResumeFlagFile = "$env:TEMP\.devtools2_wsl_resume"
+
+# wsl.exe 자체가 없거나, wsl --status 가 실패하면 WSL 미설치 상태로 판정
+$_wslInstalled = $false
+try {
+    $null = Get-Command wsl.exe -ErrorAction Stop
+    $null = wsl --status 2>$null
+    if ($LASTEXITCODE -eq 0) { $_wslInstalled = $true }
+} catch {}
+
+# WSL 기능 미설치이고 재개 플래그도 없는 경우에만 설치 진행
+if (-not $_wslInstalled -and -not (Test-Path $_wslResumeFlagFile)) {
+    Write-Step "[Step 0-1] WSL2 기능 활성화 (순정 Windows 최초 설치)"
+    Write-Warn "WSL이 설치되어 있지 않습니다. WSL2 기능을 활성화합니다..."
+    Write-Info "VirtualMachinePlatform 및 Microsoft-Windows-Subsystem-Linux 기능을 활성화 중..."
+
+    $feat1 = Enable-WindowsOptionalFeature -Online -FeatureName "Microsoft-Windows-Subsystem-Linux" -NoRestart -WarningAction SilentlyContinue
+    $feat2 = Enable-WindowsOptionalFeature -Online -FeatureName "VirtualMachinePlatform" -NoRestart -WarningAction SilentlyContinue
+
+    # wsl --install 로 WSL2 커널 및 기본 컴포넌트 설치 (배포판 없이)
+    Write-Info "WSL2 커널 컴포넌트 설치 중... (잠시 기다려 주세요)"
+    wsl --install --no-distribution 2>&1 | Out-Null
+
+    $needsReboot = ($feat1.RestartNeeded -eq $true) -or ($feat2.RestartNeeded -eq $true)
+
+    Write-Host ""
+    Write-Host "===========================================================================" -ForegroundColor Yellow
+    Write-Host "  ✅ WSL2 기능 활성화 완료!" -ForegroundColor Green
+    Write-Host "  🔄 변경 사항을 적용하려면 Windows를 재시작해야 합니다." -ForegroundColor Yellow
+    Write-Host "===========================================================================" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  재시작 후 이 스크립트를 다시 실행하면 WSL2 배포판 설치부터 자동으로 이어집니다." -ForegroundColor White
+    Write-Host ""
+
+    # 재개 플래그 파일 저장 (재시작 후 이어서 진행하기 위해)
+    Set-Content -Path $_wslResumeFlagFile -Value (Get-Date).ToString() -Encoding UTF8
+
+    do {
+        Write-Host "👉 지금 바로 재시작하시겠습니까? [Y/n]: " -ForegroundColor Yellow -NoNewline
+        $rebootChoice = [System.Console]::ReadLine().Trim().ToLower()
+        if ([string]::IsNullOrEmpty($rebootChoice)) { $rebootChoice = "y" }
+    } while ($rebootChoice -ne "y" -and $rebootChoice -ne "n")
+
+    if ($rebootChoice -eq "y") {
+        Write-Info "10초 후 재시작합니다..."
+        Start-Sleep -Seconds 3
+        Restart-Computer -Force
+    } else {
+        Write-Warn "수동으로 재시작한 후 이 스크립트를 다시 실행해 주세요."
+        Write-Host ""
+        Write-Host "   irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex" -ForegroundColor Cyan
+        Write-Host ""
+        Pause-Script
+    }
+    exit 0
+}
+
+# 재개 플래그가 있으면 이전 실행에서 WSL 기능을 설치하고 재부팅한 것이므로 바로 진행
+if (Test-Path $_wslResumeFlagFile) {
+    Write-Info "재시작 후 설치 재개 감지. WSL2 배포판 설치를 이어서 진행합니다."
+    Remove-Item $_wslResumeFlagFile -Force -ErrorAction SilentlyContinue
+
+    # WSL2를 기본 버전으로 설정
+    wsl --set-default-version 2 2>$null | Out-Null
+}
+
+# ==============================================================================
 # [Step 1] Windows WSL2 가상 머신 생성 및 활성화
 # ==============================================================================
 Write-Step "[Step 1] WSL2 가상 머신 인스턴스 생성"
