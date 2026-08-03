@@ -365,6 +365,23 @@ if ($doInstall) {
     }
 }
 
+# ── WezTerm 실행 파일 보안 정책 차단(Mark of the Web / SmartScreen) 방지 ──────
+try {
+    $wezExes = @(
+        "$env:ProgramFiles\WezTerm\wezterm-gui.exe",
+        "$env:ProgramFiles\WezTerm\wezterm.exe",
+        "${env:ProgramFiles(x86)}\WezTerm\wezterm-gui.exe",
+        "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe",
+        "$env:LOCALAPPDATA\Programs\WezTerm\wezterm-gui.exe",
+        "$env:LOCALAPPDATA\Programs\WezTerm\wezterm.exe"
+    )
+    foreach ($wExe in $wezExes) {
+        if (Test-Path $wExe) {
+            Unblock-File -Path $wExe -ErrorAction SilentlyContinue
+        }
+    }
+} catch {}
+
 # ==============================================================================
 # [Step 3] 필수 폰트 설치 (assets/fonts → Windows 사용자 폰트)
 # WezTerm 은 Windows 네이티브 앱이므로 폰트를 Windows 에 직접 설치해야 합니다.
@@ -675,15 +692,16 @@ $ahkSetupJob = Start-Job -ScriptBlock {
         return ($res -eq 'OK')
     }
 
-    # AHK 스크립트는 modules/autohotkey 디렉토리에 배치
-    $ahkDest = Join-Path $ahkModuleDir "wezterm-hotkey.ahk"
-    $kbRemapDest = Join-Path $ahkModuleDir "keyboard-remap.ahk"
+    # 🌟 통합 devtools2-hotkey.ahk 연동 및 시작 프로그램 등록
+    # 포터블 AHK 실행 파일(AutoHotkey64.exe)을 원본 파일명 그대로 유지하여 
+    # 차후 독립적인 사용자 스크립트 실행 등 다목적 활용이 가능하도록 보장합니다.
 
     # 🌟 기존 AutoHotkey 관련 중복 항목 정리 (Startup 바로가기 & 레지스트리 Run 키)
     Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Get-ChildItem -Path $startupDir -Filter "*WezTerm-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Get-ChildItem -Path $startupDir -Filter "*Keyboard-Remap*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -Path $startupDir -Filter "*DevTools2-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
     $runRegPaths = @(
         "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -707,28 +725,30 @@ $ahkSetupJob = Start-Job -ScriptBlock {
         $env:DEVTOOLS2 = $wslDevtools2Root
     }
 
-    # 1) wezterm-hotkey.ahk 연동
-    $wslAhkRel = "/var/opt/_devtools2/scripts/windows/autohotkey/wezterm-hotkey.ahk"
+    # devtools2-hotkey.ahk 통합 스크립트 경로 지정
+    $ahkDest = Join-Path $ahkModuleDir "devtools2-hotkey.ahk"
+    $wslAhkRel = "/var/opt/_devtools2/scripts/windows/autohotkey/devtools2-hotkey.ahk"
+
     if (Test-WslFileFast $WslDistro $wslAhkRel) {
-        $ahkDest = "$wslDevtools2Root\scripts\windows\autohotkey\wezterm-hotkey.ahk"
+        $ahkDest = "$wslDevtools2Root\scripts\windows\autohotkey\devtools2-hotkey.ahk"
     } else {
         $ahkSourceLocal = $null
         if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-            $ahkSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\wezterm-hotkey.ahk"
+            $ahkSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\devtools2-hotkey.ahk"
         }
         if ($ahkSourceLocal -and (Test-Path $ahkSourceLocal)) {
             Copy-Item -Path $ahkSourceLocal -Destination $ahkDest -Force
         } else {
             try {
-                $ahkRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/wezterm-hotkey.ahk"
+                $ahkRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/devtools2-hotkey.ahk"
                 Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkDest -ErrorAction Stop
             } catch {}
         }
     }
 
-    # WezTerm 바로가기 생성
+    # 통합 AutoHotkey 바로가기 1개만 생성
     if (Test-Path $ahkExe) {
-        $shortcutPath = "$startupDir\WezTerm-Hotkey-Launcher.lnk"
+        $shortcutPath = "$startupDir\DevTools2-Hotkey.lnk"
         try {
             $wshShell = New-Object -ComObject WScript.Shell
             $shortcut = $wshShell.CreateShortcut($shortcutPath)
@@ -736,60 +756,20 @@ $ahkSetupJob = Start-Job -ScriptBlock {
             $shortcut.Arguments        = "`"$ahkDest`""
             $shortcut.WorkingDirectory = $ahkModuleDir
             $shortcut.WindowStyle      = 7
-            $shortcut.Description      = "WezTerm Ctrl+Alt+T Hotkey Launcher"
+            $shortcut.Description      = "DevTools2 AutoHotkey Service (WezTerm Hotkey & Keyboard Remap)"
             $shortcut.Save()
         } catch {}
     }
 
-    # 2) keyboard-remap.ahk 연동
-    $wslKbRel = "/var/opt/_devtools2/scripts/windows/autohotkey/keyboard-remap.ahk"
-    if (Test-WslFileFast $WslDistro $wslKbRel) {
-        $kbRemapDest = "$wslDevtools2Root\scripts\windows\autohotkey\keyboard-remap.ahk"
-    } else {
-        $kbRemapSourceLocal = $null
-        if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-            $kbRemapSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\keyboard-remap.ahk"
-        }
-        if ($kbRemapSourceLocal -and (Test-Path $kbRemapSourceLocal)) {
-            Copy-Item -Path $kbRemapSourceLocal -Destination $kbRemapDest -Force
-        } else {
-            try {
-                $kbRemapRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/keyboard-remap.ahk"
-                Invoke-WebRequest -Uri $kbRemapRaw -OutFile $kbRemapDest -ErrorAction Stop
-            } catch {}
-        }
-    }
-
-    # Keyboard Remap 바로가기 생성
-    if (Test-Path $ahkExe) {
-        $kbShortcutPath = "$startupDir\Keyboard-Remap-Launcher.lnk"
-        try {
-            $wshShell2 = New-Object -ComObject WScript.Shell
-            $kbShortcut = $wshShell2.CreateShortcut($kbShortcutPath)
-            $kbShortcut.TargetPath       = $ahkExe
-            $kbShortcut.Arguments        = "`"$kbRemapDest`""
-            $kbShortcut.WorkingDirectory = $ahkModuleDir
-            $kbShortcut.WindowStyle      = 7
-            $kbShortcut.Description      = "CapsLock Keyboard Remap (ESC / Ctrl overload)"
-            $kbShortcut.Save()
-        } catch {}
-    }
-
-    # 기존 AutoHotkey 프로세스 전체 종료 후 재실행
+    # 기존 AutoHotkey 프로세스 전체 종료 후 통합 프로세스 단 1개만 실행
     Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
         ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 
-    if ($ahkExe -and (Test-Path $ahkExe)) {
-        if ($ahkDest) {
-            Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
-        }
-        if ($kbRemapDest) {
-            Start-Sleep -Milliseconds 200
-            Start-Process -FilePath $ahkExe -ArgumentList "`"$kbRemapDest`"" -WindowStyle Hidden
-        }
+    if ($ahkExe -and (Test-Path $ahkExe) -and $ahkDest -and (Test-Path $ahkDest)) {
+        Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
     }
 
-    return @{ AhkDest = $ahkDest; KbRemapDest = $kbRemapDest }
+    return @{ AhkDest = $ahkDest }
 } -ArgumentList $WslDistro, $startupDir, $ahkModuleDir, $ahkExe, $PSScriptRoot
 
 # 스피너로 백그라운드 작업 대기
