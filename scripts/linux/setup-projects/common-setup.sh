@@ -179,3 +179,218 @@ with open(filepath, 'w', encoding='utf-8') as f:
 
     echo "✅ ~/.gradle/gradle.properties 에 gpr.user=${EXPECTED_USER} 및 gpr.key 설정 완료!"
 }
+
+# ── rclone SFTP 마운트 설정 (systemd user 서비스 등록 포함) ─────────────────
+# 기능:
+#   - Bitwarden RemoteServer 폴더에서 username@host 기준으로 서버 정보 자동 조회
+#   - rclone SFTP 리모트 설정 생성 (기존 설정 재생성)
+#   - WSL2 환경에서 systemd 미활성화 시 /etc/wsl.conf 자동 수정 후 재시작 안내
+#   - systemd user 서비스 파일 생성 및 등록/시작
+# 인수:
+#   $1 = bw username   (예: namupia)
+#   $2 = bw host       (예: aiplus.im)
+#   $3 = port          (예: 222)
+#   $4 = remote_path   (예: ~/mount/aiplus  — ~ 는 /home/<username> 으로 치환)
+#   $5 = local_path    (예: ~/mount/aiplus  — ~ 는 $HOME 으로 치환)
+# 의존성:
+#   bw_get_items_by_folder_name, BW_SESSION (bw-lib 로드 필요)
+#   DEVTOOLS2 환경변수
+setup_rclone_sftp_mount() {
+    local BW_USERNAME="$1"
+    local BW_HOST="$2"
+    local PORT="${3:-22}"
+    local INPUT_REMOTE_PATH="${4:-~/}"
+    local INPUT_LOCAL_PATH="${5:-$HOME/mount/$BW_USERNAME}"
+
+    echo "⚙️  SFTP 마운트 설정 진행 중 (${BW_USERNAME}@${BW_HOST}:${PORT})..."
+
+    # ── 1. WSL2 환경에서 systemd 활성화 여부 확인 및 자동 처리 ────────────────
+    local IS_WSL2=false
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        IS_WSL2=true
+    fi
+
+    if [ "$IS_WSL2" = true ]; then
+        # systemd 실제 동작 여부 확인
+        if ! systemctl --user status >/dev/null 2>&1; then
+            echo ""
+            echo "⚠️  WSL2에서 systemd가 활성화되어 있지 않습니다."
+            echo "   rclone SFTP 마운트는 systemd user 서비스로 동작하므로 systemd가 필요합니다."
+            echo ""
+
+            # /etc/wsl.conf 에 [boot] systemd=true 자동 추가 (sudo 필요)
+            local WSL_CONF="/etc/wsl.conf"
+            local NEEDS_SYSTEMD=true
+            if grep -q 'systemd\s*=\s*true' "$WSL_CONF" 2>/dev/null; then
+                NEEDS_SYSTEMD=false
+            fi
+
+            if [ "$NEEDS_SYSTEMD" = true ]; then
+                echo "⏳ /etc/wsl.conf 에 systemd 활성화 설정을 추가합니다... (sudo 필요)"
+                if grep -q '\[boot\]' "$WSL_CONF" 2>/dev/null; then
+                    # [boot] 섹션이 이미 있으면 그 아래에 systemd=true 삽입
+                    sudo sed -i '/^\[boot\]/a systemd=true' "$WSL_CONF"
+                else
+                    # [boot] 섹션 자체가 없으면 파일 끝에 추가
+                    printf '\n[boot]\nsystemd=true\n' | sudo tee -a "$WSL_CONF" > /dev/null
+                fi
+                echo "✅ /etc/wsl.conf 에 systemd=true 추가 완료!"
+            else
+                echo "ℹ️  /etc/wsl.conf 에는 이미 systemd=true 가 설정되어 있습니다."
+                echo "   WSL 인스턴스가 아직 재시작되지 않아 systemd가 비활성 상태입니다."
+            fi
+
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔄  WSL 인스턴스를 재시작해야 systemd가 활성화됩니다."
+            echo ""
+            echo "   PowerShell 에서 아래 명령어를 실행하세요:"
+            echo ""
+            echo "     wsl --shutdown"
+            echo ""
+            echo "   재시작 후 이 스크립트를 다시 실행하면 SFTP 마운트가 자동 완료됩니다."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            return 1
+        fi
+    fi
+
+    # ── 2. Bitwarden RemoteServer 폴더에서 서버 정보 조회 ─────────────────────
+    local RAW_SERVER_ITEMS
+    RAW_SERVER_ITEMS=$(bw_get_items_by_folder_name "RemoteServer") || return 1
+
+    local _PY_SERVER
+    _PY_SERVER=$(mktemp /tmp/bw_server_XXXXXX.py)
+    cat > "$_PY_SERVER" <<'PYEOF'
+import sys, json, re
+
+bw_username = sys.argv[1]
+bw_host = sys.argv[2]
+
+raw_all = sys.stdin.read()
+chunks = raw_all.split('---ITEM_SPLIT---')
+
+for chunk in chunks:
+    chunk = chunk.strip()
+    if not chunk:
+        continue
+    start_idx = chunk.find('[')
+    end_idx = chunk.rfind(']')
+    if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
+        continue
+    try:
+        items = json.loads(chunk[start_idx:end_idx+1], strict=False)
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            login = item.get('login') or {}
+            username = login.get('username') or ''
+            uris = login.get('uris') or []
+            raw_uri = ''
+            if isinstance(uris, list) and len(uris) > 0 and isinstance(uris[0], dict):
+                raw_uri = uris[0].get('uri') or ''
+            clean_uri = re.sub(r'^[a-z]+://', '', raw_uri)
+            if username == bw_username and bw_host in clean_uri:
+                item_id = item.get('id', '')
+                print(f"{item_id}\t{username}\t{clean_uri}")
+                sys.exit(0)
+    except Exception:
+        pass
+PYEOF
+
+    local SERVER_INFO
+    SERVER_INFO=$(printf "%s" "$RAW_SERVER_ITEMS" | python3 "$_PY_SERVER" "$BW_USERNAME" "$BW_HOST")
+    rm -f "$_PY_SERVER"
+
+    if [ -z "$SERVER_INFO" ]; then
+        echo "❌ Bitwarden 'RemoteServer' 폴더에서 ${BW_USERNAME}@${BW_HOST} 서버 항목을 찾을 수 없습니다."
+        return 1
+    fi
+
+    local ITEM_ID ACTUAL_USERNAME RAW_URI ACTUAL_HOST ACTUAL_PORT
+    ITEM_ID=$(echo "$SERVER_INFO" | cut -f1)
+    ACTUAL_USERNAME=$(echo "$SERVER_INFO" | cut -f2)
+    RAW_URI=$(echo "$SERVER_INFO" | cut -f3)
+
+    if [[ "$RAW_URI" == *:* ]]; then
+        ACTUAL_HOST="${RAW_URI%:*}"
+        ACTUAL_PORT="${RAW_URI##*:}"
+    else
+        ACTUAL_HOST="$RAW_URI"
+        ACTUAL_PORT="$PORT"
+    fi
+
+    local SERVER_PASS
+    SERVER_PASS=$(bw get password "$ITEM_ID" --session "$BW_SESSION" 2>/dev/null || echo "")
+
+    # ── 3. 경로 ~ 치환 ────────────────────────────────────────────────────────
+    local REMOTE_MOUNT_PATH LOCAL_MOUNT_PATH
+    REMOTE_MOUNT_PATH="${INPUT_REMOTE_PATH/#\~//home/$ACTUAL_USERNAME}"
+    LOCAL_MOUNT_PATH="${INPUT_LOCAL_PATH/#\~/$HOME}"
+
+    echo "   원격 마운트 경로 (서버): $REMOTE_MOUNT_PATH"
+    echo "   로컬 마운트 경로 (로컬): $LOCAL_MOUNT_PATH"
+    mkdir -p "$LOCAL_MOUNT_PATH"
+
+    # ── 4. rclone 바이너리 확인 ───────────────────────────────────────────────
+    local RCLONE_BIN FUSERMOUNT_BIN
+    RCLONE_BIN=$(command -v rclone 2>/dev/null || echo "/usr/bin/rclone")
+    FUSERMOUNT_BIN=$(command -v fusermount 2>/dev/null || command -v fusermount3 2>/dev/null || echo "/usr/bin/fusermount")
+
+    if [ ! -x "$RCLONE_BIN" ]; then
+        echo "❌ rclone이 설치되어 있지 않습니다."
+        return 1
+    fi
+
+    # ── 5. rclone 리모트 설정 생성 ────────────────────────────────────────────
+    local SERVICE_NAME="rclone-${ACTUAL_USERNAME}@${ACTUAL_HOST}_${ACTUAL_PORT}"
+
+    if "$RCLONE_BIN" config show "$SERVICE_NAME" >/dev/null 2>&1; then
+        echo "⚠️  기존 Rclone 리모트 ($SERVICE_NAME) 설정 삭제 후 재생성합니다..."
+        "$RCLONE_BIN" config delete "$SERVICE_NAME" 2>/dev/null || true
+    fi
+
+    echo "⏳ Rclone SFTP 리모트 ($SERVICE_NAME) 설정 중..."
+    local RCLONE_ARGS
+    RCLONE_ARGS=(config create "$SERVICE_NAME" sftp host "$ACTUAL_HOST" user "$ACTUAL_USERNAME" port "$ACTUAL_PORT")
+    if [ -n "$SERVER_PASS" ]; then
+        RCLONE_ARGS+=(pass "$SERVER_PASS")
+    fi
+    "$RCLONE_BIN" "${RCLONE_ARGS[@]}" >/dev/null 2>&1
+    echo "✅ Rclone 리모트 설정 완료!"
+
+    # ── 6. rclone.conf 경로 결정 ──────────────────────────────────────────────
+    local RCLONE_CONF="${DEVTOOLS2:-}/modules/rclone/.config/rclone.conf"
+    if [ ! -f "$RCLONE_CONF" ] && [ -f "$HOME/.config/rclone/rclone.conf" ]; then
+        RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
+    fi
+
+    # ── 7. systemd user 서비스 파일 생성 및 등록 ─────────────────────────────
+    local SERVICE_FILE="$HOME/.config/systemd/user/${SERVICE_NAME}.service"
+    mkdir -p "$HOME/.config/systemd/user"
+
+    cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=rclone SFTP Mount for ${SERVICE_NAME}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${RCLONE_BIN} mount ${SERVICE_NAME}:${REMOTE_MOUNT_PATH} ${LOCAL_MOUNT_PATH} \\
+    --vfs-cache-mode full \\
+    --config=${RCLONE_CONF}
+ExecStop=${FUSERMOUNT_BIN} -u ${LOCAL_MOUNT_PATH}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+
+    echo "✅ systemd 서비스 파일 작성 완료: $SERVICE_FILE"
+    systemctl --user daemon-reload
+    systemctl --user enable "${SERVICE_NAME}.service"
+    systemctl --user restart "${SERVICE_NAME}.service"
+    echo "✅ SFTP 마운트 서비스 시작 완료! (${LOCAL_MOUNT_PATH})"
+    echo "   상태 확인: systemctl --user status ${SERVICE_NAME}.service"
+}
