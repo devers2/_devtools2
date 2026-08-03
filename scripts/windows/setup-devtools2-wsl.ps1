@@ -395,9 +395,11 @@ Write-SubStep "▶ WSL2 저장소 초기화 및 Git 클론 실행 (0.init-devtoo
 $RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
 
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -c 'cat /tmp/.wsl_pw_tmp | sudo -S bash $DEVTOOLS2/scripts/linux/dev-env/0.init-devtools2.sh'
+    $localInitScriptWin = Join-Path $PSScriptRoot "..\linux\dev-env\0.init-devtools2.sh"
+    $wslInitScriptPath = (wsl -d $wslDistro -- wslpath -u "$localInitScriptWin").Trim()
+    wsl -d $wslDistro -- bash -c "cat /tmp/.wsl_pw_tmp | sudo -S bash '$wslInitScriptPath'"
 } else {
-    wsl -d $wslDistro -- bash -c "cat /tmp/.wsl_pw_tmp | sudo -S bash <(curl -sSfL '$RAW_BASE/0.init-devtools2.sh')"
+    wsl -d $wslDistro -- bash -c "cat /tmp/.wsl_pw_tmp | sudo -S -v && curl -sSfL '$RAW_BASE/0.init-devtools2.sh' | sudo bash"
 }
 
 if ($LASTEXITCODE -ne 0) {
@@ -473,25 +475,31 @@ $RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/l
 
 Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -c 'DEVTOOLS2=/var/opt/_devtools2 bash -l $DEVTOOLS2/scripts/linux/dev-env/1.setup-env.sh'
+    $localScript1Win = Join-Path $PSScriptRoot "..\linux\dev-env\1.setup-env.sh"
+    $wslScript1Path = (wsl -d $wslDistro -- wslpath -u "$localScript1Win").Trim()
+    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l '$wslScript1Path'"
 } else {
-    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l <(curl -sSfL '$RAW_BASE/1.setup-env.sh')"
+    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/1.setup-env.sh' | DEVTOOLS2=/var/opt/_devtools2 bash -l"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, VSCode 확장)"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -c 'bash -l $DEVTOOLS2/scripts/linux/dev-env/2.install-core-tools.sh'
+    $localScript2Win = Join-Path $PSScriptRoot "..\linux\dev-env\2.install-core-tools.sh"
+    $wslScript2Path = (wsl -d $wslDistro -- wslpath -u "$localScript2Win").Trim()
+    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l '$wslScript2Path'"
 } else {
-    wsl -d $wslDistro -- bash -c "bash -l <(curl -sSfL '$RAW_BASE/2.install-core-tools.sh')"
+    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/2.install-core-tools.sh' | DEVTOOLS2=/var/opt/_devtools2 bash -l"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
 if ($isLocalMode) {
-    wsl -d $wslDistro -- bash -c 'bash -l $DEVTOOLS2/scripts/linux/dev-env/3.install-cli-tools.sh'
+    $localScript3Win = Join-Path $PSScriptRoot "..\linux\dev-env\3.install-cli-tools.sh"
+    $wslScript3Path = (wsl -d $wslDistro -- wslpath -u "$localScript3Win").Trim()
+    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l '$wslScript3Path'"
 } else {
-    wsl -d $wslDistro -- bash -c "bash -l <(curl -sSfL '$RAW_BASE/3.install-cli-tools.sh')"
+    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/3.install-cli-tools.sh' | DEVTOOLS2=/var/opt/_devtools2 bash -l"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
 
