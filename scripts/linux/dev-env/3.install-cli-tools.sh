@@ -632,9 +632,9 @@ else
     fi
     # ast-grep은 버전별 다운로드와 /latest/ 다운로드 모두 지원
     if [ "$IS_ARM64" = true ]; then
-        _sg_url="https://github.com/ast-grep/ast-grep/releases/download/${ASTGREP_VERSION}/ast-grep-aarch64-unknown-linux-gnu.zip"
+        _sg_url="https://github.com/ast-grep/ast-grep/releases/download/v${ASTGREP_VERSION}/ast-grep-aarch64-unknown-linux-gnu.zip"
     else
-        _sg_url="https://github.com/ast-grep/ast-grep/releases/download/${ASTGREP_VERSION}/ast-grep-x86_64-unknown-linux-gnu.zip"
+        _sg_url="https://github.com/ast-grep/ast-grep/releases/download/v${ASTGREP_VERSION}/ast-grep-x86_64-unknown-linux-gnu.zip"
     fi
     (curl -sLf "$_sg_url" -o /tmp/ast-grep.zip && unzip -qo /tmp/ast-grep.zip -d "$MODULES_DIR/ast-grep" && (cd "$MODULES_DIR/ast-grep" && ([ -f ast-grep ] && [ ! -f sg ] && ln -sf ast-grep sg || true) && ([ -f sg ] && [ ! -f ast-grep ] && ln -sf sg ast-grep || true)) && rm -f /tmp/ast-grep.zip) &
     show_spinner $!
