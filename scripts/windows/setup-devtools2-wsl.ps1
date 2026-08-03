@@ -390,6 +390,22 @@ while ($true) {
     }
 }
 
+# WSL2 저장소 초기화 및 깃 클론 (0.init-devtools2.sh 실행)
+Write-SubStep "▶ WSL2 저장소 초기화 및 Git 클론 실행 (0.init-devtools2.sh)"
+$RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
+
+if ($isLocalMode) {
+    wsl -d $wslDistro -- bash -c 'cat /tmp/.wsl_pw_tmp | sudo -S bash $DEVTOOLS2/scripts/linux/dev-env/0.init-devtools2.sh'
+} else {
+    wsl -d $wslDistro -- bash -c "cat /tmp/.wsl_pw_tmp | sudo -S bash <(curl -sSfL '$RAW_BASE/0.init-devtools2.sh')"
+}
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Fail "0.init-devtools2.sh 초기화 실패"
+    Pause-Script
+    exit 1
+}
+
 # ==============================================================================
 # [사전 질문 및 Windows 에디터 설치]
 # ==============================================================================

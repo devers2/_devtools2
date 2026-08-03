@@ -270,33 +270,38 @@ else
     cfg_dir="$HOME/.config"
 fi
 
-mkdir -p "$cfg_dir"
+mkdir -p "$cfg_dir" 2>/dev/null || true
 
 # --- Neovim 설정 ---
-mkdir -p "$DEVTOOLS2/.config/nvim"
+mkdir -p "$DEVTOOLS2/.config/nvim" 2>/dev/null || true
 _run_symlink "$DEVTOOLS2/.config/nvim" "$cfg_dir/nvim"
 
 # --- Zed 설정 ---
-mkdir -p "$DEVTOOLS2/.config/zed"
+mkdir -p "$DEVTOOLS2/.config/zed" 2>/dev/null || true
 # 1) 일반 패키지 / Native 설치 경로
 _run_symlink "$DEVTOOLS2/.config/zed" "$cfg_dir/zed"
 
 # 2) Flatpak 설치 경로 대응
 flatpak_zed_dir="$HOME/.var/app/dev.zed.Zed/config"
 if [ -d "$HOME/.var/app/dev.zed.Zed" ]; then
-    mkdir -p "$flatpak_zed_dir"
+    mkdir -p "$flatpak_zed_dir" 2>/dev/null || true
     _run_symlink "$DEVTOOLS2/.config/zed" "$flatpak_zed_dir/zed"
 fi
 
 # --- VSCode 설정 (settings.json, keybindings.json, tasks.json) ---
+mkdir -p "$DEVTOOLS2/.config/vscode" 2>/dev/null || true
+[ ! -f "$DEVTOOLS2/.config/vscode/settings.json" ] && touch "$DEVTOOLS2/.config/vscode/settings.json" 2>/dev/null || true
+[ ! -f "$DEVTOOLS2/.config/vscode/keybindings.json" ] && touch "$DEVTOOLS2/.config/vscode/keybindings.json" 2>/dev/null || true
+[ ! -f "$DEVTOOLS2/.config/vscode/tasks.json" ] && touch "$DEVTOOLS2/.config/vscode/tasks.json" 2>/dev/null || true
+
 if grep -qi microsoft /proc/version 2>/dev/null; then
     vscode_server_user="$HOME/.vscode-server/data/Machine"
-    mkdir -p "$vscode_server_user"
+    mkdir -p "$vscode_server_user" 2>/dev/null || true
     _run_symlink "$DEVTOOLS2/.config/vscode/settings.json" "$vscode_server_user/settings.json"
     _run_symlink "$DEVTOOLS2/.config/vscode/keybindings.json" "$vscode_server_user/keybindings.json"
     _run_symlink "$DEVTOOLS2/.config/vscode/tasks.json" "$vscode_server_user/tasks.json"
 else
-    mkdir -p "$cfg_dir/Code/User"
+    mkdir -p "$cfg_dir/Code/User" 2>/dev/null || true
     _run_symlink "$DEVTOOLS2/.config/vscode/settings.json" "$cfg_dir/Code/User/settings.json"
     _run_symlink "$DEVTOOLS2/.config/vscode/keybindings.json" "$cfg_dir/Code/User/keybindings.json"
     _run_symlink "$DEVTOOLS2/.config/vscode/tasks.json" "$cfg_dir/Code/User/tasks.json"
@@ -309,8 +314,8 @@ else
     nvim_data_dir="$HOME/.local/share"
 fi
 
-mkdir -p "$nvim_data_dir"
-mkdir -p "$DEVTOOLS2/data/nvim"
+mkdir -p "$nvim_data_dir" 2>/dev/null || true
+mkdir -p "$DEVTOOLS2/data/nvim" 2>/dev/null || true
 
 _run_symlink "$DEVTOOLS2/data/nvim" "$nvim_data_dir/nvim"
 

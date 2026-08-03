@@ -164,35 +164,40 @@ INVOKER_HOME=$(getent passwd "$INVOKER" | cut -d: -f6)
 TARGET_DIR="/var/opt/_devtools2"
 SHOULD_CLONE=false
 
-# 1) 디렉터리 존재 여부 검사 및 신규 형상관리 추가 여부 확인
-if [ -d "$TARGET_DIR" ]; then
+# 1) 디렉터리 존재 여부 및 Git 저장소 여부 검사
+if [ -d "$TARGET_DIR" ] && [ -d "$TARGET_DIR/.git" ]; then
     echo ""
     print_sep
-    print_info "이미 개발도구 디렉터리($TARGET_DIR)가 존재합니다."
+    print_info "이미 유효한 Git 개발도구 저장소($TARGET_DIR)가 존재합니다."
 
     choice="n"
-    # 표준 입력이 실제 대화형 터미널([ -t 0 ])인 경우에만 선택 받음 (파이프/비대화형 실행 시 멈춤 방지)
+    # 대화형 터미널(stdin)이거나 /dev/tty가 존재하는 경우 항상 사용자에게 재클론 여부를 질문
     if [ -t 0 ]; then
         prompt_input "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: "
         read -r choice 2>/dev/null || choice="n"
+    elif [ -c /dev/tty ]; then
+        prompt_input "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: "
+        read -r choice < /dev/tty 2>/dev/null || choice="n"
     fi
     choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
     if [ "$choice" = "y" ]; then
         SHOULD_CLONE=true
     fi
 else
-    # 디렉터리가 없으면 무조건 신규 클론 진행
+    # 디렉터리가 없거나 .git 저장소가 아니면 무조건 클론 진행
     SHOULD_CLONE=true
 fi
 
 # 2) 신규 클론 진행을 위한 백업 및 준비
 if [ "$SHOULD_CLONE" = true ]; then
-    # 2-1) 기존 디렉터리 백업
-    if [ -d "$TARGET_DIR" ]; then
+    # 2-1) 기존 디렉터리 백업 (내용물이 있는 경우만)
+    if [ -d "$TARGET_DIR" ] && [ -n "$(ls -A "$TARGET_DIR" 2>/dev/null)" ]; then
         BACKUP_SUFFIX=$(date +"%Y%m%d_%H%M%S")
         BACKUP_DIR="${TARGET_DIR}_backup_${BACKUP_SUFFIX}"
         echo "[백업] 기존 디렉터리를 백업합니다: $TARGET_DIR -> $BACKUP_DIR"
         mv "$TARGET_DIR" "$BACKUP_DIR"
+    else
+        rm -rf "$TARGET_DIR" 2>/dev/null || true
     fi
 
     # 2-2) 신규 클론 수행
@@ -249,11 +254,24 @@ else
     # 현재 로그인 세션에서 그룹 변경을 즉시 적용하려 시도합니다.
     # 스크립트가 sudo로 실행된 경우 SUDO_USER로 그룹 변경된 사용자 세션으로 전환하여 newgrp를 실행합니다.
     if [ -n "${SUDO_USER:-}" ] && [ "$INVOKER" != "root" ]; then
-        # Avoid forcing a su/login shell here — it can fail in some environments (no controlling TTY,
-        # login hooks trying to access /dev/tty, etc.). Just inform the user how to apply the change.
         echo "[안내] 사용자 '$INVOKER'에 그룹 변경을 적용하려면 해당 사용자 세션에서 'newgrp $DEVTOOLS2_GROUP'을 실행하거나 재로그인하세요."
     fi
 fi
+
+# 필수 개발환경 디렉터리 사전 생성 (심볼릭 링크 대상 및 설정 보장)
+mkdir -p "$DEVTOOLS2/.config/nvim" \
+         "$DEVTOOLS2/.config/zed" \
+         "$DEVTOOLS2/.config/vscode" \
+         "$DEVTOOLS2/data/nvim" \
+         "$DEVTOOLS2/data/.gradle/caches" \
+         "$DEVTOOLS2/data/.gradle/wrapper" \
+         "$DEVTOOLS2/data/.m2" \
+         "$DEVTOOLS2/modules"
+
+# VSCode 기본 설정 파일 사전 생성
+[ ! -f "$DEVTOOLS2/.config/vscode/settings.json" ] && touch "$DEVTOOLS2/.config/vscode/settings.json"
+[ ! -f "$DEVTOOLS2/.config/vscode/keybindings.json" ] && touch "$DEVTOOLS2/.config/vscode/keybindings.json"
+[ ! -f "$DEVTOOLS2/.config/vscode/tasks.json" ] && touch "$DEVTOOLS2/.config/vscode/tasks.json"
 
 # 3) 소유권 설정: INVOKER:GROUP
 if [ ! -d "$DEVTOOLS2" ]; then
@@ -264,13 +282,8 @@ echo "[작업] $DEVTOOLS2 및 하위 항목의 소유권을 $INVOKER:$DEVTOOLS2_
 chown -R "$INVOKER:$DEVTOOLS2_GROUP" "$DEVTOOLS2"
 
 # 4) 디렉토리 권한(2775, SGID) 및 파일 권한(664) 설정
-#   - SGID(2xxx)는 새로 생성되는 파일/디렉터리가 부모 디렉터리의 그룹을 상속하게 함
-#   - 디렉터리: 2775 -> rwxrwsr-x (소유자 rwx, 그룹 rwx, others r-x, 디렉터리에 SGID 설정)
-#   - 파일: 664 -> rw-rw-r-- (소유자 rw, 그룹 rw, others r)
-
 echo "[작업] 디렉토리와 파일 퍼미션을 조정합니다 (디렉토리: 2775, 파일: group-writable 유지, 실행권한 보존)..."
 find "$DEVTOOLS2" -type d -exec chmod 2775 {} +
-# 파일: 읽기 권한을 모두에게 부여하고, 소유자/그룹에 쓰기 권한을 추가하여 실행 비트 보존
 find "$DEVTOOLS2" -type f -exec chmod a+r,u+w,g+w {} +
 
 # 4-1) 사용자에게 passwordless sudo 권한을 부여하여 후속 패키지 설치 단계에서 암호 입력을 생략함
