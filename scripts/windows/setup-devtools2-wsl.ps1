@@ -397,9 +397,9 @@ $RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/l
 if ($isLocalMode) {
     $localInitScriptWin = Join-Path $PSScriptRoot "..\linux\dev-env\0.init-devtools2.sh"
     $wslInitScriptPath = (wsl -d $wslDistro -- wslpath -u "$localInitScriptWin").Trim()
-    wsl -d $wslDistro -- bash -c "cat /tmp/.wsl_pw_tmp | sudo -S bash '$wslInitScriptPath'"
+    wsl -d $wslDistro -- bash -c "sudo -S -v < /tmp/.wsl_pw_tmp && sudo bash '$wslInitScriptPath'"
 } else {
-    wsl -d $wslDistro -- bash -c "cat /tmp/.wsl_pw_tmp | sudo -S -v && curl -sSfL '$RAW_BASE/0.init-devtools2.sh' | sudo bash"
+    wsl -d $wslDistro -- bash -c "sudo -S -v < /tmp/.wsl_pw_tmp && curl -sSfL '$RAW_BASE/0.init-devtools2.sh' | sudo bash"
 }
 
 if ($LASTEXITCODE -ne 0) {
