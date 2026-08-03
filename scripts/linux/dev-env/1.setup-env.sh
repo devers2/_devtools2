@@ -182,8 +182,13 @@ $PATH"
 
 EOF
 else
-    print_warn "WSL2 환경 감지: Ghostty PATH 등록을 건너뜁니다."
-    WIN_USERPROFILE=$(wslpath "$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')" 2>/dev/null || echo "")
+    WIN_USERPROFILE=""
+    if command -v cmd.exe >/dev/null 2>&1; then
+        _raw_win_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
+        if [ -n "$_raw_win_home" ] && command -v wslpath >/dev/null 2>&1; then
+            WIN_USERPROFILE=$(wslpath "$_raw_win_home" 2>/dev/null || true)
+        fi
+    fi
     cat <<EOF >>~/.bashrc
 export PATH="\
 \$NODE_HOME/bin:\
