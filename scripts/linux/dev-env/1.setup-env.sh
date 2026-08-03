@@ -258,8 +258,8 @@ _run_symlink() {
     if [ -f "$CMD_SYMLINK" ]; then
         "$CMD_SYMLINK" "$target" "$link"
     else
-        # 온라인 모드: create-symbolic-link.sh 를 GitHub에서 직접 스트리밍 실행
-        bash <(curl -sSfL "$_SYMLINK_RAW") "$target" "$link"
+        # 온라인 모드: create-symbolic-link.sh 를 GitHub에서 직접 스트리밍 실행 (bash -s 이용으로 /dev/fd 이슈 회피)
+        curl -sSfL "$_SYMLINK_RAW" | bash -s -- "$target" "$link"
     fi
 }
 
