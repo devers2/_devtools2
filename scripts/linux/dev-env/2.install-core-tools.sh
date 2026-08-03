@@ -83,6 +83,30 @@ fi
 # tool-versions.toml 경로
 TOOL_VERSIONS_TOML="$DEVTOOLS2/scripts/linux/dev-env/tool-versions.toml"
 
+_ensure_pkg() {
+    local cmd="$1" pkg="${2:-$1}"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo -n "   📦 필수 패키지 ($pkg) 자동 설치 중..."
+        if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update -qq >/dev/null 2>&1 || true
+            sudo apt-get install -y "$pkg" >/dev/null 2>&1 || true
+        elif [ "$(id -u)" -eq 0 ]; then
+            apt-get update -qq >/dev/null 2>&1 || true
+            apt-get install -y "$pkg" >/dev/null 2>&1 || true
+        fi
+        if command -v "$cmd" >/dev/null 2>&1; then
+            echo " 완료"
+        else
+            echo " 실패"
+        fi
+    fi
+}
+
+_ensure_pkg unzip
+_ensure_pkg tar
+_ensure_pkg curl
+_ensure_pkg wget
+
 # ─────────────────────────────────────────────────────────────────
 # 📄 TOML 유틸리티 함수 (tool-versions.toml 연동)
 # ─────────────────────────────────────────────────────────────────

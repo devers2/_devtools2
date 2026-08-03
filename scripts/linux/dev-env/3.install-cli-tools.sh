@@ -95,6 +95,30 @@ if [ ! -w "$DEVTOOLS2" ] && [ "$(id -u)" -ne 0 ]; then
     sudo chmod -R u+w "$DEVTOOLS2" 2>/dev/null || true
 fi
 
+_ensure_pkg() {
+    local cmd="$1" pkg="${2:-$1}"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo -n "   📦 필수 패키지 ($pkg) 자동 설치 중..."
+        if command -v sudo >/dev/null 2>&1; then
+            sudo apt-get update -qq >/dev/null 2>&1 || true
+            sudo apt-get install -y "$pkg" >/dev/null 2>&1 || true
+        elif [ "$(id -u)" -eq 0 ]; then
+            apt-get update -qq >/dev/null 2>&1 || true
+            apt-get install -y "$pkg" >/dev/null 2>&1 || true
+        fi
+        if command -v "$cmd" >/dev/null 2>&1; then
+            echo " 완료"
+        else
+            echo " 실패"
+        fi
+    fi
+}
+
+_ensure_pkg unzip
+_ensure_pkg tar
+_ensure_pkg curl
+_ensure_pkg wget
+
 # 바이너리가 설치될 modules 디렉토리 경로 설정
 MODULES_DIR="$DEVTOOLS2/modules"
 

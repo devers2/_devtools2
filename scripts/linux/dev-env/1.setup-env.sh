@@ -246,9 +246,22 @@ echo ""
 print_subsep
 print_step "[Step 3] 에디터(Neovim, Zed) 설정: 심볼릭 링크 생성 및 권한 검사"
 echo ""
-# 별도의 공통 유틸리티 스크립트를 호출하여 심볼릭 링크를 안전하게 생성합니다.
+# 공통 심볼릭 링크 유틸리티 스크립트 — 로컬에 없으면 GitHub에서 직접 스트리밍 실행
+_SYMLINK_RAW="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/cmd/create-symbolic-link.sh"
 CMD_SYMLINK="$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh"
-[ -f "$CMD_SYMLINK" ] && chmod +x "$CMD_SYMLINK"
+if [ -f "$CMD_SYMLINK" ]; then
+    chmod +x "$CMD_SYMLINK" 2>/dev/null || true
+fi
+
+_run_symlink() {
+    local target="$1" link="$2"
+    if [ -f "$CMD_SYMLINK" ]; then
+        "$CMD_SYMLINK" "$target" "$link"
+    else
+        # 온라인 모드: create-symbolic-link.sh 를 GitHub에서 직접 스트리밍 실행
+        bash <(curl -sSfL "$_SYMLINK_RAW") "$target" "$link"
+    fi
+}
 
 # config 대상 디렉터리 결정
 if [ -n "${XDG_CONFIG_HOME:-}" ]; then
@@ -261,43 +274,32 @@ mkdir -p "$cfg_dir"
 
 # --- Neovim 설정 ---
 mkdir -p "$DEVTOOLS2/.config/nvim"
-"$CMD_SYMLINK" "$DEVTOOLS2/.config/nvim" "$cfg_dir/nvim"
+_run_symlink "$DEVTOOLS2/.config/nvim" "$cfg_dir/nvim"
 
 # --- Zed 설정 ---
 mkdir -p "$DEVTOOLS2/.config/zed"
 # 1) 일반 패키지 / Native 설치 경로
-"$CMD_SYMLINK" "$DEVTOOLS2/.config/zed" "$cfg_dir/zed"
+_run_symlink "$DEVTOOLS2/.config/zed" "$cfg_dir/zed"
 
 # 2) Flatpak 설치 경로 대응
 flatpak_zed_dir="$HOME/.var/app/dev.zed.Zed/config"
 if [ -d "$HOME/.var/app/dev.zed.Zed" ]; then
     mkdir -p "$flatpak_zed_dir"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/zed" "$flatpak_zed_dir/zed"
+    _run_symlink "$DEVTOOLS2/.config/zed" "$flatpak_zed_dir/zed"
 fi
 
 # --- VSCode 설정 (settings.json, keybindings.json, tasks.json) ---
-# 환경에 따라 VSCode 설정 경로가 다릅니다:
-#   - 네이티브 Linux (VSCode 앱 직접 실행): ~/.config/Code/User/
-#   - WSL Remote (wsl에서 `code .` 실행):   ~/.vscode-server/data/Machine/
-#
-# /proc/version 에 "microsoft" 문자열이 있으면 WSL 환경으로 판단합니다.
-
 if grep -qi microsoft /proc/version 2>/dev/null; then
-    # === WSL 환경 ===
-    # VSCode Remote WSL 은 vscode-server 가 WSL 안에서 동작하며
-    # 사용자 설정을 ~/.vscode-server/data/Machine/ 에서 읽습니다.
     vscode_server_user="$HOME/.vscode-server/data/Machine"
     mkdir -p "$vscode_server_user"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json" "$vscode_server_user/settings.json"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/keybindings.json" "$vscode_server_user/keybindings.json"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/tasks.json" "$vscode_server_user/tasks.json"
+    _run_symlink "$DEVTOOLS2/.config/vscode/settings.json" "$vscode_server_user/settings.json"
+    _run_symlink "$DEVTOOLS2/.config/vscode/keybindings.json" "$vscode_server_user/keybindings.json"
+    _run_symlink "$DEVTOOLS2/.config/vscode/tasks.json" "$vscode_server_user/tasks.json"
 else
-    # === 네이티브 Linux 환경 ===
-    # VSCode 를 Linux 앱으로 직접 실행하는 경우 ~/.config/Code/User/ 에서 읽습니다.
     mkdir -p "$cfg_dir/Code/User"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/settings.json" "$cfg_dir/Code/User/settings.json"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/keybindings.json" "$cfg_dir/Code/User/keybindings.json"
-    "$CMD_SYMLINK" "$DEVTOOLS2/.config/vscode/tasks.json" "$cfg_dir/Code/User/tasks.json"
+    _run_symlink "$DEVTOOLS2/.config/vscode/settings.json" "$cfg_dir/Code/User/settings.json"
+    _run_symlink "$DEVTOOLS2/.config/vscode/keybindings.json" "$cfg_dir/Code/User/keybindings.json"
+    _run_symlink "$DEVTOOLS2/.config/vscode/tasks.json" "$cfg_dir/Code/User/tasks.json"
 fi
 
 # data 대상 디렉터리 결정
@@ -310,7 +312,7 @@ fi
 mkdir -p "$nvim_data_dir"
 mkdir -p "$DEVTOOLS2/data/nvim"
 
-"$CMD_SYMLINK" "$DEVTOOLS2/data/nvim" "$nvim_data_dir/nvim"
+_run_symlink "$DEVTOOLS2/data/nvim" "$nvim_data_dir/nvim"
 
 # 대상에 대한 보안/권한 검사 함수
 check_target() {
@@ -375,14 +377,14 @@ echo ""
 # Gradle 의 사용자 설정은 홈 디렉토리에 유지하고 용량이 큰 Caches 와 Wrapper 는 공용 저장소로 링크를 생성한다.
 mkdir -p "$DEVTOOLS2/data/.gradle/caches" "$DEVTOOLS2/data/.gradle/wrapper" "$DEVTOOLS2/data/.m2"
 
-"$CMD_SYMLINK" "$DEVTOOLS2/data/.gradle/caches" "$HOME/.gradle/caches"
-"$CMD_SYMLINK" "$DEVTOOLS2/data/.gradle/wrapper" "$HOME/.gradle/wrapper"
+_run_symlink "$DEVTOOLS2/data/.gradle/caches" "$HOME/.gradle/caches"
+_run_symlink "$DEVTOOLS2/data/.gradle/wrapper" "$HOME/.gradle/wrapper"
 
 # Maven Repository 를 공용 저장소로 링크를 생성한다.
-"$CMD_SYMLINK" "$DEVTOOLS2/data/.m2" "$HOME/.m2"
+_run_symlink "$DEVTOOLS2/data/.m2" "$HOME/.m2"
 
 # 개발도구 바로가기 링크
-"$CMD_SYMLINK" "$DEVTOOLS2" "$HOME/_devtools2"
+_run_symlink "$DEVTOOLS2" "$HOME/_devtools2"
 
 echo ""
 

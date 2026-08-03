@@ -45,21 +45,12 @@ print_warn()  { echo "[경고] $*" >&2; }
 print_error() { echo "[오류] $*" >&2; }
 print_done()  { echo "[완료] $*"; }
 
-# 온라인 모드에서 서브스크립트를 안전하게 실행하는 헬퍼
-# process substitution <(curl ...) 은 일부 환경에서 동작하지 않으므로 임시 파일 방식 사용
+# 온라인 모드에서 서브스크립트를 GitHub에서 직접 스트리밍으로 실행하는 헬퍼
+# temp 파일을 사용하지 않으므로 BOM/인코딩 문제가 발생하지 않습니다.
 run_remote_script() {
     local url="$1"
     shift
-    local tmp_script
-    tmp_script=$(mktemp /tmp/_devtools2_script_XXXXXX.sh)
-    # 스크립트 종료 시 임시 파일 자동 삭제
-    trap "rm -f '$tmp_script'" RETURN
-    if ! curl -sSfL "$url" -o "$tmp_script"; then
-        print_error "원격 스크립트 다운로드 실패: $url"
-        return 1
-    fi
-    chmod +x "$tmp_script"
-    bash "$tmp_script" "$@"
+    bash <(curl -sSfL "$url") "$@"
 }
 
 # 로컬 실행 모드 여부 판정
@@ -80,11 +71,8 @@ if [ "$IS_LOCAL" = true ]; then
     chmod +x "$SUB_DIR/0.init-devtools2.sh"
     sudo "$SUB_DIR/0.init-devtools2.sh"
 else
-    print_info "온라인 원격 초기화 스크립트 다운로드 및 실행 중..."
-    curl -sSfL "$RAW_BASE/0.init-devtools2.sh" -o /tmp/0.init-devtools2.sh
-    chmod +x /tmp/0.init-devtools2.sh
-    sudo bash /tmp/0.init-devtools2.sh
-    rm -f /tmp/0.init-devtools2.sh
+    print_info "온라인 원격 초기화 스크립트를 GitHub에서 직접 스트리밍 실행 중..."
+    curl -sSfL "$RAW_BASE/0.init-devtools2.sh" | sudo bash
 fi
 
 if [ $? -ne 0 ]; then
@@ -162,18 +150,14 @@ if [ "$IS_LOCAL" = true ]; then
     chmod +x "$SUB_DIR/4.setup-keyboard.sh"
     DEVTOOLS2=/var/opt/_devtools2 sudo "$SUB_DIR/4.setup-keyboard.sh"
 else
-    # 온라인 모드: 임시 파일로 저장 후 sudo로 실행 (process substitution은 sudo와 함께 동작 안 함)
-    _kb_tmp=$(mktemp /tmp/_devtools2_keyboard_XXXXXX.sh)
-    if curl -sSfL "$RAW_BASE/4.setup-keyboard.sh" -o "$_kb_tmp"; then
-        chmod +x "$_kb_tmp"
-        DEVTOOLS2=/var/opt/_devtools2 sudo bash "$_kb_tmp"
-        _kb_exit=$?
-    else
-        print_warn "[Step 4] 키보드 스크립트 다운로드 실패 — 건너뜁니다."
+    # 온라인 모드: GitHub에서 직접 스트리밍 실행
+    if curl -sSfL "$RAW_BASE/4.setup-keyboard.sh" | sudo bash; then
         _kb_exit=0
+    else
+        _kb_exit=$?
+        print_warn "[Step 4] 키보드 스크립트 실행 실패 — 계속 진행합니다."
     fi
-    rm -f "$_kb_tmp"
-    if [ "$_kb_exit" -ne 0 ]; then
+    if [ "${_kb_exit:-0}" -ne 0 ]; then
         print_warn "[Step 4] 키보드 설정 실패 (비치명적, 계속 진행합니다)."
     fi
 fi
