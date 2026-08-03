@@ -80,8 +80,9 @@ if [ ! -w "$DEVTOOLS2" ] && [ "$(id -u)" -ne 0 ]; then
     sudo chmod -R u+w "$DEVTOOLS2" 2>/dev/null || true
 fi
 
-# tool-versions.toml 경로
+# tool-versions.toml 경로 및 온라인 폴백 URL
 TOOL_VERSIONS_TOML="$DEVTOOLS2/scripts/linux/dev-env/tool-versions.toml"
+_TOML_RAW_URL="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool-versions.toml"
 
 _ensure_pkg() {
     local cmd="$1" pkg="${2:-$1}"
@@ -111,16 +112,31 @@ _ensure_pkg wget
 # 📄 TOML 유틸리티 함수 (tool-versions.toml 연동)
 # ─────────────────────────────────────────────────────────────────
 
+# 로컬에 없으면 GitHub에서 직접 스트리밍하여 TOML 콘텐츠를 읽는 함수
+_read_toml() {
+    if [ -f "$TOOL_VERSIONS_TOML" ]; then
+        cat "$TOOL_VERSIONS_TOML"
+    else
+        curl -sSfL --max-time 10 "$_TOML_RAW_URL" 2>/dev/null || true
+    fi
+}
+
 # 지정한 키의 최종 설치 버전 (배열의 첫 번째 값)을 반환합니다.
 get_pinned_version() {
     local key="$1"
-    grep -E "^${key} = \[" "$TOOL_VERSIONS_TOML" 2>/dev/null \
+    _read_toml \
+        | grep -E "^${key} = \[" 2>/dev/null \
         | grep -oE '"[^"]+"' | head -1 | tr -d '"'
 }
 
 # 지정한 키의 버전 배열 앞에 새 버전을 추가합니다 (이미 있으면 건너뜀).
 update_pinned_version() {
     local key="$1" new_ver="$2"
+    # 로컬 TOML이 없으면 업데이트 불가
+    if [ ! -f "$TOOL_VERSIONS_TOML" ]; then
+        echo "   ⚠️  [tool-versions.toml] 로컬 파일이 없어 버전 이력 업데이트를 건너뜁니다."
+        return 0
+    fi
     if grep -E "^${key} = \[" "$TOOL_VERSIONS_TOML" 2>/dev/null | grep -qF "\"${new_ver}\""; then
         return 0
     fi

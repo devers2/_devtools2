@@ -30,15 +30,15 @@ target_link="$2"
 if [ ! -e "$source_dir" ]; then
     filename=$(basename "$source_dir")
     if [[ "$filename" == *.* ]]; then
-        mkdir -p "$(dirname "$source_dir")"
-        touch "$source_dir"
+        mkdir -p "$(dirname "$source_dir")" 2>/dev/null || true
+        touch "$source_dir" 2>/dev/null || true
     else
-        mkdir -p "$source_dir"
+        mkdir -p "$source_dir" 2>/dev/null || true
     fi
 fi
 
 # 2. 타겟 링크 부모 디렉터리 보장
-mkdir -p "$(dirname "$target_link")"
+mkdir -p "$(dirname "$target_link")" 2>/dev/null || true
 
 if [ -L "$target_link" ]; then
     current_target=$(readlink -f "$target_link" 2>/dev/null || true)
