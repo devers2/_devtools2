@@ -189,7 +189,7 @@ FZF_INSTALLED=false;      [ -f "$MODULES_DIR/fzf/fzf" ]           && FZF_INSTALL
 LAZYGIT_INSTALLED=false;  [ -f "$MODULES_DIR/lazygit/lazygit" ]    && LAZYGIT_INSTALLED=true
 RIPGREP_INSTALLED=false;  [ -f "$MODULES_DIR/ripgrep/rg" ]         && RIPGREP_INSTALLED=true
 FD_INSTALLED=false;       [ -f "$MODULES_DIR/fd/fd" ]              && FD_INSTALLED=true
-ASTGREP_INSTALLED=false;  [ -f "$MODULES_DIR/ast-grep/sg" ]        && ASTGREP_INSTALLED=true
+ASTGREP_INSTALLED=false;  { [ -f "$MODULES_DIR/ast-grep/sg" ] || [ -f "$MODULES_DIR/ast-grep/ast-grep" ]; } && ASTGREP_INSTALLED=true
 BITWARDEN_INSTALLED=false;[ -f "$MODULES_DIR/bitwarden/bw" ]       && BITWARDEN_INSTALLED=true
 RCLONE_INSTALLED=false;   [ -f "$MODULES_DIR/rclone/rclone" ]      && RCLONE_INSTALLED=true
 WIN32YANK_INSTALLED=false
@@ -588,24 +588,15 @@ if [ "$_sg_action" = "skip" ]; then
     echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
 else
     if [ "$_sg_action" = "reinstall" ]; then
-        rm -f "$MODULES_DIR/ast-grep/sg"
+        rm -f "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/ast-grep/ast-grep"
     fi
     # ast-grep은 버전별 다운로드와 /latest/ 다운로드 모두 지원
-    if [ "$ASTGREP_VERSION" = "$ASTGREP_PINNED" ] && [ "$VERSION_MODE" = "pinned" ]; then
-        # 최종 설치 버전이 최신과 같을 수 있으므로 버전 명시 URL 사용
-        if [ "$IS_ARM64" = true ]; then
-            _sg_url="https://github.com/ast-grep/ast-grep/releases/download/v${ASTGREP_VERSION}/app-aarch64-unknown-linux-gnu.zip"
-        else
-            _sg_url="https://github.com/ast-grep/ast-grep/releases/download/v${ASTGREP_VERSION}/app-x86_64-unknown-linux-gnu.zip"
-        fi
+    if [ "$IS_ARM64" = true ]; then
+        _sg_url="https://github.com/ast-grep/ast-grep/releases/download/v${ASTGREP_VERSION}/ast-grep-aarch64-unknown-linux-gnu.zip"
     else
-        if [ "$IS_ARM64" = true ]; then
-            _sg_url="https://github.com/ast-grep/ast-grep/releases/download/v${ASTGREP_VERSION}/app-aarch64-unknown-linux-gnu.zip"
-        else
-            _sg_url="https://github.com/ast-grep/ast-grep/releases/download/v${ASTGREP_VERSION}/app-x86_64-unknown-linux-gnu.zip"
-        fi
+        _sg_url="https://github.com/ast-grep/ast-grep/releases/download/v${ASTGREP_VERSION}/ast-grep-x86_64-unknown-linux-gnu.zip"
     fi
-    (curl -sL "$_sg_url" -o /tmp/ast-grep.zip && unzip -qo /tmp/ast-grep.zip -d "$MODULES_DIR/ast-grep" && rm -f /tmp/ast-grep.zip) &
+    (curl -sLf "$_sg_url" -o /tmp/ast-grep.zip && unzip -qo /tmp/ast-grep.zip -d "$MODULES_DIR/ast-grep" && ([ -f "$MODULES_DIR/ast-grep/ast-grep" ] && [ ! -f "$MODULES_DIR/ast-grep/sg" ] && ln -sf ast-grep "$MODULES_DIR/ast-grep/sg" || true) && ([ -f "$MODULES_DIR/ast-grep/sg" ] && [ ! -f "$MODULES_DIR/ast-grep/ast-grep" ] && ln -sf sg "$MODULES_DIR/ast-grep/ast-grep" || true) && rm -f /tmp/ast-grep.zip) &
     show_spinner $!
     echo " 완료"
     if [ "$ASTGREP_VERSION" != "$ASTGREP_PINNED" ]; then
@@ -760,7 +751,7 @@ fi
 # ─────────────────────────────────────────────────────────────────
 echo "🔐 실행 권한 부여 및 검증 중..."
 for cmd in "$MODULES_DIR/ripgrep/rg" "$MODULES_DIR/fd/fd" "$MODULES_DIR/fzf/fzf" \
-           "$MODULES_DIR/lazygit/lazygit" "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/bitwarden/bw" "$MODULES_DIR/rclone/rclone"; do
+           "$MODULES_DIR/lazygit/lazygit" "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/ast-grep/ast-grep" "$MODULES_DIR/bitwarden/bw" "$MODULES_DIR/rclone/rclone"; do
     if [ -s "$cmd" ]; then
         chmod +x "$cmd"
     else

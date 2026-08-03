@@ -472,65 +472,23 @@ Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
 
 
 # ==============================================================================
-# [Step 4] Windows 호스트 전용 WezTerm 및 Zed 에디터 연동
+# [Step 4] Windows 호스트 전용 개발도구 연동
 # ==============================================================================
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
+# ── 4-1. WezTerm ──────────────────────────────────────────────────────────────
 if ($isLocalMode) {
-    Write-SubStep "▶ (1/4) WezTerm 설치 및 설정 연동 (로컬)"
+    Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (로컬)"
     & $setupWeztermScript -WslDistro $wslDistro
-
-    Write-SubStep "▶ (2/4) VSCode 에디터 설치 및 설정 연동 (로컬)"
-    Write-Host ""
-    Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-    Write-Host "N" -ForegroundColor Green -NoNewline
-    Write-Host "]: " -ForegroundColor Yellow -NoNewline
-    $installVscodeLocal = Read-Host
-    $userChoseVscodeLocal = $installVscodeLocal -match '^[Yy]'
-
-    Write-SubStep "▶ (3/4) Zed 에디터 설치 및 설정 연동 (로컬)"
-    Write-Host ""
-    Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-    Write-Host "N" -ForegroundColor Green -NoNewline
-    Write-Host "]: " -ForegroundColor Yellow -NoNewline
-    $installZed = Read-Host
-    if ($installZed -match '^[Yy]') {
-        & $setupZedScript -WslDistro $wslDistro
-    } else {
-        Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
-    }
 } else {
-    Write-SubStep "▶ (1/4) WezTerm 설치 및 설정 연동 (온라인)"
+    Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (온라인)"
     $rawWeztermScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/1.setup-wezterm.ps1"
     $weztermScriptBlock = [scriptblock]::Create($rawWeztermScript)
     & $weztermScriptBlock -WslDistro $wslDistro
-
-    Write-SubStep "▶ (2/4) VSCode 에디터 설치 및 설정 연동 (온라인)"
-    Write-Host ""
-    Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-    Write-Host "N" -ForegroundColor Green -NoNewline
-    Write-Host "]: " -ForegroundColor Yellow -NoNewline
-    $installVscodeOnline = Read-Host
-    $userChoseVscodeOnline = $installVscodeOnline -match '^[Yy]'
-
-    Write-SubStep "▶ (3/4) Zed 에디터 설치 및 설정 연동 (온라인)"
-    Write-Host ""
-    Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-    Write-Host "N" -ForegroundColor Green -NoNewline
-    Write-Host "]: " -ForegroundColor Yellow -NoNewline
-    $installZed = Read-Host
-    if ($installZed -match '^[Yy]') {
-        $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/2.setup-zed.ps1"
-        $zedScriptBlock = [scriptblock]::Create($rawZedScript)
-        & $zedScriptBlock -WslDistro $wslDistro
-    } else {
-        Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
-    }
 }
 
-Write-SubStep "▶ (4/4) VSCode 에디터 설치 및 설정 연동"
-# 로컬/온라인 모드에서 (2/4) 단계에 미리 물어본 선택값을 통합
-$userChoseVscode = if ($isLocalMode) { $userChoseVscodeLocal } else { $userChoseVscodeOnline }
+# ── 4-2. VSCode ───────────────────────────────────────────────────────────────
+Write-SubStep "▶ (2/3) VSCode 에디터 설치 및 설정 연동"
 
 # VSCode 설치 여부 사전 확인
 $vscodeAlreadyInstalled = $false
@@ -544,18 +502,25 @@ try {
     }
 } catch {}
 
-# 심볼릭 링크 연동 단계는: 사용자가 y를 선택했거나, 이미 VSCode가 설치되어 있는 경우에도 실행
-# (VSCode가 이미 있는데 재설치 시 N을 눠르면 dangling symlink 제거가 동작해야 함)
+$userChoseVscode = $false
+if (-not $vscodeAlreadyInstalled) {
+    Write-Host ""
+    Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+    Write-Host "N" -ForegroundColor Green -NoNewline
+    Write-Host "]: " -ForegroundColor Yellow -NoNewline
+    $installVscodeInput = Read-Host
+    $userChoseVscode = $installVscodeInput -match '^[Yy]'
+} else {
+    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
+}
+
+# 심볼릭 링크 및 확장 설치 연동 판단
 $skipVsCodeLink = -not ($userChoseVscode -or $vscodeAlreadyInstalled)
 
 if (-not $userChoseVscode -and -not $vscodeAlreadyInstalled) {
     Write-Skip "VS Code 설치를 건너뜁니다. 기존 설정은 유지됩니다."
-} elseif ($vscodeAlreadyInstalled -and -not $userChoseVscode) {
-    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다. 설치를 건너뜁니다만 설정 연동은 계속 진행합니다."
 } else {
-    if ($vscodeAlreadyInstalled) {
-        Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
-    } else {
+    if (-not $vscodeAlreadyInstalled) {
         Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
         $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
         # 스피너를 표시하며 winget 프로세스 완료 대기
@@ -576,161 +541,164 @@ if (-not $userChoseVscode -and -not $vscodeAlreadyInstalled) {
     }
 }
 
-Write-Info "VSCode 설정, 확장 목록 및 Gradle 자격증명 연동 (심볼릭 링크)"
-if ($skipVsCodeLink) {
-    Write-Skip "VS Code 미설치 + 설치 거부 — 설정 연동 단계도 건너뜁니다."
-} else {
-$vscodeUserDir = "$env:APPDATA\Code\User"
-if (-not (Test-Path $vscodeUserDir)) {
-    New-Item -ItemType Directory -Path $vscodeUserDir -Force | Out-Null
-}
+if (-not $skipVsCodeLink) {
+    Write-Info "VSCode 설정, 확장 목록 및 Gradle 자격증명 연동 (심볼릭 링크)"
+    $vscodeUserDir = "$env:APPDATA\Code\User"
+    if (-not (Test-Path $vscodeUserDir)) {
+        New-Item -ItemType Directory -Path $vscodeUserDir -Force | Out-Null
+    }
 
-# 윈도우 사용자 환경 변수에 %DEVTOOLS2% 자동 등록
-$wslDevtools2Root = "\\wsl.localhost\$wslDistro\var\opt\_devtools2"
-if (Test-Path $wslDevtools2Root) {
-    [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
-    $env:DEVTOOLS2 = $wslDevtools2Root
-    Write-Success "Windows 사용자 환경 변수 %DEVTOOLS2% 연동 완료: $wslDevtools2Root"
-}
+    # 윈도우 사용자 환경 변수에 %DEVTOOLS2% 자동 등록
+    $wslDevtools2Root = "\\wsl.localhost\$wslDistro\var\opt\_devtools2"
+    if (Test-Path $wslDevtools2Root) {
+        [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
+        $env:DEVTOOLS2 = $wslDevtools2Root
+        Write-Success "Windows 사용자 환경 변수 %DEVTOOLS2% 연동 완료: $wslDevtools2Root"
+    }
 
-$devtools2Root = if ($env:DEVTOOLS2) { $env:DEVTOOLS2 } else { $wslDevtools2Root }
+    $devtools2Root = if ($env:DEVTOOLS2) { $env:DEVTOOLS2 } else { $wslDevtools2Root }
 
-# WSL2 내 대상 파일 경로
-$targetSettings    = "$devtools2Root\.config\vscode\settings.json"
-$targetKeybindings = "$devtools2Root\.config\vscode\keybindings.json"
-$targetTasks       = "$devtools2Root\.config\vscode\tasks.json"
+    # WSL2 내 대상 파일 경로
+    $targetSettings    = "$devtools2Root\.config\vscode\settings.json"
+    $targetKeybindings = "$devtools2Root\.config\vscode\keybindings.json"
+    $targetTasks       = "$devtools2Root\.config\vscode\tasks.json"
 
-# ------------------------------------------------------------------
-# [멱등성 처리] settings.json / keybindings.json / tasks.json
-#
-# 문제 원인: WSL 삭제 후 재설치 시 이전 심볼릭 링크(dangling symlink)가 남아있음.
-# Test-Path는 dangling symlink를 $false로 반환하므로 기존 링크를 감지하지 못하고,
-# mklink 실행 시 "파일이 이미 있습니다" 오류가 발생하여 링크 재생성에 실패합니다.
-#
-# 해결: Remove-FileOrSymlink(Get-Item -Force + cmd dir 이중 확인)로 dangling symlink도 안전하게 제거하고,
-#       New-SymlinkIdempotent으로 재생성합니다.
-# ------------------------------------------------------------------
-
-# settings.json: 최초 설치 시 일반 파일이 있으면 .bak 으로 보존, 이후 재실행 시 링크/dangling 링크만 제거
-$settingsItem = Get-Item -LiteralPath "$vscodeUserDir\settings.json" -Force -ErrorAction SilentlyContinue
-if ($null -ne $settingsItem) {
-    $isLink = $settingsItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
-    if (-not $isLink) {
-        # 일반 파일인 경우 → 최초 설치 상황: .bak으로 백업
-        if (-not (Test-Path "$vscodeUserDir\settings.json.bak")) {
-            Move-Item "$vscodeUserDir\settings.json" "$vscodeUserDir\settings.json.bak" -Force
-            Write-Info "기존 settings.json을 settings.json.bak으로 백업했습니다."
+    # settings.json
+    $settingsItem = Get-Item -LiteralPath "$vscodeUserDir\settings.json" -Force -ErrorAction SilentlyContinue
+    if ($null -ne $settingsItem) {
+        $isLink = $settingsItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+        if (-not $isLink) {
+            if (-not (Test-Path "$vscodeUserDir\settings.json.bak")) {
+                Move-Item "$vscodeUserDir\settings.json" "$vscodeUserDir\settings.json.bak" -Force
+                Write-Info "기존 settings.json을 settings.json.bak으로 백업했습니다."
+            } else {
+                Remove-Item "$vscodeUserDir\settings.json" -Force
+            }
         } else {
-            Remove-Item "$vscodeUserDir\settings.json" -Force
+            Remove-Item -LiteralPath "$vscodeUserDir\settings.json" -Force -ErrorAction SilentlyContinue
         }
     } else {
-        # 심볼릭 링크(정상 또는 dangling)인 경우 → 재설치 상황: 그냥 삭제
-        Remove-Item -LiteralPath "$vscodeUserDir\settings.json" -Force -ErrorAction SilentlyContinue
+        $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\settings.json`" echo exists" 2>$null
+        if ($cmdCheck -match 'exists') {
+            cmd.exe /c "del /f /q `"$vscodeUserDir\settings.json`"" 2>$null | Out-Null
+            Write-Info "settings.json dangling symlink 제거 완료"
+        }
     }
-} else {
-    # Get-Item도 실패하면 cmd로 dangling symlink 확인 후 제거
-    $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\settings.json`" echo exists" 2>$null
-    if ($cmdCheck -match 'exists') {
-        cmd.exe /c "del /f /q `"$vscodeUserDir\settings.json`"" 2>$null | Out-Null
-        Write-Info "settings.json dangling symlink 제거 완료"
-    }
-}
 
-# keybindings.json: 동일 패턴
-$kbItem = Get-Item -LiteralPath "$vscodeUserDir\keybindings.json" -Force -ErrorAction SilentlyContinue
-if ($null -ne $kbItem) {
-    $isLink = $kbItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
-    if (-not $isLink) {
-        if (-not (Test-Path "$vscodeUserDir\keybindings.json.bak")) {
-            Move-Item "$vscodeUserDir\keybindings.json" "$vscodeUserDir\keybindings.json.bak" -Force
-            Write-Info "기존 keybindings.json을 keybindings.json.bak으로 백업했습니다."
+    # keybindings.json
+    $kbItem = Get-Item -LiteralPath "$vscodeUserDir\keybindings.json" -Force -ErrorAction SilentlyContinue
+    if ($null -ne $kbItem) {
+        $isLink = $kbItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+        if (-not $isLink) {
+            if (-not (Test-Path "$vscodeUserDir\keybindings.json.bak")) {
+                Move-Item "$vscodeUserDir\keybindings.json" "$vscodeUserDir\keybindings.json.bak" -Force
+                Write-Info "기존 keybindings.json을 keybindings.json.bak으로 백업했습니다."
+            } else {
+                Remove-Item "$vscodeUserDir\keybindings.json" -Force
+            }
         } else {
-            Remove-Item "$vscodeUserDir\keybindings.json" -Force
+            Remove-Item -LiteralPath "$vscodeUserDir\keybindings.json" -Force -ErrorAction SilentlyContinue
         }
     } else {
-        Remove-Item -LiteralPath "$vscodeUserDir\keybindings.json" -Force -ErrorAction SilentlyContinue
+        $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\keybindings.json`" echo exists" 2>$null
+        if ($cmdCheck -match 'exists') {
+            cmd.exe /c "del /f /q `"$vscodeUserDir\keybindings.json`"" 2>$null | Out-Null
+            Write-Info "keybindings.json dangling symlink 제거 완료"
+        }
     }
-} else {
-    $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\keybindings.json`" echo exists" 2>$null
-    if ($cmdCheck -match 'exists') {
-        cmd.exe /c "del /f /q `"$vscodeUserDir\keybindings.json`"" 2>$null | Out-Null
-        Write-Info "keybindings.json dangling symlink 제거 완료"
-    }
-}
 
-# tasks.json: 동일 패턴
-$tasksItem = Get-Item -LiteralPath "$vscodeUserDir\tasks.json" -Force -ErrorAction SilentlyContinue
-if ($null -ne $tasksItem) {
-    $isLink = $tasksItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
-    if (-not $isLink) {
-        if (-not (Test-Path "$vscodeUserDir\tasks.json.bak")) {
-            Move-Item "$vscodeUserDir\tasks.json" "$vscodeUserDir\tasks.json.bak" -Force
-            Write-Info "기존 tasks.json을 tasks.json.bak으로 백업했습니다."
+    # tasks.json
+    $tasksItem = Get-Item -LiteralPath "$vscodeUserDir\tasks.json" -Force -ErrorAction SilentlyContinue
+    if ($null -ne $tasksItem) {
+        $isLink = $tasksItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+        if (-not $isLink) {
+            if (-not (Test-Path "$vscodeUserDir\tasks.json.bak")) {
+                Move-Item "$vscodeUserDir\tasks.json" "$vscodeUserDir\tasks.json.bak" -Force
+                Write-Info "기존 tasks.json을 tasks.json.bak으로 백업했습니다."
+            } else {
+                Remove-Item "$vscodeUserDir\tasks.json" -Force
+            }
         } else {
-            Remove-Item "$vscodeUserDir\tasks.json" -Force
+            Remove-Item -LiteralPath "$vscodeUserDir\tasks.json" -Force -ErrorAction SilentlyContinue
         }
     } else {
-        Remove-Item -LiteralPath "$vscodeUserDir\tasks.json" -Force -ErrorAction SilentlyContinue
+        $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\tasks.json`" echo exists" 2>$null
+        if ($cmdCheck -match 'exists') {
+            cmd.exe /c "del /f /q `"$vscodeUserDir\tasks.json`"" 2>$null | Out-Null
+            Write-Info "tasks.json dangling symlink 제거 완료"
+        }
     }
-} else {
-    $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\tasks.json`" echo exists" 2>$null
-    if ($cmdCheck -match 'exists') {
-        cmd.exe /c "del /f /q `"$vscodeUserDir\tasks.json`"" 2>$null | Out-Null
-        Write-Info "tasks.json dangling symlink 제거 완료"
+
+    # 심볼릭 링크 생성
+    New-SymlinkIdempotent -LinkPath "$vscodeUserDir\settings.json"    -TargetPath $targetSettings    -Description "VSCode settings.json"
+    New-SymlinkIdempotent -LinkPath "$vscodeUserDir\keybindings.json" -TargetPath $targetKeybindings -Description "VSCode keybindings.json"
+    if (Test-Path $targetTasks) {
+        New-SymlinkIdempotent -LinkPath "$vscodeUserDir\tasks.json" -TargetPath $targetTasks -Description "VSCode tasks.json"
     }
-}
 
-# 심볼릭 링크 생성 (New-SymlinkIdempotent: 대상 없으면 경고 후 스킵, 생성 실패 시 경고)
-New-SymlinkIdempotent -LinkPath "$vscodeUserDir\settings.json"    -TargetPath $targetSettings    -Description "VSCode settings.json"
-New-SymlinkIdempotent -LinkPath "$vscodeUserDir\keybindings.json" -TargetPath $targetKeybindings -Description "VSCode keybindings.json"
-if (Test-Path $targetTasks) {
-    New-SymlinkIdempotent -LinkPath "$vscodeUserDir\tasks.json" -TargetPath $targetTasks -Description "VSCode tasks.json"
-}
+    # 🌟 VSCode 확장 목록(extensions.txt) 동기화 자동 설치 (dotfiles에 존재 시)
+    $targetExtensionsList = "$devtools2Root\.config\vscode\extensions.txt"
+    if (Test-Path $targetExtensionsList) {
+        if (Get-Command code -ErrorAction SilentlyContinue) {
+            Write-Info "VSCode 확장 프로그램 목록(extensions.txt) 동기화 검사 중..."
 
-# 🌟 VSCode 확장 목록(extensions.txt) 동기화 자동 설치 (dotfiles에 존재 시)
-$targetExtensionsList = "$devtools2Root\.config\vscode\extensions.txt"
-if (Test-Path $targetExtensionsList) {
-    if (Get-Command code -ErrorAction SilentlyContinue) {
-        Write-Info "VSCode 확장 프로그램 목록(extensions.txt) 동기화 검사 중..."
+            # [1] Windows 로컬 확장 설치
+            $installedExts = @((code --list-extensions 2>$null) | ForEach-Object { $_.Trim().ToLower() })
 
-        # [1] Windows 로친 확장 설치
-        $installedExts = @((code --list-extensions 2>$null) | ForEach-Object { $_.Trim().ToLower() })
-
-        $toInstall = @()
-        Get-Content $targetExtensionsList | ForEach-Object {
-            $ext = $_.Trim()
-            if ($ext -and -not $ext.StartsWith("#") -and ($ext -match '^[a-zA-Z0-9][a-zA-Z0-9_-]*\.[a-zA-Z0-9][a-zA-Z0-9_-]*$')) {
-                if (-not ($installedExts -contains $ext.ToLower())) {
-                    $toInstall += $ext
+            $toInstall = @()
+            Get-Content $targetExtensionsList | ForEach-Object {
+                $ext = $_.Trim()
+                if ($ext -and -not $ext.StartsWith("#") -and ($ext -match '^[a-zA-Z0-9][a-zA-Z0-9_-]*\.[a-zA-Z0-9][a-zA-Z0-9_-]*$')) {
+                    if (-not ($installedExts -contains $ext.ToLower())) {
+                        $toInstall += $ext
+                    }
                 }
             }
-        }
 
-        if ($toInstall.Count -gt 0) {
-            Write-Info "Windows 로친: 신규/미설치 확장 $($toInstall.Count)개 설치 중..."
-            foreach ($ext in $toInstall) {
-                code --install-extension $ext --force | Out-Null
+            if ($toInstall.Count -gt 0) {
+                Write-Info "Windows 로컬: 신규/미설치 확장 $($toInstall.Count)개 설치 중..."
+                foreach ($ext in $toInstall) {
+                    code --install-extension $ext --force | Out-Null
+                }
+                Write-Success "Windows 로컬 확장 $($toInstall.Count)개 설치 완료"
+            } else {
+                Write-Skip "Windows 로컬: 모든 확장 프로그램이 이미 설치되어 있습니다."
             }
-            Write-Success "Windows 로친 확장 $($toInstall.Count)개 설치 완료"
-        } else {
-            Write-Skip "Windows 로친: 모든 확장 프로그램이 이미 설치되어 있습니다."
-        }
 
-        # [2] WSL Remote 확장 설치 (WSL Remote Server에 별도 설치 필요)
-        Write-Info "WSL Remote: VSCode 확장 프로그램 설치 중 (WSL 내부 bash 실행)..."
-        $wslExtScript = 'VSCODE_BIN=""; command -v code >/dev/null 2>&1 && VSCODE_BIN="code"; [ -z "$VSCODE_BIN" ] && { echo "[WSL-SKIP] code CLI not found"; exit 0; }; EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"; [ ! -f "$EXT_LIST" ] && { echo "[WSL-SKIP] extensions.txt not found"; exit 0; }; _INST=$("$VSCODE_BIN" --list-extensions 2>/dev/null | tr [:upper:] [:lower:]); _cnt=0; while IFS= read -r line || [ -n "$line" ]; do ext=$(echo "$line" | tr -d \r | sed "s/#.*//" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"); [ -z "$ext" ] && continue; ext_lower=$(echo "$ext" | tr [:upper:] [:lower:]); if echo "$_INST" | grep -qF "$ext_lower"; then echo "[SKIP] $ext"; else echo "[Install] $ext"; "$VSCODE_BIN" --install-extension "$ext" --force >/dev/null 2>&1 && echo "[OK] $ext" || echo "[FAIL] $ext"; _cnt=$((_cnt+1)); fi; done < "$EXT_LIST"; echo "[WSL Done] New installs: ${_cnt}"'
-        try {
-            wsl -d $wslDistro -- bash -c "DEVTOOLS2='$devtools2WslRoot'; $wslExtScript" 2>$null
-        } catch {
-            Write-Warn "WSL Remote 확장 설치 중 오류: $_"
+            # [2] WSL Remote 확장 설치 (WSL Remote Server에 별도 설치 필요)
+            Write-Info "WSL Remote: VSCode 확장 프로그램 설치 중 (WSL 내부 bash 실행)..."
+            $wslExtScript = 'VSCODE_BIN=""; command -v code >/dev/null 2>&1 && VSCODE_BIN="code"; [ -z "$VSCODE_BIN" ] && command -v code.cmd >/dev/null 2>&1 && VSCODE_BIN="code.cmd"; [ -z "$VSCODE_BIN" ] && { echo "[WSL-SKIP] code CLI not found"; exit 0; }; EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"; [ ! -f "$EXT_LIST" ] && { echo "[WSL-SKIP] extensions.txt not found"; exit 0; }; _INST=$("$VSCODE_BIN" --list-extensions 2>/dev/null | tr [:upper:] [:lower:]); _cnt=0; while IFS= read -r line || [ -n "$line" ]; do ext=$(echo "$line" | tr -d \r | sed "s/#.*//" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"); [ -z "$ext" ] && continue; ext_lower=$(echo "$ext" | tr [:upper:] [:lower:]); if echo "$_INST" | grep -qF "$ext_lower"; then echo "[SKIP] $ext"; else echo "[Install] $ext"; "$VSCODE_BIN" --install-extension "$ext" --force >/dev/null 2>&1 && echo "[OK] $ext" || echo "[FAIL] $ext"; _cnt=$((_cnt+1)); fi; done < "$EXT_LIST"; echo "[WSL Done] New installs: ${_cnt}"'
+            try {
+                wsl -d $wslDistro -- bash -c "DEVTOOLS2='/var/opt/_devtools2'; $wslExtScript" 2>$null
+            } catch {
+                Write-Warn "WSL Remote 확장 설치 중 오류: $_"
+            }
+        } else {
+            Write-Warn "VSCode CLI('code')를 찾을 수 없어서 확장 프로그램 자동 설치를 건너럹니다."
         }
-    } else {
-        Write-Warn "VSCode CLI('code')를 찾을 수 없어서 확장 프로그램 자동 설치를 건너럹니다."
     }
-}
 
     Write-Success "VSCode 설정 연동 완료"
-} # end if -not skipVsCodeLink
+}
+
+# ── 4-3. Zed ─────────────────────────────────────────────────────────────────
+Write-SubStep "▶ (3/3) Zed 에디터 설치 및 설정 연동"
+Write-Host ""
+Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+Write-Host "N" -ForegroundColor Green -NoNewline
+Write-Host "]: " -ForegroundColor Yellow -NoNewline
+$installZed = Read-Host
+if ($installZed -match '^[Yy]') {
+    if ($isLocalMode) {
+        & $setupZedScript -WslDistro $wslDistro
+    } else {
+        $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/2.setup-zed.ps1"
+        $zedScriptBlock = [scriptblock]::Create($rawZedScript)
+        & $zedScriptBlock -WslDistro $wslDistro
+    }
+} else {
+    Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+}
 
 # 🌟 [Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동]
 # - 보안 자격증명 정보(Git Token/Maven Auth) 손실 방지 및 이중 환경 호환성 확보
