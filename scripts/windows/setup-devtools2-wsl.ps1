@@ -283,11 +283,9 @@ if ($isLocalMode) {
     Write-Info "GitHub에서 WSL 설치 스크립트 다운로드 중..."
     $rawWslScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/0.setup-wsl.ps1"
 
-    # 원격 실행 시 임시 파일로 저장: UTF8 NoBOM 으로 저장해야 PS7 에서 유니코드 파싱 오류 없음
-    $tempWslScriptFile = Join-Path $env:TEMP "temp_setup_wsl.ps1"
-    [System.IO.File]::WriteAllText($tempWslScriptFile, $rawWslScript, [System.Text.UTF8Encoding]::new($false))
-    & $_psExe -NoProfile -ExecutionPolicy Bypass -File $tempWslScriptFile
-    if (Test-Path $tempWslScriptFile) { Remove-Item $tempWslScriptFile -Force }
+    # temp 파일 저장 없이 메모리에서 직접 실행 (irm | iex 방식과 동일)
+    # HTTP 헤더(charset=utf-8)를 통해 인코딩이 이미 올바르게 처리되므로 BOM 불필요
+    Invoke-Expression $rawWslScript
 }
 
 # 설치 중 에러가 발생한 경우 예외 처리
