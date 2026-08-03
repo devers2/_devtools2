@@ -322,11 +322,12 @@ bw_save_git_credentials() {
         fi
 
         echo "⚠️  ~/.git-credentials 에 ${_cred_host} 의 기존 PAT 가 있으나 Bitwarden PAT 와 다릅니다."
-        read -rp "🔄 기존 PAT 를 Bitwarden PAT 로 교체하시겠습니까? (y/N): " _save_ans
+        read -rp "🔄 기존 PAT 를 Bitwarden PAT 로 교체하시겠습니까? [Y/n]: " _save_ans
     else
-        read -rp "🔑 이후 git push/pull 시에도 자동 인증되도록 PAT 를 저장하시겠습니까? (y/N): " _save_ans
+        read -rp "🔑 이후 git push/pull 시에도 자동 인증되도록 PAT 를 저장하시겠습니까? [Y/n]: " _save_ans
     fi
 
+    _save_ans="${_save_ans:-y}"
     _save_ans=$(echo "$_save_ans" | tr '[:upper:]' '[:lower:]')
     if [[ "$_save_ans" != "y" ]]; then
         echo "ℹ️  인증 정보를 변경하지 않았습니다."
