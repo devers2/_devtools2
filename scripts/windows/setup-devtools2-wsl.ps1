@@ -479,7 +479,7 @@ if ($isLocalMode) {
     $wslScript1Path = (wsl -d $wslDistro -- wslpath -u "$localScript1Win").Trim()
     wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l '$wslScript1Path'"
 } else {
-    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/1.setup-env.sh' | DEVTOOLS2=/var/opt/_devtools2 bash -l"
+    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh; _r=$?; rm -f /tmp/_dt2_1.sh; exit $_r"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
@@ -489,7 +489,7 @@ if ($isLocalMode) {
     $wslScript2Path = (wsl -d $wslDistro -- wslpath -u "$localScript2Win").Trim()
     wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l '$wslScript2Path'"
 } else {
-    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/2.install-core-tools.sh' | DEVTOOLS2=/var/opt/_devtools2 bash -l"
+    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh; _r=$?; rm -f /tmp/_dt2_2.sh; exit $_r"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
@@ -499,7 +499,7 @@ if ($isLocalMode) {
     $wslScript3Path = (wsl -d $wslDistro -- wslpath -u "$localScript3Win").Trim()
     wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l '$wslScript3Path'"
 } else {
-    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/3.install-cli-tools.sh' | DEVTOOLS2=/var/opt/_devtools2 bash -l"
+    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh; _r=$?; rm -f /tmp/_dt2_3.sh; exit $_r"
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
 
