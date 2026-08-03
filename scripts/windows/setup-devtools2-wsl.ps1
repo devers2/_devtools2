@@ -390,48 +390,63 @@ while ($true) {
     }
 }
 
-if ($isLocalMode) {
-    $linuxInitScriptSource = Join-Path $BaseDir "..\linux\dev-env\0.init-devtools2.sh"
-    if (-not (Test-Path $linuxInitScriptSource)) {
-        Write-Fail "리눅스 초기화 스크립트 원본을 찾을 수 없습니다: $linuxInitScriptSource"
-        Pause-Script
-        exit 1
-    }
+# ==============================================================================
+# [사전 질문 및 Windows 에디터 설치]
+# ==============================================================================
+Write-SubStep "▶ Windows 개발 에디터(VS Code / Zed) 설치 의사 확인"
 
-    # WSL2 내부의 /tmp 경로 확인 및 스크립트 복사
-    $wslTmpPath = "\\wsl.localhost\$wslDistro\tmp"
-    if (-not (Test-Path $wslTmpPath)) {
-        Write-Fail "WSL2의 /tmp 디렉터리에 접근할 수 없습니다: $wslTmpPath"
-        Pause-Script
-        exit 1
+# 1. VSCode 설치 여부 사전 확인 및 설치
+$vscodeAlreadyInstalled = $false
+try {
+    if (Get-Command code -ErrorAction SilentlyContinue) {
+        $vscodeAlreadyInstalled = $true
+    } elseif (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") {
+        $vscodeAlreadyInstalled = $true
+    } elseif (Test-Path "$env:ProgramFiles\Microsoft VS Code\Code.exe") {
+        $vscodeAlreadyInstalled = $true
     }
+} catch {}
 
-    Write-Info "WSL2 내부로 설치 초기화 스크립트를 전송합니다..."
-    $wslInitScriptTarget = Join-Path $wslTmpPath "0.init-devtools2.sh"
-    Copy-Item -Path $linuxInitScriptSource -Destination $wslInitScriptTarget -Force -ErrorAction Stop
-    Write-Success "스크립트 전송 완료"
+$userChoseVscode = $false
+if (-not $vscodeAlreadyInstalled) {
+    Write-Host ""
+    Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+    Write-Host "N" -ForegroundColor Green -NoNewline
+    Write-Host "]: " -ForegroundColor Yellow -NoNewline
+    $installVscodeInput = Read-Host
+    $userChoseVscode = $installVscodeInput -match '^[Yy]'
+
+    if ($userChoseVscode) {
+        Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
+        $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+        $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+        $sIdx = 0
+        while (-not $p.HasExited) {
+            $char = $spinner[$sIdx % $spinner.Count]
+            Write-Host -NoNewline "`r  [$char] VSCode 패키지 설치 진행 중...   "
+            Start-Sleep -Milliseconds 150
+            $sIdx++
+        }
+        Write-Host "`r  [완료] VSCode 패키지 설치 완료!   " -ForegroundColor Green
+        if ($p.ExitCode -ne 0) {
+            Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
+        }
+        # PATH 갱신: winget 설치 후 code CLI를 현재 세션 및 WSL Interop에서 즉시 사용 가능하게 함
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    } else {
+        Write-Skip "VS Code 설치를 건너뜁니다."
+    }
 } else {
-    Write-Info "WSL2 내부에서 curl을 통해 원격 0.init-devtools2.sh 직접 다운로드 중..."
-    wsl -d $wslDistro -- curl -sSfL "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/0.init-devtools2.sh" -o /tmp/0.init-devtools2.sh
-    if ($LASTEXITCODE -ne 0) {
-        Write-Fail "원격 초기화 스크립트 다운로드에 실패했습니다. 네트워크 연결 상태를 확인해주세요."
-        Pause-Script
-        exit 1
-    }
+    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
 }
 
+# 2. Zed 에디터 설치 여부 사전 확인
 Write-Host ""
-# WSL2 대화형 셸을 통해 sudo 권한으로 init 스크립트 실행 (입력받은 패스워드 주입)
-# cat 파이프 방식으로 sudo -S에 비밀번호를 안전하게 전달
-# 스크립트의 실행 결과 코드를 확보하고 임시 파일 삭제 후 최종 종료 코드를 마스터로 전달
-wsl -d $wslDistro -- bash -c "cat /tmp/.wsl_pw_tmp | sudo -S bash /tmp/0.init-devtools2.sh; RC=`$?; rm -f /tmp/.wsl_pw_tmp; exit `$RC"
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Fail "WSL2 내부 초기화 스크립트 실행 중 에러가 발생했습니다."
-    Pause-Script
-    exit 1
-}
-Write-Success "WSL2 내에 개발도구 저장소 클론 및 권한 설정 완료"
+Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+Write-Host "N" -ForegroundColor Green -NoNewline
+Write-Host "]: " -ForegroundColor Yellow -NoNewline
+$installZedInput = Read-Host
+$userChoseZed = $installZedInput -match '^[Yy]'
 
 # ==============================================================================
 # [Step 3] WSL2 내부 런타임 및 도구 일괄 설치
@@ -439,9 +454,6 @@ Write-Success "WSL2 내에 개발도구 저장소 클론 및 권한 설정 완�
 Write-Step "[Step 3] WSL2 개발 환경 빌드 및 패키지 일괄 설치"
 
 $RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
-
-# 온라인 모드: GitHub에서 직접 스크립트를 다운로드해 /tmp에서 실행 (로컬 파일 영향 없음)
-# 로컬 모드 : /var/opt/_devtools2 로컬 복사본에서 실행
 
 Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
 if ($isLocalMode) {
@@ -451,7 +463,7 @@ if ($isLocalMode) {
 }
 if ($LASTEXITCODE -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
-Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim)"
+Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, VSCode 확장)"
 if ($isLocalMode) {
     wsl -d $wslDistro -- bash -c 'bash -l $DEVTOOLS2/scripts/linux/dev-env/2.install-core-tools.sh'
 } else {
@@ -487,61 +499,14 @@ if ($isLocalMode) {
     & $weztermScriptBlock -WslDistro $wslDistro
 }
 
-# ── 4-2. VSCode ───────────────────────────────────────────────────────────────
-Write-SubStep "▶ (2/3) VSCode 에디터 설치 및 설정 연동"
+# ── 4-2. VSCode 설정 및 Windows 로컬 확장 연동 ───────────────────────────────
+Write-SubStep "▶ (2/3) VSCode 설정 연동 및 Windows 로컬 확장 설치"
 
-# VSCode 설치 여부 사전 확인
-$vscodeAlreadyInstalled = $false
-try {
-    if (Get-Command code -ErrorAction SilentlyContinue) {
-        $vscodeAlreadyInstalled = $true
-    } elseif (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") {
-        $vscodeAlreadyInstalled = $true
-    } elseif (Test-Path "$env:ProgramFiles\Microsoft VS Code\Code.exe") {
-        $vscodeAlreadyInstalled = $true
-    }
-} catch {}
-
-$userChoseVscode = $false
-if (-not $vscodeAlreadyInstalled) {
-    Write-Host ""
-    Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-    Write-Host "N" -ForegroundColor Green -NoNewline
-    Write-Host "]: " -ForegroundColor Yellow -NoNewline
-    $installVscodeInput = Read-Host
-    $userChoseVscode = $installVscodeInput -match '^[Yy]'
-} else {
-    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
-}
-
-# 심볼릭 링크 및 확장 설치 연동 판단
 $skipVsCodeLink = -not ($userChoseVscode -or $vscodeAlreadyInstalled)
 
-if (-not $userChoseVscode -and -not $vscodeAlreadyInstalled) {
-    Write-Skip "VS Code 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+if ($skipVsCodeLink) {
+    Write-Skip "VS Code 미설치 상태로 설정 연동을 건너뜁니다."
 } else {
-    if (-not $vscodeAlreadyInstalled) {
-        Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
-        $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
-        # 스피너를 표시하며 winget 프로세스 완료 대기
-        $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-        $sIdx = 0
-        while (-not $p.HasExited) {
-            $char = $spinner[$sIdx % $spinner.Count]
-            Write-Host -NoNewline "`r  [$char] VSCode 패키지 설치 진행 중...   "
-            Start-Sleep -Milliseconds 150
-            $sIdx++
-        }
-        Write-Host "`r  [완료] VSCode 패키지 설치 완료!   " -ForegroundColor Green
-        if ($p.ExitCode -ne 0) {
-            Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
-        }
-        # PATH 갱신: winget 설치 후 code CLI를 현재 세션에서 즉시 사용 가능하게 함
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-    }
-}
-
-if (-not $skipVsCodeLink) {
     Write-Info "VSCode 설정, 확장 목록 및 Gradle 자격증명 연동 (심볼릭 링크)"
     $vscodeUserDir = "$env:APPDATA\Code\User"
     if (-not (Test-Path $vscodeUserDir)) {
@@ -636,12 +601,10 @@ if (-not $skipVsCodeLink) {
         New-SymlinkIdempotent -LinkPath "$vscodeUserDir\tasks.json" -TargetPath $targetTasks -Description "VSCode tasks.json"
     }
 
-    # 🌟 VSCode 확장 목록(extensions.txt) 동기화 자동 설치 (dotfiles에 존재 시)
+    # 🌟 VSCode 확장 목록(extensions.txt) 동기화 자동 설치 (Windows 로컬)
     $targetExtensionsList = "$devtools2Root\.config\vscode\extensions.txt"
     if (Test-Path $targetExtensionsList) {
         if (Get-Command code -ErrorAction SilentlyContinue) {
-            Write-Info "VSCode 확장 프로그램 목록(extensions.txt) 동기화 검사 중..."
-
             # [1] Windows 로컬 확장 설치
             $installedExts = @((code --list-extensions 2>$null) | ForEach-Object { $_.Trim().ToLower() })
 
@@ -683,12 +646,7 @@ if (-not $skipVsCodeLink) {
 
 # ── 4-3. Zed ─────────────────────────────────────────────────────────────────
 Write-SubStep "▶ (3/3) Zed 에디터 설치 및 설정 연동"
-Write-Host ""
-Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-Write-Host "N" -ForegroundColor Green -NoNewline
-Write-Host "]: " -ForegroundColor Yellow -NoNewline
-$installZed = Read-Host
-if ($installZed -match '^[Yy]') {
+if ($userChoseZed) {
     if ($isLocalMode) {
         & $setupZedScript -WslDistro $wslDistro
     } else {
