@@ -356,8 +356,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Success "배포판 가져오기 완료"
 
-# 7. 기본 로그인 사용자 및 Windows Interop 설정 (wsl.conf 수정)
-wsl -d $wslName -u root -e bash -c "echo -e '[user]\ndefault=$createdUsername\n\n[interop]\nenabled=true\nappendWindowsPath=true' > /etc/wsl.conf"
+# 7. 기본 로그인 사용자, hostname 및 Windows Interop 설정 (wsl.conf / hostname 수정)
+wsl -d $wslName -u root -e bash -c "echo 'devtools2' > /etc/hostname && echo -e '[user]\ndefault=$createdUsername\n\n[interop]\nenabled=true\nappendWindowsPath=true' > /etc/wsl.conf"
 
 # 8. 임시 파일 삭제
 if (Test-Path $tempTarPath) {
