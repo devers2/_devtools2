@@ -422,3 +422,6 @@ Write-Host "  설치 경로     : $wslInstallPath" -ForegroundColor White
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
 }
+
+# 스크립트 정상 종료 (부모 스크립트의 $LASTEXITCODE 오판 방지)
+exit 0
