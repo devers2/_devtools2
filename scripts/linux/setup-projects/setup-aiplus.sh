@@ -33,6 +33,9 @@ if [ "$_CURRENT_PY_VER" != "$REQUIRED_PY_VERSION" ]; then
     fi
 fi
 
+# py_switch.sh 를 source 하면 SCRIPT_DIR 가 cmd/ 경로로 덮어써지므로 복원
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # bw-lib 로드 (bw_ensure_session / bw_git_clone / bw_get_items_by_folder_name 포함)
 if [ -f "$DEVTOOLS2/scripts/fzf/bw-lib" ]; then
     source "$DEVTOOLS2/scripts/fzf/bw-lib"
