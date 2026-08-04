@@ -365,18 +365,6 @@ if ($doInstall) {
     }
 }
 
-# ── WezTerm 설치 디렉터리 내 모든 실행 파일 보안 차단(Mark of the Web) 동적 해제 ──────
-try {
-    $targetDirs = @("$env:ProgramFiles\WezTerm", "${env:ProgramFiles(x86)}\WezTerm", "$env:LOCALAPPDATA\Programs\WezTerm")
-    foreach ($tDir in $targetDirs) {
-        if (Test-Path $tDir) {
-            Get-ChildItem -Path $tDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-                Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
-                Remove-Item -Path "$($_.FullName):Zone.Identifier" -ErrorAction SilentlyContinue
-            }
-        }
-    }
-} catch {}
 
 # ==============================================================================
 # [Step 3] 필수 폰트 설치 (assets/fonts → Windows 사용자 폰트)
@@ -637,12 +625,6 @@ if (Test-Path $ahkExe) {
             Remove-Job -Job $unzipJob -Force -ErrorAction SilentlyContinue
 
             Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
-
-            # 압축 해제된 AHK 실행 파일 보안 차단 동적 해제
-            Get-ChildItem -Path $ahkModuleDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-                Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
-                Remove-Item -Path "$($_.FullName):Zone.Identifier" -ErrorAction SilentlyContinue
-            }
         }
 
         $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
