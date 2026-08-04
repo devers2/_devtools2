@@ -53,6 +53,25 @@ function Pause-Script {
     [void][System.Console]::ReadLine()
 }
 
+function Show-BiosVirtualizationHelp {
+    Write-Host ""
+    Write-Host "===========================================================================" -ForegroundColor Red
+    Write-Host "  ❌ 메인보드(BIOS/UEFI) 가상화(Virtualization) 비활성화 오류" -ForegroundColor Red
+    Write-Host "===========================================================================" -ForegroundColor Red
+    Write-Host "  WSL2 가상 머신을 실행하려면 CPU 가상화 기능(VT-x / AMD-V)이" -ForegroundColor Yellow
+    Write-Host "  BIOS/UEFI 설정에서 활성화되어 있어야 합니다." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  [BIOS/UEFI 가상화 활성화 방법 안내]" -ForegroundColor White
+    Write-Host "  1. 컴퓨터를 재부팅한 후, 부팅 화면에서 [F2], [Del], 또는 [F12] 키를 누릅니다." -ForegroundColor White
+    Write-Host "  2. Advanced / CPU Configuration / Security 메뉴로 이동합니다." -ForegroundColor White
+    Write-Host "     • Intel CPU : 'Intel Virtualization Technology' 또는 'VT-x' → [Enabled]" -ForegroundColor Cyan
+    Write-Host "     • AMD CPU   : 'SVM Mode' 또는 'AMD-V' → [Enabled]" -ForegroundColor Cyan
+    Write-Host "  3. [F10] 키를 눌러 저장 후 재부팅(Save & Exit)을 진행합니다." -ForegroundColor White
+    Write-Host "  4. 윈도우 재부팅 후 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
+    Write-Host "===========================================================================" -ForegroundColor Red
+    Write-Host ""
+}
+
 # 단순 프로세스/조건 대기형 스피너 헬퍼
 function Wait-WithSpinner {
     param(
@@ -106,6 +125,23 @@ Write-Host "====================================================================
 # 고정된 인스턴스 이름 설정
 $wslName = "devtools2"
 $devtools2File = Join-Path $env:USERPROFILE ".devtools2"
+
+# 메인보드(BIOS/UEFI) CPU 가상화 활성화 여부 사전 점검
+$biosVirtDisabled = $false
+try {
+    $proc = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -ne $proc -and $proc.PSObject.Properties['VirtualizationFirmwareEnabled']) {
+        if ($proc.VirtualizationFirmwareEnabled -eq $false) {
+            $biosVirtDisabled = $true
+        }
+    }
+} catch {}
+
+if ($biosVirtDisabled) {
+    Show-BiosVirtualizationHelp
+    Pause-Script
+    exit 1
+}
 
 # ==============================================================================
 # [Step 1] WSL2 가상 머신 상태 확인 및 설치 진행
