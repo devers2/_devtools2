@@ -365,24 +365,15 @@ if ($doInstall) {
     }
 }
 
-# ── WezTerm 및 AHK 실행 파일 보안 정책 차단(Mark of the Web / SmartScreen) 방지 ──────
+# ── WezTerm 설치 디렉터리 내 모든 실행 파일 보안 차단(Mark of the Web) 동적 해제 ──────
 try {
-    $wezExes = @(
-        "$env:ProgramFiles\WezTerm\wezterm-gui.exe",
-        "$env:ProgramFiles\WezTerm\wezterm.exe",
-        "$env:ProgramFiles\WezTerm\wezterm-cli.exe",
-        "${env:ProgramFiles(x86)}\WezTerm\wezterm-gui.exe",
-        "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe",
-        "${env:ProgramFiles(x86)}\WezTerm\wezterm-cli.exe",
-        "$env:LOCALAPPDATA\Programs\WezTerm\wezterm-gui.exe",
-        "$env:LOCALAPPDATA\Programs\WezTerm\wezterm.exe",
-        "$env:LOCALAPPDATA\_devtools2\modules\autohotkey\AutoHotkey64.exe",
-        "$env:LOCALAPPDATA\_devtools2\modules\autohotkey\AutoHotkey.exe"
-    )
-    foreach ($wExe in $wezExes) {
-        if (Test-Path $wExe) {
-            Unblock-File -Path $wExe -ErrorAction SilentlyContinue
-            Remove-Item -Path "$wExe:Zone.Identifier" -ErrorAction SilentlyContinue
+    $targetDirs = @("$env:ProgramFiles\WezTerm", "${env:ProgramFiles(x86)}\WezTerm", "$env:LOCALAPPDATA\Programs\WezTerm")
+    foreach ($tDir in $targetDirs) {
+        if (Test-Path $tDir) {
+            Get-ChildItem -Path $tDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+                Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
+                Remove-Item -Path "$($_.FullName):Zone.Identifier" -ErrorAction SilentlyContinue
+            }
         }
     }
 } catch {}
@@ -646,6 +637,12 @@ if (Test-Path $ahkExe) {
             Remove-Job -Job $unzipJob -Force -ErrorAction SilentlyContinue
 
             Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
+
+            # 압축 해제된 AHK 실행 파일 보안 차단 동적 해제
+            Get-ChildItem -Path $ahkModuleDir -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+                Unblock-File -Path $_.FullName -ErrorAction SilentlyContinue
+                Remove-Item -Path "$($_.FullName):Zone.Identifier" -ErrorAction SilentlyContinue
+            }
         }
 
         $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
