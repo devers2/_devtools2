@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # WezTerm 설치 및 WSL2 설정 폴더 심볼릭 링크 생성 스크립트 (1.setup-wezterm.ps1)
 #
 # 주요 기능:
@@ -372,6 +372,64 @@ if ($doInstall) {
     }
 }
 
+
+
+# ==============================================================================
+# [Step 2-1] 스마트 앱 컨트롤(SAC), MOTW(Unblock-File) 및 Defender 예외 설정
+# ==============================================================================
+Write-SubStep "▶ WezTerm 실행 파일 차단 해제(Unblock-File) 및 스마트 앱 컨트롤/보안 예외 설정"
+
+# 1) Windows 11 스마트 앱 컨트롤(Smart App Control, SAC) 레지스트리 비활성화 처리
+$sacRegPath = "HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy"
+if (Test-Path $sacRegPath) {
+    $sacVal = (Get-ItemProperty -Path $sacRegPath -Name "VerifiedAndReputablePolicyState" -ErrorAction SilentlyContinue).VerifiedAndReputablePolicyState
+    if ($sacVal -eq 1 -or $sacVal -eq 2) {
+        Write-Warn "Windows 11 스마트 앱 컨트롤(Smart App Control)이 활성화되어 있어 개발도구(WezTerm) 차단이 발생할 수 있습니다. (현재 상태: $sacVal)"
+        Write-Info "스마트 앱 컨트롤을 비활성화(Off, VerifiedAndReputablePolicyState = 0)로 자동 설정합니다..."
+        try {
+            Set-ItemProperty -Path $sacRegPath -Name "VerifiedAndReputablePolicyState" -Value 0 -Force -ErrorAction SilentlyContinue
+            $ciTool = "$env:windir\System32\CiTool.exe"
+            if (Test-Path $ciTool) {
+                & $ciTool -r 2>$null | Out-Null
+            }
+            Write-Success "스마트 앱 컨트롤 비활성화 설정 완료 (VerifiedAndReputablePolicyState = 0)"
+        } catch {
+            Write-Warn "스마트 앱 컨트롤 레지스트리 자동 변경 실패: $($_.Exception.Message)"
+            Write-Info "수동 해제 방법: Windows 설정 > 보안 > 앱 및 브라우저 컨트롤 > 스마트 앱 컨트롤 > [끄기]"
+        }
+    } else {
+        Write-Info "스마트 앱 컨트롤(Smart App Control) 비활성화 상태 확인 완료 (현재 상태: $sacVal)"
+    }
+}
+
+# 2) WezTerm 설치 폴더 내 모든 파일 및 실행 파일 MOTW(Mark of the Web) 차단 해제
+$wezDirs = @("$env:ProgramFiles\WezTerm", "${env:ProgramFiles(x86)}\WezTerm")
+foreach ($dir in $wezDirs) {
+    if (Test-Path $dir) {
+        Get-ChildItem -Path $dir -Recurse -Force -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue
+        @("wezterm-gui.exe", "wezterm.exe", "wezterm-mux-server.exe", "open-wezterm-here.exe") | ForEach-Object {
+            $exePath = Join-Path $dir $_
+            if (Test-Path $exePath) {
+                Unblock-File -Path $exePath -ErrorAction SilentlyContinue
+            }
+        }
+        Write-Success "WezTerm 파일 및 실행 파일 차단 해제(Unblock-File) 완료: $dir"
+    }
+}
+
+# 3) Windows Defender 보안 예외(Exclusion) 등록
+try {
+    foreach ($dir in $wezDirs) {
+        if (Test-Path $dir) {
+            Add-MpPreference -ExclusionPath $dir -ErrorAction SilentlyContinue
+        }
+    }
+    Add-MpPreference -ExclusionProcess "wezterm-gui.exe" -ErrorAction SilentlyContinue
+    Add-MpPreference -ExclusionProcess "wezterm.exe" -ErrorAction SilentlyContinue
+    Write-Success "Windows Defender 보안 예외(Exclusion) 등록 완료 (WezTerm 경로 및 프로세스)"
+} catch {
+    Write-Warn "Windows Defender 예외 등록 중 경고 (권한 부족 또는 Defender 비활성화 상태일 수 있음)"
+}
 
 # ==============================================================================
 # [Step 3] 필수 폰트 설치 (assets/fonts → Windows 사용자 폰트)
