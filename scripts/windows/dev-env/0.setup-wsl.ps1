@@ -124,7 +124,7 @@ if (Test-Path "$env:TEMP\wsl_list_check.txt") {
     Remove-Item "$env:TEMP\wsl_list_check.txt" -Force -ErrorAction SilentlyContinue
 }
 
-# 1. 'devtools2'가 이미 등록되어 있다면 즉시 다음 단계로 통과
+# 1. 'devtools2'가 이미 등록되어 있다면 신규 설치를 건너뛰고 계속 진행
 if ($registeredDistros -contains $wslName) {
     Write-Success "기존에 설치된 WSL2 배포판 '$wslName'이 이미 존재하여 이를 그대로 사용합니다."
     Write-Warn "---------------------------------------------------------------------------"
@@ -135,10 +135,8 @@ if ($registeredDistros -contains $wslName) {
     Write-Warn "   (※ 주의: 기존 배포판 내의 모든 파일과 설정이 영구적으로 지워집니다.)"
     Write-Warn "---------------------------------------------------------------------------"
     Write-Host ""
-    
     Write-Success "기존 배포판 사용 준비 완료. 다음 단계로 진행합니다."
-    return 0
-}
+} else {
 
 # 2. 임시 설치를 위한 base Ubuntu 가 등록되어 있는지 확인
 # (Ubuntu, Ubuntu-24.04, Ubuntu-22.04 등 우분투 계열 배포판 스캔)
@@ -401,5 +399,4 @@ Write-Host "  인스턴스 이름 : $wslName" -ForegroundColor White
 Write-Host "  설치 경로     : $wslInstallPath" -ForegroundColor White
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
-
-Pause-Script
+}
