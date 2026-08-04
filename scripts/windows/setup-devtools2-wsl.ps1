@@ -372,41 +372,12 @@ Write-Info "대상 WSL2 배포판: $wslDistro"
 # [Step 1-후처리] WSL2 배포판 접근 가능 여부 확인 (신규 설치 후 등록 지연 대응)
 # ==============================================================================
 Write-Info "WSL2 배포판($wslDistro) 접근 가능 여부 확인 중..."
-$maxRetry = 15
-$retryCount = 0
-$distroReady = $false
-$spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-$sIdx = 0
-
-while ($retryCount -lt $maxRetry) {
-    # WSL ready 확인을 백그라운드로 띄워 스피너 표시
-    $checkProc = Start-Process wsl.exe -ArgumentList "-d $wslDistro -- echo ready" -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wsl_ready_check.txt" -ErrorAction SilentlyContinue
-
-    # 2초 동안 스피너 회전 대기
-    for ($i = 0; $i -lt 8; $i++) {
-        $char = $spinner[$sIdx % $spinner.Count]
-        Write-Host -NoNewline "`r  [$char] WSL2 배포판 준비 상태 조회 중...   "
-        Start-Sleep -Milliseconds 150
-        $sIdx++
-        if ($checkProc.HasExited) { break }
-    }
-
-    if ($checkProc.HasExited) {
-        $testResult = Get-Content "$env:TEMP\wsl_ready_check.txt" -Raw 2>$null
-        # ready 문자열이 포함되어 있으면 통과 (경고 메세지와 섞여 있어도 검출 가능)
-        if ($testResult -match "ready") {
-            $distroReady = $true
-            Write-Host "`r  [완료] WSL2 배포판 접근 확인 완료: $wslDistro   " -ForegroundColor Green
-            Remove-Item "$env:TEMP\wsl_ready_check.txt" -Force -ErrorAction SilentlyContinue
-            break
-        }
-    }
-    Remove-Item "$env:TEMP\wsl_ready_check.txt" -Force -ErrorAction SilentlyContinue
-
-    $retryCount++
-    Write-Host ""
-    Write-Info "  WSL2 배포판 준비 대기 중... ($retryCount/$maxRetry)"
-    Start-Sleep -Seconds 2
+$distroReady = Wait-WithSpinner -Message "WSL2 배포판($wslDistro) 준비 확인" -Condition {
+    $out = wsl -d $wslDistro -- echo ready 2>$null
+    ($out -replace "`0","").Trim() -eq "ready"
+} -MaxTimeoutSeconds 60
+if ($distroReady) {
+    Write-Success "WSL2 배포판 접근 확인 완료: $wslDistro"
 }
 
 if (-not $distroReady) {
@@ -460,16 +431,22 @@ while ($true) {
 }
 
 # WSL2 저장소 초기화 및 깃 클론 (0.init-devtools2.sh 실행)
+# ── 비밀번호와 스크립트를 분리 실행: sudo 인증 캐시 문제로 비밀번호가 bash stdin으로 노출되는 것 방지
+# sudo -k 로 캐시를 초기화한 뒤 스크립트를 WSL 임시 파일로 먼저 저장하고, 별도로 sudo -S 실행
 Write-SubStep "▶ WSL2 저장소 초기화 및 Git 클론 실행 (0.init-devtools2.sh)"
 $RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
+$wslTmpScript = "/tmp/_dt2_init.sh"
 
 if ($isLocalMode) {
     $localInitScriptWin = Join-Path $PSScriptRoot "..\linux\dev-env\0.init-devtools2.sh"
     $wslInitScriptPath = (wsl -d $wslDistro -- wslpath -u "$localInitScriptWin").Trim()
-    wsl -d $wslDistro -- bash -c "{ cat /tmp/.wsl_pw_tmp; cat '$wslInitScriptPath'; } | sudo -S bash"
+    wsl -d $wslDistro -- bash -c "cp '$wslInitScriptPath' $wslTmpScript && chmod +x $wslTmpScript"
 } else {
-    wsl -d $wslDistro -- bash -c "{ cat /tmp/.wsl_pw_tmp; curl -sSfL '$RAW_BASE/0.init-devtools2.sh'; } | sudo -S bash"
+    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/0.init-devtools2.sh' -o $wslTmpScript && chmod +x $wslTmpScript"
 }
+
+# sudo -k 로 캐시 초기화 후 비밀번호 stdin → sudo -S bash /tmp/script 실행 (비밀번호가 bash stdin으로 유입되지 않음)
+wsl -d $wslDistro -- bash -c "sudo -k; cat /tmp/.wsl_pw_tmp | sudo -S bash $wslTmpScript; rm -f $wslTmpScript"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Fail "0.init-devtools2.sh 초기화 실패"
