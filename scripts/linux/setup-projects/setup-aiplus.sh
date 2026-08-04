@@ -82,7 +82,7 @@ setup_rclone_sftp_mount \
     "aiplus.im" \
     "222" \
     "$INPUT_REMOTE_MOUNT_PATH" \
-    "$INPUT_LOCAL_MOUNT_PATH" || exit 1
+    "$INPUT_LOCAL_MOUNT_PATH" || echo "⚠️  SFTP 마운트 설정 실패 또는 WSL 재시작 필요. 나머지 설정을 계속 진행합니다."
 
 # ==============================================================================
 # 4. Python 가상환경(venv_math) 생성 및 패키지 설치
