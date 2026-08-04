@@ -344,9 +344,9 @@ PYEOF
     # ── 5. rclone 리모트 설정 생성 ────────────────────────────────────────────
     local SERVICE_NAME="rclone-${ACTUAL_USERNAME}@${ACTUAL_HOST}_${ACTUAL_PORT}"
 
-    # ── 6. rclone.conf 경로 결정 (config create 와 서비스 파일이 동일 경로 사용하도록 먼저 결정)
+    # ── 6. rclone.conf 경로 결정 (포터블 개발 환경 우선)
     local RCLONE_CONF
-    if [ -n "${DEVTOOLS2:-}" ] && [ -d "${DEVTOOLS2}/modules/rclone" ]; then
+    if [ -n "${DEVTOOLS2:-}" ]; then
         RCLONE_CONF="${DEVTOOLS2}/modules/rclone/.config/rclone.conf"
     else
         RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
