@@ -365,19 +365,24 @@ if ($doInstall) {
     }
 }
 
-# ── WezTerm 실행 파일 보안 정책 차단(Mark of the Web / SmartScreen) 방지 ──────
+# ── WezTerm 및 AHK 실행 파일 보안 정책 차단(Mark of the Web / SmartScreen) 방지 ──────
 try {
     $wezExes = @(
         "$env:ProgramFiles\WezTerm\wezterm-gui.exe",
         "$env:ProgramFiles\WezTerm\wezterm.exe",
+        "$env:ProgramFiles\WezTerm\wezterm-cli.exe",
         "${env:ProgramFiles(x86)}\WezTerm\wezterm-gui.exe",
         "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe",
+        "${env:ProgramFiles(x86)}\WezTerm\wezterm-cli.exe",
         "$env:LOCALAPPDATA\Programs\WezTerm\wezterm-gui.exe",
-        "$env:LOCALAPPDATA\Programs\WezTerm\wezterm.exe"
+        "$env:LOCALAPPDATA\Programs\WezTerm\wezterm.exe",
+        "$env:LOCALAPPDATA\_devtools2\modules\autohotkey\AutoHotkey64.exe",
+        "$env:LOCALAPPDATA\_devtools2\modules\autohotkey\AutoHotkey.exe"
     )
     foreach ($wExe in $wezExes) {
         if (Test-Path $wExe) {
             Unblock-File -Path $wExe -ErrorAction SilentlyContinue
+            Remove-Item -Path "$wExe:Zone.Identifier" -ErrorAction SilentlyContinue
         }
     }
 } catch {}

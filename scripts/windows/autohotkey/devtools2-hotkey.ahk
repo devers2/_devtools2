@@ -114,9 +114,15 @@ _CleanupOnExit(reason, code) {
                 WinActivate("ahk_pid " pid)
             }
         } catch as err {
-            MsgBox("WezTerm 실행 중 오류가 발생했습니다:`n" . err.Message . "`n`n(Windows 보안/SmartScreen 정책에 의해 실행이 차단되었을 수 있습니다.)", "DevTools2 WezTerm Hotkey Notice", 0x30)
+            try {
+                ; 1차 Direct Run 실패 시 cmd shell start 로 2차 실행 시도 (SmartScreen / UAC 팝업 차단 우회)
+                Run('cmd.exe /c start "" "' exe '"', , "Hide")
+            } catch {
+                ; 무음 예외 처리 (거슬리는 MsgBox 알림창 팝업 제거)
+                TrayTip("WezTerm 실행", "WezTerm 실행 중 오류가 발생했습니다.", 0x3)
+            }
         }
     } else {
-        MsgBox("WezTerm 실행 파일을 찾을 수 없습니다.`nWezTerm이 정상적으로 설치되어 있는지 확인해주세요.", "WezTerm Hotkey Error", 0x10)
+        TrayTip("WezTerm 실행", "WezTerm 실행 파일을 찾을 수 없습니다.", 0x2)
     }
 }
