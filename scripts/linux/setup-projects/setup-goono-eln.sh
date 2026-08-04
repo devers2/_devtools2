@@ -22,7 +22,7 @@ if [ -f "$SCRIPT_DIR/common-setup.sh" ]; then
     source "$SCRIPT_DIR/common-setup.sh"
 fi
 
-TARGET_DIR="$HOME/workspaces/goono/Goono_ELN"
+TARGET_DIR="$HOME/workspaces/goono/Goono-ELN"
 REPO_URL="https://github.com/redwit-dev/Goono-ELN.git"
 
 echo "🚀 [Goono-ELN] 프로젝트 설정을 시작합니다."
