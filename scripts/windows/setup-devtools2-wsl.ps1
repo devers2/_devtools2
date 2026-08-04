@@ -23,6 +23,9 @@
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+# --- 윈도우 PowerShell 기본 파란색 프로그레스바 팝업 끄기 (텍스트 깨짐 및 커서 겹침 방지)
+$ProgressPreference = 'SilentlyContinue'
+
 # ==============================================================================
 # 헬퍼 함수
 # ==============================================================================
@@ -482,7 +485,7 @@ if (-not $vscodeAlreadyInstalled) {
 
     if ($userChoseVscode) {
         Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
-        $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru
+        $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\vscode_install.log" -RedirectStandardError "$env:TEMP\vscode_install_err.log" -ErrorAction SilentlyContinue
         $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
         $sIdx = 0
         while (-not $p.HasExited) {
@@ -492,6 +495,7 @@ if (-not $vscodeAlreadyInstalled) {
             $sIdx++
         }
         Write-Host "`r  [완료] VSCode 패키지 설치 완료!   " -ForegroundColor Green
+        Remove-Item "$env:TEMP\vscode_install.log", "$env:TEMP\vscode_install_err.log" -Force -ErrorAction SilentlyContinue
         if ($p.ExitCode -ne 0) {
             Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
         }

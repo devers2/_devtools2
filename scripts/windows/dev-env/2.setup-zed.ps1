@@ -35,6 +35,9 @@ param(
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+# --- 윈도우 PowerShell 기본 파란색 프로그레스바 팝업 끄기 (텍스트 깨짐 및 커서 겹침 방지)
+$ProgressPreference = 'SilentlyContinue'
+
 # ==============================================================================
 # 헬퍼 함수
 # ==============================================================================
