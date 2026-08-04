@@ -291,28 +291,11 @@ if ($isLocalMode) {
 }
 
 # ==============================================================================
-# [Step 0-1] 순정 Windows 감지: WSL2 필수 선택적 기능 활성화 및 가상화(BIOS) 점검
+# [Step 0-1] 순정 Windows 감지: WSL2 필수 선택적 기능 활성화 및 점검
 # ==============================================================================
 $_wslResumeFlagFile = "$env:TEMP\.devtools2_wsl_resume"
 
-# 1. 메인보드(BIOS/UEFI) CPU 가상화(VT-x / AMD-V) 활성화 여부 사전 검사
-$biosVirtDisabled = $false
-try {
-    $proc = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($null -ne $proc -and $proc.PSObject.Properties['VirtualizationFirmwareEnabled']) {
-        if ($proc.VirtualizationFirmwareEnabled -eq $false) {
-            $biosVirtDisabled = $true
-        }
-    }
-} catch {}
-
-if ($biosVirtDisabled) {
-    Show-BiosVirtualizationHelp
-    Pause-Script
-    exit 1
-}
-
-# 2. Windows 필수 선택적 기능 상태 확인 헬퍼
+# 1. Windows 필수 선택적 기능 상태 확인 헬퍼
 function Get-IsFeatureEnabled {
     param([string]$FeatureName)
     try {

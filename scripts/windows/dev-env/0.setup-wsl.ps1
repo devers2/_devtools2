@@ -126,23 +126,6 @@ Write-Host "====================================================================
 $wslName = "devtools2"
 $devtools2File = Join-Path $env:USERPROFILE ".devtools2"
 
-# 메인보드(BIOS/UEFI) CPU 가상화 활성화 여부 사전 점검
-$biosVirtDisabled = $false
-try {
-    $proc = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($null -ne $proc -and $proc.PSObject.Properties['VirtualizationFirmwareEnabled']) {
-        if ($proc.VirtualizationFirmwareEnabled -eq $false) {
-            $biosVirtDisabled = $true
-        }
-    }
-} catch {}
-
-if ($biosVirtDisabled) {
-    Show-BiosVirtualizationHelp
-    Pause-Script
-    exit 1
-}
-
 # ==============================================================================
 # [Step 1] WSL2 가상 머신 상태 확인 및 설치 진행
 # ==============================================================================
