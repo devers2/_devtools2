@@ -80,12 +80,20 @@ fi
 # 3. SFTP 마운트 설정 (common-setup.sh: setup_rclone_sftp_mount)
 #    대상 서버: namupia@aiplus.im:222
 # ==============================================================================
+_SFTP_REBOOT_NEEDED=false
 setup_rclone_sftp_mount \
     "namupia" \
     "aiplus.im" \
     "222" \
     "$INPUT_REMOTE_MOUNT_PATH" \
-    "$INPUT_LOCAL_MOUNT_PATH" || echo "⚠️  SFTP 마운트 설정 실패 또는 WSL 재시작 필요. 나머지 설정을 계속 진행합니다."
+    "$INPUT_LOCAL_MOUNT_PATH" || {
+        _exit_code=$?
+        if [ "$_exit_code" -eq 2 ]; then
+            _SFTP_REBOOT_NEEDED=true
+        else
+            echo "⚠️  SFTP 마운트 설정 실패. 나머지 설정을 계속 진행합니다."
+        fi
+    }
 
 # ==============================================================================
 # 4. Python 가상환경(venv_math) 생성 및 패키지 설치
@@ -304,3 +312,17 @@ echo "  ────────────────────────
 echo "  ⚠️  주의: source venv_math/bin/activate 없이 nvim 실행 시"
 echo "     시스템 Python($(python3 --version 2>&1 | grep -oP '3\.[0-9]+\.[0-9]+' || echo '시스템 버전'))을 사용해 패키지를 찾지 못합니다."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+if [ "$_SFTP_REBOOT_NEEDED" = true ]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "⚠️  [필수 조치] WSL2 systemd 활성화를 위한 설정(/etc/wsl.conf)이 적용되었습니다."
+    echo "   rclone SFTP 마운트를 적용하려면 아래 순서대로 실행해 주세요:"
+    echo ""
+    echo "   1. Windows PowerShell(또는 cmd)에서 다음 명령어로 WSL을 종료합니다:"
+    echo "      wsl --shutdown"
+    echo ""
+    echo "   2. WSL2 터미널을 다시 열고 setup-aiplus.sh를 재실행하면 SFTP 마운트가 완성됩니다:"
+    echo "      $DEVTOOLS2/scripts/linux/setup-projects/setup-aiplus.sh"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+fi
