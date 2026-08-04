@@ -112,8 +112,12 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $isAdmin) {
     Write-Warn "WSL 설치에는 관리자 권한이 필요합니다."
     Write-Warn "관리자 권한으로 스크립트를 재실행합니다..."
-    Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
-    exit
+    if ([string]::IsNullOrEmpty($PSCommandPath)) {
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/0.setup-wsl.ps1 | iex`"" -Verb RunAs
+    } else {
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+    }
+    return
 }
 
 Clear-Host
@@ -424,4 +428,5 @@ Write-Host ""
 }
 
 # 스크립트 정상 종료 (부모 스크립트의 $LASTEXITCODE 오판 방지)
-exit 0
+$global:LASTEXITCODE = 0
+return 0

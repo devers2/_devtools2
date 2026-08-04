@@ -384,25 +384,12 @@ $_psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 
 
 if ($isLocalMode) {
     & $_psExe -NoProfile -ExecutionPolicy Bypass -File $setupWslScript
-    $_wslExitCode = $LASTEXITCODE
 } else {
     Write-Info "GitHub에서 WSL 설치 스크립트 다운로드 중..."
     $rawWslScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/0.setup-wsl.ps1"
-
-    # temp 파일로 저장 후 subprocess 실행
-    # ScriptBlock / Invoke-Expression 방식은 스크립트 내 `exit`이 부모 프로세스를 종료하는 문제가 있음
-    $_wslTempScript = [System.IO.Path]::GetTempFileName() + ".ps1"
-    Set-Content -Path $_wslTempScript -Value $rawWslScript -Encoding UTF8
-    & $_psExe -NoProfile -ExecutionPolicy Bypass -File $_wslTempScript
-    $_wslExitCode = $LASTEXITCODE
-    Remove-Item $_wslTempScript -Force -ErrorAction SilentlyContinue
-}
-
-# 설치 중 에러가 발생한 경우 예외 처리 ($null 오판 방지: $null -ne 0 은 $true 이므로 명시 체크)
-if ($null -ne $_wslExitCode -and $_wslExitCode -ne 0) {
-    Write-Fail "WSL 설치 스크립트 실행 중 에러가 발생했습니다 (종료 코드: $_wslExitCode)."
-    Pause-Script
-    exit 1
+    # temp 파일 없이 메모리에서 직접 실행
+    $global:LASTEXITCODE = 0
+    Invoke-Expression $rawWslScript
 }
 
 # 대상 WSL2 배포판 이름은 'devtools2'로 고정입니다.
@@ -773,7 +760,7 @@ if ($skipVsCodeLink) {
 
             # [2] WSL Remote 확장 설치 (WSL Remote Server에 별도 설치 필요)
             Write-Info "WSL Remote: VSCode 확장 프로그램 설치 중 (WSL 내부 bash 실행)..."
-            $wslExtScript = 'VSCODE_BIN=""; command -v code >/dev/null 2>&1 && VSCODE_BIN="code"; [ -z "$VSCODE_BIN" ] && command -v code.cmd >/dev/null 2>&1 && VSCODE_BIN="code.cmd"; [ -z "$VSCODE_BIN" ] && { echo "[WSL-SKIP] code CLI not found"; exit 0; }; EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"; [ ! -f "$EXT_LIST" ] && { echo "[WSL-SKIP] extensions.txt not found"; exit 0; }; _INST=$("$VSCODE_BIN" --list-extensions 2>/dev/null | tr [:upper:] [:lower:]); _cnt=0; _fail=0; while IFS= read -r line || [ -n "$line" ]; do ext=$(echo "$line" | tr -d \r | sed "s/#.*//" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"); [ -z "$ext" ] && continue; ext_lower=$(echo "$ext" | tr [:upper:] [:lower:]); if echo "$_INST" | grep -qF "$ext_lower"; then echo "[SKIP] $ext"; else echo "[Install] $ext"; ok=0; for i in 1 2 3; do "$VSCODE_BIN" --install-extension "$ext" --force >/dev/null 2>&1 && ok=1 && break; sleep 2; done; if [ $ok -eq 1 ]; then echo "[OK] $ext"; _cnt=$((_cnt+1)); else echo "[FAIL] $ext"; _fail=$((_fail+1)); fi; fi; done < "$EXT_LIST"; echo "[WSL Done] New: ${_cnt}, Failed: ${_fail}"'
+            $wslExtScript = 'VSCODE_BIN=""; command -v code >/dev/null 2>&1 && VSCODE_BIN="code"; [ -z "$VSCODE_BIN" ] && command -v code.cmd >/dev/null 2>&1 && VSCODE_BIN="code.cmd"; [ -z "$VSCODE_BIN" ] && { echo "[WSL-SKIP] code CLI not found"; exit 0; }; EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"; [ ! -f "$EXT_LIST" ] && { echo "[WSL-SKIP] extensions.txt not found"; exit 0; }; _INST=$("$VSCODE_BIN" --list-extensions 2>/dev/null </dev/null | tr [:upper:] [:lower:]); _cnt=0; _fail=0; while IFS= read -r line || [ -n "$line" ]; do ext=$(echo "$line" | tr -d \r | sed "s/#.*//" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"); [ -z "$ext" ] && continue; ext_lower=$(echo "$ext" | tr [:upper:] [:lower:]); if echo "$_INST" | grep -qF "$ext_lower"; then echo "[SKIP] $ext"; else echo "[Install] $ext"; ok=0; for i in 1 2 3; do "$VSCODE_BIN" --install-extension "$ext" --force </dev/null >/dev/null 2>&1 && ok=1 && break; sleep 2; done; if [ $ok -eq 1 ]; then echo "[OK] $ext"; _cnt=$((_cnt+1)); else echo "[FAIL] $ext"; _fail=$((_fail+1)); fi; fi; done < "$EXT_LIST"; echo "[WSL Done] New: ${_cnt}, Failed: ${_fail}"'
             try {
                 wsl -d $wslDistro -- bash -c "DEVTOOLS2='/var/opt/_devtools2'; $wslExtScript" 2>$null
             } catch {

@@ -668,7 +668,7 @@ VSCODE_EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"
 if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
     echo ""
     echo "   📋 VSCode 확장 프로그램 설치 중 (extensions.txt 기반)..."
-    _INSTALLED_EXTS=$(code --list-extensions 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
+    _INSTALLED_EXTS=$(code --list-extensions 2>/dev/null </dev/null | tr '[:upper:]' '[:lower:]' || echo "")
     _vscode_install_count=0
     _vscode_skip_count=0
     _vscode_fail_count=0
@@ -681,11 +681,19 @@ if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
             _vscode_skip_count=$((_vscode_skip_count + 1))
         else
             echo -n "   📥 [설치] $ext ..."
-            if code --install-extension "$ext" --force >/dev/null 2>&1; then
+            _ok=0
+            for _retry in 1 2 3; do
+                if code --install-extension "$ext" --force </dev/null >/dev/null 2>&1; then
+                    _ok=1
+                    break
+                fi
+                sleep 2
+            done
+            if [ "$_ok" -eq 1 ]; then
                 echo " ✅"
                 _vscode_install_count=$((_vscode_install_count + 1))
             else
-                echo " ⚠️  실패"
+                echo " ⚠️  실패 (3회 시도)"
                 _vscode_fail_count=$((_vscode_fail_count + 1))
             fi
         fi
