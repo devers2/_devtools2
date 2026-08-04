@@ -389,15 +389,13 @@ if ($isLocalMode) {
     Write-Info "GitHub에서 WSL 설치 스크립트 다운로드 중..."
     $rawWslScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/0.setup-wsl.ps1"
 
-    # ScriptBlock으로 실행 (Invoke-Expression 시 `exit`가 부모 프로세스를 종료하는 문제 방지)
-    $wslScriptBlock = [scriptblock]::Create($rawWslScript)
-    try {
-        & $wslScriptBlock
-        $_wslExitCode = 0
-    } catch {
-        Write-Warn "WSL 스크립트 실행 중 예외: $_"
-        $_wslExitCode = 1
-    }
+    # temp 파일로 저장 후 subprocess 실행
+    # ScriptBlock / Invoke-Expression 방식은 스크립트 내 `exit`이 부모 프로세스를 종료하는 문제가 있음
+    $_wslTempScript = [System.IO.Path]::GetTempFileName() + ".ps1"
+    Set-Content -Path $_wslTempScript -Value $rawWslScript -Encoding UTF8
+    & $_psExe -NoProfile -ExecutionPolicy Bypass -File $_wslTempScript
+    $_wslExitCode = $LASTEXITCODE
+    Remove-Item $_wslTempScript -Force -ErrorAction SilentlyContinue
 }
 
 # 설치 중 에러가 발생한 경우 예외 처리 ($null 오판 방지: $null -ne 0 은 $true 이므로 명시 체크)
