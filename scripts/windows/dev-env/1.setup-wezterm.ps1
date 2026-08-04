@@ -319,7 +319,6 @@ if ($doInstall) {
 
             Invoke-WebRequest -Uri $nightlyUrl -OutFile $nightlyInstaller -ErrorAction Stop
             $ProgressPreference = $prevProgress
-            Unblock-File -Path $nightlyInstaller -ErrorAction SilentlyContinue
 
             Write-Host "  WezTerm $weztermVersionLabel 설치 중..." -ForegroundColor White
 
@@ -634,7 +633,6 @@ if (Test-Path $ahkExe) {
         }
 
         if (Test-Path $ahkExe) {
-            Unblock-File -Path $ahkExe -ErrorAction SilentlyContinue
             Write-Success "AutoHotkey v2 포터블 배포 완료: $ahkExe"
 
             # ── 사용자 레지스트리(HKCU)에 .ahk 확장자 자동 연결 등록 (오프라인 환경/더블클릭 대비) ──
