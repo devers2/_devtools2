@@ -344,25 +344,32 @@ PYEOF
     # ── 5. rclone 리모트 설정 생성 ────────────────────────────────────────────
     local SERVICE_NAME="rclone-${ACTUAL_USERNAME}@${ACTUAL_HOST}_${ACTUAL_PORT}"
 
-    if "$RCLONE_BIN" config show "$SERVICE_NAME" >/dev/null 2>&1; then
+    # ── 6. rclone.conf 경로 결정 (config create 와 서비스 파일이 동일 경로 사용하도록 먼저 결정)
+    local RCLONE_CONF="${DEVTOOLS2:-}/modules/rclone/.config/rclone.conf"
+    if [ ! -f "$RCLONE_CONF" ]; then
+        RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
+    fi
+    # rclone.conf 디렉터리가 없으면 생성
+    mkdir -p "$(dirname "$RCLONE_CONF")"
+
+    if "$RCLONE_BIN" config show "$SERVICE_NAME" --config "$RCLONE_CONF" >/dev/null 2>&1; then
         echo "⚠️  기존 Rclone 리모트 ($SERVICE_NAME) 설정 삭제 후 재생성합니다..."
-        "$RCLONE_BIN" config delete "$SERVICE_NAME" 2>/dev/null || true
+        "$RCLONE_BIN" config delete "$SERVICE_NAME" --config "$RCLONE_CONF" 2>/dev/null || true
     fi
 
     echo "⏳ Rclone SFTP 리모트 ($SERVICE_NAME) 설정 중..."
     local RCLONE_ARGS
-    RCLONE_ARGS=(config create "$SERVICE_NAME" sftp host "$ACTUAL_HOST" user "$ACTUAL_USERNAME" port "$ACTUAL_PORT")
+    RCLONE_ARGS=(config create "$SERVICE_NAME" sftp host "$ACTUAL_HOST" user "$ACTUAL_USERNAME" port "$ACTUAL_PORT" --config "$RCLONE_CONF")
     if [ -n "$SERVER_PASS" ]; then
-        RCLONE_ARGS+=(pass "$SERVER_PASS")
+        # rclone pass 파라미터는 rclone obscure 로 난독화된 값을 요구함 (평문 불가)
+        local OBSCURED_PASS
+        OBSCURED_PASS=$("$RCLONE_BIN" obscure "$SERVER_PASS" 2>/dev/null || echo "")
+        if [ -n "$OBSCURED_PASS" ]; then
+            RCLONE_ARGS+=(pass "$OBSCURED_PASS")
+        fi
     fi
     "$RCLONE_BIN" "${RCLONE_ARGS[@]}" >/dev/null 2>&1
-    echo "✅ Rclone 리모트 설정 완료!"
-
-    # ── 6. rclone.conf 경로 결정 ──────────────────────────────────────────────
-    local RCLONE_CONF="${DEVTOOLS2:-}/modules/rclone/.config/rclone.conf"
-    if [ ! -f "$RCLONE_CONF" ] && [ -f "$HOME/.config/rclone/rclone.conf" ]; then
-        RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
-    fi
+    echo "✅ Rclone 리모트 설정 완료! (config: $RCLONE_CONF)"
 
     # ── 7. systemd user 서비스 파일 생성 및 등록 ─────────────────────────────
     local SERVICE_FILE="$HOME/.config/systemd/user/${SERVICE_NAME}.service"
