@@ -72,7 +72,7 @@ function Wait-ProcessWithSpinner {
         [string]$Message
     )
 
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+    $spinner = @([char]0x280B, [char]0x2819, [char]0x2839, [char]0x2838, [char]0x283C, [char]0x2834, [char]0x2826, [char]0x2827, [char]0x2807, [char]0x280F)
     $spinIdx = 0
     while (-not $Process.HasExited) {
         $char = $spinner[$spinIdx]
@@ -189,8 +189,7 @@ try {
         $wgList = winget list --id ZedIndustries.Zed 2>$null
         if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "Zed") { $zedInstalled = $true }
     }
-}
-catch {}
+} catch {}
 
 if ($zedInstalled) {
     Write-Skip "Zed 에디터가 이미 설치되어 있습니다."

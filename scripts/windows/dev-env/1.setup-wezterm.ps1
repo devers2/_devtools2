@@ -469,9 +469,11 @@ if ($hasWslFonts) {
         if (Test-Path $destPath) {
             Write-Skip "폰트 이미 설치됨: $fontName"
         } else {
-            # Windows 경로를 WSL 경로로 변환하여 cp 명령 실행
-            $winTempPath = $tempFontDir.Replace("\", "/").Replace("C:", "/mnt/c").Replace("c:", "/mnt/c")
-            wsl -d $WslDistro -- bash -c "DEVTOOLS2=`${DEVTOOLS2:-/var/opt/_devtools2}; src=`"`$DEVTOOLS2/assets/fonts/$fontName`"; [ -f `"`$src`" ] && cp `"`$src`" `"$winTempPath/$fontName`"" 2>$null
+            # WSL2 UNC 경로에서 윈도우 임시 폴더로 폰트 직접 복사
+            $wslFontFile = "\\wsl.localhost\$WslDistro\var\opt\_devtools2\assets\fonts\$fontName"
+            if (Test-Path $wslFontFile) {
+                Copy-Item -Path $wslFontFile -Destination $tempFontDir -Force 2>$null
+            }
 
             $copiedFile = Join-Path $tempFontDir $fontName
             if (Test-Path $copiedFile) {

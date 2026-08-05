@@ -573,16 +573,22 @@ $userChoseZed = $installZedInput -match '^[Yy]'
 Write-Step "[Step 3] WSL2 개발 환경 빌드 및 패키지 일괄 설치"
 
 Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
-wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh; _r=\$?; rm -f /tmp/_dt2_1.sh; exit \$_r"
-if ($LASTEXITCODE -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
+wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh"
+$envExit = $LASTEXITCODE
+wsl -d $wslDistro -- rm -f /tmp/_dt2_1.sh 2>$null
+if ($envExit -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, VSCode 확장)"
-wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh; _r=\$?; rm -f /tmp/_dt2_2.sh; exit \$_r"
-if ($LASTEXITCODE -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
+wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh"
+$coreExit = $LASTEXITCODE
+wsl -d $wslDistro -- rm -f /tmp/_dt2_2.sh 2>$null
+if ($coreExit -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
-wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh; _r=\$?; rm -f /tmp/_dt2_3.sh; exit \$_r"
-if ($LASTEXITCODE -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
+wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh"
+$cliExit = $LASTEXITCODE
+wsl -d $wslDistro -- rm -f /tmp/_dt2_3.sh 2>$null
+if ($cliExit -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
 
 
 Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
@@ -759,9 +765,9 @@ if ($skipVsCodeLink) {
 
             # [2] WSL Remote 확장 설치 (WSL Remote Server에 별도 설치 필요)
             Write-Info "WSL Remote: VSCode 확장 프로그램 설치 중 (WSL 내부 bash 실행)..."
-            $wslExtScript = 'VSCODE_BIN=""; command -v code >/dev/null 2>&1 && VSCODE_BIN="code"; [ -z "$VSCODE_BIN" ] && command -v code.cmd >/dev/null 2>&1 && VSCODE_BIN="code.cmd"; [ -z "$VSCODE_BIN" ] && { echo "[WSL-SKIP] code CLI not found"; exit 0; }; EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"; [ ! -f "$EXT_LIST" ] && { echo "[WSL-SKIP] extensions.txt not found"; exit 0; }; _INST=$("$VSCODE_BIN" --list-extensions 2>/dev/null </dev/null | tr [:upper:] [:lower:]); _cnt=0; _fail=0; while IFS= read -r line || [ -n "$line" ]; do ext=$(echo "$line" | tr -d \r | sed "s/#.*//" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"); [ -z "$ext" ] && continue; ext_lower=$(echo "$ext" | tr [:upper:] [:lower:]); if echo "$_INST" | grep -qF "$ext_lower"; then echo "[SKIP] $ext"; else echo "[Install] $ext"; ok=0; for i in 1 2 3; do "$VSCODE_BIN" --install-extension "$ext" --force </dev/null >/dev/null 2>&1 && ok=1 && break; sleep 2; done; if [ $ok -eq 1 ]; then echo "[OK] $ext"; _cnt=$((_cnt+1)); else echo "[FAIL] $ext"; _fail=$((_fail+1)); fi; fi; done < "$EXT_LIST"; echo "[WSL Done] New: ${_cnt}, Failed: ${_fail}"'
+            $wslExtScript = 'DEVTOOLS2="/var/opt/_devtools2"; VSCODE_BIN=""; command -v code >/dev/null 2>&1 && VSCODE_BIN="code"; [ -z "$VSCODE_BIN" ] && command -v code.cmd >/dev/null 2>&1 && VSCODE_BIN="code.cmd"; [ -z "$VSCODE_BIN" ] && { echo "[WSL-SKIP] code CLI not found"; exit 0; }; EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"; [ ! -f "$EXT_LIST" ] && { echo "[WSL-SKIP] extensions.txt not found"; exit 0; }; _INST=$("$VSCODE_BIN" --list-extensions 2>/dev/null </dev/null | tr [:upper:] [:lower:]); _cnt=0; _fail=0; while IFS= read -r line || [ -n "$line" ]; do ext=$(echo "$line" | tr -d \r | sed "s/#.*//" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"); [ -z "$ext" ] && continue; ext_lower=$(echo "$ext" | tr [:upper:] [:lower:]); if echo "$_INST" | grep -qF "$ext_lower"; then echo "[SKIP] $ext"; else echo "[Install] $ext"; ok=0; for i in 1 2 3; do "$VSCODE_BIN" --install-extension "$ext" --force </dev/null >/dev/null 2>&1 && ok=1 && break; sleep 2; done; if [ $ok -eq 1 ]; then echo "[OK] $ext"; _cnt=$((_cnt+1)); else echo "[FAIL] $ext"; _fail=$((_fail+1)); fi; fi; done < "$EXT_LIST"; echo "[WSL Done] New: ${_cnt}, Failed: ${_fail}"'
             try {
-                wsl -d $wslDistro -- bash -c "DEVTOOLS2='/var/opt/_devtools2'; $wslExtScript" 2>$null
+                wsl -d $wslDistro -- bash -c $wslExtScript 2>$null
             } catch {
                 Write-Warn "WSL Remote 확장 설치 중 오류: $_"
             }
