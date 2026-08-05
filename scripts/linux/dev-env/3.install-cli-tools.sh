@@ -808,15 +808,29 @@ sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/loc
 sudo dpkg --configure -a 2>/dev/null
 
 echo -n "   - apt 패키지 인덱스 업데이트 중..."
-sudo apt-get update -qq &
-show_spinner $!
+(sudo apt-get update -qq >/tmp/_apt_update.log 2>&1) &
+_apt_upd_pid=$!
+show_spinner "$_apt_upd_pid"
+wait "$_apt_upd_pid" 2>/dev/null || true
+rm -f /tmp/_apt_update.log 2>/dev/null
 echo " 완료"
 
 echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli, xclip, wl-clipboard) 설치 중..."
-sudo apt-get install -y build-essential libreadline-dev git trash-cli xclip wl-clipboard -qq &
-show_spinner $!
-echo " 완료"
-print_done "apt 패키지 설치 완료"
+(sudo apt-get install -y build-essential libreadline-dev git trash-cli xclip wl-clipboard -qq >/tmp/_apt_install.log 2>&1) &
+_apt_inst_pid=$!
+show_spinner "$_apt_inst_pid"
+_apt_inst_ec=0
+wait "$_apt_inst_pid" 2>/dev/null || _apt_inst_ec=$?
+if [ "$_apt_inst_ec" -eq 0 ]; then
+    rm -f /tmp/_apt_install.log 2>/dev/null
+    echo " 완료"
+    print_done "apt 패키지 설치 완료"
+else
+    echo " ⚠️  실패"
+    print_error "apt 패키지 설치 중 오류가 발생했습니다. 상세 로그:"
+    cat /tmp/_apt_install.log 2>/dev/null || true
+    rm -f /tmp/_apt_install.log 2>/dev/null
+fi
 echo ""
 
 echo "---------------------------------------------------------------------------"
@@ -832,10 +846,21 @@ cd "$HEREROCKS_DIR"
 export PATH="$HOME/.local/bin:$PATH"
 
 echo -n "   ⚙️ hererocks 구성 중 (Lua 5.1 / Luarocks 최신)..."
-hererocks . -l 5.1 -r latest &
-show_spinner $!
-echo " 완료"
-print_done "hererocks / Lua 환경 구성 완료"
+(hererocks . -l 5.1 -r latest >/tmp/_hererocks_install.log 2>&1) &
+_hero_pid=$!
+show_spinner "$_hero_pid"
+_hero_ec=0
+wait "$_hero_pid" 2>/dev/null || _hero_ec=$?
+if [ "$_hero_ec" -eq 0 ]; then
+    rm -f /tmp/_hererocks_install.log 2>/dev/null
+    echo " 완료"
+    print_done "hererocks / Lua 환경 구성 완료"
+else
+    echo " ⚠️  실패"
+    print_error "hererocks 구성 중 오류가 발생했습니다. 상세 로그:"
+    cat /tmp/_hererocks_install.log 2>/dev/null || true
+    rm -f /tmp/_hererocks_install.log 2>/dev/null
+fi
 echo ""
 
 echo "---------------------------------------------------------------------------"

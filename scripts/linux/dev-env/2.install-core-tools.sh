@@ -667,8 +667,16 @@ fi
 VSCODE_EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"
 if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
     echo ""
+    echo -n "   📋 VSCode 기존 확장 목록 조회 중..."
+    (code --list-extensions 2>/dev/null </dev/null > /tmp/_vscode_installed.tmp) &
+    _ext_list_pid=$!
+    show_spinner "$_ext_list_pid"
+    wait "$_ext_list_pid" 2>/dev/null || true
+    echo " 완료"
+    _INSTALLED_EXTS=$(tr '[:upper:]' '[:lower:]' < /tmp/_vscode_installed.tmp 2>/dev/null || echo "")
+    rm -f /tmp/_vscode_installed.tmp 2>/dev/null
+
     echo "   📋 VSCode 확장 프로그램 설치 중 (extensions.txt 기반)..."
-    _INSTALLED_EXTS=$(code --list-extensions 2>/dev/null </dev/null | tr '[:upper:]' '[:lower:]' || echo "")
     _vscode_install_count=0
     _vscode_skip_count=0
     _vscode_fail_count=0
@@ -677,13 +685,18 @@ if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
         [ -z "$ext" ] && continue
         ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
         if echo "$_INSTALLED_EXTS" | grep -qF "$ext_lower"; then
-            echo "   ⏭️  [SKIP] $ext"
+            echo "   ⏭️  [건너뜀] $ext (이미 설치됨)"
             _vscode_skip_count=$((_vscode_skip_count + 1))
         else
             echo -n "   📥 [설치] $ext ..."
             _ok=0
             for _retry in 1 2 3; do
-                if code --install-extension "$ext" --force </dev/null >/dev/null 2>&1; then
+                (code --install-extension "$ext" --force </dev/null >/dev/null 2>&1) &
+                _ext_pid=$!
+                show_spinner "$_ext_pid"
+                _ext_ec=0
+                wait "$_ext_pid" 2>/dev/null || _ext_ec=$?
+                if [ "$_ext_ec" -eq 0 ]; then
                     _ok=1
                     break
                 fi

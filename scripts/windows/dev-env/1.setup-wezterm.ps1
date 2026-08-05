@@ -36,6 +36,13 @@ function Write-Step {
     Write-Host $Message -ForegroundColor Cyan
 }
 
+function Write-SubStep {
+    param([string]$Message)
+    Write-Host ""
+    Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
+    Write-Host "  $Message" -ForegroundColor Cyan
+}
+
 function Write-Success {
     param([string]$Message)
     Write-Host "[성공] $Message" -ForegroundColor Green
