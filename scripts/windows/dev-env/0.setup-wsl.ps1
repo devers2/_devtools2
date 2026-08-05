@@ -150,28 +150,41 @@ if (-not (Test-Path $wslExePath)) {
 }
 
 # 2. wsl --version 으로 WSL 엔진 설치 여부 확인
-# "distro 없음"(exit 1) vs "WSL 미설치"(exit 1)을 wsl --list 만으로 구분할 수 없으므로
-# wsl --version 을 먼저 실행해 WSL 엔진이 정상 동작하는지 확인합니다.
-# (wsl --version 은 WSL 엔진이 있으면 exit 0, 없으면 exit 1 을 즉시 반환합니다)
-$versionProc = Start-Process wsl.exe -ArgumentList "--version" -PassThru -Wait -NoNewWindow `
+# (WSL 미설치/인박스 환경에서는 wsl --version 이 무한 대기하거나 오래 멈출 수 있으므로 5초 타임아웃을 적용합니다)
+$versionProc = Start-Process wsl.exe -ArgumentList "--version" -PassThru -NoNewWindow `
     -RedirectStandardOutput "$env:TEMP\wsl_version_check.txt" `
     -RedirectStandardError "$env:TEMP\wsl_version_error.txt" `
     -ErrorAction SilentlyContinue
+
+$vTimeout = 0
+while ($versionProc -and -not $versionProc.HasExited -and $vTimeout -lt 50) { # 5초 (100ms * 50)
+    Start-Sleep -Milliseconds 100
+    $vTimeout++
+}
+
+if ($versionProc -and -not $versionProc.HasExited) {
+    try { $versionProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+}
+
+$isWslEngineInstalled = ($versionProc -and $versionProc.HasExited -and $versionProc.ExitCode -eq 0)
+
 if (Test-Path "$env:TEMP\wsl_version_check.txt") { Remove-Item "$env:TEMP\wsl_version_check.txt" -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$env:TEMP\wsl_version_error.txt") { Remove-Item "$env:TEMP\wsl_version_error.txt" -Force -ErrorAction SilentlyContinue }
 
-$isWslEngineInstalled = ($versionProc -and $versionProc.ExitCode -eq 0)
-
 # 3. WSL 엔진 미설치 → wsl --install --no-distribution 으로 설치
 if (-not $isWslEngineInstalled) {
-    Write-Warn "WSL2 가 설치되어 있지 않습니다. 설치를 진행합니다..."
-    $installProc = Start-Process wsl.exe -ArgumentList "--install --no-distribution" -PassThru -Wait -NoNewWindow -ErrorAction SilentlyContinue
+    Write-Warn "WSL2 구성 요소가 설치되어 있지 않거나 반응하지 않습니다. 설치를 진행합니다..."
+    $installProc = Start-Process wsl.exe -ArgumentList "--install --no-distribution" -PassThru -NoNewWindow -ErrorAction SilentlyContinue
 
     if ($null -eq $installProc) {
         Write-Fail "WSL 설치 프로세스를 시작할 수 없습니다."
         Pause-Script
         exit 1
     }
+
+    $waitSuccess = Wait-WithSpinner -Message "WSL2 구성 요소 다운로드 및 기능 활성화 진행 중" -Condition {
+        return $installProc.HasExited
+    } -MaxTimeoutSeconds 900
 
     if ($installProc.ExitCode -eq 3010) {
         Write-Host ""
@@ -185,8 +198,7 @@ if (-not $isWslEngineInstalled) {
     }
 }
 
-# 4. 배포판 목록 확인 (wsl --list --quiet, 3초 타임아웃)
-# WSL 엔진이 있음이 확인된 상태에서 실행하므로 타임아웃은 업데이트 경고 처리용입니다.
+# 4. 배포판 목록 확인 (wsl --list --quiet, 5초 타임아웃)
 $registeredDistros = @()
 $isUpdateRequired = $false
 
@@ -196,11 +208,11 @@ $listProc = Start-Process wsl.exe -ArgumentList "--list --quiet" -PassThru -NoNe
     -ErrorAction SilentlyContinue
 
 $timeoutCount = 0
-while (-not $listProc.HasExited -and $timeoutCount -lt 20) {
-    Start-Sleep -Milliseconds 150
+while ($listProc -and -not $listProc.HasExited -and $timeoutCount -lt 50) { # 5초 (100ms * 50)
+    Start-Sleep -Milliseconds 100
     $timeoutCount++
 }
-if (-not $listProc.HasExited) {
+if ($listProc -and -not $listProc.HasExited) {
     try { $listProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
 }
 
@@ -228,22 +240,29 @@ if (Test-Path "$env:TEMP\wsl_list_check.txt") {
 # 5. 업데이트 필요 → wsl --update 실행
 if ($isUpdateRequired) {
     Write-Warn "Linux용 Windows 하위 시스템(WSL)의 최신 버전 업데이트가 필요합니다. 업데이트를 진행합니다..."
-    $updateProc = Start-Process wsl.exe -ArgumentList "--update" -PassThru -Wait -NoNewWindow -ErrorAction SilentlyContinue
-    if ($updateProc -and $updateProc.ExitCode -eq 3010) {
-        Write-Host ""
-        Write-Host "===========================================================================" -ForegroundColor Red
-        Write-Host "  ⚠️  WSL 업데이트 적용을 완료하기 위해 시스템 재부팅이 필요합니다." -ForegroundColor Red
-        Write-Host "===========================================================================" -ForegroundColor Red
-        Write-Host "  컴퓨터를 재부팅한 후 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
-        Write-Host "===========================================================================" -ForegroundColor Red
-        Pause-Script
-        exit 3010
+    $updateProc = Start-Process wsl.exe -ArgumentList "--update" -PassThru -NoNewWindow -ErrorAction SilentlyContinue
+    
+    if ($updateProc) {
+        $waitSuccess = Wait-WithSpinner -Message "WSL 패키지 업데이트 진행 중" -Condition {
+            return $updateProc.HasExited
+        } -MaxTimeoutSeconds 600
+
+        if ($updateProc.ExitCode -eq 3010) {
+            Write-Host ""
+            Write-Host "===========================================================================" -ForegroundColor Red
+            Write-Host "  ⚠️  WSL 업데이트 적용을 완료하기 위해 시스템 재부팅이 필요합니다." -ForegroundColor Red
+            Write-Host "===========================================================================" -ForegroundColor Red
+            Write-Host "  컴퓨터를 재부팅한 후 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
+            Write-Host "===========================================================================" -ForegroundColor Red
+            Pause-Script
+            exit 3010
+        }
     }
 
     # 업데이트 완료 후 배포판 목록 재확인
     $listProc2 = Start-Process wsl.exe -ArgumentList "--list --quiet" -PassThru -NoNewWindow `
         -RedirectStandardOutput "$env:TEMP\wsl_list_check.txt" -ErrorAction SilentlyContinue
-    $listProc2 | Wait-Process -Timeout 5 -ErrorAction SilentlyContinue
+    $listProc2 | Wait-Process -Timeout 3 -ErrorAction SilentlyContinue
     if (Test-Path "$env:TEMP\wsl_list_check.txt") {
         $registeredDistros = (Get-Content "$env:TEMP\wsl_list_check.txt" -Raw -ErrorAction SilentlyContinue) `
             -replace "`0", "" -split "`r`n" |
