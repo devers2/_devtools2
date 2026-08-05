@@ -775,11 +775,16 @@ $ahkSetupJob = Start-Job -ScriptBlock {
     }
 
     # devtools2-hotkey.ahk 통합 스크립트 경로 지정
+    # 재부팅 직후 WSL이 아직 기동하지 않은 상태에서도 AHK가 즉시 실행될 수 있도록
+    # 항상 Windows 로컬 경로에 복사해 두고, 바로가기는 로컬 경로를 가리킵니다.
+    # (설치 스크립트 재실행 시 WSL 원본에서 자동으로 덮어씁니다)
     $ahkDest = Join-Path $ahkModuleDir "devtools2-hotkey.ahk"
     $wslAhkRel = "/var/opt/_devtools2/scripts/windows/autohotkey/devtools2-hotkey.ahk"
 
     if (Test-WslFileFast $WslDistro $wslAhkRel) {
-        $ahkDest = "$wslDevtools2Root\scripts\windows\autohotkey\devtools2-hotkey.ahk"
+        # WSL 원본 → Windows 로컬 복사 (재설치 시 자동 갱신)
+        $wslAhkFull = "$wslDevtools2Root\scripts\windows\autohotkey\devtools2-hotkey.ahk"
+        Copy-Item -Path $wslAhkFull -Destination $ahkDest -Force -ErrorAction SilentlyContinue
     } else {
         $ahkSourceLocal = $null
         if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
