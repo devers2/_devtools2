@@ -6,22 +6,15 @@
 #   scripts/linux/dev-env/ 하위의 0~4번 스크립트를 GitHub main 브랜치에서
 #   직접 스트리밍으로 순서대로 자동 실행하여 DevTools2 포터블 개발 환경을 구축합니다.
 #
-# 실행 순서:
-#   0. init-devtools2     : Git 인증 설정 + 저장소 클론 + 그룹/권한 초기화 (sudo)
-#   1. setup-env          : ~/.bashrc 환경 변수 주입
-#      └─ source ~/.bashrc: 이후 스크립트가 환경 변수를 상속받을 수 있도록 로드
-#   2. install-core-tools : Java, Gradle, Python, Node.js, Neovim, Zed, Ghostty 설치
-#   3. install-cli-tools  : fzf, lazygit, ripgrep, fd, ast-grep, apt 패키지, hererocks 설치
-#   4. setup-keyboard     : keyd 설치 + CapsLock 리매핑 설정 (WSL 환경이면 자동 건너뜀)
-#
-# [실행 방식]
-#   - 로컬/온라인 실행 모두 항상 GitHub main 브랜치 최신 서브스크립트를 기준으로 실행합니다.
-#   - bash <(curl -sSfL -H 'Cache-Control: no-cache' "$url") 스트리밍 방식으로
-#     temp 파일 없이, BOM 이슈 없이, 항상 최신 내용으로 직접 실행합니다.
+# ------------------------------------------------------------------------------
+# ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
+# 100% 온라인 전용 스트리밍: 서브스크립트는 bash <(curl -sSfL ...) 방식으로
+# 무조건 GitHub main 원격 raw URL에서 직접 스트리밍 실행합니다.
+# 로컬 파일 실행 분기(IS_LOCAL 등)를 추가하지 마십시오.
+# ------------------------------------------------------------------------------
 #
 # 사용 방법:
 #   bash /path/to/scripts/linux/setup-devtools2.sh
-#   (스크립트 실행 중 sudo 비밀번호 및 Git 인증 정보 입력이 요청될 수 있습니다.)
 # ==============================================================================
 
 set -euo pipefail
