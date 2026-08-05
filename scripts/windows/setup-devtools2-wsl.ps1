@@ -386,7 +386,7 @@ if ($isLocalMode) {
     & $_psExe -NoProfile -ExecutionPolicy Bypass -File $setupWslScript
 } else {
     Write-Info "GitHub에서 WSL 설치 스크립트 다운로드 중..."
-    $rawWslScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/0.setup-wsl.ps1"
+    $rawWslScript = (Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/0.setup-wsl.ps1").TrimStart([char]0xFEFF)
     # temp 파일 없이 메모리에서 직접 실행
     $global:LASTEXITCODE = 0
     Invoke-Expression $rawWslScript
@@ -593,7 +593,7 @@ if ($isLocalMode) {
     & $setupWeztermScript -WslDistro $wslDistro
 } else {
     Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (온라인)"
-    $rawWeztermScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/1.setup-wezterm.ps1"
+    $rawWeztermScript = (Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/1.setup-wezterm.ps1").TrimStart([char]0xFEFF)
     $weztermScriptBlock = [scriptblock]::Create($rawWeztermScript)
     & $weztermScriptBlock -WslDistro $wslDistro
 }
@@ -780,7 +780,7 @@ if ($userChoseZed) {
     if ($isLocalMode) {
         & $setupZedScript -WslDistro $wslDistro
     } else {
-        $rawZedScript = Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/2.setup-zed.ps1"
+        $rawZedScript = (Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/2.setup-zed.ps1").TrimStart([char]0xFEFF)
         $zedScriptBlock = [scriptblock]::Create($rawZedScript)
         & $zedScriptBlock -WslDistro $wslDistro
     }

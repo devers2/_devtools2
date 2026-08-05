@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # WezTerm 설치 및 WSL2 설정 폴더 심볼릭 링크 생성 스크립트 (1.setup-wezterm.ps1)
 #
 # 주요 기능:
@@ -390,7 +390,7 @@ if (Test-Path $sacRegPath) {
             Set-ItemProperty -Path $sacRegPath -Name "VerifiedAndReputablePolicyState" -Value 0 -Force -ErrorAction SilentlyContinue
             $ciTool = "$env:windir\System32\CiTool.exe"
             if (Test-Path $ciTool) {
-                & $ciTool -r 2>$null | Out-Null
+                Start-Process -FilePath $ciTool -ArgumentList "-r" -NoNewWindow -ErrorAction SilentlyContinue
             }
             Write-Success "스마트 앱 컨트롤 비활성화 설정 완료 (VerifiedAndReputablePolicyState = 0)"
         } catch {
