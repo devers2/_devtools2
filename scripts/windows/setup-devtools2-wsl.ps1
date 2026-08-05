@@ -1,21 +1,20 @@
-#==============================================================================
+# ==============================================================================
 # DevTools2 Windows/WSL2 통합 자동 설치 마스터 스크립트 (setup-devtools2-wsl.ps1)
 #
 # 주요 기능:
 #   1. Windows WSL2 가상 머신 생성 및 활성화 (0.setup-wsl.ps1)
-#   2. WSL2 내부로 Linux 초기화 스크립트를 복사 및 실행하여 깃 자격증명 설정 및 클론 진행
+#   2. WSL2 내부로 Linux 초기화 스크립트를 실행하여 깃 자격증명 설정 및 클론 진행
 #   3. WSL2 내부의 환경변수 설정, 핵심 개발 런타임 및 CLI 유틸리티 도구 일괄 자동 설치
 #   4. Windows 호스트용 WezTerm 및 Zed 에디터 자동 설치 및 WSL2 설정 연동
 #
-# [중요] 한글 깨짐 방지 안내 (Encoding Notice):
-#   - 로컬 실행 시: 본 스크립트는 UTF-8(BOM 없음)로 저장되어 있어, 구버전 윈도우 기본
-#     PowerShell 5.1 콘솔에서 직접 로컬 실행할 경우 한글 주석 및 메시지가 깨질 수 있습니다.
-#     로컬 실행 시에는 가급적 PowerShell 7 (pwsh)을 설치한 후 실행하시기 바랍니다.
-#   - 온라인 실행 시: 웹 브라우저나 원격 다운로드 명령(irm | iex 등)을 사용해 온라인에서
-#     실시간으로 실행하는 경우에는 인코딩 다운로드 보정이 적용되어 문제없이 정상 동작합니다.
+# [실행 방식]
+#   - 로컬/온라인 실행 모두 항상 GitHub main 브랜치 최신 서브스크립트를 기준으로 실행합니다.
+#   - PowerShell 서브스크립트: Invoke-WebRequest(바이너리 저장) → pwsh -File → 즉시 삭제
+#     (BOM 없음 보장, param/ExitCode 완벽 지원)
+#   - Linux 서브스크립트: curl | bash 스트리밍 실행
 #
 # 사용 방법:
-#   PowerShell 을 관리자 권한으로 열고 실행:
+#   PowerShell 7 을 관리자 권한으로 열고 실행:
 #   .\setup-devtools2-wsl.ps1
 # ==============================================================================
 
@@ -176,6 +175,46 @@ function Wait-WithSpinner {
     }
 }
 
+# GitHub raw URL에서 PowerShell 스크립트를 바이너리로 다운로드 후 실행하는 헬퍼
+#
+# [설계 원칙]
+# ① 캐시 방지: Cache-Control/Pragma 헤더로 CDN·프록시 캐시를 강제 우회
+#              → 항상 GitHub main 브랜치 최신 내용이 실행됨을 보장
+# ② NoBOM 유지: Invoke-WebRequest -OutFile 은 HTTP 바이너리를 그대로 저장
+#              → BOM 미추가, 다운로드된 원본 그대로 실행
+# ③ PS7/PS5.1 자동 선택: pwsh 설치 여부에 따라 powershell.exe 로 폴백
+#              → 순정 Windows PowerShell 5.1 에서도 정상 동작
+# ④ 임시 파일 즉시 삭제: finally 블록에서 성공/실패 무관하게 항상 정리
+function Invoke-RemotePsScript {
+    param(
+        [string]$Url,
+        [string[]]$Arguments = @()
+    )
+    $fname = [System.IO.Path]::GetFileName($Url)
+    $tmp = Join-Path $env:TEMP "_dt2_$fname"
+    try {
+        # ① 캐시 방지 헤더 포함하여 항상 신선한 스크립트 다운로드 (② NoBOM 그대로 저장)
+        $headers = @{
+            'Cache-Control' = 'no-cache, no-store, must-revalidate'
+            'Pragma'        = 'no-cache'
+        }
+        Invoke-WebRequest -Uri $Url -OutFile $tmp -UseBasicParsing -Headers $headers -ErrorAction Stop
+
+        # ③ PS7(pwsh) 우선, 미설치 시 PS5.1(powershell.exe) 폴백
+        $psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell.exe' }
+
+        if ($Arguments.Count -gt 0) {
+            & $psExe -NoProfile -ExecutionPolicy Bypass -File $tmp @Arguments
+        } else {
+            & $psExe -NoProfile -ExecutionPolicy Bypass -File $tmp
+        }
+        return $LASTEXITCODE
+    } finally {
+        # ④ 임시 파일 즉시 삭제
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # ==============================================================================
 # [Step 0] 관리자 권한 확인 및 재실행
 # ==============================================================================
@@ -201,7 +240,7 @@ if (-not $isAdmin) {
         exit
     } else {
         # ── 로컬 파일 실행 모드 ────────────────────────────────────────────────
-        # 파일을 디스크에서 읽으므로 UTF-8(BOM 없음) 처리를 위해 반드시 PowerShell 7 필요
+        # PS7(pwsh) 또는 순정 PS5.1(powershell.exe) 모두 지원
         if ($isStorePwsh) {
             # Store 버전 pwsh는 -Verb RunAs 차단됨 → 사용자에게 수동 실행 안내
             Write-Host ""
@@ -233,6 +272,15 @@ Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🌟 DevTools2 Windows & WSL2 통합 설치 마스터 자동화" -ForegroundColor DarkCyan
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
+
+# 로컬 파일 실행 감지 안내
+if (-not [string]::IsNullOrEmpty($PSCommandPath)) {
+    Write-Host ""
+    Write-Host "  [안내] 로컬 파일 실행이 감지되었습니다." -ForegroundColor DarkYellow
+    Write-Host "         서브스크립트는 로컬 파일을 사용하지 않고, 항상 GitHub main 브랜치" -ForegroundColor DarkYellow
+    Write-Host "         최신 버전을 온라인에서 직접 다운로드하여 실행합니다." -ForegroundColor DarkYellow
+    Write-Host ""
+}
 
 # ==============================================================================
 # [사전 정리] AutoHotkey 프로세스 종료 및 구형 Startup 항목 제거
@@ -269,26 +317,12 @@ Get-ChildItem -Path $_startupDir -Filter "*.lnk" -ErrorAction SilentlyContinue |
 }
 Write-Info "AutoHotkey Startup 항목 사전 정리 완료"
 
-$isLocalMode = $false
-if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-    $BaseDir = $PSScriptRoot
-    $ToolsDir = Join-Path $BaseDir "dev-env"
+# 서브스크립트 GitHub raw URL 기준 상수
+# 로컬/온라인 실행 여부와 무관하게 항상 GitHub main 최신 버전 기준으로 실행됩니다.
+$RAW_WIN   = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env"
+$RAW_LINUX = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
 
-    # 로컬 하위 스크립트 경로 존재 여부 점검 (로컬 모드/온라인 모드 자동 판정)
-    $setupWslScript = Join-Path $ToolsDir "0.setup-wsl.ps1"
-    $setupWeztermScript = Join-Path $ToolsDir "1.setup-wezterm.ps1"
-    $setupZedScript = Join-Path $ToolsDir "2.setup-zed.ps1"
-
-    if ((Test-Path $setupWslScript) -and (Test-Path $setupWeztermScript) -and (Test-Path $setupZedScript)) {
-        $isLocalMode = $true
-    }
-}
-
-if ($isLocalMode) {
-    Write-Info "로컬 스크립트가 감지되었습니다. [로컬 오프라인 모드]로 설치를 진행합니다."
-} else {
-    Write-Warn "로컬 스크립트가 존재하지 않거나 원격 실행 중입니다. GitHub 공개 저장소에서 다운로드하는 [온라인 원격 모드]로 설치를 진행합니다."
-}
+Write-Info "서브스크립트는 항상 GitHub main 브랜치 최신 버전으로 실행됩니다. (캐시 우회 포함)"
 
 # ==============================================================================
 # [Step 0-1] 순정 Windows 감지: WSL2 필수 선택적 기능 활성화 및 점검
@@ -378,19 +412,8 @@ if (Test-Path $_wslResumeFlagFile) {
 # ==============================================================================
 Write-Step "[Step 1] WSL2 가상 머신 인스턴스 생성"
 
-# 하위 스크립트 실행기: pwsh(PS7) 우선, 없으면 powershell.exe(PS5) 폴백
-# UTF-8 BOM 없는 파일을 PS7에서 실행해야 브레일 스피너 등 유니코드 문자 파싱 오류를 방지할 수 있음
-$_psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell.exe' }
-
-if ($isLocalMode) {
-    & $_psExe -NoProfile -ExecutionPolicy Bypass -File $setupWslScript
-} else {
-    Write-Info "GitHub에서 WSL 설치 스크립트 다운로드 중..."
-    $rawWslScript = (Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/0.setup-wsl.ps1").TrimStart([char]0xFEFF)
-    # temp 파일 없이 메모리에서 직접 실행
-    $global:LASTEXITCODE = 0
-    Invoke-Expression $rawWslScript
-}
+Write-Info "GitHub에서 WSL 설치 스크립트를 다운로드하여 실행합니다..."
+Invoke-RemotePsScript -Url "$RAW_WIN/0.setup-wsl.ps1"
 
 # 대상 WSL2 배포판 이름은 'devtools2'로 고정입니다.
 $wslDistro = "devtools2"
@@ -462,16 +485,9 @@ while ($true) {
 # ── 비밀번호와 스크립트를 분리 실행: sudo 인증 캐시 문제로 비밀번호가 bash stdin으로 노출되는 것 방지
 # sudo -k 로 캐시를 초기화한 뒤 스크립트를 WSL 임시 파일로 먼저 저장하고, 별도로 sudo -S 실행
 Write-SubStep "▶ WSL2 저장소 초기화 및 Git 클론 실행 (0.init-devtools2.sh)"
-$RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
 $wslTmpScript = "/tmp/_dt2_init.sh"
 
-if ($isLocalMode) {
-    $localInitScriptWin = Join-Path $PSScriptRoot "..\linux\dev-env\0.init-devtools2.sh"
-    $wslInitScriptPath = (wsl -d $wslDistro -- wslpath -u "$localInitScriptWin").Trim()
-    wsl -d $wslDistro -- bash -c "cp '$wslInitScriptPath' $wslTmpScript && chmod +x $wslTmpScript"
-} else {
-    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/0.init-devtools2.sh' -o $wslTmpScript && chmod +x $wslTmpScript"
-}
+wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/0.init-devtools2.sh' -o $wslTmpScript && chmod +x $wslTmpScript"
 
 # sudo -k 로 캐시 초기화 후 비밀번호 stdin → sudo -S bash /tmp/script 실행 (비밀번호가 bash stdin으로 유입되지 않음)
 wsl -d $wslDistro -- bash -c "sudo -k; cat /tmp/.wsl_pw_tmp | sudo -S bash $wslTmpScript; rm -f $wslTmpScript"
@@ -546,36 +562,16 @@ $userChoseZed = $installZedInput -match '^[Yy]'
 # ==============================================================================
 Write-Step "[Step 3] WSL2 개발 환경 빌드 및 패키지 일괄 설치"
 
-$RAW_BASE = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
-
 Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
-if ($isLocalMode) {
-    $localScript1Win = Join-Path $PSScriptRoot "..\linux\dev-env\1.setup-env.sh"
-    $wslScript1Path = (wsl -d $wslDistro -- wslpath -u "$localScript1Win").Trim()
-    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l '$wslScript1Path'"
-} else {
-    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh; _r=$?; rm -f /tmp/_dt2_1.sh; exit $_r"
-}
+wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh; _r=\$?; rm -f /tmp/_dt2_1.sh; exit \$_r"
 if ($LASTEXITCODE -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, VSCode 확장)"
-if ($isLocalMode) {
-    $localScript2Win = Join-Path $PSScriptRoot "..\linux\dev-env\2.install-core-tools.sh"
-    $wslScript2Path = (wsl -d $wslDistro -- wslpath -u "$localScript2Win").Trim()
-    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l '$wslScript2Path'"
-} else {
-    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh; _r=$?; rm -f /tmp/_dt2_2.sh; exit $_r"
-}
+wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh; _r=\$?; rm -f /tmp/_dt2_2.sh; exit \$_r"
 if ($LASTEXITCODE -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
-if ($isLocalMode) {
-    $localScript3Win = Join-Path $PSScriptRoot "..\linux\dev-env\3.install-cli-tools.sh"
-    $wslScript3Path = (wsl -d $wslDistro -- wslpath -u "$localScript3Win").Trim()
-    wsl -d $wslDistro -- bash -c "DEVTOOLS2=/var/opt/_devtools2 bash -l '$wslScript3Path'"
-} else {
-    wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_BASE/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh; _r=$?; rm -f /tmp/_dt2_3.sh; exit $_r"
-}
+wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh; _r=\$?; rm -f /tmp/_dt2_3.sh; exit \$_r"
 if ($LASTEXITCODE -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
 
 
@@ -588,15 +584,8 @@ Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
 # ── 4-1. WezTerm ──────────────────────────────────────────────────────────────
-if ($isLocalMode) {
-    Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (로컬)"
-    & $setupWeztermScript -WslDistro $wslDistro
-} else {
-    Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동 (온라인)"
-    $rawWeztermScript = (Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/1.setup-wezterm.ps1").TrimStart([char]0xFEFF)
-    $weztermScriptBlock = [scriptblock]::Create($rawWeztermScript)
-    & $weztermScriptBlock -WslDistro $wslDistro
-}
+Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동"
+Invoke-RemotePsScript -Url "$RAW_WIN/1.setup-wezterm.ps1" -Arguments "-WslDistro", $wslDistro
 
 # ── 4-2. VSCode 설정 및 Windows 로컬 확장 연동 ───────────────────────────────
 Write-SubStep "▶ (2/3) VSCode 설정 연동 및 Windows 로컬 확장 설치"
@@ -777,13 +766,7 @@ if ($skipVsCodeLink) {
 # ── 4-3. Zed ─────────────────────────────────────────────────────────────────
 Write-SubStep "▶ (3/3) Zed 에디터 설치 및 설정 연동"
 if ($userChoseZed) {
-    if ($isLocalMode) {
-        & $setupZedScript -WslDistro $wslDistro
-    } else {
-        $rawZedScript = (Invoke-RestMethod "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/2.setup-zed.ps1").TrimStart([char]0xFEFF)
-        $zedScriptBlock = [scriptblock]::Create($rawZedScript)
-        & $zedScriptBlock -WslDistro $wslDistro
-    }
+    Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-zed.ps1" -Arguments "-WslDistro", $wslDistro
 } else {
     Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
 }

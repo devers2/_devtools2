@@ -3,8 +3,8 @@
 # DevTools2 전체 환경 자동 설치 마스터 스크립트 (setup-devtools2.sh)
 #
 # 목적:
-#   scripts/linux/dev-env/ 하위의 0~3번 스크립트를 순서대로 자동 실행하여
-#   DevTools2 포터블 개발 환경을 한 번에 완전히 구축합니다.
+#   scripts/linux/dev-env/ 하위의 0~4번 스크립트를 GitHub main 브랜치에서
+#   직접 스트리밍으로 순서대로 자동 실행하여 DevTools2 포터블 개발 환경을 구축합니다.
 #
 # 실행 순서:
 #   0. init-devtools2     : Git 인증 설정 + 저장소 클론 + 그룹/권한 초기화 (sudo)
@@ -14,15 +14,17 @@
 #   3. install-cli-tools  : fzf, lazygit, ripgrep, fd, ast-grep, apt 패키지, hererocks 설치
 #   4. setup-keyboard     : keyd 설치 + CapsLock 리매핑 설정 (WSL 환경이면 자동 건너뜀)
 #
+# [실행 방식]
+#   - 로컬/온라인 실행 모두 항상 GitHub main 브랜치 최신 서브스크립트를 기준으로 실행합니다.
+#   - bash <(curl -sSfL -H 'Cache-Control: no-cache' "$url") 스트리밍 방식으로
+#     temp 파일 없이, BOM 이슈 없이, 항상 최신 내용으로 직접 실행합니다.
+#
 # 사용 방법:
 #   bash /path/to/scripts/linux/setup-devtools2.sh
 #   (스크립트 실행 중 sudo 비밀번호 및 Git 인증 정보 입력이 요청될 수 있습니다.)
 # ==============================================================================
 
 set -euo pipefail
-
-SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
-SUB_DIR="$SCRIPT_DIR/dev-env"
 
 # 컬러 출력 헬퍼
 print_banner() {
@@ -45,57 +47,44 @@ print_warn()  { echo "[경고] $*" >&2; }
 print_error() { echo "[오류] $*" >&2; }
 print_done()  { echo "[완료] $*"; }
 
-# 온라인 모드에서 서브스크립트를 GitHub에서 직접 스트리밍으로 실행하는 헬퍼
-# temp 파일을 사용하지 않으므로 BOM/인코딩 문제가 발생하지 않습니다.
+# GitHub raw URL에서 스크립트를 스트리밍으로 직접 실행하는 헬퍼
+# - bash <(curl ...) 방식: temp 파일 미사용, NoBOM, BOM 이슈 없음
+# - Cache-Control 헤더: CDN·프록시 캐시 강제 우회 → 항상 최신 스크립트 실행
 run_remote_script() {
     local url="$1"
     shift
-    bash <(curl -sSfL "$url") "$@"
+    bash <(curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$url") "$@"
 }
 
-# 로컬 실행 모드 여부 판정
-IS_LOCAL=false
-if [ -f "$SUB_DIR/0.init-devtools2.sh" ]; then
-    IS_LOCAL=true
-fi
+# sudo 가 필요한 스크립트용 (curl | sudo bash 패턴)
+run_remote_script_sudo() {
+    local url="$1"
+    shift
+    curl -sSfL \
+        -H 'Cache-Control: no-cache, no-store, must-revalidate' \
+        -H 'Pragma: no-cache' \
+        "$url" | sudo bash "$@"
+}
 
 RAW_BASE="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
+
+print_info "서브스크립트는 항상 GitHub main 브랜치 최신 버전으로 실행됩니다. (캐시 우회)"
 
 # ==============================================================================
 # [Step 0] Git 인증 설정 + 저장소 클론 + 그룹/권한 초기화
 # ==============================================================================
-print_step "▶ [0/3] DevTools2 초기화 (sudo 권한 필요)"
+print_step "▶ [0/4] DevTools2 초기화 (sudo 권한 필요)"
 
-if [ "$IS_LOCAL" = true ]; then
-    print_info "로컬 초기화 스크립트 실행 중..."
-    chmod +x "$SUB_DIR/0.init-devtools2.sh"
-    sudo "$SUB_DIR/0.init-devtools2.sh"
-else
-    print_info "온라인 원격 초기화 스크립트를 GitHub에서 직접 스트리밍 실행 중..."
-    curl -sSfL "$RAW_BASE/0.init-devtools2.sh" | sudo bash
-fi
-
-if [ $? -ne 0 ]; then
-    print_error "[Step 0] 초기화 스크립트 실행 실패."
-    exit 1
-fi
+run_remote_script_sudo "$RAW_BASE/0.init-devtools2.sh"
+print_done "[Step 0] 초기화 완료."
 
 # ==============================================================================
 # [Step 1] 환경 변수 주입 (~/.bashrc)
 # ==============================================================================
-print_step "▶ [1/3] 환경 변수 설정 (~/.bashrc)"
+print_step "▶ [1/4] 환경 변수 설정 (~/.bashrc)"
 
-if [ "$IS_LOCAL" = true ]; then
-    chmod +x "$SUB_DIR/1.setup-env.sh"
-    DEVTOOLS2=/var/opt/_devtools2 "$SUB_DIR/1.setup-env.sh"
-else
-    DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/1.setup-env.sh"
-fi
-
-if [ $? -ne 0 ]; then
-    print_error "[Step 1] 환경 변수 설정 실패."
-    exit 1
-fi
+DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/1.setup-env.sh"
+print_done "[Step 1] 환경 변수 설정 완료."
 
 # source ~/.bashrc 를 마스터 스크립트 프로세스 내에서 실행하면,
 # 이후 호출되는 2, 3번 스크립트(자식 프로세스)가 환경 변수를 상속받습니다.
@@ -110,56 +99,34 @@ print_done "환경 변수가 현재 세션에 적용되었습니다."
 # ==============================================================================
 # [Step 2] 핵심 포터블 도구 설치 (Java, Node.js, Python, Neovim, Zed, Ghostty 등)
 # ==============================================================================
-print_step "▶ [2/3] 핵심 포터블 도구 설치"
+print_step "▶ [2/4] 핵심 포터블 도구 설치"
 
-if [ "$IS_LOCAL" = true ]; then
-    chmod +x "$SUB_DIR/2.install-core-tools.sh"
-    DEVTOOLS2=/var/opt/_devtools2 "$SUB_DIR/2.install-core-tools.sh"
-else
-    DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/2.install-core-tools.sh"
-fi
-
-if [ $? -ne 0 ]; then
-    print_error "[Step 2] 핵심 도구 설치 실패."
-    exit 1
-fi
+DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/2.install-core-tools.sh"
+print_done "[Step 2] 핵심 도구 설치 완료."
 
 # ==============================================================================
 # [Step 3] CLI 유틸리티 도구 설치 (fzf, lazygit, ripgrep, fd, ast-grep, hererocks 등)
 # ==============================================================================
 print_step "▶ [3/4] CLI 유틸리티 도구 설치"
 
-if [ "$IS_LOCAL" = true ]; then
-    chmod +x "$SUB_DIR/3.install-cli-tools.sh"
-    DEVTOOLS2=/var/opt/_devtools2 "$SUB_DIR/3.install-cli-tools.sh"
-else
-    DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/3.install-cli-tools.sh"
-fi
-
-if [ $? -ne 0 ]; then
-    print_error "[Step 3] CLI 유틸리티 설치 실패."
-    exit 1
-fi
+DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/3.install-cli-tools.sh"
+print_done "[Step 3] CLI 유틸리티 설치 완료."
 
 # ==============================================================================
-# [Step 4] 키보드 리매핑 설정 (keyd — WSL 환경이면 자동 건너뜀)
+# [Step 4] 키보드 리매핑 설정 (keyd — WSL 환경이면 자동 건너뜀, 비치명적)
 # ==============================================================================
 print_step "▶ [4/4] 키보드 리매핑 설정 (keyd)"
 
-if [ "$IS_LOCAL" = true ]; then
-    chmod +x "$SUB_DIR/4.setup-keyboard.sh"
-    DEVTOOLS2=/var/opt/_devtools2 sudo "$SUB_DIR/4.setup-keyboard.sh"
+# set -e 를 일시 중단: Step 4는 실패해도 전체 설치를 중단하지 않음
+set +e
+run_remote_script_sudo "$RAW_BASE/4.setup-keyboard.sh"
+_kb_exit=$?
+set -e
+
+if [ "$_kb_exit" -ne 0 ]; then
+    print_warn "[Step 4] 키보드 설정 실패 (비치명적, 계속 진행합니다). 종료 코드: $_kb_exit"
 else
-    # 온라인 모드: GitHub에서 직접 스트리밍 실행
-    if curl -sSfL "$RAW_BASE/4.setup-keyboard.sh" | sudo bash; then
-        _kb_exit=0
-    else
-        _kb_exit=$?
-        print_warn "[Step 4] 키보드 스크립트 실행 실패 — 계속 진행합니다."
-    fi
-    if [ "${_kb_exit:-0}" -ne 0 ]; then
-        print_warn "[Step 4] 키보드 설정 실패 (비치명적, 계속 진행합니다)."
-    fi
+    print_done "[Step 4] 키보드 설정 완료."
 fi
 
 # ==============================================================================
