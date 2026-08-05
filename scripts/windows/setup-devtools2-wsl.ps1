@@ -542,6 +542,12 @@ if (-not $vscodeAlreadyInstalled) {
         }
         # PATH 갱신: winget 설치 후 code CLI를 현재 세션 및 WSL Interop에서 즉시 사용 가능하게 함
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+        # WSL 필수 연동 확장 (WSL Remote) 기본 설치
+        if (Get-Command code -ErrorAction SilentlyContinue) {
+            Write-Info "VSCode WSL Remote 필수 확장(ms-vscode-remote.remote-wsl) 기본 설치 중..."
+            code --install-extension ms-vscode-remote.remote-wsl --force 2>&1 | Out-Null
+        }
     } else {
         Write-Skip "VS Code 설치를 건너뜁니다."
     }
