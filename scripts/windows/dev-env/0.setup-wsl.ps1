@@ -135,22 +135,113 @@ $devtools2File = Join-Path $env:USERPROFILE ".devtools2"
 # ==============================================================================
 Write-Step "[Step 1] WSL2 가상 머신 상태 확인"
 
-# 현재 등록된 WSL 배포판 목록 가져오기 (시간 지연 대비 스피너 적용)
-$registeredDistros = @()
-$listProc = Start-Process wsl.exe -ArgumentList "--list --quiet" -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wsl_list_check.txt" -ErrorAction SilentlyContinue
+# 1. Windows 기능 활성화 여부 검사
+$wslFeature = Get-WindowsOptionalFeature -Online -FeatureName "Microsoft-Windows-Subsystem-Linux" -ErrorAction SilentlyContinue
+$vmFeature = Get-WindowsOptionalFeature -Online -FeatureName "VirtualMachinePlatform" -ErrorAction SilentlyContinue
+$isWslEnabled = ($wslFeature -and $wslFeature.State -eq "Enabled")
+$isVmEnabled = ($vmFeature -and $vmFeature.State -eq "Enabled")
 
-$waitSuccess = Wait-WithSpinner -Message "WSL2 가상 머신 상태 확인 중" -Condition {
-    return $listProc.HasExited
+if (-not $isWslEnabled -or -not $isVmEnabled) {
+    Write-Warn "WSL2 및 가상 머신 플랫폼 기능이 활성화되어 있지 않습니다. 활성화를 진행합니다..."
+    # WSL 기본 구성 요소 활성화 (배포판 제외)
+    $installProc = Start-Process wsl.exe -ArgumentList "--install --no-distribution" -PassThru -Wait -NoNewWindow -ErrorAction SilentlyContinue
+
+    if ($null -eq $installProc) {
+        Write-Host ""
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Write-Host "  ❌ wsl.exe 를 찾을 수 없습니다." -ForegroundColor Red
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Write-Host "  WSL2 설치에는 Windows 10 버전 2004 이상 또는 Windows 11 이 필요합니다." -ForegroundColor Yellow
+        Write-Host "  Windows 업데이트를 실행한 후 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Pause-Script
+        exit 1
+    }
+
+    if ($installProc.ExitCode -eq 3010) {
+        Write-Host ""
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Write-Host "  ⚠️  윈도우 가상화 기능 활성화를 완료하기 위해 시스템 재부팅이 필요합니다." -ForegroundColor Red
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Write-Host "  컴퓨터를 재부팅한 후 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Pause-Script
+        exit 3010
+    }
+    
+    # 기능 상태 업데이트
+    $wslFeature = Get-WindowsOptionalFeature -Online -FeatureName "Microsoft-Windows-Subsystem-Linux" -ErrorAction SilentlyContinue
+    $vmFeature = Get-WindowsOptionalFeature -Online -FeatureName "VirtualMachinePlatform" -ErrorAction SilentlyContinue
+    $isWslEnabled = ($wslFeature -and $wslFeature.State -eq "Enabled")
+    $isVmEnabled = ($vmFeature -and $vmFeature.State -eq "Enabled")
 }
 
+# 2. WSL 실행 기능 점검 및 업데이트 요구사항 검사
+# wsl.exe가 존재하지만 업데이트 경고를 출력하며 멈출 수 있으므로 3초 타임아웃을 적용해 상태를 확인합니다.
+$registeredDistros = @()
+$isUpdateRequired = $false
+
+$listProc = Start-Process wsl.exe -ArgumentList "--list --quiet" -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wsl_list_check.txt" -RedirectStandardError "$env:TEMP\wsl_list_error.txt" -ErrorAction SilentlyContinue
+
+$timeoutCount = 0
+while (-not $listProc.HasExited -and $timeoutCount -lt 20) {
+    Start-Sleep -Milliseconds 150
+    $timeoutCount++
+}
+
+# 타임아웃 시 프로세스 강제 종료
+if (-not $listProc.HasExited) {
+    try {
+        $listProc | Stop-Process -Force -ErrorAction SilentlyContinue
+    } catch {}
+}
+
+# 오류 메시지 확인 (업데이트 경고 확인)
+if (Test-Path "$env:TEMP\wsl_list_error.txt") {
+    $errContent = Get-Content "$env:TEMP\wsl_list_error.txt" -Raw -ErrorAction SilentlyContinue
+    if ($errContent -match "업데이트해야 합니다" -or $errContent -match "update" -or $errContent -match "wsl.exe --update") {
+        $isUpdateRequired = $true
+    }
+    Remove-Item "$env:TEMP\wsl_list_error.txt" -Force -ErrorAction SilentlyContinue
+}
+
+# wsl.exe 결과 파일 정리
 if (Test-Path "$env:TEMP\wsl_list_check.txt") {
-    $registeredDistros = (Get-Content "$env:TEMP\wsl_list_check.txt" -Raw) -replace "`0", "" -split "`r`n" |
-        Where-Object { $_.Trim() -ne "" } |
-        ForEach-Object { $_.Trim() }
+    if (-not $isUpdateRequired) {
+        $registeredDistros = (Get-Content "$env:TEMP\wsl_list_check.txt" -Raw -ErrorAction SilentlyContinue) -replace "`0", "" -split "`r`n" |
+            Where-Object { $_.Trim() -ne "" } |
+            ForEach-Object { $_.Trim() }
+    }
     Remove-Item "$env:TEMP\wsl_list_check.txt" -Force -ErrorAction SilentlyContinue
 }
 
-# 1. 'devtools2'가 이미 등록되어 있다면 신규 설치를 건너뛰고 계속 진행
+# 3. 업데이트가 필요하다면 업데이트 실행
+if ($isUpdateRequired) {
+    Write-Warn "Linux용 Windows 하위 시스템(WSL)의 최신 버전 업데이트가 필요합니다. 업데이트를 진행합니다..."
+    $updateProc = Start-Process wsl.exe -ArgumentList "--update" -PassThru -Wait -NoNewWindow -ErrorAction SilentlyContinue
+    if ($updateProc.ExitCode -eq 3010) {
+        Write-Host ""
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Write-Host "  ⚠️  WSL 업데이트 적용을 완료하기 위해 시스템 재부팅이 필요합니다." -ForegroundColor Red
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Write-Host "  컴퓨터를 재부팅한 후 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Pause-Script
+        exit 3010
+    }
+    
+    # 업데이트 완료 후 다시 배포판 목록 확인
+    $listProc2 = Start-Process wsl.exe -ArgumentList "--list --quiet" -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wsl_list_check.txt" -ErrorAction SilentlyContinue
+    $listProc2 | Wait-Process -Timeout 5 -ErrorAction SilentlyContinue
+    if (Test-Path "$env:TEMP\wsl_list_check.txt") {
+        $registeredDistros = (Get-Content "$env:TEMP\wsl_list_check.txt" -Raw -ErrorAction SilentlyContinue) -replace "`0", "" -split "`r`n" |
+            Where-Object { $_.Trim() -ne "" } |
+            ForEach-Object { $_.Trim() }
+        Remove-Item "$env:TEMP\wsl_list_check.txt" -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# 4. 'devtools2'가 이미 등록되어 있다면 신규 설치를 건너뛰고 계속 진행
 if ($registeredDistros -contains $wslName) {
     Write-Success "기존에 설치된 WSL2 배포판 '$wslName'이 이미 존재하여 이를 그대로 사용합니다."
     Write-Warn "---------------------------------------------------------------------------"
@@ -164,7 +255,7 @@ if ($registeredDistros -contains $wslName) {
     Write-Success "기존 배포판 사용 준비 완료. 다음 단계로 진행합니다."
 } else {
 
-# 2. 임시 설치를 위한 base Ubuntu 가 등록되어 있는지 확인
+# 5. 임시 설치를 위한 base Ubuntu 가 등록되어 있는지 확인
 # (Ubuntu, Ubuntu-24.04, Ubuntu-22.04 등 우분투 계열 배포판 스캔)
 $distroId = $registeredDistros | Where-Object { $_ -match "^Ubuntu" } | Select-Object -First 1
 $isBaseRegistered = -not [string]::IsNullOrEmpty($distroId)
@@ -194,6 +285,8 @@ function Test-WslUserAccountConfigured {
     return $false
 }
 
+$isUserConfigured = $false
+$createdUsername = ""
 if ($isBaseRegistered) {
     if (Test-WslUserAccountConfigured -distro $distroId) {
         $createdUsername = (wsl -d $distroId -e whoami 2>$null).Trim()
