@@ -665,7 +665,25 @@ fi
 #   WSL / Linux 네이티브 상관없이 code 명령이 존재하면 항상 실행
 #   WSL: Windows code CLI 가 interop으로 동작 / Linux 네이티브: /usr/bin/code
 VSCODE_EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"
-if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
+
+# WSL 환경인 경우 Windows interop(binfmt_misc WSLInterop) 가 활성화되어 있는지 먼저 확인
+# WSL 재설치 직후 또는 shutdown 없이 재시작한 경우 WSLInterop 등록이 누락될 수 있음
+_VSCODE_INTEROP_OK=true
+if [ "$IS_WSL2" = true ]; then
+    if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
+        echo ""
+        echo "   ⚠️  [WSL Interop 비활성] Windows 실행 파일(.exe) 실행이 불가능한 상태입니다."
+        echo "   💡 VSCode 확장 설치는 Windows interop가 필요합니다."
+        echo "      PowerShell에서 아래 명령으로 WSL을 완전히 재시작한 뒤 스크립트를 다시 실행하세요:"
+        echo ""
+        echo "      wsl --shutdown"
+        echo "      (잠시 후 새 WSL 세션 열기)"
+        echo ""
+        _VSCODE_INTEROP_OK=false
+    fi
+fi
+
+if [ "$_VSCODE_INTEROP_OK" = true ] && command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
     echo ""
     echo -n "   📋 VSCode 기존 확장 목록 조회 중..."
     (code --list-extensions 2>/dev/null </dev/null > /tmp/_vscode_installed.tmp) &
@@ -713,9 +731,9 @@ if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
     done < "$VSCODE_EXT_LIST"
     echo ""
     echo "   [요약] 신규 설치: ${_vscode_install_count}개 / 이미 설치: ${_vscode_skip_count}개 / 실패: ${_vscode_fail_count}개"
-elif ! command -v code >/dev/null 2>&1; then
+elif [ "$_VSCODE_INTEROP_OK" = true ] && ! command -v code >/dev/null 2>&1; then
     echo "   ⚠️  code 명령을 찾을 수 없어 확장 설치를 건너뜁니다."
-else
+elif [ "$_VSCODE_INTEROP_OK" = true ]; then
     echo "   ⚠️  extensions.txt 없음: $VSCODE_EXT_LIST"
 fi
 echo "✅ VSCode 단계 완료"
