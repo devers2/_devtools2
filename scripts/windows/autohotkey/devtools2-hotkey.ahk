@@ -95,30 +95,38 @@ _CleanupOnExit(reason, code) {
 ; ------------------------------------------------------------------------------
 ; Part 2. WezTerm 전역 단축키 (Ctrl + Alt + T)
 ; ------------------------------------------------------------------------------
+global _weztermExeCache := ""
+
+_GetWeztermExe() {
+    global _weztermExeCache
+    if _weztermExeCache != "" && FileExist(_weztermExeCache)
+        return _weztermExeCache
+
+    paths := [
+        "C:\Program Files\WezTerm\wezterm-gui.exe",
+        "C:\Program Files\WezTerm\wezterm.exe",
+        EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm-gui.exe",
+        EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm.exe"
+    ]
+    for p in paths {
+        if FileExist(p) {
+            _weztermExeCache := p
+            return p
+        }
+    }
+    return ""
+}
+
 ^!t::
 {
-    exe := ""
-    if FileExist("C:\Program Files\WezTerm\wezterm-gui.exe")
-        exe := "C:\Program Files\WezTerm\wezterm-gui.exe"
-    else if FileExist("C:\Program Files\WezTerm\wezterm.exe")
-        exe := "C:\Program Files\WezTerm\wezterm.exe"
-    else if FileExist(EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm-gui.exe")
-        exe := EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm-gui.exe"
-    else if FileExist(EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm.exe")
-        exe := EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm.exe"
-
+    exe := _GetWeztermExe()
     if exe != "" {
         try {
-            Run('"' exe '"', , , &pid)
-            if WinWait("ahk_pid " pid, , 3) {
-                WinActivate("ahk_pid " pid)
-            }
-        } catch as err {
+            Run('"' exe '"')
+        } catch {
             try {
-                ; 1차 Direct Run 실패 시 cmd shell start 로 2차 실행 시도 (SmartScreen / UAC 팝업 차단 우회)
                 Run('cmd.exe /c start "" "' exe '"', , "Hide")
             } catch {
-                ; 무음 예외 처리 (거슬리는 MsgBox 알림창 팝업 제거)
                 TrayTip("WezTerm 실행", "WezTerm 실행 중 오류가 발생했습니다.", 0x3)
             }
         }
