@@ -241,15 +241,15 @@ Write-Host ""
 # Zed 설정 폴더가 WSL2에 없으면 기본 폴더를 생성
 if (-not (Test-Path $WslZedConfig)) {
     Write-Warn "WSL2에 Zed 설정 폴더가 없습니다. 기본 폴더를 생성합니다..."
-    wsl -d $WslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; mkdir -p $DEVTOOLS2/.config/zed'
+    wsl -d $WslDistro -- bash -c 'mkdir -p $DEVTOOLS2/.config/zed'
 }
 
 # settings.json과 keymap.json이 없으면 기본 뼈대 파일 생성
 if (-not (Test-Path "$WslZedConfig\settings.json")) {
-    wsl -d $WslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; echo "{}" > $DEVTOOLS2/.config/zed/settings.json'
+    wsl -d $WslDistro -- bash -c 'echo "{}" > $DEVTOOLS2/.config/zed/settings.json'
 }
 if (-not (Test-Path "$WslZedConfig\keymap.json")) {
-    wsl -d $WslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; echo "[]" > $DEVTOOLS2/.config/zed/keymap.json'
+    wsl -d $WslDistro -- bash -c 'echo "[]" > $DEVTOOLS2/.config/zed/keymap.json'
 }
 
 # 기존에 설정된 심볼릭 링크나 디렉터리 링크가 있을 경우 완전히 제거하고 물리 폴더 생성

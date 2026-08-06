@@ -457,7 +457,7 @@ $fontNames = @(
 # 1) WSL 명령어로 폰트 존재 여부를 직접 확인 (UNC 경로는 WSL 심볼릭 링크를 못 따라가므로)
 $wslFontCount = 0
 try {
-    $wslFontCount = [int](wsl -d $WslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; ls $DEVTOOLS2/assets/fonts/*.ttf $DEVTOOLS2/assets/fonts/*.ttc 2>/dev/null | wc -l')
+    $wslFontCount = [int](wsl -d $WslDistro -- bash -c 'ls $DEVTOOLS2/assets/fonts/*.ttf $DEVTOOLS2/assets/fonts/*.ttc 2>/dev/null | wc -l')
 } catch {}
 
 $hasWslFonts = ($wslFontCount -gt 0)
@@ -477,7 +477,7 @@ if ($hasWslFonts) {
             Write-Skip "폰트 이미 설치됨: $fontName"
         } else {
             # WSL2 UNC 경로에서 윈도우 임시 폴더로 폰트 직접 복사
-            $wslFontFile = "\\wsl.localhost\$WslDistro\var\opt\_devtools2\assets\fonts\$fontName"
+            $wslFontFile = "$DevTools2Wsl\assets\fonts\$fontName"
             if (Test-Path $wslFontFile) {
                 Copy-Item -Path $wslFontFile -Destination $tempFontDir -Force 2>$null
             }
@@ -548,7 +548,7 @@ $WinWeztermConfig = "$env:USERPROFILE\.wezterm.lua"
 # WezTerm 설정 파일 존재 여부 확인 및 보강
 if (-not (Test-Path $WslWeztermConfig)) {
     Write-Warn "WSL2 내 설정 파일(.wezterm.lua)이 없습니다. 기본 파일 생성 중..."
-    wsl -d $WslDistro -- bash -c 'DEVTOOLS2=${DEVTOOLS2:-/var/opt/_devtools2}; mkdir -p $DEVTOOLS2/.config/wezterm && touch $DEVTOOLS2/.config/wezterm/.wezterm.lua'
+    wsl -d $WslDistro -- bash -c 'mkdir -p $DEVTOOLS2/.config/wezterm && touch $DEVTOOLS2/.config/wezterm/.wezterm.lua'
 }
 
 Write-Host "  공유 설정 (WSL2): $WslWeztermConfig" -ForegroundColor DarkGray
@@ -649,6 +649,11 @@ if (-not (Test-Path $ahkExe)) {
     $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"
 }
 
+Write-Info "AutoHotKey 기능 연동을 진행합니다..."
+Write-Host "  📌 [안내] WSL2 저장소의 AHK 스크립트 원본(%DEVTOOLS2% 레포)을 Windows 로컬로 복사해 연동합니다." -ForegroundColor DarkGray
+Write-Host "     (재부팅 후 WSL2 미실행 상태에서도 즉시 동작을 보장하며, 설치 스크립트 재실행 시 최신 내용으로 자동 갱신됩니다)" -ForegroundColor DarkGray
+Write-Host ""
+
 # ── (2) 포터블 AutoHotkey v2 다운로드 및 압축 해제 ───────────────────────────
 if (Test-Path $ahkExe) {
     Write-Info "AutoHotkey v2 포터블 이미 존재: $ahkExe"
@@ -745,7 +750,7 @@ $ahkSetupJob = Start-Job -ScriptBlock {
     # 포터블 AHK 실행 파일(AutoHotkey64.exe)을 원본 파일명 그대로 유지하여 
     # 차후 독립적인 사용자 스크립트 실행 등 다목적 활용이 가능하도록 보장합니다.
 
-    # 🌟 기존 AutoHotkey 관련 중복 항목 정리 (Startup 바로가기 & 레지스트리 Run 키)
+    # 🌟 기존 AutoHotkey 관련 중복 항목 정리 (Startup 바로가기 & 레지스트리 Run 키 & 구형 Task Scheduler)
     Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Get-ChildItem -Path $startupDir -Filter "*WezTerm-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -767,9 +772,19 @@ $ahkSetupJob = Start-Job -ScriptBlock {
         }
     }
 
+    # 구형 Task Scheduler 잔여 항목 정리 (이전 버전 호환)
+    try {
+        $tsClean = New-Object -ComObject Schedule.Service
+        $tsClean.Connect()
+        $rootClean = $tsClean.GetFolder("\")
+        @("DevTools2-Hotkey", "DevTools2-AutoHotkey") | ForEach-Object {
+            try { $rootClean.DeleteTask($_, 0) } catch {}
+        }
+    } catch {}
+
     # %DEVTOOLS2% 환경 변수 연동
-    $wslDevtools2Root = "\\wsl.localhost\$WslDistro\var\opt\_devtools2"
-    if (Test-WslDirFast $WslDistro "/var/opt/_devtools2") {
+    $wslDevtools2Root = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { "\\wsl.localhost\$WslDistro\var\opt\_devtools2" }
+    if (Test-WslDirFast $WslDistro '$DEVTOOLS2') {
         [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
         $env:DEVTOOLS2 = $wslDevtools2Root
     }
@@ -779,7 +794,7 @@ $ahkSetupJob = Start-Job -ScriptBlock {
     # 항상 Windows 로컬 경로에 복사해 두고, 바로가기는 로컬 경로를 가리킵니다.
     # (설치 스크립트 재실행 시 WSL 원본에서 자동으로 덮어씁니다)
     $ahkDest = Join-Path $ahkModuleDir "devtools2-hotkey.ahk"
-    $wslAhkRel = "/var/opt/_devtools2/scripts/windows/autohotkey/devtools2-hotkey.ahk"
+    $wslAhkRel = '$DEVTOOLS2/scripts/windows/autohotkey/devtools2-hotkey.ahk'
 
     if (Test-WslFileFast $WslDistro $wslAhkRel) {
         # WSL 원본 → Windows 로컬 복사 (재설치 시 자동 갱신)
@@ -800,19 +815,61 @@ $ahkSetupJob = Start-Job -ScriptBlock {
         }
     }
 
-    # 통합 AutoHotkey 바로가기 1개만 생성
+    # 통합 AutoHotkey 자동 실행 등록 (Task Scheduler)
+    # Startup 폴더 바로가기는 Windows가 수 분간 지연 실행하는 문제가 있으므로
+    # Task Scheduler 로그온 트리거를 사용해 로그온 즉시 실행합니다.
+    # AHK 파일이 Windows 로컬 경로이므로 WSL 의존 없이 즉시 실행 가능합니다.
     if (Test-Path $ahkExe) {
-        $shortcutPath = "$startupDir\DevTools2-Hotkey.lnk"
+        $taskName = "DevTools2-Hotkey"
+        $registered = $false
         try {
-            $wshShell = New-Object -ComObject WScript.Shell
-            $shortcut = $wshShell.CreateShortcut($shortcutPath)
-            $shortcut.TargetPath       = $ahkExe
-            $shortcut.Arguments        = "`"$ahkDest`""
-            $shortcut.WorkingDirectory = $ahkModuleDir
-            $shortcut.WindowStyle      = 7
-            $shortcut.Description      = "DevTools2 AutoHotkey Service (WezTerm Hotkey & Keyboard Remap)"
-            $shortcut.Save()
+            $ts   = New-Object -ComObject Schedule.Service
+            $ts.Connect()
+            $root = $ts.GetFolder("\")
+
+            # 기존 동일 작업 삭제 후 재등록
+            try { $root.DeleteTask($taskName, 0) } catch {}
+
+            $task = $ts.NewTask(0)
+            $task.Settings.ExecutionTimeLimit         = "PT0S"  # 시간제한 없음
+            $task.Settings.MultipleInstances          = 3        # 이미 실행 중이면 무시
+            $task.Settings.StopIfGoingOnBatteries     = $false
+            $task.Settings.DisallowStartIfOnBatteries = $false
+
+            # 트리거: 현재 사용자 로그온 시 즉시 실행 (지연 없음)
+            $trigger         = $task.Triggers.Create(9)  # 9 = TASK_TRIGGER_LOGON
+            $trigger.UserId  = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            $trigger.Delay   = "PT0S"  # 지연 없음
+
+            # 동작: AHK 실행 (Windows 로컬 경로 — WSL 불필요)
+            $action                   = $task.Actions.Create(0)  # 0 = TASK_ACTION_EXEC
+            $action.Path              = $ahkExe
+            $action.Arguments         = "`"$ahkDest`""
+            $action.WorkingDirectory  = $ahkModuleDir
+
+            # 현재 사용자 권한으로 실행 (관리자 권한 불필요)
+            $task.Principal.UserId    = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+            $task.Principal.LogonType = 3  # 3 = TASK_LOGON_INTERACTIVE_TOKEN
+            $task.Principal.RunLevel  = 0  # 0 = TASK_RUNLEVEL_LUA (일반 사용자 권한)
+
+            $root.RegisterTaskDefinition($taskName, $task, 6, $null, $null, 3) | Out-Null
+            $registered = $true
         } catch {}
+
+        # Task Scheduler 등록 실패 시 Startup 바로가기로 폴백
+        if (-not $registered) {
+            $shortcutPath = "$startupDir\DevTools2-Hotkey.lnk"
+            try {
+                $wshShell = New-Object -ComObject WScript.Shell
+                $shortcut = $wshShell.CreateShortcut($shortcutPath)
+                $shortcut.TargetPath       = $ahkExe
+                $shortcut.Arguments        = "`"$ahkDest`""
+                $shortcut.WorkingDirectory = $ahkModuleDir
+                $shortcut.WindowStyle      = 7
+                $shortcut.Description      = "DevTools2 AutoHotkey Service (WezTerm Hotkey & Keyboard Remap)"
+                $shortcut.Save()
+            } catch {}
+        }
     }
 
     # 기존 AutoHotkey 프로세스 전체 종료 후 통합 프로세스 단 1개만 실행
@@ -846,6 +903,10 @@ Write-Host "  설정 파일 공유(심볼릭 링크)가 완료되었습니다." 
 Write-Host "  이제 리눅스 혹은 윈도우 어느 쪽에서든 설정을 편집하면 양쪽 모두에 즉시 반영됩니다." -ForegroundColor White
 Write-Host ""
 if (-not ($installAhk -match '^[Nn]')) {
+    Write-Host "  [AutoHotkey 연동 안내]" -ForegroundColor Cyan
+    Write-Host "  · AHK 소스: WSL2 레포 원본 (%DEVTOOLS2%/.../devtools2-hotkey.ahk) -> Windows 로컬 동기화" -ForegroundColor DarkGray
+    Write-Host "  · AHK 수정 시 설치 스크립트를 재실행하면 최신 스크립트가 로컬로 즉시 반영됩니다." -ForegroundColor DarkGray
+    Write-Host ""
     Write-Host "  [단축키]" -ForegroundColor Cyan
     Write-Host "  Ctrl+Alt+T          : WezTerm 새 창 열기" -ForegroundColor White
     Write-Host "  CapsLock (단독 탭)  : ESC" -ForegroundColor White
