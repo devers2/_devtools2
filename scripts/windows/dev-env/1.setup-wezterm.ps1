@@ -246,7 +246,7 @@ try {
     elseif (Test-Path "${env:ProgramFiles(x86)}\WezTerm\wezterm.exe") {
         $weztermInstalled = $true
     }
-    
+
     # 2순위: 로컬에 파일이 없으면 winget 리스트 확인
     if (-not $weztermInstalled) {
         $wgList = winget list --id wez.wezterm 2>$null
@@ -650,7 +650,7 @@ if (-not (Test-Path $ahkExe)) {
 }
 
 Write-Info "AutoHotKey 기능 연동을 진행합니다..."
-Write-Host "  📌 [안내] WSL2 저장소의 AHK 스크립트 원본(%DEVTOOLS2% 레포)을 Windows 로컬로 복사해 연동합니다." -ForegroundColor DarkGray
+Write-Host "  📌 [안내] WSL2 저장소의 AHK 스크립트 원본(%DEVTOOLS2%\scripts\windows\autohotkey)을 Windows 로컬로 복사해 연동합니다." -ForegroundColor DarkGray
 Write-Host "     (재부팅 후 WSL2 미실행 상태에서도 즉시 동작을 보장하며, 설치 스크립트 재실행 시 최신 내용으로 자동 갱신됩니다)" -ForegroundColor DarkGray
 Write-Host ""
 
@@ -747,7 +747,7 @@ $ahkSetupJob = Start-Job -ScriptBlock {
     }
 
     # 🌟 통합 devtools2-hotkey.ahk 연동 및 시작 프로그램 등록
-    # 포터블 AHK 실행 파일(AutoHotkey64.exe)을 원본 파일명 그대로 유지하여 
+    # 포터블 AHK 실행 파일(AutoHotkey64.exe)을 원본 파일명 그대로 유지하여
     # 차후 독립적인 사용자 스크립트 실행 등 다목적 활용이 가능하도록 보장합니다.
 
     # 🌟 기존 AutoHotkey 관련 중복 항목 정리 (Startup 바로가기 & 레지스트리 Run 키 & 구형 Task Scheduler)
