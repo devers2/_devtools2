@@ -162,45 +162,28 @@ INVOKER="${SUDO_USER:-${USER:-root}}"
 INVOKER_HOME=$(getent passwd "$INVOKER" | cut -d: -f6)
 
 TARGET_DIR="/var/opt/_devtools2"
-SHOULD_CLONE=false
 
 # 1) 디렉터리 존재 여부 및 Git 저장소 여부 검사
 if [ -d "$TARGET_DIR" ] && [ -d "$TARGET_DIR/.git" ]; then
+    # 이미 유효한 저장소가 있는 경우: 백업/재클론 없이 그대로 진행
     echo ""
     print_sep
     print_info "이미 유효한 Git 개발도구 저장소($TARGET_DIR)가 존재합니다."
-
-    choice="n"
-    # 대화형 터미널(stdin)이거나 /dev/tty가 존재하는 경우 항상 사용자에게 재클론 여부를 질문
-    if [ -t 0 ]; then
-        prompt_input "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: "
-        read -r choice 2>/dev/null || choice="n"
-    elif [ -c /dev/tty ]; then
-        prompt_input "💡 기존 디렉터리를 백업하고 새로운 형상관리(클론)를 추가하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: "
-        read -r choice < /dev/tty 2>/dev/null || choice="n"
-    fi
-    choice=$(echo "$choice" | tr '[:upper:]' '[:lower:]')
-    if [ "$choice" = "y" ]; then
-        SHOULD_CLONE=true
-    fi
+    print_info "설치 스크립트는 멱등성이 보장되므로 그대로 이어서 진행합니다."
+    print_info ""
+    print_info "💡 저장소 파일(scripts/, assets/ 등)을 최신화하려면 아래 명령을 직접 실행하세요:"
+    print_info "   cd $TARGET_DIR && git pull"
+    print_sep
+    echo ""
+    DEVTOOLS2="$TARGET_DIR"
 else
-    # 디렉터리가 없거나 .git 저장소가 아니면 무조건 클론 진행
-    SHOULD_CLONE=true
-fi
-
-# 2) 신규 클론 진행을 위한 백업 및 준비
-if [ "$SHOULD_CLONE" = true ]; then
-    # 2-1) 기존 디렉터리 백업 (내용물이 있는 경우만)
+    # 디렉터리가 없거나 .git 저장소가 아니면 신규 클론 진행
     if [ -d "$TARGET_DIR" ] && [ -n "$(ls -A "$TARGET_DIR" 2>/dev/null)" ]; then
-        BACKUP_SUFFIX=$(date +"%Y%m%d_%H%M%S")
-        BACKUP_DIR="${TARGET_DIR}_backup_${BACKUP_SUFFIX}"
-        echo "[백업] 기존 디렉터리를 백업합니다: $TARGET_DIR -> $BACKUP_DIR"
-        mv "$TARGET_DIR" "$BACKUP_DIR"
-    else
-        rm -rf "$TARGET_DIR" 2>/dev/null || true
+        # .git 없는 잔여 파일 정리
+        print_warn "Git 저장소가 아닌 잔여 디렉터리를 제거합니다: $TARGET_DIR"
+        rm -rf "$TARGET_DIR"
     fi
 
-    # 2-2) 신규 클론 수행
     echo "[작업] DevTools2 포터블 개발 환경 클론 중..."
 
     # 디렉터리를 미리 만들고 소유권을 $INVOKER로 이전해 주어야
@@ -211,21 +194,10 @@ if [ "$SHOULD_CLONE" = true ]; then
     # 공개 저장소이므로 토큰 인증 없이 호출자 권한으로 클론을 진행합니다.
     if ! sudo -u "$INVOKER" git clone https://github.com/devers2/_devtools2.git "$TARGET_DIR"; then
         echo "[오류] 깃 클론에 실패했습니다. 네트워크 상태나 저장소 URL을 확인해주세요."
-        # 실패 시 롤백 (백업이 존재했다면 복구)
-        if [ -d "${BACKUP_DIR:-}" ]; then
-            echo "[복구] 클론 실패로 인해 백업본을 다시 원복합니다..."
-            rm -rf "$TARGET_DIR"
-            mv "$BACKUP_DIR" "$TARGET_DIR"
-        fi
         exit 1
     fi
     echo "  ✅ 깃 클론 완료!"
 
-    # 클론 완료 후 이 스크립트의 실행 경로 및 DEVTOOLS2 변수를 클론된 경로로 덮어씌움
-    DEVTOOLS2="$TARGET_DIR"
-fi
-
-if [ -d "$TARGET_DIR" ]; then
     DEVTOOLS2="$TARGET_DIR"
 fi
 
