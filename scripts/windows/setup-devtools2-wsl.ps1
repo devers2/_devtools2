@@ -568,6 +568,36 @@ $installZedInput = Read-Host
 $userChoseZed = $installZedInput -match '^[Yy]'
 
 # ==============================================================================
+# [Step 3 사전] WSL Interop (Windows ↔ Linux 실행 파일 연동) 상태 확인
+# ==============================================================================
+#   WSL 신규 설치 직후 또는 wsl --shutdown 없이 재시작한 경우
+#   binfmt_misc에 WSLInterop 핸들러가 등록되지 않아 Windows .exe 실행이 불가능함.
+#   → code.exe, winget.exe 등 Windows ↔ WSL 연동이 필요한 모든 이후 단계에 영향.
+#   → 감지 즉시 wsl --shutdown 후 자동 재시작하여 확인.
+# ==============================================================================
+Write-SubStep "▶ [사전 확인] WSL Interop 상태 점검"
+$interopCheck = wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null
+if ($interopCheck -ne "OK") {
+    Write-Warn "WSL Interop 비활성 감지 (binfmt_misc/WSLInterop 미등록)"
+    Write-Info "  → WSL Interop이 없으면 Windows 실행 파일(.exe) 연동이 불가능합니다."
+    Write-Info "  → wsl --shutdown 후 자동 재시작합니다..."
+    wsl --shutdown 2>$null
+    Start-Sleep -Seconds 3
+
+    # 재시작 후 재확인
+    $interopCheck2 = wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null
+    if ($interopCheck2 -ne "OK") {
+        Write-Fail "WSL --shutdown 후에도 WSL Interop 복구 실패."
+        Write-Info "  PC를 재부팅한 후 다시 실행해 주세요."
+        Pause-Script
+        exit 1
+    }
+    Write-Success "WSL Interop 복구 완료! 설치를 계속합니다."
+} else {
+    Write-Success "WSL Interop 정상 (Windows ↔ Linux 연동 활성)"
+}
+
+# ==============================================================================
 # [Step 3] WSL2 내부 런타임 및 도구 일괄 설치
 # ==============================================================================
 Write-Step "[Step 3] WSL2 개발 환경 빌드 및 패키지 일괄 설치"
