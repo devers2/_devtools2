@@ -32,8 +32,8 @@ if [[ -z "$HOME_DIR" ]]; then
     HOME_DIR="."
 fi
 
-# Ghostty 상태 저장 디렉토리 정의 (.ghostty 디렉토리 사용)
-STATE_DIR="${HOME_DIR}/.ghostty"
+# 사용자 부가 상태 저장 디렉토리 정의 (.devtools2 디렉토리 사용)
+STATE_DIR="${HOME_DIR}/.devtools2"
 STATE_FILE="${STATE_DIR}/state.properties"
 mkdir -p "$STATE_DIR"
 

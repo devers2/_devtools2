@@ -22,13 +22,13 @@
 
 # ── 세션 파일 경로 결정 ────────────────────────────────────────────────────────
 _BW_HOME_DIR="${HOME:-$USERPROFILE}"
-_BW_GHOSTTY_DIR="${_BW_HOME_DIR}/.ghostty"
-mkdir -p "$_BW_GHOSTTY_DIR"
+_BW_DEVTOOLS2_DIR="${_BW_HOME_DIR}/.devtools2"
+mkdir -p "$_BW_DEVTOOLS2_DIR"
 
 if [ -d "/dev/shm" ]; then
     _BW_SESSION_FILE="/dev/shm/bw_session_${UID:-$(id -u)}"
 else
-    _BW_SESSION_FILE="${_BW_GHOSTTY_DIR}/bw_session"
+    _BW_SESSION_FILE="${_BW_DEVTOOLS2_DIR}/bw_session"
 fi
 
 # ── bw vault 잠금 해제 수행 ───────────────────────────────────────────────────

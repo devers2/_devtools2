@@ -187,13 +187,14 @@ Write-Host "====================================================================
 Write-Step "[Step 1] WSL2 배포판 감지"
 
 if ($WslDistro -eq "") {
-    # 1순위: %USERPROFILE%\.devtools2 파일에서 0.setup-wsl.ps1 이 저장한 이름 사용
-    $devtools2File = Join-Path $env:USERPROFILE ".devtools2"
+    # 1순위: %USERPROFILE%\.devtools2 디렉터리 내 wsl_distro 또는 단일 .devtools2 파일에서 읽기
+    $devtools2Dir  = Join-Path $env:USERPROFILE ".devtools2"
+    $devtools2File = if (Test-Path $devtools2Dir -PathType Container) { Join-Path $devtools2Dir "wsl_distro" } else { $devtools2Dir }
     if (Test-Path $devtools2File) {
         $saved = Get-Content $devtools2File | Where-Object { $_ -match "^WSL_DISTRO=" } | Select-Object -First 1
         if ($saved) {
             $WslDistro = ($saved -split "=", 2)[1].Trim()
-            Write-Host "  .devtools2 파일에서 읽은 배포판: $WslDistro" -ForegroundColor White
+            Write-Host "  .devtools2 에서 읽은 배포판: $WslDistro" -ForegroundColor White
         }
     }
 

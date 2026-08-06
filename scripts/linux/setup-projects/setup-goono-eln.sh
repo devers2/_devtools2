@@ -62,14 +62,14 @@ EOF
 echo "✅ .nvim.lua 생성 완료!"
 
 # ==============================================================================
-# 4. command-palette 이전 실행 프로필 저장 (~/.ghostty/state.properties)
+# 4. command-palette 이전 실행 프로필 저장 (~/.devtools2/state.properties)
 #    command-palette 의 save_state() 와 동일한 방식으로 직접 기록
 #    (command-palette 는 인터랙티브 스크립트라 함수 재사용 불가)
 # ==============================================================================
-echo "⚙️  Ghostty / command-palette 이전 실행 프로필 저장 중..."
-GHOSTTY_DIR="$HOME/.ghostty"
-mkdir -p "$GHOSTTY_DIR"
-STATE_FILE="$GHOSTTY_DIR/state.properties"
+echo "⚙️  command-palette 이전 실행 프로필 저장 중..."
+DEVTOOLS2_USER_DIR="$HOME/.devtools2"
+mkdir -p "$DEVTOOLS2_USER_DIR"
+STATE_FILE="$DEVTOOLS2_USER_DIR/state.properties"
 
 NORM_CWD=$(echo "$TARGET_DIR" | tr '\\' '/' | sed 's/\/$//')
 PROJ_KEY=$(echo -n "$NORM_CWD" | md5sum | awk '{print $1}')

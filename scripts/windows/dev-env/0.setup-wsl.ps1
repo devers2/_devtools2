@@ -549,6 +549,17 @@ autoProxy=true
     Write-Success "새 .wslconfig (networkingMode=mirrored) 파일 생성 완료!"
 }
 
+# 10. %USERPROFILE%\.devtools2 통일 디렉터리 보장 및 배포판 정보 저장
+$devtools2Dir = Join-Path $env:USERPROFILE ".devtools2"
+if (-not (Test-Path $devtools2Dir)) {
+    New-Item -ItemType Directory -Path $devtools2Dir -Force | Out-Null
+} elseif (Test-Path $devtools2Dir -PathType Leaf) {
+    Remove-Item $devtools2Dir -Force
+    New-Item -ItemType Directory -Path $devtools2Dir -Force | Out-Null
+}
+$distroSaveFile = Join-Path $devtools2Dir "wsl_distro"
+Set-Content -Path $distroSaveFile -Value "WSL_DISTRO=$wslName" -Encoding UTF8
+
 # --------------------------------------------------------------------------
 # [Step 4] 완료
 # --------------------------------------------------------------------------
