@@ -237,10 +237,13 @@ if (-not $isAdmin) {
 
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
         # ── 온라인 실행 모드 (irm ... | iex) ──────────────────────────────────
-        # 스크립트가 메모리에서 실행되므로 BOM/인코딩 문제 없음
-        # Store pwsh 여부와 관계없이 기본 powershell.exe 로 UAC 승격 후 재실행 가능
-        Write-Warn "관리자 권한이 필요합니다. UAC 승격 후 새 창에서 원격 설치를 계속합니다..."
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex`"" -Verb RunAs
+        # %TEMP% 임시 파일 사용 금지 지침 준수: 순수 메모리 상에서 Base64 EncodedCommand 로 UAC 승격
+        Write-Warn "관리자 권한이 필요합니다. UAC 승격 후 원격 설치를 계속합니다..."
+        $onlineCmd = "irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex"
+        $bytes = [System.Text.Encoding]::Unicode.GetBytes($onlineCmd)
+        $encodedCmd = [Convert]::ToBase64String($bytes)
+        $psExe = if ($pwshPath -and -not $isStorePwsh) { $pwshPath } else { 'powershell.exe' }
+        Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedCmd" -Verb RunAs
         exit
     } else {
         # ── 로컬 파일 실행 모드 ────────────────────────────────────────────────
