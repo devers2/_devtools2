@@ -168,11 +168,9 @@ $versionProc = Start-Process wsl.exe -ArgumentList "--version" -PassThru -NoNewW
     -RedirectStandardError "$env:TEMP\wsl_version_error.txt" `
     -ErrorAction SilentlyContinue
 
-$vTimeout = 0
-while ($versionProc -and -not $versionProc.HasExited -and $vTimeout -lt 50) { # 5초 (100ms * 50)
-    Start-Sleep -Milliseconds 100
-    $vTimeout++
-}
+Wait-WithSpinner -Message "WSL 엔진 버전 확인 중" -Condition {
+    return (-not $versionProc) -or $versionProc.HasExited
+} -MaxTimeoutSeconds 5 | Out-Null
 
 if ($versionProc -and -not $versionProc.HasExited) {
     try { $versionProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
@@ -219,11 +217,10 @@ $listProc = Start-Process wsl.exe -ArgumentList "--list --quiet" -PassThru -NoNe
     -RedirectStandardError "$env:TEMP\wsl_list_error.txt" `
     -ErrorAction SilentlyContinue
 
-$timeoutCount = 0
-while ($listProc -and -not $listProc.HasExited -and $timeoutCount -lt 50) { # 5초 (100ms * 50)
-    Start-Sleep -Milliseconds 100
-    $timeoutCount++
-}
+Wait-WithSpinner -Message "WSL2 배포판 목록 확인 중" -Condition {
+    return (-not $listProc) -or $listProc.HasExited
+} -MaxTimeoutSeconds 5 | Out-Null
+
 if ($listProc -and -not $listProc.HasExited) {
     try { $listProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
 }
