@@ -455,11 +455,17 @@ $fontNames = @(
     "JetBrainsMonoNerdFontMono-BoldItalic.ttf"
 )
 
-# 1) WSL 명령어로 폰트 존재 여부를 직접 확인 (UNC 경로는 WSL 심볼릭 링크를 못 따라가므로)
+# 1) WSL2 내부 폰트 존재 여부 확인 (UNC 경로 및 bash 명령어 이중 확인)
 $wslFontCount = 0
-try {
-    $wslFontCount = [int](wsl -d $WslDistro -- bash -c 'ls $DEVTOOLS2/assets/fonts/*.ttf $DEVTOOLS2/assets/fonts/*.ttc 2>/dev/null | wc -l')
-} catch {}
+$wslFontDir = "$DevTools2Wsl\assets\fonts"
+if (Test-Path $wslFontDir) {
+    $wslFontCount = (Get-ChildItem -Path $wslFontDir -File 2>$null | Where-Object { $_.Extension -in '.ttf','.ttc' }).Count
+}
+if ($wslFontCount -eq 0) {
+    try {
+        $wslFontCount = [int](wsl -d $WslDistro -- bash -c 'ls "$DEVTOOLS2/assets/fonts/"*.ttf "$DEVTOOLS2/assets/fonts/"*.ttc 2>/dev/null | wc -l')
+    } catch {}
+}
 
 $hasWslFonts = ($wslFontCount -gt 0)
 
