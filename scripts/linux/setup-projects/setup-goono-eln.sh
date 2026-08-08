@@ -171,3 +171,4 @@ fi
 
 echo ""
 echo "🎉 [Goono-ELN] 프로젝트 설정이 성공적으로 완료되었습니다!"
+echo "    프로젝트 위치: ~/workspaces/goono/Goono-ELN"
