@@ -322,14 +322,20 @@ PYEOF
     local SERVER_PASS
     SERVER_PASS=$(bw get password "$ITEM_ID" --session "$BW_SESSION" 2>/dev/null || echo "")
 
-    # ── 3. 경로 ~ 치환 ────────────────────────────────────────────────────────
+    # ── 3. 경로 치환 (SFTP는 홈 디렉터리 기준 상대 경로 사용) ──────────────────
     local REMOTE_MOUNT_PATH LOCAL_MOUNT_PATH
-    REMOTE_MOUNT_PATH="${INPUT_REMOTE_PATH/#\~//home/$ACTUAL_USERNAME}"
+    REMOTE_MOUNT_PATH="${INPUT_REMOTE_PATH/#\~\//}"
     LOCAL_MOUNT_PATH="${INPUT_LOCAL_PATH/#\~/$HOME}"
 
     echo "   원격 마운트 경로 (서버): $REMOTE_MOUNT_PATH"
     echo "   로컬 마운트 경로 (로컬): $LOCAL_MOUNT_PATH"
     mkdir -p "$LOCAL_MOUNT_PATH"
+
+    # FUSE user_allow_other 설정 확인 (일반 사용자의 --allow-other 마운트 허용)
+    if [ -f /etc/fuse.conf ] && grep -q '^#user_allow_other' /etc/fuse.conf 2>/dev/null; then
+        echo "⏳ /etc/fuse.conf 에 user_allow_other 설정을 주석 해제합니다... (sudo 필요)"
+        sudo sed -i 's/#user_allow_other/user_allow_other/' /etc/fuse.conf 2>/dev/null || true
+    fi
 
     # ── 4. rclone 바이너리 확인 ───────────────────────────────────────────────
     local RCLONE_BIN FUSERMOUNT_BIN
@@ -387,6 +393,7 @@ Wants=network-online.target
 Type=simple
 ExecStart=${RCLONE_BIN} mount ${SERVICE_NAME}:${REMOTE_MOUNT_PATH} ${LOCAL_MOUNT_PATH} \\
     --vfs-cache-mode full \\
+    --allow-other \\
     --config=${RCLONE_CONF}
 ExecStop=${FUSERMOUNT_BIN} -u ${LOCAL_MOUNT_PATH}
 Restart=on-failure
