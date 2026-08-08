@@ -74,8 +74,9 @@ function Write-Fail {
 }
 
 function Pause-Script {
+    param([string]$Message = "계속하려면 엔터(Enter) 키를 누르세요")
     Write-Host ""
-    Write-Host "👉 계속하려면 엔터(Enter) 키를 누르세요: " -ForegroundColor Yellow -NoNewline
+    Write-Host "👉 ${Message}: " -ForegroundColor Yellow -NoNewline
     [void][System.Console]::ReadLine()
 }
 
@@ -549,7 +550,7 @@ if (-not $vscodeAlreadyInstalled) {
         }
         # PATH 갱신: winget 설치 후 code CLI를 현재 세션 및 WSL Interop에서 즉시 사용 가능하게 함
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        
+
         # WSL 필수 연동 확장 (WSL Remote) 기본 설치
         if (Get-Command code -ErrorAction SilentlyContinue) {
             Write-Info "VSCode WSL Remote 필수 확장(ms-vscode-remote.remote-wsl) 기본 설치 중..."
@@ -870,4 +871,4 @@ Write-Info "  -> PowerShell에서 'wsl --shutdown' 실행 후 WSL 터미널을 �
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
 
-Pause-Script
+Pause-Script "엔터(Enter) 키를 누르시면 설치를 마치고 종료합니다"
