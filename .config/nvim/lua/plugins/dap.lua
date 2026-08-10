@@ -52,8 +52,10 @@ return {
         return true
       end
 
-      -- Java attach는 <leader>da(attach_debug)가 dap.run()을 직접 호출해서 처리하므로
-      -- dap.configurations.java에는 넣지 않습니다 (넣으면 <leader>dd 피커에 중복으로 뜸).
+      -- Java attach는 <leader>da(attach_debug)가 dap.run()을 직접 호출해서 처리합니다.
+      -- LazyVim의 extras/lang/java.lua가 자체적으로 "Debug (Attach) - Remote" 기본 attach 설정을
+      -- dap.configurations.java에 넣어두므로, 여기서 명시적으로 비워야 <leader>dd 피커에서 빠집니다.
+      dap.configurations.java = {}
 
       -- Python FastAPI launch 기본 구성 (수동 실행 시 DAP UI에 표시됨)
       dap.configurations.python = dap.configurations.python or {}
@@ -140,10 +142,137 @@ return {
         ['org.testng.TestNG'] = true,
       }
 
+      -- jdt.ls에 java/buildWorkspace(증분 빌드)를 요청합니다. 폴링이 아니라 응답 콜백으로
+      -- "완료된 순간 즉시" 진행하고, 1분 안에 응답이 없으면 포기하고 알려줍니다.
+      local function build_workspace_with_watchdog(on_done)
+        local clients = vim.lsp.get_clients({ bufnr = 0, name = 'jdtls' })
+        local client = clients[1]
+        if not client then
+          vim.notify('jdtls 클라이언트를 찾을 수 없어 빌드 확인 없이 실행합니다.', vim.log.levels.WARN, { title = 'Java Launch' })
+          on_done(true)
+          return
+        end
+
+        local settled = false
+        local timer = vim.loop.new_timer()
+        timer:start(60000, 0, vim.schedule_wrap(function()
+          if settled then
+            return
+          end
+          settled = true
+          timer:stop()
+          timer:close()
+          vim.notify('빌드 확인이 1분 넘게 응답이 없어 실행을 중단합니다.', vim.log.levels.ERROR, { title = 'Java Launch: 빌드 타임아웃' })
+          on_done(false)
+        end))
+
+        vim.notify('🔨 빌드 확인 중 (incremental)...', vim.log.levels.INFO, { title = 'Java Launch' })
+        -- java/buildWorkspace 파라미터: boolean(isFullBuild) → false = incremental
+        client:request('java/buildWorkspace', false, function(err, result)
+          if settled then
+            return
+          end
+          settled = true
+          timer:stop()
+          timer:close()
+          vim.schedule(function()
+            local STATUS_SUCCEED = 1
+            if err then
+              vim.notify(
+                '빌드 요청 오류: ' .. vim.inspect(err) .. '\n빌드 확인 없이 실행합니다.',
+                vim.log.levels.WARN,
+                { title = 'Java Launch' }
+              )
+              on_done(true)
+              return
+            end
+            if result == STATUS_SUCCEED then
+              on_done(true)
+              return
+            end
+            -- 빌드 에러: quickfix에 진단 목록을 채우고 계속 진행할지 확인
+            vim.diagnostic.setqflist({ open = true, severity = vim.diagnostic.severity.ERROR, title = 'Java Build Errors' })
+            vim.ui.select({ '예, 그래도 실행', '아니오, 취소' }, {
+              prompt = '⚠️ 빌드 에러가 있습니다 (:copen 목록 확인). 그래도 디버깅을 실행할까요?',
+            }, function(choice)
+              on_done(choice ~= nil and choice:find('예') ~= nil)
+            end)
+          end)
+        end, 0)
+      end
+
+      -- 디버그 세션이 실제로 초기화될 때까지 dap.listeners.after.event_initialized로 기다립니다
+      -- (폴링이 아니라 이벤트 발생 즉시 반응). 1분 안에 초기화도, 종료도 안 되면 메시지와 함께
+      -- 강제로 세션을 종료합니다. nvim-dap 자체의 4초 "Debug adapter didn't respond" 경고는
+      -- 정보성 알림일 뿐 세션을 끊지 않으므로 그대로 두고, 실제 판단은 이 워치독이 담당합니다.
+      local function run_with_init_watchdog(config, run_opts, run_next)
+        local dap_mod = require('dap')
+        local key = 'java_launch_watchdog_' .. tostring({})
+        local settled = false
+        local timer = vim.loop.new_timer()
+
+        local function cleanup()
+          dap_mod.listeners.after.event_initialized[key] = nil
+          dap_mod.listeners.after.event_terminated[key] = nil
+          dap_mod.listeners.after.event_exited[key] = nil
+          timer:stop()
+          timer:close()
+        end
+
+        timer:start(60000, 0, vim.schedule_wrap(function()
+          if settled then
+            return
+          end
+          settled = true
+          cleanup()
+          vim.notify(
+            '디버그 세션이 1분 넘게 초기화되지 않아 강제 종료합니다.',
+            vim.log.levels.ERROR,
+            { title = 'Java Launch: 초기화 타임아웃' }
+          )
+          if dap_mod.session() then
+            dap_mod.terminate()
+          end
+        end))
+
+        -- 초기화 성공, 혹은 (초기화 전) 세션 종료/중단 중 먼저 발생하는 쪽에서 워치독을 해제합니다.
+        dap_mod.listeners.after.event_initialized[key] = function()
+          if settled then
+            return
+          end
+          settled = true
+          cleanup()
+        end
+        dap_mod.listeners.after.event_terminated[key] = function()
+          if settled then
+            return
+          end
+          settled = true
+          cleanup()
+        end
+        dap_mod.listeners.after.event_exited[key] = function()
+          if settled then
+            return
+          end
+          settled = true
+          cleanup()
+        end
+
+        run_next(config, run_opts)
+      end
+
+      local function launch_with_watchdogs(config, run_opts, run_next)
+        build_workspace_with_watchdog(function(should_launch)
+          if should_launch then
+            run_with_init_watchdog(config, run_opts, run_next)
+          end
+        end)
+      end
+
       -- run_next: 실제 실행을 넘겨받아 호출하는 콜백 (dap.run 래핑 순서와 무관하게 동작하도록 인자로 전달)
       local function run_java_launch(config, run_opts, run_next)
         if config.mainClass and TEST_RUNNER_CLASSES[config.mainClass] then
-          run_next(config, run_opts)
+          launch_with_watchdogs(config, run_opts, run_next)
           return
         end
 
@@ -159,7 +288,7 @@ return {
             config.args = config.args or {}
             table.insert(config.args, '--spring.profiles.active=' .. profile_input)
           end
-          run_next(config, run_opts)
+          launch_with_watchdogs(config, run_opts, run_next)
         end)
       end
 
