@@ -126,6 +126,10 @@ _GetWeztermExe() {
 {
     exe := _GetWeztermExe()
     if exe != "" {
+        ; 새로 뜨는 창만 정확히 골라내기 위해, 실행 직전에 이미 열려있는 WezTerm 창들의
+        ; HWND를 미리 기록해둔다 (기존 창은 절대 건드리지 않기 위함)
+        existingHwnds := WinGetList("ahk_group WezTermGroup")
+
         try {
             Run('"' exe '"')
         } catch {
@@ -136,23 +140,51 @@ _GetWeztermExe() {
                 return
             }
         }
-        _ActivateWezterm()
+        _ActivateNewWezterm(existingHwnds)
     } else {
         TrayTip("WezTerm 실행", "WezTerm 실행 파일을 찾을 수 없습니다.", 0x2)
     }
 }
 
-; 새로 뜬(또는 이미 떠 있던) WezTerm 창을 다른 창들보다 위로 강제 노출
+; existingHwnds(실행 전 스냅샷)에 없던 "새로 생긴" WezTerm 창의 HWND를 찾을 때까지
+; 짧게 폴링한다(최대 5초). ahk_group으로 통째로 잡으면 이미 열려있던 예전 창이
+; 먼저 매칭돼서 그 창이 먼저 활성화되는 문제가 있어, 반드시 새 창의 HWND 하나만
+; 정확히 골라 활성화한다 (기존 창은 전혀 건드리지 않음).
 ; WinActivate만으로는 Windows 포그라운드 잠금 때문에 실패할 수 있어
 ; AlwaysOnTop을 순간적으로 켰다 끄는 방식으로 z-order를 확실히 최상단으로 올림
-_ActivateWezterm() {
-    if !WinWait("ahk_group WezTermGroup", , 5)
+_ActivateNewWezterm(existingHwnds) {
+    newHwnd := 0
+    startTime := A_TickCount
+    while (A_TickCount - startTime < 5000) {
+        for hwnd in WinGetList("ahk_group WezTermGroup") {
+            isOld := false
+            for oldHwnd in existingHwnds {
+                if (hwnd = oldHwnd) {
+                    isOld := true
+                    break
+                }
+            }
+            if !isOld {
+                newHwnd := hwnd
+                break
+            }
+        }
+        if newHwnd
+            break
+        Sleep(30)
+    }
+
+    if !newHwnd
         return
 
-    if WinGetMinMax("ahk_group WezTermGroup") = -1
-        WinRestore("ahk_group WezTermGroup")
+    ; 정수 HWND를 WinTitle 자리에 그냥 넘기면 버전별로 해석이 모호할 수 있어
+    ; "ahk_id " 접두사로 명시적으로 지정한다
+    newWin := "ahk_id " newHwnd
 
-    WinActivate("ahk_group WezTermGroup")
-    WinSetAlwaysOnTop(true, "ahk_group WezTermGroup")
-    WinSetAlwaysOnTop(false, "ahk_group WezTermGroup")
+    if WinGetMinMax(newWin) = -1
+        WinRestore(newWin)
+
+    WinActivate(newWin)
+    WinSetAlwaysOnTop(true, newWin)
+    WinSetAlwaysOnTop(false, newWin)
 }
