@@ -257,7 +257,7 @@ return {
       -- JDTLS 프로세스의 JAVA_HOME을 effective_jdk_home으로 강제 설정합니다.
       local new_cmd = { 'env', 'JAVA_HOME=' .. effective_jdk_home, jdtls_executable }
 
-      -- JVM 인자 및 데이터 디렉토리 설정 (Goono-ELN 오류 방지의 핵심)
+      -- JVM 인자 및 데이터 디렉토리 설정 (대형 Java 프로젝트 안정성의 핵심)
       local workspace_dir = _G.NVIM_CACHE_DIR .. '/jdtls/' .. project_name
 
       -- 필수 인자 주입

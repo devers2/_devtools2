@@ -202,38 +202,66 @@ return {
       end
 
       -- 디버그 세션이 실제로 초기화될 때까지 dap.listeners.after.event_initialized로 기다립니다
-      -- (폴링이 아니라 이벤트 발생 즉시 반응). 1분 안에 초기화도, 종료도 안 되면 메시지와 함께
-      -- 강제로 세션을 종료합니다. nvim-dap 자체의 4초 "Debug adapter didn't respond" 경고는
-      -- 정보성 알림일 뿐 세션을 끊지 않으므로 그대로 두고, 실제 판단은 이 워치독이 담당합니다.
+      -- (폴링이 아니라 이벤트 발생 즉시 반응). 1분 동안 초기화도 종료도 안 되면, 고정된 숫자로
+      -- 바로 강제 종료하는 대신 "계속 기다릴지 강제 종료할지" 물어봅니다 — 프로젝트마다 정상적인
+      -- 초기화 소요 시간이 달라서 "안전한 고정 타임아웃"을 미리 추측할 수 없기 때문입니다.
+      -- nvim-dap 자체의 55초 "Debug adapter didn't respond" 경고는 정보성 알림일 뿐 세션을
+      -- 끊지 않으므로 그대로 두고, 실제 판단은 이 워치독(및 사용자 응답)이 담당합니다.
       local function run_with_init_watchdog(config, run_opts, run_next)
         local dap_mod = require('dap')
         local key = 'java_launch_watchdog_' .. tostring({})
         local settled = false
-        local timer = vim.loop.new_timer()
+        local timer
+        local start_timer
 
         local function cleanup()
           dap_mod.listeners.after.event_initialized[key] = nil
           dap_mod.listeners.after.event_terminated[key] = nil
           dap_mod.listeners.after.event_exited[key] = nil
-          timer:stop()
-          timer:close()
+          if timer then
+            timer:stop()
+            timer:close()
+            timer = nil
+          end
         end
 
-        timer:start(60000, 0, vim.schedule_wrap(function()
+        local function on_timeout()
           if settled then
             return
           end
-          settled = true
-          cleanup()
-          vim.notify(
-            '디버그 세션이 1분 넘게 초기화되지 않아 강제 종료합니다.',
-            vim.log.levels.ERROR,
-            { title = 'Java Launch: 초기화 타임아웃' }
-          )
-          if dap_mod.session() then
-            dap_mod.terminate()
+          vim.ui.select({ '예, 계속 기다리기', '아니오, 강제 종료' }, {
+            prompt = '⏳ 디버그 세션이 1분 넘게 초기화되지 않았습니다. 계속 기다릴까요?',
+          }, function(choice)
+            -- 응답을 기다리는 동안 초기화가 끝났거나 세션이 이미 종료됐을 수 있음
+            if settled then
+              return
+            end
+            if choice and choice:find('계속') then
+              start_timer()
+            else
+              settled = true
+              cleanup()
+              vim.notify(
+                '사용자 요청으로 디버그 세션을 강제 종료합니다.',
+                vim.log.levels.WARN,
+                { title = 'Java Launch: 초기화 대기 중단' }
+              )
+              if dap_mod.session() then
+                dap_mod.terminate()
+              end
+            end
+          end)
+        end
+
+        start_timer = function()
+          if timer then
+            timer:stop()
+            timer:close()
           end
-        end))
+          timer = vim.loop.new_timer()
+          timer:start(60000, 0, vim.schedule_wrap(on_timeout))
+        end
+        start_timer()
 
         -- 초기화 성공, 혹은 (초기화 전) 세션 종료/중단 중 먼저 발생하는 쪽에서 워치독을 해제합니다.
         dap_mod.listeners.after.event_initialized[key] = function()
@@ -291,12 +319,22 @@ return {
             config.args = str ~= '' and str or nil
           end
 
+          -- dap.configurations.java의 config 테이블은 LspAttach가 다시 발생하기 전까지 재사용되므로,
+          -- 이전 실행에서 주입했던 --spring.profiles.active=...를 지우지 않으면 같은 파일에서
+          -- 다른 프로필로 재실행할 때마다 계속 누적됩니다. 새로 판단하기 전에 먼저 제거합니다.
+          if type(config.args) == 'string' then
+            config.args = config.args:gsub('%-%-spring%.profiles%.active=%S+%s*', ''):gsub('%s+$', '')
+            if config.args == '' then
+              config.args = nil
+            end
+          end
+
           if profile_input ~= '' then
             save_last_spring_profile(profile_input)
             local spring_arg = '--spring.profiles.active=' .. profile_input
             if not config.args or config.args == '' then
               config.args = spring_arg
-            elseif type(config.args) == 'string' then
+            else
               config.args = config.args .. ' ' .. spring_arg
             end
           end
@@ -329,16 +367,6 @@ return {
         },
       })
 
-      -- 2) DAP 디버그 실행 구성 선택 메뉴 인터셉터 (<leader>d / <leader>dd 디버그 런치 선택창)
-      menu_translator.register_interceptor({
-        name = 'dap_config',
-        prompt_patterns = { 'Configuration', 'Select configuration', '설정' },
-        translations = {
-          ['Launch goono-eln: so.goono.GoonoELNApplication'] = { ko = '구노 ELN 메인 앱 디버깅 실행', priority = 1 },
-          ['GoonoELNApplication'] = { ko = 'VSCode Launch: 구노 ELN 앱', priority = 2 },
-          ['FastAPI 디버깅 실행 (기본: 8095)'] = { ko = '파이썬 FastAPI 웹 서버 실행', priority = 3 },
-        },
-      })
 
       ---@diagnostic disable-next-line: duplicate-set-field
       dap.run = function(config, run_opts)
@@ -350,7 +378,12 @@ return {
               orig_adapter(function(adapter_result)
                 if adapter_result then
                   adapter_result.options = adapter_result.options or {}
-                  adapter_result.options.initialize_timeout_sec = 15
+                  -- nvim-dap의 "Debug adapter didn't respond" 경고는 순수 정보성 알림이라
+                  -- 세션을 끊지 않으며(session.lua Session:initialize), 실제 성공/실패 판단은
+                  -- 위쪽 run_with_init_watchdog의 60초 워치독이 전담합니다.
+                  -- 이 값은 그 워치독보다 항상 먼저 뜨면 안 되므로 60초보다 낮게,
+                  -- 그러나 대형 프로젝트에서 흔한 5~15초대 초기화 지연에는 안 뜨도록 55초로 둡니다.
+                  adapter_result.options.initialize_timeout_sec = 55
                 end
                 cb(adapter_result)
               end, conf)

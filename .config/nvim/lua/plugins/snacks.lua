@@ -2,6 +2,21 @@ return {
   {
     'folke/snacks.nvim',
     opts = {
+      dashboard = {
+        enabled = true,
+        preset = {
+          keys = {
+            { icon = ' ', key = 'f', desc = '스마트 파일 검색 (Smart Picker)', action = ':lua Snacks.picker.smart()' },
+            { icon = ' ', key = 'n', desc = '새 파일 생성 (New File)', action = ':ene | startinsert' },
+            { icon = ' ', key = 'g', desc = '프로젝트 전체 검색 (Grep)', action = ':lua Snacks.picker.grep()' },
+            { icon = ' ', key = 'r', desc = '최근 연 파일 (Recent Files)', action = ':lua Snacks.picker.recent()' },
+            { icon = ' ', key = 'c', desc = '설정 파일 검색 (Config Files)', action = ":lua Snacks.picker.files({ cwd = vim.fn.stdpath('config') })" },
+            { icon = ' ', key = 's', desc = '마지막 세션 복원 (Restore Session)', section = 'session' },
+            { icon = '󰒲 ', key = 'L', desc = 'Lazy 플러그인 관리자', action = ':Lazy' },
+            { icon = ' ', key = 'q', desc = '종료 (Quit)', action = ':qa' },
+          },
+        },
+      },
       picker = {
         -- 전역 설정: 모든 피커(파일, 그렙, 익스플로러 등)에서 숨김 파일 허용
         hidden = false,
@@ -39,37 +54,22 @@ return {
           files = { hidden = true }, -- 파일 검색: <leader>ff
           grep = { hidden = true }, -- 문자열 검색: <leader>sg
           explorer = { hidden = false }, -- 익스플로러: 숨김 파일 기본 비활성
-          -- buffers = { hidden = true }, -- 열려있는 버퍼 목록
-          -- recent = { hidden = true }, -- 최근 열었던 파일
-          -- git_files = { hidden = true }, -- Git 관리 대상 파일
-          -- lsp_symbols = { hidden = true }, -- LSP 심볼 검색
-          -- help = { hidden = true }, -- 도움말 검색
-          -- colorschemes = { hidden = true }, -- 색상 테마 변경
-          -- commands = { hidden = true }, -- 명령어 실행
-          -- keymaps = { hidden = true }, -- 단축키 검색
         },
-        -- ※ 검색 제외 설정: 프로젝트의 .gitignore, .ignore 파일의 제외 패턴을 따른다.
       },
       image = {
-        enabled = false, -- 피커 미리보기에서 이미지 렌더링 비활성화 (❗true 설정 시 입력 모드에서 일반 모드로 강제 전환되는 문제가 있음)
+        enabled = false, -- 피커 미리보기에서 이미지 렌더링 비활성화
       },
-      -- 익스플로러 행동 관련 설정 (시각적 옵션은 위 picker.sources.explorer에서 담당)
       explorer = {
-        replace_netrw = true, -- netrw 대체 여부
-        -- 휴지통 사용 안 함
+        replace_netrw = true,
         trash = false,
         confirm = {
-          delete = true, -- 삭제 시 확인 창 강제 활성화
+          delete = true,
         },
       },
     },
     -- 단축키 오버라이드
     keys = {
       -- <leader><space>: 스마트 피커 열기
-      -- [Fix] 피커를 열기 전에 먼저 유효한 에디터 창으로 포커스를 이동합니다.
-      -- Snacks 피커는 열릴 때의 "현재 창"을 복귀 창으로 기억합니다.
-      -- Explorer가 포커스된 상태에서 피커를 열면 파일 선택 후 Explorer에 파일이 열리는 문제가 발생하므로,
-      -- 피커 열기 전에 항상 에디터 창을 복귀 창으로 설정합니다.
       {
         '<leader><space>',
         function()
