@@ -72,3 +72,22 @@ run_with_spinner_cmd() {
     run_with_spinner "$label" "$pid"
     wait "$pid"
 }
+
+# 라벨 없이 커서 자리에서 제자리 회전만 하는 미니 스피너 (백스페이스 방식)
+# echo -n "...진행 중" 뒤에 이어 붙여서 쓰는 용도. 2.install-core-tools.sh, 3.install-cli-tools.sh 등
+# 다운로드/압축 해제처럼 짧은 메시지 뒤에 바로 붙는 스피너에 사용합니다.
+# 사용법: cmd & show_spinner $!
+show_spinner() {
+    local pid=$1
+    local delay=0.15
+    local spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    local spin_len=${#spinner[@]}
+    local i=0
+    while kill -0 "$pid" 2>/dev/null; do
+        printf " [%s] " "${spinner[i]}"
+        i=$(( (i + 1) % spin_len ))
+        sleep $delay
+        printf "\b\b\b\b\b"
+    done
+    printf "     \b\b\b\b\b"
+}

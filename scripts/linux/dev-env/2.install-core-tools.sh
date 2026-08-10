@@ -60,11 +60,53 @@ _load_colors() {
         fi
     }
     prompt_input()  { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
+    # _colors.sh 원격 로드까지 실패한 최후의 경우를 위한 자체 스피너 정의
+    show_spinner() {
+        local pid=$1
+        local delay=0.15
+        local spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+        local spin_len=${#spinner[@]}
+        local i=0
+        while kill -0 "$pid" 2>/dev/null; do
+            printf " [%s] " "${spinner[i]}"
+            i=$(( (i + 1) % spin_len ))
+            sleep $delay
+            printf "\b\b\b\b\b"
+        done
+        printf "     \b\b\b\b\b"
+    }
     run_with_spinner() { show_spinner "$2"; }
     run_with_spinner_cmd() { "$@" & show_spinner $!; wait $!; }
     _COLORS_LOADED=true
 }
 _load_colors
+
+# 공통 설치 유틸리티 로드 (ARCH/IS_ARM64/IS_WSL2 감지, _ensure_pkg, TOML 버전 관리,
+# _resolve_action, _fmts 등 — 3.install-cli-tools.sh 와 공유)
+_load_install_utils() {
+    [ -n "${_INSTALL_UTILS_LOADED:-}" ] && return 0
+
+    local script_dir; script_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo ".")")
+    local utils_file="$script_dir/_install-utils.sh"
+
+    if [ ! -f "$utils_file" ] && [ -n "${DEVTOOLS2:-}" ] && [ -f "$DEVTOOLS2/scripts/linux/dev-env/_install-utils.sh" ]; then
+        utils_file="$DEVTOOLS2/scripts/linux/dev-env/_install-utils.sh"
+    fi
+
+    if [ -f "$utils_file" ]; then
+        # shellcheck disable=SC1090
+        source "$utils_file" 2>/dev/null && _INSTALL_UTILS_LOADED=true && return 0
+    fi
+
+    if curl -sSfL --max-time 5 "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_install-utils.sh" -o /tmp/_install_utils_remote.sh 2>/dev/null; then
+        # shellcheck disable=SC1091
+        source /tmp/_install_utils_remote.sh 2>/dev/null && _INSTALL_UTILS_LOADED=true && return 0
+    fi
+
+    print_error "_install-utils.sh를 로컬/원격 어디에서도 불러오지 못했습니다. 네트워크 연결을 확인하세요."
+    exit 1
+}
+_load_install_utils
 
 # DEVTOOLS2 기본 폴더 및 필수 서브 디렉토리 존재/권한 확보
 if [ ! -d "$DEVTOOLS2" ]; then
@@ -80,79 +122,15 @@ if [ ! -w "$DEVTOOLS2" ] && [ "$(id -u)" -ne 0 ]; then
     sudo chmod -R u+w "$DEVTOOLS2" 2>/dev/null || true
 fi
 
-# tool-versions.toml 경로 및 온라인 폴백 URL
-TOOL_VERSIONS_TOML="$DEVTOOLS2/scripts/linux/dev-env/tool-versions.toml"
-_TOML_RAW_URL="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool-versions.toml"
-
-_ensure_pkg() {
-    local cmd="$1" pkg="${2:-$1}"
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-        echo -n "   📦 필수 패키지 ($pkg) 자동 설치 중..."
-        if command -v sudo >/dev/null 2>&1; then
-            sudo apt-get update -qq >/dev/null 2>&1 || true
-            sudo apt-get install -y "$pkg" >/dev/null 2>&1 || true
-        elif [ "$(id -u)" -eq 0 ]; then
-            apt-get update -qq >/dev/null 2>&1 || true
-            apt-get install -y "$pkg" >/dev/null 2>&1 || true
-        fi
-        if command -v "$cmd" >/dev/null 2>&1; then
-            echo " 완료"
-        else
-            echo " 실패"
-        fi
-    fi
-}
-
 _ensure_pkg unzip
 _ensure_pkg tar
 _ensure_pkg curl
 _ensure_pkg wget
 
 # ─────────────────────────────────────────────────────────────────
-# 📄 TOML 유틸리티 함수 (tool-versions.toml 연동)
+# 📄 이 스크립트 전용 TOML 버전 조회 함수 (Node.js는 GitHub API가 아닌
+# nodejs.org 자체 인덱스를 써야 해서 _install-utils.sh 공용 함수로 옮기지 않음)
 # ─────────────────────────────────────────────────────────────────
-
-# 로컬에 없으면 GitHub에서 직접 스트리밍하여 TOML 콘텐츠를 읽는 함수
-_read_toml() {
-    if [ -f "$TOOL_VERSIONS_TOML" ]; then
-        cat "$TOOL_VERSIONS_TOML"
-    else
-        curl -sSfL --max-time 10 "$_TOML_RAW_URL" 2>/dev/null || true
-    fi
-}
-
-# 지정한 키의 최종 설치 버전 (배열의 첫 번째 값)을 반환합니다.
-get_pinned_version() {
-    local key="$1"
-    _read_toml \
-        | grep -E "^${key} = \[" 2>/dev/null \
-        | grep -oE '"[^"]+"' | head -1 | tr -d '"'
-}
-
-# 지정한 키의 버전 배열 앞에 새 버전을 추가합니다 (이미 있으면 건너뜀).
-update_pinned_version() {
-    local key="$1" new_ver="$2"
-    # 로컬 TOML이 없으면 업데이트 불가
-    if [ ! -f "$TOOL_VERSIONS_TOML" ]; then
-        echo "   ⚠️  [tool-versions.toml] 로컬 파일이 없어 버전 이력 업데이트를 건너뜁니다."
-        return 0
-    fi
-    if grep -E "^${key} = \[" "$TOOL_VERSIONS_TOML" 2>/dev/null | grep -qF "\"${new_ver}\""; then
-        return 0
-    fi
-    sed -i "s|^\(${key} = \[\)\(.*\)\]\$|\1\"${new_ver}\", \2]|" "$TOOL_VERSIONS_TOML"
-    echo "   📝 [tool-versions.toml] ${key} 버전 이력 추가: \"${new_ver}\""
-}
-
-# GitHub 최신 릴리즈 태그를 반환합니다. 실패 시 빈 문자열 반환.
-fetch_latest_github() {
-    local repo="$1"
-    curl -sf --max-time 10 \
-        "https://api.github.com/repos/${repo}/releases/latest" \
-        2>/dev/null \
-        | grep '"tag_name"' | head -1 \
-        | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || true
-}
 
 # Node.js 최신 v24.x 버전을 반환합니다 ('v' 포함, 예: v24.16.0).
 fetch_latest_nodejs() {
@@ -167,34 +145,7 @@ LOG_DIR="$DEVTOOLS2/data/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/deploy_$(date +%Y%m%d_%H%M%S).log"
 
-# 아키텍처 확인
-ARCH=$(uname -m)
-IS_ARM64=false
-if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
-    IS_ARM64=true
-fi
-
-# WSL2 환경 감지: /proc/version에 'microsoft' 문자열이 포함되어 있으면 WSL2로 판단한다.
-IS_WSL2=false
-if grep -qi 'microsoft' /proc/version 2>/dev/null; then
-    IS_WSL2=true
-fi
-
-# 아키텍처에 따라 적절한 URL을 선택하여 다운로드 및 압축 해제 함수
-show_spinner() {
-    local pid=$1
-    local delay=0.15
-    local spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-    local spin_len=${#spinner[@]}
-    local i=0
-    while kill -0 "$pid" 2>/dev/null; do
-        printf " [%s] " "${spinner[i]}"
-        i=$(( (i + 1) % spin_len ))
-        sleep $delay
-        printf "\b\b\b\b\b"
-    done
-    printf "     \b\b\b\b\b"
-}
+# ARCH/IS_ARM64/IS_WSL2/show_spinner 는 _install-utils.sh / _colors.sh 에서 로드됨
 
 install_tool() {
     local URL_TEMPLATE="$1"
@@ -255,8 +206,7 @@ if [ "$IS_WSL2" = false ] && [ -f "$DEVTOOLS2/modules/ghostty/ghostty" ]; then
     GHOSTTY_INSTALLED=true
 fi
 
-# 상태 포매팅 헬퍼
-_fmts() { [ "$1" = true ] && echo '✅ 설치됨' || echo '⬜ 미설치'; }
+# 상태 포매팅 헬퍼(_fmts)는 _install-utils.sh 에서 로드됨
 
 echo ""
 echo "==========================================================================="
@@ -491,25 +441,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
 fi
 
 # ── 중복 처리: 설치 여부 결정 ────────────────────────────────────
-_nodejs_action="install"
-if [ "$NODEJS_INSTALLED" = true ]; then
-    case "$DUPLICATE_MODE" in
-        remove)
-            _nodejs_action="reinstall"
-            ;;
-        individual)
-            echo "   ⚠️  node-v24 디렉토리가 이미 존재합니다."
-            prompt_input "   삭제 후 재설치하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: "; read -r _nd_dup
-            case "${_nd_dup:-N}" in
-                y|Y) _nodejs_action="reinstall" ;;
-                *)   _nodejs_action="skip" ;;
-            esac
-            ;;
-        *)
-            _nodejs_action="skip"
-            ;;
-    esac
-fi
+_nodejs_action=$(_resolve_action "$NODEJS_INSTALLED" "Node.js")
 
 # ── 설치 실행 ─────────────────────────────────────────────────────
 if [ "$_nodejs_action" = "skip" ]; then
@@ -789,25 +721,7 @@ else
     fi
 
     # ── 중복 처리: 설치 여부 결정 ────────────────────────────────
-    _ghostty_action="install"
-    if [ "$GHOSTTY_INSTALLED" = true ]; then
-        case "$DUPLICATE_MODE" in
-            remove)
-                _ghostty_action="reinstall"
-                ;;
-            individual)
-                echo "   ⚠️  ghostty AppImage가 이미 존재합니다."
-                read -rp "   삭제 후 재설치하시겠습니까? (y/N): " _gh_dup
-                case "${_gh_dup:-N}" in
-                    y|Y) _ghostty_action="reinstall" ;;
-                    *)   _ghostty_action="skip" ;;
-                esac
-                ;;
-            *)
-                _ghostty_action="skip"
-                ;;
-        esac
-    fi
+    _ghostty_action=$(_resolve_action "$GHOSTTY_INSTALLED" "Ghostty")
 
     # ── 설치 실행 ─────────────────────────────────────────────────
     if [ "$_ghostty_action" = "skip" ]; then
@@ -826,7 +740,15 @@ else
         chmod +x ghostty
 
         # 설정 파일 경로 심볼릭 링크 생성
-        "$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh" "$DEVTOOLS2/.config/ghostty" "$HOME/.config/ghostty"
+        # (로컬에 create-symbolic-link.sh가 없으면 GitHub에서 직접 스트리밍 실행 —
+        #  다른 심볼릭 링크 호출들과 동일하게 온라인 전용 실행에서도 항상 동작하도록 보장)
+        _ghostty_symlink_script="$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh"
+        if [ -f "$_ghostty_symlink_script" ]; then
+            "$_ghostty_symlink_script" "$DEVTOOLS2/.config/ghostty" "$HOME/.config/ghostty"
+        else
+            curl -sSfL "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/cmd/create-symbolic-link.sh" \
+                | bash -s -- "$DEVTOOLS2/.config/ghostty" "$HOME/.config/ghostty"
+        fi
 
         # 최신 버전으로 설치한 경우 이력 업데이트
         if [ "$GHOSTTY_VERSION" != "$GHOSTTY_PINNED" ]; then

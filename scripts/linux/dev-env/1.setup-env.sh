@@ -5,6 +5,8 @@
 # - WSL2 환경 감지 시 Ghostty 관련 PATH 제외
 # ==============================================================================
 
+set -euo pipefail
+
 # DEVTOOLS2 경로 결정:
 #   1순위: 외부에서 이미 주입된 DEVTOOLS2 환경변수 (온라인 실행 시 마스터 스크립트가 주입)
 #   2순위: 현재 스크립트($0) 위치 기준 상대 경로 계산 (로컬 실행 시)
@@ -88,16 +90,19 @@ print_sep
 print_info "사용자 권한으로 실행 중 -> 사용자 환경 변수(~/.bashrc)에 추가합니다."
 echo ""
 
-# 기존에 등록된 DEVTOOLS2 설정 블록이 있다면 꼬이지 않도록 삭제한다.
-sed -i '/# === DEVTOOLS2 환경 변수 시작 ===/,/# === DEVTOOLS2 환경 변수 끝 ===/d' ~/.bashrc
+# 새 환경 변수 블록을 임시 파일에 먼저 완전히 다 작성한 뒤, 마지막에 한 번에
+# ~/.bashrc로 옮겨 붙인다. 이렇게 하면 중간에 쓰기가 실패(디스크 풀 등)해도
+# 기존 ~/.bashrc의 DEVTOOLS2 블록이 삭제되지 않고 그대로 보존된다.
+_DEVTOOLS2_ENV_TMP=$(mktemp)
+trap 'rm -f "$_DEVTOOLS2_ENV_TMP"' EXIT
 
-echo "# === DEVTOOLS2 환경 변수 시작 ===" >>~/.bashrc
+echo "# === DEVTOOLS2 환경 변수 시작 ===" >>"$_DEVTOOLS2_ENV_TMP"
 
 print_subsep
 print_step "[Step 1] HOME 변수 등록 및 시스템 PATH 최적화"
 # DEVTOOLS2 변수는 스크립트 실행 시 동적으로 계산된 절대 경로를 주입한다.
-echo "export DEVTOOLS2=\"$DEVTOOLS2\"" >>~/.bashrc
-echo "" >>~/.bashrc
+echo "export DEVTOOLS2=\"$DEVTOOLS2\"" >>"$_DEVTOOLS2_ENV_TMP"
+echo "" >>"$_DEVTOOLS2_ENV_TMP"
 
 # --- [설정부] 각 도구의 물리적 경로 설정
 # 환경 변수는 보안 문제로 심볼릭 링크가 아닌 실제 경로를 사용한다.
@@ -109,7 +114,7 @@ echo "" >>~/.bashrc
 
 # 나머지 설정들을 .bashrc 파일에 주입한다.
 # cat << 'EOF' 구문을 사용하면 내부의 $ 기호 등이 치환되지 않고 텍스트 그대로 들어간다.
-cat <<'EOF' >>~/.bashrc
+cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
 export NODE_HOME="$DEVTOOLS2/modules/nodejs/node-v24"
 export NPM_CONFIG_USERCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
 
@@ -118,7 +123,7 @@ EOF
 # NODE_PATH 설정
 # Windows: $DEVTOOLS2/data/.npm-packages/node_modules
 # Linux: $DEVTOOLS2/data/.npm-packages/lib/node_modules
-cat <<'EOF' >>~/.bashrc
+cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
 export NPM_CONFIG_PREFIX="$DEVTOOLS2/data/.npm-packages"
 export NODE_PATH="$NPM_CONFIG_PREFIX/lib/node_modules"
 
@@ -143,7 +148,7 @@ EOF
 
 # Ghostty 환경 변수는 WSL2가 아닌 네이티브 리눅스 환경에서만 등록한다.
 if [ "$IS_WSL2" = false ]; then
-    cat <<'EOF' >>~/.bashrc
+    cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
 export GHOSTTY_HOME="$DEVTOOLS2/modules/ghostty"
 
 EOF
@@ -156,7 +161,7 @@ fi
 # WSL2 여부에 따라 GHOSTTY_HOME 경로 포함 여부를 다르게 처리한다.
 if [ "$IS_WSL2" = false ]; then
     print_info "네이티브 리눅스 환경: Ghostty PATH를 포함하여 등록합니다."
-    cat <<'EOF' >>~/.bashrc
+    cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
 export PATH="\
 $NODE_HOME/bin:\
 $NPM_CONFIG_PREFIX/bin:\
@@ -178,7 +183,6 @@ $DEVTOOLS2/modules/ast-grep:\
 $DEVTOOLS2/modules/bitwarden:\
 $DEVTOOLS2/modules/rclone:\
 $PATH"
-# === DEVTOOLS2 환경 변수 끝 ===
 
 EOF
 else
@@ -189,7 +193,7 @@ else
             WIN_USERPROFILE=$(wslpath "$_raw_win_home" 2>/dev/null || true)
         fi
     fi
-    cat <<EOF >>~/.bashrc
+    cat <<EOF >>"$_DEVTOOLS2_ENV_TMP"
 export PATH="\
 \$NODE_HOME/bin:\
 \$NPM_CONFIG_PREFIX/bin:\
@@ -220,10 +224,17 @@ fi
 # 윈도우 사용자 홈 환경 변수 추가
 export userprofile="$WIN_USERPROFILE"
 
-# === DEVTOOLS2 환경 변수 끝 ===
-
 EOF
 fi
+
+echo "# === DEVTOOLS2 환경 변수 끝 ===" >>"$_DEVTOOLS2_ENV_TMP"
+echo "" >>"$_DEVTOOLS2_ENV_TMP"
+
+# 새 블록이 완전히 준비된 지금 시점에만 기존 블록을 지우고 한 번에 이어붙인다.
+sed -i '/# === DEVTOOLS2 환경 변수 시작 ===/,/# === DEVTOOLS2 환경 변수 끝 ===/d' ~/.bashrc
+cat "$_DEVTOOLS2_ENV_TMP" >>~/.bashrc
+rm -f "$_DEVTOOLS2_ENV_TMP"
+trap - EXIT
 echo ""
 
 print_subsep
@@ -260,11 +271,13 @@ fi
 
 _run_symlink() {
     local target="$1" link="$2"
+    # 개별 심볼릭 링크 하나가 실패해도(권한 문제 등) set -e로 전체 스크립트가
+    # 중단되지 않도록 경고만 출력하고 계속 진행한다 (이후 PATH/Gradle 설정 등은 계속 필요함).
     if [ -f "$CMD_SYMLINK" ]; then
-        "$CMD_SYMLINK" "$target" "$link"
+        "$CMD_SYMLINK" "$target" "$link" || print_warn "심볼릭 링크 생성 실패: $link -> $target (건너뛰고 계속 진행합니다)"
     else
         # 온라인 모드: create-symbolic-link.sh 를 GitHub에서 직접 스트리밍 실행 (bash -s 이용으로 /dev/fd 이슈 회피)
-        curl -sSfL "$_SYMLINK_RAW" | bash -s -- "$target" "$link"
+        curl -sSfL "$_SYMLINK_RAW" | bash -s -- "$target" "$link" || print_warn "심볼릭 링크 생성 실패: $link -> $target (건너뛰고 계속 진행합니다)"
     fi
 }
 

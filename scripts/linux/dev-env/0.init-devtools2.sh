@@ -3,8 +3,8 @@
 # 사용법: sudo /path/to/0.init-devtools2.sh
 #
 # 목적:
-# - Git 인증 정보 설정 (user.name / user.email / PAT 토큰)
-# - /var/opt/_devtools2 에 저장소 클론
+# - 시스템 필수 패키지 설치 및 한글 로케일 설정
+# - /var/opt/_devtools2 에 공개 저장소 클론 (공개 저장소이므로 별도 인증 불필요)
 # - 운영 환경에서 여러 개발자가 DevTools2 디렉토리를 안전하게 공유할 수 있도록
 #   그룹 소유권 및 퍼미션, SGID를 설정합니다.
 

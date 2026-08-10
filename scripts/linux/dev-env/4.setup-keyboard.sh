@@ -109,6 +109,10 @@ else
     # ── (1-A) apt 패키지로 설치 시도 ──────────────────────────────────────────
     print_info "apt 로 keyd 설치 시도 중..."
 
+    # 이전 apt 작업이 락을 쥐고 중단된 경우를 대비해 먼저 락을 강제 해제
+    rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null
+    dpkg --configure -a 2>/dev/null || true
+
     apt-get update -qq >/tmp/_keyd_apt_update.log 2>&1 || true
     if apt-get install -y keyd >/tmp/_keyd_apt.log 2>&1; then
         print_success "apt 로 keyd 설치 완료."

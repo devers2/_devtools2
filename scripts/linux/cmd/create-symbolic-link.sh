@@ -57,5 +57,9 @@ elif [ -e "$target_link" ]; then
     echo "[복구] $target_link 위치에 일반 디렉터리나 파일이 있어 백업($bak) 후 심볼릭 링크로 교체합니다."
 fi
 
-ln -s "$source_dir" "$target_link"
-echo "[성공] $target_link -> $source_dir"
+if ln -s "$source_dir" "$target_link"; then
+    echo "[성공] $target_link -> $source_dir"
+else
+    echo "[오류] $target_link -> $source_dir 심볼릭 링크 생성 실패" >&2
+    exit 1
+fi
