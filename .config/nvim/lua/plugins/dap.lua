@@ -52,16 +52,8 @@ return {
         return true
       end
 
-      -- Java attach 기본 구성
-      dap.configurations.java = {
-        {
-          type = 'java',
-          request = 'attach',
-          name = 'Java Attach to 5005',
-          hostName = '127.0.0.1',
-          port = 5005,
-        },
-      }
+      -- Java attach는 <leader>da(attach_debug)가 dap.run()을 직접 호출해서 처리하므로
+      -- dap.configurations.java에는 넣지 않습니다 (넣으면 <leader>dd 피커에 중복으로 뜸).
 
       -- Python FastAPI launch 기본 구성 (수동 실행 시 DAP UI에 표시됨)
       dap.configurations.python = dap.configurations.python or {}
@@ -96,11 +88,91 @@ return {
         require('dap-view').close()
       end
 
-      -- [스마트 포트 자동 킬러] dap.run 핵심 함수 래핑
+      -- [Java Launch: Spring 프로필 주입]
+      -- 자바 launch 설정(setup_dap_main_class_configs가 자동 생성한 "Launch ..." 항목)을 실행할 때만
+      -- Spring 프로필을 물어보고 --spring.profiles.active=... 를 프로그램 인자에 주입합니다.
+      -- (테스트 러너 launch는 제외, Python 등 다른 언어는 애초에 이 조건에 안 걸립니다)
+      -- 프로젝트별 마지막 입력값은 ~/.nvim/state.json 에 기억합니다 (attach 포트 기억과 동일한 방식).
+      local java_state_dir = _G.HOME_DIR .. '/.nvim'
+      local java_state_file = java_state_dir .. '/state.json'
+
+      local function get_last_spring_profile()
+        local f = io.open(java_state_file, 'r')
+        if not f then
+          return ''
+        end
+        local content = f:read('*all')
+        f:close()
+        local ok, state = pcall(vim.json.decode, content)
+        if not ok or type(state) ~= 'table' then
+          return ''
+        end
+        local cwd_state = state[vim.fn.getcwd()] or {}
+        return cwd_state.last_spring_profile or ''
+      end
+
+      local function save_last_spring_profile(profile)
+        vim.fn.mkdir(java_state_dir, 'p')
+        local state = {}
+        local f_read = io.open(java_state_file, 'r')
+        if f_read then
+          local content = f_read:read('*all')
+          f_read:close()
+          if content and content ~= '' then
+            local ok, decoded = pcall(vim.json.decode, content)
+            if ok and type(decoded) == 'table' then
+              state = decoded
+            end
+          end
+        end
+        local cwd = vim.fn.getcwd()
+        state[cwd] = state[cwd] or {}
+        state[cwd].last_spring_profile = profile
+        local f_write = io.open(java_state_file, 'w')
+        if f_write then
+          f_write:write(vim.json.encode(state))
+          f_write:close()
+        end
+      end
+
+      local TEST_RUNNER_CLASSES = {
+        ['com.microsoft.java.test.runner.Launcher'] = true,
+        ['org.testng.TestNG'] = true,
+      }
+
+      -- run_next: 실제 실행을 넘겨받아 호출하는 콜백 (dap.run 래핑 순서와 무관하게 동작하도록 인자로 전달)
+      local function run_java_launch(config, run_opts, run_next)
+        if config.mainClass and TEST_RUNNER_CLASSES[config.mainClass] then
+          run_next(config, run_opts)
+          return
+        end
+
+        vim.ui.input({
+          prompt = 'Spring Profile (예: local,dev / 비우면 미지정): ',
+          default = get_last_spring_profile(),
+        }, function(profile_input)
+          if profile_input == nil then
+            return -- Esc로 취소 (실행하지 않음)
+          end
+          if profile_input ~= '' then
+            save_last_spring_profile(profile_input)
+            config.args = config.args or {}
+            table.insert(config.args, '--spring.profiles.active=' .. profile_input)
+          end
+          run_next(config, run_opts)
+        end)
+      end
+
+      -- [스마트 포트 자동 킬러 + Java Launch 프로필 주입] dap.run 핵심 함수 래핑
       -- 디버깅이 가동되기 직전(어댑터 작동 전)에 포트를 스캔하여 선점 프로세스를 사전에 제거합니다.
       local orig_run = dap.run
       ---@diagnostic disable-next-line: duplicate-set-field
       dap.run = function(config, run_opts)
+        if config and config.type == 'java' and config.request == 'launch' then
+          run_java_launch(config, run_opts, orig_run)
+          return
+        end
+
         if config and config.request == 'launch' then
           local port = nil
           -- 1) config 자체에 port가 있는 경우
