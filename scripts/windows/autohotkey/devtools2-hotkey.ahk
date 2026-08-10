@@ -97,6 +97,11 @@ _CleanupOnExit(reason, code) {
 ; ------------------------------------------------------------------------------
 global _weztermExeCache := ""
 
+; WezTerm 창(래처 exe 종류 무관)을 하나의 그룹으로 묶어서
+; WinWait / WinActivate 시 "ahk_exe wezterm-gui.exe" / "ahk_exe wezterm.exe" 둘 다 인식하도록 함
+GroupAdd("WezTermGroup", "ahk_exe wezterm-gui.exe")
+GroupAdd("WezTermGroup", "ahk_exe wezterm.exe")
+
 _GetWeztermExe() {
     global _weztermExeCache
     if _weztermExeCache != "" && FileExist(_weztermExeCache)
@@ -128,9 +133,26 @@ _GetWeztermExe() {
                 Run('cmd.exe /c start "" "' exe '"', , "Hide")
             } catch {
                 TrayTip("WezTerm 실행", "WezTerm 실행 중 오류가 발생했습니다.", 0x3)
+                return
             }
         }
+        _ActivateWezterm()
     } else {
         TrayTip("WezTerm 실행", "WezTerm 실행 파일을 찾을 수 없습니다.", 0x2)
     }
+}
+
+; 새로 뜬(또는 이미 떠 있던) WezTerm 창을 다른 창들보다 위로 강제 노출
+; WinActivate만으로는 Windows 포그라운드 잠금 때문에 실패할 수 있어
+; AlwaysOnTop을 순간적으로 켰다 끄는 방식으로 z-order를 확실히 최상단으로 올림
+_ActivateWezterm() {
+    if !WinWait("ahk_group WezTermGroup", , 5)
+        return
+
+    if WinGetMinMax("ahk_group WezTermGroup") = -1
+        WinRestore("ahk_group WezTermGroup")
+
+    WinActivate("ahk_group WezTermGroup")
+    WinSetAlwaysOnTop(true, "ahk_group WezTermGroup")
+    WinSetAlwaysOnTop(false, "ahk_group WezTermGroup")
 }
