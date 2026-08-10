@@ -15,6 +15,12 @@
 #    BOM 덧붙이기/보정 편법 코드를 작성하지 마십시오. 스크립트는 항상 순수 NoBOM으로 유지되어야 합니다.
 # 3. PS5.1 & PS7 무구분 호환: param() 구문은 항상 스크립트 맨 첫 줄(Line 1)에 위치시켜
 #    순정 Windows PowerShell 5.1 과 PowerShell 7 모두에서 BOM 없이도 문법 에러 없이 작동합니다.
+# 4. sh와의 관계: scripts/linux/dev-env/_colors.sh, _install-utils.sh 같은 bash 공용 헬퍼도
+#    지금은 온라인 전용(로컬 파일을 보지 않음)입니다 — 다만 이유는 다릅니다. bash는 로컬을 먼저
+#    봐도 인코딩상 안전하지만, 이 설치 스크립트들이 어차피 네트워크 없이는 동작 못 해서 로컬
+#    폴백을 뺀 것뿐입니다(순수 단순화). 반면 ps1은 로컬 NoBOM 파일을 PowerShell 5.1이 직접
+#    읽으면 한글 등이 깨질 위험이 있어 애초에 로컬을 볼 수조차 없습니다 — ps1은 위 1번 원칙대로
+#    항상 온라인에서 새로 가져와 실행해야 합니다.
 # ------------------------------------------------------------------------------
 #
 # 사용 방법:
@@ -148,6 +154,40 @@ function New-SymlinkIdempotent {
     }
     Write-Success "$label 심볼릭 링크 생성 완료"
     return $true
+}
+
+# 기존 파일 위치를 심볼릭 링크로 교체하는 헬퍼 (VSCode settings.json/keybindings.json/tasks.json 등에서 공용 사용)
+# - 실제 파일(심볼릭 링크가 아님)이 있으면 최초 1회만 .bak으로 백업하고, 이후 재실행 시에는 그냥 제거
+# - 심볼릭 링크(정상 또는 dangling)면 Remove-FileOrSymlink로 안전하게 제거
+# - 정리 후 New-SymlinkIdempotent로 새 심볼릭 링크 생성
+function Backup-AndLink {
+    param(
+        [string]$LinkPath,
+        [string]$TargetPath,
+        [string]$Description = ""
+    )
+    $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
+
+    $item = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+    if ($null -ne $item) {
+        $isLink = $item.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+        if (-not $isLink) {
+            $backupPath = "$LinkPath.bak"
+            if (-not (Test-Path $backupPath)) {
+                Move-Item -LiteralPath $LinkPath -Destination $backupPath -Force
+                Write-Info "기존 $label 을(를) $(Split-Path $backupPath -Leaf)으로 백업했습니다."
+            } else {
+                Remove-Item -LiteralPath $LinkPath -Force
+            }
+        } else {
+            Remove-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+        }
+    } else {
+        # Get-Item으로도 못 찾는 dangling 심볼릭 링크까지 안전하게 정리
+        Remove-FileOrSymlink -Path $LinkPath | Out-Null
+    }
+
+    return New-SymlinkIdempotent -LinkPath $LinkPath -TargetPath $TargetPath -Description $label
 }
 
 # 단순 프로세스/조건 대기형 스피너 헬퍼
@@ -371,8 +411,6 @@ if (-not ($wslFeatEnabled -and $vmFeatEnabled) -and -not (Test-Path $_wslResumeF
     Wait-WithSpinner -Message "WSL2 커널 컴포넌트 확인/설치" -Condition { $pKernel.HasExited }
     Remove-Item "$env:TEMP\wsl_kernel_install.txt" -Force -ErrorAction SilentlyContinue
 
-    $needsReboot = ($feat1.RestartNeeded -eq $true) -or ($feat2.RestartNeeded -eq $true)
-
     Write-Host ""
     Write-Host "===========================================================================" -ForegroundColor Yellow
     Write-Host "  ✅ WSL2 필수 선택적 기능 활성화 완료!" -ForegroundColor Green
@@ -495,10 +533,12 @@ while ($true) {
 Write-SubStep "▶ WSL2 저장소 초기화 및 Git 클론 실행 (0.init-devtools2.sh)"
 $wslTmpScript = "/tmp/_dt2_init.sh"
 
-wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/0.init-devtools2.sh' -o $wslTmpScript && chmod +x $wslTmpScript"
+wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/0.init-devtools2.sh' -o $wslTmpScript && chmod +x $wslTmpScript"
 
 # sudo -k 로 캐시 초기화 후 비밀번호 stdin → sudo -S bash /tmp/script 실행 (비밀번호가 bash stdin으로 유입되지 않음)
-wsl -d $wslDistro -- bash -c "sudo -k; cat /tmp/.wsl_pw_tmp | sudo -S bash $wslTmpScript; rm -f $wslTmpScript"
+# 이 호출이 비밀번호 파일의 마지막 사용처이므로, 성공/실패 여부와 무관하게(세미콜론 연결)
+# WSL 안의 평문 비밀번호 임시 파일을 즉시 제거한다.
+wsl -d $wslDistro -- bash -c "sudo -k; cat /tmp/.wsl_pw_tmp | sudo -S bash $wslTmpScript; rm -f $wslTmpScript /tmp/.wsl_pw_tmp"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Fail "0.init-devtools2.sh 초기화 실패"
@@ -535,15 +575,7 @@ if (-not $vscodeAlreadyInstalled) {
     if ($userChoseVscode) {
         Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
         $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\vscode_install.log" -RedirectStandardError "$env:TEMP\vscode_install_err.log" -ErrorAction SilentlyContinue
-        $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-        $sIdx = 0
-        while (-not $p.HasExited) {
-            $char = $spinner[$sIdx % $spinner.Count]
-            Write-Host -NoNewline "`r  [$char] VSCode 패키지 설치 진행 중...   "
-            Start-Sleep -Milliseconds 150
-            $sIdx++
-        }
-        Write-Host "`r  [완료] VSCode 패키지 설치 완료!   " -ForegroundColor Green
+        Wait-WithSpinner -Message "VSCode 패키지 설치 진행" -Condition { $p.HasExited }
         Remove-Item "$env:TEMP\vscode_install.log", "$env:TEMP\vscode_install_err.log" -Force -ErrorAction SilentlyContinue
         if ($p.ExitCode -ne 0) {
             Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
@@ -607,19 +639,19 @@ if ($interopCheck -ne "OK") {
 Write-Step "[Step 3] WSL2 개발 환경 빌드 및 패키지 일괄 설치"
 
 Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
-wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh"
+wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh"
 $envExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_1.sh 2>$null
 if ($envExit -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, VSCode 확장)"
-wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh"
+wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh"
 $coreExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_2.sh 2>$null
 if ($coreExit -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
-wsl -d $wslDistro -- bash -c "curl -sSfL '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh"
+wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh"
 $cliExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_3.sh 2>$null
 if ($cliExit -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
@@ -666,77 +698,11 @@ if ($skipVsCodeLink) {
     $targetKeybindings = "$devtools2Root\.config\vscode\keybindings.json"
     $targetTasks       = "$devtools2Root\.config\vscode\tasks.json"
 
-    # settings.json
-    $settingsItem = Get-Item -LiteralPath "$vscodeUserDir\settings.json" -Force -ErrorAction SilentlyContinue
-    if ($null -ne $settingsItem) {
-        $isLink = $settingsItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
-        if (-not $isLink) {
-            if (-not (Test-Path "$vscodeUserDir\settings.json.bak")) {
-                Move-Item "$vscodeUserDir\settings.json" "$vscodeUserDir\settings.json.bak" -Force
-                Write-Info "기존 settings.json을 settings.json.bak으로 백업했습니다."
-            } else {
-                Remove-Item "$vscodeUserDir\settings.json" -Force
-            }
-        } else {
-            Remove-Item -LiteralPath "$vscodeUserDir\settings.json" -Force -ErrorAction SilentlyContinue
-        }
-    } else {
-        $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\settings.json`" echo exists" 2>$null
-        if ($cmdCheck -match 'exists') {
-            cmd.exe /c "del /f /q `"$vscodeUserDir\settings.json`"" 2>$null | Out-Null
-            Write-Info "settings.json dangling symlink 제거 완료"
-        }
-    }
-
-    # keybindings.json
-    $kbItem = Get-Item -LiteralPath "$vscodeUserDir\keybindings.json" -Force -ErrorAction SilentlyContinue
-    if ($null -ne $kbItem) {
-        $isLink = $kbItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
-        if (-not $isLink) {
-            if (-not (Test-Path "$vscodeUserDir\keybindings.json.bak")) {
-                Move-Item "$vscodeUserDir\keybindings.json" "$vscodeUserDir\keybindings.json.bak" -Force
-                Write-Info "기존 keybindings.json을 keybindings.json.bak으로 백업했습니다."
-            } else {
-                Remove-Item "$vscodeUserDir\keybindings.json" -Force
-            }
-        } else {
-            Remove-Item -LiteralPath "$vscodeUserDir\keybindings.json" -Force -ErrorAction SilentlyContinue
-        }
-    } else {
-        $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\keybindings.json`" echo exists" 2>$null
-        if ($cmdCheck -match 'exists') {
-            cmd.exe /c "del /f /q `"$vscodeUserDir\keybindings.json`"" 2>$null | Out-Null
-            Write-Info "keybindings.json dangling symlink 제거 완료"
-        }
-    }
-
-    # tasks.json
-    $tasksItem = Get-Item -LiteralPath "$vscodeUserDir\tasks.json" -Force -ErrorAction SilentlyContinue
-    if ($null -ne $tasksItem) {
-        $isLink = $tasksItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint
-        if (-not $isLink) {
-            if (-not (Test-Path "$vscodeUserDir\tasks.json.bak")) {
-                Move-Item "$vscodeUserDir\tasks.json" "$vscodeUserDir\tasks.json.bak" -Force
-                Write-Info "기존 tasks.json을 tasks.json.bak으로 백업했습니다."
-            } else {
-                Remove-Item "$vscodeUserDir\tasks.json" -Force
-            }
-        } else {
-            Remove-Item -LiteralPath "$vscodeUserDir\tasks.json" -Force -ErrorAction SilentlyContinue
-        }
-    } else {
-        $cmdCheck = cmd.exe /c "if exist `"$vscodeUserDir\tasks.json`" echo exists" 2>$null
-        if ($cmdCheck -match 'exists') {
-            cmd.exe /c "del /f /q `"$vscodeUserDir\tasks.json`"" 2>$null | Out-Null
-            Write-Info "tasks.json dangling symlink 제거 완료"
-        }
-    }
-
-    # 심볼릭 링크 생성
-    New-SymlinkIdempotent -LinkPath "$vscodeUserDir\settings.json"    -TargetPath $targetSettings    -Description "VSCode settings.json"
-    New-SymlinkIdempotent -LinkPath "$vscodeUserDir\keybindings.json" -TargetPath $targetKeybindings -Description "VSCode keybindings.json"
+    # 기존 파일/dangling 심볼릭 링크 정리 후 새 심볼릭 링크 생성 (백업 포함, Backup-AndLink 공용 헬퍼)
+    Backup-AndLink -LinkPath "$vscodeUserDir\settings.json"    -TargetPath $targetSettings    -Description "VSCode settings.json" | Out-Null
+    Backup-AndLink -LinkPath "$vscodeUserDir\keybindings.json" -TargetPath $targetKeybindings -Description "VSCode keybindings.json" | Out-Null
     if (Test-Path $targetTasks) {
-        New-SymlinkIdempotent -LinkPath "$vscodeUserDir\tasks.json" -TargetPath $targetTasks -Description "VSCode tasks.json"
+        Backup-AndLink -LinkPath "$vscodeUserDir\tasks.json" -TargetPath $targetTasks -Description "VSCode tasks.json" | Out-Null
     }
 
     # 🌟 VSCode 확장 목록(extensions.txt) 동기화 자동 설치 (Windows 로컬)

@@ -9,6 +9,14 @@
 #
 # 사용법:
 #   source "$(dirname "$(readlink -f "$0")")/_install-utils.sh"
+#
+# [로딩 순서: 온라인 전용]
+# 이 파일을 로드하는 스크립트는 GitHub main 최신 버전을 curl로 시도하고, 실패하면 바로
+# 하드 실패합니다 — TOOL_VERSIONS_TOML 등은 인라인 대체가 불가능하고, 이 설치 스크립트들은
+# 어차피 네트워크 없이는 동작할 수 없기 때문입니다. 이 curl 호출에는 반드시 Cache-Control/
+# Pragma 캐시 우회 헤더를 포함해야 합니다 — 없으면 GitHub raw CDN이 방금 푸시하기 전
+# 구버전을 서빙할 수 있습니다.
+# scripts/windows/*.ps1 에는 로컬 파일을 아예 읽으면 안 됩니다 — 각 ps1 헤더 4번 항목 참고.
 # ==============================================================================
 
 # ── 아키텍처 감지 ──────────────────────────────────────────────────────────
@@ -55,7 +63,7 @@ _read_toml() {
     if [ -f "$TOOL_VERSIONS_TOML" ]; then
         cat "$TOOL_VERSIONS_TOML"
     else
-        curl -sSfL --max-time 10 "$_TOML_RAW_URL" 2>/dev/null || true
+        curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_TOML_RAW_URL" 2>/dev/null || true
     fi
 }
 

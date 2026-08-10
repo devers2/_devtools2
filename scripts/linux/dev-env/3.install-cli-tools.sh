@@ -22,66 +22,19 @@ if [ ! -f "$DEVTOOLS2/scripts/linux/dev-env/3.install-cli-tools.sh" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
 
-# 공통 색상/스피너 헬퍼 로드 (원격 실행 및 파일 미존재 시 자동 폴백 보장)
+# 공통 색상/스피너 헬퍼 로드 (온라인 전용)
 _load_colors() {
     [ -n "${_COLORS_LOADED:-}" ] && return 0
 
-    local script_dir; script_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo ".")")
-    local colors_file="$script_dir/_colors.sh"
-
-    if [ ! -f "$colors_file" ] && [ -n "${DEVTOOLS2:-}" ] && [ -f "$DEVTOOLS2/scripts/linux/dev-env/_colors.sh" ]; then
-        colors_file="$DEVTOOLS2/scripts/linux/dev-env/_colors.sh"
-    fi
-
-    if [ -f "$colors_file" ]; then
-        # shellcheck disable=SC1090
-        source "$colors_file" 2>/dev/null && _COLORS_LOADED=true && return 0
-    fi
-
-    if curl -sSfL --max-time 5 "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_colors.sh" -o /tmp/_colors_remote.sh 2>/dev/null; then
+    # 캐시 우회 헤더 포함 (run_remote_script와 동일) — CDN이 방금 푸시 전 구버전을
+    # 서빙하면 "진입 스크립트는 최신인데 _colors.sh만 구버전"이 될 수 있으므로 필수.
+    if curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_colors.sh" -o /tmp/_colors_remote.sh 2>/dev/null; then
         # shellcheck disable=SC1091
         source /tmp/_colors_remote.sh 2>/dev/null && _COLORS_LOADED=true && return 0
     fi
 
-    _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW='' _C_RED='' _C_CYAN='' _C_WHITE='' _C_GRAY=''
-    if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
-        _C_RESET='\033[0m' _C_BOLD='\033[1m' _C_CYAN='\033[0;36m' _C_GREEN='\033[0;32m'
-        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_CYAN='\033[0;36m' _C_WHITE='\033[1;37m'
-    fi
-
-    print_info()    { printf "${_C_CYAN}[정보]${_C_RESET} %s\n"    "$*"; }
-    print_success() { printf "${_C_GREEN}[성공]${_C_RESET} %s\n"   "$*"; }
-    print_done()    { printf "${_C_GREEN}[완료]${_C_RESET} %s\n"   "$*"; }
-    print_warn()    { printf "${_C_YELLOW}[경고]${_C_RESET} %s\n"  "$*"; }
-    print_error()   { printf "${_C_RED}[오류]${_C_RESET} %s\n"     "$*" >&2; }
-    print_step()    { printf "${_C_CYAN}%s${_C_RESET}\n"         "$*"; }
-    print_sep()     { printf "${_C_CYAN}%s${_C_RESET}\n" "==========================================================================="; }
-    print_subsep()  { printf "${_C_CYAN}%s${_C_RESET}\n" "---------------------------------------------------------------------------"; }
-    print_question(){ printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
-    print_option()  {
-        if [ -n "${3:-}" ]; then
-            printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET} ${_C_GREEN}${_C_BOLD}%s${_C_RESET}\n" "$1" "$2" "$3"
-        else
-            printf "   ${_C_YELLOW}${_C_BOLD}%s)${_C_RESET} ${_C_WHITE}%s${_C_RESET}\n" "$1" "$2"
-        fi
-    }
-    prompt_input()  { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
-    # _colors.sh 원격 로드까지 실패한 최후의 경우를 위한 자체 스피너 정의
-    show_spinner() {
-        local pid=$1
-        local delay=0.15
-        local spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-        local spin_len=${#spinner[@]}
-        local i=0
-        while kill -0 "$pid" 2>/dev/null; do
-            printf " [%s] " "${spinner[i]}"
-            i=$(( (i + 1) % spin_len ))
-            sleep $delay
-            printf "\b\b\b\b\b"
-        done
-        printf "     \b\b\b\b\b"
-    }
-    _COLORS_LOADED=true
+    echo "[오류] _colors.sh를 온라인에서 불러오지 못했습니다. 네트워크 연결을 확인하세요." >&2
+    exit 1
 }
 _load_colors
 
@@ -90,24 +43,14 @@ _load_colors
 _load_install_utils() {
     [ -n "${_INSTALL_UTILS_LOADED:-}" ] && return 0
 
-    local script_dir; script_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo ".")")
-    local utils_file="$script_dir/_install-utils.sh"
-
-    if [ ! -f "$utils_file" ] && [ -n "${DEVTOOLS2:-}" ] && [ -f "$DEVTOOLS2/scripts/linux/dev-env/_install-utils.sh" ]; then
-        utils_file="$DEVTOOLS2/scripts/linux/dev-env/_install-utils.sh"
-    fi
-
-    if [ -f "$utils_file" ]; then
-        # shellcheck disable=SC1090
-        source "$utils_file" 2>/dev/null && _INSTALL_UTILS_LOADED=true && return 0
-    fi
-
-    if curl -sSfL --max-time 5 "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_install-utils.sh" -o /tmp/_install_utils_remote.sh 2>/dev/null; then
+    # 온라인 전용, 캐시 우회 헤더 포함 (이유는 _load_colors 주석 참고).
+    # TOOL_VERSIONS_TOML 등은 인라인 대체가 불가능해서 실패하면 바로 하드 실패한다.
+    if curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_install-utils.sh" -o /tmp/_install_utils_remote.sh 2>/dev/null; then
         # shellcheck disable=SC1091
         source /tmp/_install_utils_remote.sh 2>/dev/null && _INSTALL_UTILS_LOADED=true && return 0
     fi
 
-    print_error "_install-utils.sh를 로컬/원격 어디에서도 불러오지 못했습니다. 네트워크 연결을 확인하세요."
+    print_error "_install-utils.sh를 온라인에서 불러오지 못했습니다. 네트워크 연결을 확인하세요."
     exit 1
 }
 _load_install_utils

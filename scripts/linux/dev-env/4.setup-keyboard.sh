@@ -28,42 +28,19 @@ if [ ! -f "$DEVTOOLS2/scripts/linux/dev-env/4.setup-keyboard.sh" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
 
-# ── 색상 헬퍼 로드 ─────────────────────────────────────────────────────────────
+# ── 색상 헬퍼 로드 (온라인 전용) ──────────────────────────────────────────────────
 _load_colors() {
     [ -n "${_COLORS_LOADED:-}" ] && return 0
 
-    local script_dir; script_dir=$(dirname "$(readlink -f "$0" 2>/dev/null || echo ".")")
-    local colors_file="$script_dir/_colors.sh"
-
-    if [ ! -f "$colors_file" ] && [ -n "${DEVTOOLS2:-}" ] && [ -f "$DEVTOOLS2/scripts/linux/dev-env/_colors.sh" ]; then
-        colors_file="$DEVTOOLS2/scripts/linux/dev-env/_colors.sh"
-    fi
-
-    if [ -f "$colors_file" ]; then
-        # shellcheck disable=SC1090
-        source "$colors_file" 2>/dev/null && _COLORS_LOADED=true && return 0
-    fi
-
-    if curl -sSfL --max-time 5 "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_colors.sh" -o /tmp/_colors_remote.sh 2>/dev/null; then
+    # 캐시 우회 헤더 포함 (run_remote_script와 동일) — CDN이 방금 푸시 전 구버전을
+    # 서빙하면 "진입 스크립트는 최신인데 _colors.sh만 구버전"이 될 수 있으므로 필수.
+    if curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_colors.sh" -o /tmp/_colors_remote.sh 2>/dev/null; then
         # shellcheck disable=SC1091
         source /tmp/_colors_remote.sh 2>/dev/null && _COLORS_LOADED=true && return 0
     fi
 
-    _C_RESET='' _C_BOLD='' _C_CYAN='' _C_GREEN='' _C_YELLOW='' _C_RED='' _C_WHITE='' _C_GRAY=''
-    if [ -t 1 ] && [ "${TERM:-}" != "dumb" ]; then
-        _C_RESET='\033[0m' _C_BOLD='\033[1m' _C_CYAN='\033[0;36m' _C_GREEN='\033[0;32m'
-        _C_YELLOW='\033[0;33m' _C_RED='\033[0;31m' _C_WHITE='\033[1;37m'
-    fi
-
-    print_info()    { printf "${_C_CYAN}[정보]${_C_RESET} %s\n"    "$*"; }
-    print_success() { printf "${_C_GREEN}[성공]${_C_RESET} %s\n"   "$*"; }
-    print_done()    { printf "${_C_GREEN}[완료]${_C_RESET} %s\n"   "$*"; }
-    print_warn()    { printf "${_C_YELLOW}[경고]${_C_RESET} %s\n"  "$*"; }
-    print_error()   { printf "${_C_RED}[오류]${_C_RESET} %s\n"     "$*" >&2; }
-    print_step()    { printf "${_C_CYAN}%s${_C_RESET}\n"           "$*"; }
-    print_sep()     { printf "${_C_CYAN}%s${_C_RESET}\n" "==========================================================================="; }
-    print_subsep()  { printf "${_C_CYAN}%s${_C_RESET}\n" "---------------------------------------------------------------------------"; }
-    _COLORS_LOADED=true
+    echo "[오류] _colors.sh를 온라인에서 불러오지 못했습니다. 네트워크 연결을 확인하세요." >&2
+    exit 1
 }
 _load_colors
 
@@ -177,7 +154,7 @@ if [ -f "$KEYD_CONF_SRC" ]; then
     print_info "로컬 설정 파일 복사: $KEYD_CONF_SRC → $KEYD_CONF_DEST"
     cp -f "$KEYD_CONF_SRC" "$KEYD_CONF_DEST"
     print_success "keyd 설정 파일 배포 완료."
-elif curl -sSfL --max-time 5 "https://raw.githubusercontent.com/devers2/_devtools2/main/.config/keyd/default.conf" -o "$KEYD_CONF_DEST" 2>/dev/null; then
+elif curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/.config/keyd/default.conf" -o "$KEYD_CONF_DEST" 2>/dev/null; then
     print_info "GitHub 원격에서 최신 default.conf 다운로드 완료 → $KEYD_CONF_DEST"
     print_success "keyd 설정 파일 원격 배포 완료."
 else
