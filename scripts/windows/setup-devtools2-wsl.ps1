@@ -223,44 +223,35 @@ function Wait-WithSpinner {
     }
 }
 
-# GitHub raw URL에서 PowerShell 스크립트를 바이너리로 다운로드 후 실행하는 헬퍼
+# GitHub raw URL에서 PowerShell 스크립트를 문자열로 받아 즉시 실행하는 헬퍼
 #
 # [설계 원칙]
 # ① 캐시 방지: Cache-Control/Pragma 헤더로 CDN·프록시 캐시를 강제 우회
 #              → 항상 GitHub main 브랜치 최신 내용이 실행됨을 보장
-# ② NoBOM 유지: Invoke-WebRequest -OutFile 은 HTTP 바이너리를 그대로 저장
-#              → BOM 미추가, 다운로드된 원본 그대로 실행
-# ③ PS7/PS5.1 자동 선택: pwsh 설치 여부에 따라 powershell.exe 로 폴백
-#              → 순정 Windows PowerShell 5.1 에서도 정상 동작
-# ④ 임시 파일 즉시 삭제: finally 블록에서 성공/실패 무관하게 항상 정리
+# ② 디스크를 거치지 않음: Invoke-WebRequest -OutFile 로 임시 파일에 저장했다가
+#              -File 로 실행하면, pwsh(PS7) 없는 순정 Windows에서 powershell.exe(PS5.1)가
+#              NoBOM 한글 파일을 잘못된 코드페이지로 읽어 파싱이 깨지는 것을 실측으로 확인했다
+#              (irm | iex 가 안전한 것과 동일한 이유 — Invoke-RestMethod로 받은 문자열을
+#              재인코딩하면 원본과 바이트 단위로 동일함을 확인함). 그래서 파일로 저장하지 않고
+#              문자열로 받아 스크립트블록으로 바로 실행한다 — 임시 파일 생성/정리,
+#              pwsh 설치 여부 판단, 외부 프로세스 실행 분기가 전부 필요 없어진다.
+# ③ 인자는 반드시 해시테이블로: 배열을 @()로 스플래팅하면 "-Name" 문자열이 파라미터
+#              이름으로 재해석되지 않고 그냥 위치 인자 값으로 들어가버리는 것을 실측으로
+#              확인했다(예: -WslDistro 값이 통째로 누락됨). 해시테이블 스플래팅만 이름 있는
+#              파라미터로 정확히 바인딩된다.
 function Invoke-RemotePsScript {
     param(
         [string]$Url,
-        [string[]]$Arguments = @()
+        [hashtable]$Arguments = @{}
     )
-    $fname = [System.IO.Path]::GetFileName($Url)
-    $tmp = Join-Path $env:TEMP "_dt2_$fname"
-    try {
-        # ① 캐시 방지 헤더 포함하여 항상 신선한 스크립트 다운로드 (② NoBOM 그대로 저장)
-        $headers = @{
-            'Cache-Control' = 'no-cache, no-store, must-revalidate'
-            'Pragma'        = 'no-cache'
-        }
-        Invoke-WebRequest -Uri $Url -OutFile $tmp -UseBasicParsing -Headers $headers -ErrorAction Stop
-
-        # ③ PS7(pwsh) 우선, 미설치 시 PS5.1(powershell.exe) 폴백
-        $psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell.exe' }
-
-        if ($Arguments.Count -gt 0) {
-            & $psExe -NoProfile -ExecutionPolicy Bypass -File $tmp @Arguments
-        } else {
-            & $psExe -NoProfile -ExecutionPolicy Bypass -File $tmp
-        }
-        return $LASTEXITCODE
-    } finally {
-        # ④ 임시 파일 즉시 삭제
-        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    $headers = @{
+        'Cache-Control' = 'no-cache, no-store, must-revalidate'
+        'Pragma'        = 'no-cache'
     }
+    $content = Invoke-RestMethod -Uri $Url -Headers $headers -ErrorAction Stop
+    $scriptBlock = [scriptblock]::Create($content)
+    & $scriptBlock @Arguments
+    return $LASTEXITCODE
 }
 
 # ==============================================================================
@@ -324,12 +315,16 @@ Write-Host "====================================================================
 Write-Host "🌟 DevTools2 Windows & WSL2 통합 설치 마스터 자동화" -ForegroundColor DarkCyan
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
-# 로컬 파일 실행 감지 안내
+# 로컬 파일 실행 감지 안내 (irm | iex 로 실행하면 $PSCommandPath 가 비어있어 이 블록 자체가 스킵됨)
 if (-not [string]::IsNullOrEmpty($PSCommandPath)) {
     Write-Host ""
     Write-Host "  [안내] 로컬 파일 실행이 감지되었습니다." -ForegroundColor DarkYellow
     Write-Host "         서브스크립트는 로컬 파일을 사용하지 않고, 항상 GitHub main 브랜치" -ForegroundColor DarkYellow
     Write-Host "         최신 버전을 온라인에서 직접 다운로드하여 실행합니다." -ForegroundColor DarkYellow
+    Write-Host "         또한 순정 Windows PowerShell 5.1(pwsh 미설치)에서 이 파일을 로컬로" -ForegroundColor DarkYellow
+    Write-Host "         저장해 실행하면 한글 텍스트 때문에 파싱 자체가 실패할 수 있습니다." -ForegroundColor DarkYellow
+    Write-Host "         가능하면 아래처럼 온라인에서 바로 실행하는 것을 권장합니다:" -ForegroundColor DarkYellow
+    Write-Host "           irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex" -ForegroundColor Cyan
     Write-Host ""
 }
 
@@ -670,7 +665,7 @@ Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
 # ── 4-1. WezTerm ──────────────────────────────────────────────────────────────
 Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동"
-Invoke-RemotePsScript -Url "$RAW_WIN/1.setup-wezterm.ps1" -Arguments "-WslDistro", $wslDistro
+Invoke-RemotePsScript -Url "$RAW_WIN/1.setup-wezterm.ps1" -Arguments @{ WslDistro = $wslDistro }
 
 # ── 4-2. VSCode 설정 및 Windows 로컬 확장 연동 ───────────────────────────────
 Write-SubStep "▶ (2/3) VSCode 설정 연동 및 Windows 로컬 확장 설치"
@@ -785,7 +780,7 @@ if ($skipVsCodeLink) {
 # ── 4-3. Zed ─────────────────────────────────────────────────────────────────
 Write-SubStep "▶ (3/3) Zed 에디터 설치 및 설정 연동"
 if ($userChoseZed) {
-    Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-zed.ps1" -Arguments "-WslDistro", $wslDistro
+    Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
 } else {
     Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
 }

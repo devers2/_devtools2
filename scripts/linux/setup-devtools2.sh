@@ -63,6 +63,21 @@ RAW_BASE="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linu
 
 print_info "서브스크립트는 항상 GitHub main 브랜치 최신 버전으로 실행됩니다. (캐시 우회)"
 
+# 로컬 파일 실행 감지 안내 (bash <(curl ...) 또는 curl ... | bash 로 스트리밍 실행하면
+# $0가 실제 파일이 아니라서(/dev/fd/* 또는 bash) 이 블록 자체가 스킵됨)
+case "$0" in
+    /dev/fd/*|bash|-bash) ;;
+    *)
+        if [ -f "$0" ]; then
+            echo ""
+            print_info "로컬 파일 실행이 감지되었습니다."
+            print_info "  서브스크립트(0~4번)는 로컬 파일을 사용하지 않고, 항상 GitHub main 브랜치"
+            print_info "  최신 버전을 온라인에서 직접 스트리밍으로 다운로드하여 실행합니다."
+            echo ""
+        fi
+        ;;
+esac
+
 # ==============================================================================
 # [Step 0] Git 인증 설정 + 저장소 클론 + 그룹/권한 초기화
 # ==============================================================================
