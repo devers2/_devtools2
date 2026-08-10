@@ -709,14 +709,9 @@ if (Test-Path $ahkExe) {
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 
 $ahkSetupJob = Start-Job -ScriptBlock {
-    param($WslDistro, $startupDir, $ahkModuleDir, $ahkExe, $PSScriptRoot)
+    param($WslDistro, $startupDir, $ahkModuleDir, $ahkExe)
 
-    # 헬퍼: WSL2 파일 존재 여부를 UNC Test-Path 대신 wsl test -f 로 0.01초만에 빠르게 검사
-    function Test-WslFileFast {
-        param($distro, $linuxPath)
-        $res = wsl -d $distro -- bash -c "test -f '$linuxPath' && echo 'OK'" 2>$null
-        return ($res -eq 'OK')
-    }
+    # 헬퍼: WSL2 디렉터리 존재 여부를 UNC Test-Path 대신 wsl test -d 로 0.01초만에 빠르게 검사
     function Test-WslDirFast {
         param($distro, $linuxPath)
         $res = wsl -d $distro -- bash -c "test -d '$linuxPath' && echo 'OK'" 2>$null
@@ -766,31 +761,26 @@ $ahkSetupJob = Start-Job -ScriptBlock {
         $env:DEVTOOLS2 = $wslDevtools2Root
     }
 
-    # devtools2-hotkey.ahk 통합 스크립트 경로 지정
+    # devtools2-hotkey.ahk 통합 스크립트 배포
     # 재부팅 직후 WSL이 아직 기동하지 않은 상태에서도 AHK가 즉시 실행될 수 있도록
-    # 항상 Windows 로컬 경로에 복사해 두고, 바로가기는 로컬 경로를 가리킵니다.
-    # (설치 스크립트 재실행 시 WSL 원본에서 자동으로 덮어씁니다)
+    # 항상 Windows 로컬 경로에 복사해 둡니다.
+    # [온라인 전용] WSL 클론이 git pull 되지 않은 채 남아있으면 로컬(WSL) 복사가
+    # 구버전을 배포할 위험이 있으므로, 로컬/WSL 파일은 사용하지 않고 매번 GitHub main
+    # 최신 버전을 캐시 우회 헤더와 함께 직접 받아옵니다 (_colors.sh 등과 동일한 온라인
+    # 전용 원칙 — scripts/linux/dev-env/_install-utils.sh 헤더 참고).
     $ahkDest = Join-Path $ahkModuleDir "devtools2-hotkey.ahk"
-    $wslAhkRel = '$DEVTOOLS2/scripts/windows/autohotkey/devtools2-hotkey.ahk'
-
-    if (Test-WslFileFast $WslDistro $wslAhkRel) {
-        # WSL 원본 → Windows 로컬 복사 (재설치 시 자동 갱신)
-        $wslAhkFull = "$wslDevtools2Root\scripts\windows\autohotkey\devtools2-hotkey.ahk"
-        Copy-Item -Path $wslAhkFull -Destination $ahkDest -Force -ErrorAction SilentlyContinue
-    } else {
-        $ahkSourceLocal = $null
-        if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-            $ahkSourceLocal = Join-Path (Split-Path $PSScriptRoot -Parent) "autohotkey\devtools2-hotkey.ahk"
-        }
-        if ($ahkSourceLocal -and (Test-Path $ahkSourceLocal)) {
-            Copy-Item -Path $ahkSourceLocal -Destination $ahkDest -Force
-        } else {
-            try {
-                $ahkRaw = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/devtools2-hotkey.ahk"
-                $ahkNoCacheHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-                Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkDest -Headers $ahkNoCacheHeaders -ErrorAction Stop
-            } catch {}
-        }
+    $ahkRaw  = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/devtools2-hotkey.ahk"
+    $ahkNoCacheHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
+    $ahkFetchError = $null
+    # 임시 파일로 먼저 받아서 성공했을 때만 $ahkDest로 교체 — 다운로드 도중 실패해도
+    # 기존에 정상 배포돼 있던 로컬 사본이 손상된 파일로 덮어써지지 않도록 보장합니다.
+    $ahkTmp = "$ahkDest.download"
+    try {
+        Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkTmp -Headers $ahkNoCacheHeaders -ErrorAction Stop
+        Move-Item -Path $ahkTmp -Destination $ahkDest -Force
+    } catch {
+        $ahkFetchError = $_.Exception.Message
+        Remove-Item -Path $ahkTmp -Force -ErrorAction SilentlyContinue
     }
 
     # 통합 AutoHotkey 자동 실행 등록 (Task Scheduler)
@@ -858,8 +848,8 @@ $ahkSetupJob = Start-Job -ScriptBlock {
         Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
     }
 
-    return @{ AhkDest = $ahkDest }
-} -ArgumentList $WslDistro, $startupDir, $ahkModuleDir, $ahkExe, $PSScriptRoot
+    return @{ AhkDest = $ahkDest; AhkFetchError = $ahkFetchError }
+} -ArgumentList $WslDistro, $startupDir, $ahkModuleDir, $ahkExe
 
 # 스피너로 백그라운드 작업 대기
 Wait-WithSpinner -Message "AutoHotkey 기능 연동 및 시작 프로그램 구성 중" -Condition { $ahkSetupJob.State -ne 'Running' } -MaxTimeoutSeconds 60
@@ -867,7 +857,12 @@ Wait-WithSpinner -Message "AutoHotkey 기능 연동 및 시작 프로그램 구�
 $jobRes = Receive-Job -Job $ahkSetupJob -ErrorAction SilentlyContinue
 Remove-Job -Job $ahkSetupJob -Force -ErrorAction SilentlyContinue
 
-Write-Success "AutoHotkey 기능(WezTerm Ctrl+Alt+T 단축키 및 CapsLock 리매핑)이 정상 연동되었습니다."
+if ($jobRes -and $jobRes.AhkFetchError) {
+    Write-Warn "devtools2-hotkey.ahk 온라인 다운로드 실패 (네트워크 확인 필요): $($jobRes.AhkFetchError)"
+    Write-Warn "  기존에 배포된 로컬 사본이 있다면 그대로 사용됩니다. 없다면 단축키가 동작하지 않습니다."
+} else {
+    Write-Success "AutoHotkey 기능(WezTerm Ctrl+Alt+T 단축키 및 CapsLock 리매핑)이 정상 연동되었습니다."
+}
 } # end if ($installAhk -notmatch '^[Nn]')
 
 # ==============================================================================
@@ -882,8 +877,8 @@ Write-Host "  이제 리눅스 혹은 윈도우 어느 쪽에서든 설정을 �
 Write-Host ""
 if (-not ($installAhk -match '^[Nn]')) {
     Write-Host "  [AutoHotkey 연동 안내]" -ForegroundColor Cyan
-    Write-Host "  · AHK 소스: WSL2 레포 원본 (%DEVTOOLS2%/.../devtools2-hotkey.ahk) -> Windows 로컬 동기화" -ForegroundColor DarkGray
-    Write-Host "  · AHK 수정 시 설치 스크립트를 재실행하면 최신 스크립트가 로컬로 즉시 반영됩니다." -ForegroundColor DarkGray
+    Write-Host "  · AHK 소스: GitHub main 최신 버전 (온라인 전용) -> Windows 로컬 동기화" -ForegroundColor DarkGray
+    Write-Host "  · AHK 수정 후 GitHub에 푸시하고 설치 스크립트를 재실행하면 최신 스크립트가 로컬로 즉시 반영됩니다." -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  [단축키]" -ForegroundColor Cyan
     Write-Host "  Ctrl+Alt+T          : WezTerm 새 창 열기" -ForegroundColor White
