@@ -4,15 +4,13 @@ return {
     'johmsalas/text-case.nvim',
     config = function()
       require('textcase').setup({
-        -- <leader>cc 를 prefix로 사용 (Convert Code / Convert Case)
-        -- g+a 는 LazyVim 기본 동작(Code Action)으로 반환
         prefix = '<leader>\\',
       })
     end,
     keys = {
       -- Which-Key 그룹 레이블 등록
-      { '<leader>\\', desc = '+Convert Case' },
-      { '<leader>\\o', desc = '+Pending Mode Operator', mode = { 'n' } },
+      { '<leader>\\', group = '[\\] 대소문자 변환 (Convert Case)' },
+      { '<leader>\\o', group = '[o] 모션 지정 변환 (Motion Operator)', mode = { 'n' } },
 
       -- ── 노멀 모드: 커서 위치 단어 즉시 변환 (quick_replace) ──────────────
       {
@@ -20,8 +18,7 @@ return {
         function()
           require('textcase').current_word('to_camel_case')
         end,
-
-        desc = 'toCamelCase',
+        desc = 'camelCase로 변환 (toCamelCase)',
         mode = 'n',
       },
       {
@@ -29,7 +26,7 @@ return {
         function()
           require('textcase').current_word('to_snake_case')
         end,
-        desc = 'to_snake_case',
+        desc = 'snake_case로 변환 (to_snake_case)',
         mode = 'n',
       },
       {
@@ -37,7 +34,7 @@ return {
         function()
           require('textcase').current_word('to_constant_case')
         end,
-        desc = 'TO_CONSTANT_CASE',
+        desc = 'CONSTANT_CASE로 변환 (TO_CONSTANT_CASE)',
         mode = 'n',
       },
       {
@@ -45,7 +42,7 @@ return {
         function()
           require('textcase').current_word('to_pascal_case')
         end,
-        desc = 'ToPascalCase',
+        desc = 'PascalCase로 변환 (ToPascalCase)',
         mode = 'n',
       },
       {
@@ -53,7 +50,7 @@ return {
         function()
           require('textcase').current_word('to_dash_case')
         end,
-        desc = 'to-dash-case',
+        desc = 'dash-case로 변환 (to-dash-case)',
         mode = 'n',
       },
       {
@@ -61,7 +58,7 @@ return {
         function()
           require('textcase').current_word('to_upper_case')
         end,
-        desc = 'TO UPPER CASE',
+        desc = '대문자로 변환 (TO UPPER CASE)',
         mode = 'n',
       },
       {
@@ -69,7 +66,23 @@ return {
         function()
           require('textcase').current_word('to_lower_case')
         end,
-        desc = 'to lower case',
+        desc = '소문자로 변환 (to lower case)',
+        mode = 'n',
+      },
+      {
+        '<leader>\\a',
+        function()
+          require('textcase').quick_replace('to_phrase_case')
+        end,
+        desc = 'Unicode 디코드 (Decode \\uXXXX → char)',
+        mode = 'n',
+      },
+      {
+        '<leader>\\A',
+        function()
+          require('textcase').quick_replace('to_title_case')
+        end,
+        desc = 'Unicode 인코드 (Encode char → \\uXXXX)',
         mode = 'n',
       },
 
@@ -79,7 +92,7 @@ return {
         function()
           require('textcase').visual('to_camel_case')
         end,
-        desc = 'toCamelCase',
+        desc = 'camelCase로 변환 (toCamelCase)',
         mode = 'x',
       },
       {
@@ -87,7 +100,7 @@ return {
         function()
           require('textcase').visual('to_snake_case')
         end,
-        desc = 'to_snake_case',
+        desc = 'snake_case로 변환 (to_snake_case)',
         mode = 'x',
       },
       {
@@ -95,7 +108,7 @@ return {
         function()
           require('textcase').visual('to_constant_case')
         end,
-        desc = 'TO_CONSTANT_CASE',
+        desc = 'CONSTANT_CASE로 변환 (TO_CONSTANT_CASE)',
         mode = 'x',
       },
       {
@@ -103,7 +116,7 @@ return {
         function()
           require('textcase').visual('to_pascal_case')
         end,
-        desc = 'ToPascalCase',
+        desc = 'PascalCase로 변환 (ToPascalCase)',
         mode = 'x',
       },
       {
@@ -111,7 +124,7 @@ return {
         function()
           require('textcase').visual('to_dash_case')
         end,
-        desc = 'to-dash-case',
+        desc = 'dash-case로 변환 (to-dash-case)',
         mode = 'x',
       },
       {
@@ -119,7 +132,7 @@ return {
         function()
           require('textcase').visual('to_upper_case')
         end,
-        desc = 'TO UPPER CASE',
+        desc = '대문자로 변환 (TO UPPER CASE)',
         mode = 'x',
       },
       {
@@ -127,7 +140,7 @@ return {
         function()
           require('textcase').visual('to_lower_case')
         end,
-        desc = 'to lower case',
+        desc = '소문자로 변환 (to lower case)',
         mode = 'x',
       },
 
@@ -137,7 +150,7 @@ return {
         function()
           require('textcase').operator('to_camel_case')
         end,
-        desc = 'toCamelCase (motion)',
+        desc = 'camelCase 모션 변환 (toCamelCase motion)',
         mode = 'n',
       },
       {
@@ -145,7 +158,7 @@ return {
         function()
           require('textcase').operator('to_snake_case')
         end,
-        desc = 'to_snake_case (motion)',
+        desc = 'snake_case 모션 변환 (to_snake_case motion)',
         mode = 'n',
       },
       {
@@ -153,7 +166,7 @@ return {
         function()
           require('textcase').operator('to_constant_case')
         end,
-        desc = 'TO_CONSTANT_CASE (motion)',
+        desc = 'CONSTANT_CASE 모션 변환 (TO_CONSTANT_CASE motion)',
         mode = 'n',
       },
       {
@@ -161,7 +174,7 @@ return {
         function()
           require('textcase').operator('to_pascal_case')
         end,
-        desc = 'ToPascalCase (motion)',
+        desc = 'PascalCase 모션 변환 (ToPascalCase motion)',
         mode = 'n',
       },
       {
@@ -169,7 +182,7 @@ return {
         function()
           require('textcase').operator('to_dash_case')
         end,
-        desc = 'to-dash-case (motion)',
+        desc = 'dash-case 모션 변환 (to-dash-case motion)',
         mode = 'n',
       },
       {
@@ -177,7 +190,7 @@ return {
         function()
           require('textcase').operator('to_upper_case')
         end,
-        desc = 'TO UPPER CASE (motion)',
+        desc = '대문자 모션 변환 (TO UPPER CASE motion)',
         mode = 'n',
       },
       {
@@ -185,7 +198,7 @@ return {
         function()
           require('textcase').operator('to_lower_case')
         end,
-        desc = 'to lower case (motion)',
+        desc = '소문자 모션 변환 (to lower case motion)',
         mode = 'n',
       },
 
@@ -195,7 +208,7 @@ return {
         function()
           require('textcase').lsp_rename('to_camel_case')
         end,
-        desc = 'LSP rename toCamelCase',
+        desc = 'LSP 이름 변경: camelCase (LSP rename toCamelCase)',
         mode = 'n',
       },
       {
@@ -203,7 +216,7 @@ return {
         function()
           require('textcase').lsp_rename('to_snake_case')
         end,
-        desc = 'LSP rename to_snake_case',
+        desc = 'LSP 이름 변경: snake_case (LSP rename to_snake_case)',
         mode = 'n',
       },
       {
@@ -211,7 +224,7 @@ return {
         function()
           require('textcase').lsp_rename('to_constant_case')
         end,
-        desc = 'LSP rename TO_CONSTANT_CASE',
+        desc = 'LSP 이름 변경: CONSTANT_CASE (LSP rename TO_CONSTANT_CASE)',
         mode = 'n',
       },
       {
@@ -219,7 +232,7 @@ return {
         function()
           require('textcase').lsp_rename('to_pascal_case')
         end,
-        desc = 'LSP rename ToPascalCase',
+        desc = 'LSP 이름 변경: PascalCase (LSP rename ToPascalCase)',
         mode = 'n',
       },
       {
@@ -227,7 +240,7 @@ return {
         function()
           require('textcase').lsp_rename('to_dash_case')
         end,
-        desc = 'LSP rename to-dash-case',
+        desc = 'LSP 이름 변경: dash-case (LSP rename to-dash-case)',
         mode = 'n',
       },
       {
@@ -235,7 +248,7 @@ return {
         function()
           require('textcase').lsp_rename('to_upper_case')
         end,
-        desc = 'LSP rename TO UPPER CASE',
+        desc = 'LSP 이름 변경: 대문자 (LSP rename TO UPPER CASE)',
         mode = 'n',
       },
       {
@@ -243,7 +256,7 @@ return {
         function()
           require('textcase').lsp_rename('to_lower_case')
         end,
-        desc = 'LSP rename to lower case',
+        desc = 'LSP 이름 변경: 소문자 (LSP rename to lower case)',
         mode = 'n',
       },
     },

@@ -146,32 +146,32 @@ if ok then
   end
   _G.attach_debug = attach_debug
 
-  -- 사용자 지정 DAP 단축키
-  vim.keymap.set('n', '<leader>da', attach_debug, { desc = 'Attach/Launch Debug (Input Port)' })
+  -- 사용자 지정 DAP 단축키 (한글 설명 + 영문 원본 명칭)
+  vim.keymap.set('n', '<leader>da', attach_debug, { desc = '포트 지정 디버그 연결 (Attach/Launch Debug)' })
   vim.keymap.set('n', '<leader>db', function()
     dap.toggle_breakpoint()
-  end, { desc = 'Toggle Breakpoint' })
+  end, { desc = '브레이크포인트 설정/해제 (Toggle Breakpoint)' })
   vim.keymap.set('n', '<leader>dd', function()
     dap.continue()
-  end, { desc = 'Run/Continue' })
+  end, { desc = '디버그 실행 / 계속 (Run/Continue)' })
   vim.keymap.set('n', '<leader>dc', function()
     dap.run_to_cursor()
-  end, { desc = 'Run to Cursor' })
+  end, { desc = '커서 위치까지 실행 (Run to Cursor)' })
   vim.keymap.set('n', '<leader>de', function()
     dap.step_over()
-  end, { desc = 'Step Over' })
+  end, { desc = '다음 줄 실행 (Step Over)' })
   vim.keymap.set('n', '<leader>di', function()
     dap.step_into()
-  end, { desc = 'Step Into' })
+  end, { desc = '함수 내부 진입 (Step Into)' })
   vim.keymap.set('n', '<leader>do', function()
     dap.step_out()
-  end, { desc = 'Step Out' })
+  end, { desc = '함수 밖으로 탈출 (Step Out)' })
   vim.keymap.set('n', '<leader>dr', function()
     dap.repl.toggle()
-  end, { desc = 'Toggle REPL' })
+  end, { desc = 'REPL 창 토글 (Toggle REPL)' })
   vim.keymap.set('n', '<leader>dt', function()
     dap.terminate()
-  end, { desc = 'Terminate' })
+  end, { desc = '디버깅 및 서버 종료 (Terminate)' })
 end
 
 -- ============================================================

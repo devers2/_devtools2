@@ -283,10 +283,22 @@ return {
           if profile_input == nil then
             return -- Esc로 취소 (실행하지 않음)
           end
+
+          -- vscode-java-debug (com.microsoft.java.debug.core) 규격상 args는 배열이 아닌 String이어야 합니다.
+          -- 테이블(배열) 타입인 경우 문자열로 결합하여 JsonSyntaxException (Expected STRING but was BEGIN_ARRAY at path $.args)을 방지합니다.
+          if type(config.args) == 'table' then
+            local str = table.concat(config.args, ' ')
+            config.args = str ~= '' and str or nil
+          end
+
           if profile_input ~= '' then
             save_last_spring_profile(profile_input)
-            config.args = config.args or {}
-            table.insert(config.args, '--spring.profiles.active=' .. profile_input)
+            local spring_arg = '--spring.profiles.active=' .. profile_input
+            if not config.args or config.args == '' then
+              config.args = spring_arg
+            elseif type(config.args) == 'string' then
+              config.args = config.args .. ' ' .. spring_arg
+            end
           end
           launch_with_watchdogs(config, run_opts, run_next)
         end)
@@ -295,9 +307,57 @@ return {
       -- [스마트 포트 자동 킬러 + Java Launch 프로필 주입] dap.run 핵심 함수 래핑
       -- 디버깅이 가동되기 직전(어댑터 작동 전)에 포트를 스캔하여 선점 프로세스를 사전에 제거합니다.
       local orig_run = dap.run
+      local wrapped_java_adapters = {}
+
+      -- [모듈화된 동적 메뉴 번역기 등록]
+      -- lua/util/menu_translator.lua 모듈을 사용하여 다른 메뉴에서도 재사용 가능하도록 설계
+      local menu_translator = require('util.menu_translator')
+
+      -- 1) DAP 활성 세션 메뉴 인터셉터 (4, 5번 Disconnect 항목 최상단 정렬 + 한글/영문 표시)
+      menu_translator.register_interceptor({
+        name = 'dap_session',
+        prompt_patterns = { 'Session', 'Thread', '세션' },
+        translations = {
+          ['Disconnect (terminate = true)'] = { ko = '디버깅 및 서버 프로세스 강제 종료', priority = 1 },
+          ['Disconnect (terminate = false)'] = { ko = '디버거 연결만 끊기 - 서버 계속 실행', priority = 2 },
+          ['Restart session'] = { ko = '디버그 세션 재시작', priority = 3 },
+          ['Terminate session'] = { ko = '디버그 세션 종료', priority = 4 },
+          ['Pause a thread'] = { ko = '스레드 일시 정지', priority = 5 },
+          ['Start additional session'] = { ko = '추가 디버그 세션 시작', priority = 6 },
+          ['Do nothing'] = { ko = '아무 작업도 하지 않음 (취소)', priority = 7 },
+          ['Resume stopped thread'] = { ko = '멈춰있는 스레드 재개', priority = 0 },
+        },
+      })
+
+      -- 2) DAP 디버그 실행 구성 선택 메뉴 인터셉터 (<leader>d / <leader>dd 디버그 런치 선택창)
+      menu_translator.register_interceptor({
+        name = 'dap_config',
+        prompt_patterns = { 'Configuration', 'Select configuration', '설정' },
+        translations = {
+          ['Launch goono-eln: so.goono.GoonoELNApplication'] = { ko = '구노 ELN 메인 앱 디버깅 실행', priority = 1 },
+          ['GoonoELNApplication'] = { ko = 'VSCode Launch: 구노 ELN 앱', priority = 2 },
+          ['FastAPI 디버깅 실행 (기본: 8095)'] = { ko = '파이썬 FastAPI 웹 서버 실행', priority = 3 },
+        },
+      })
+
       ---@diagnostic disable-next-line: duplicate-set-field
       dap.run = function(config, run_opts)
         if config and config.type == 'java' and config.request == 'launch' then
+          local current_adapter = dap.adapters.java
+          if type(current_adapter) == 'function' and not wrapped_java_adapters[current_adapter] then
+            local orig_adapter = current_adapter
+            local wrapped = function(cb, conf)
+              orig_adapter(function(adapter_result)
+                if adapter_result then
+                  adapter_result.options = adapter_result.options or {}
+                  adapter_result.options.initialize_timeout_sec = 15
+                end
+                cb(adapter_result)
+              end, conf)
+            end
+            wrapped_java_adapters[wrapped] = true
+            dap.adapters.java = wrapped
+          end
           run_java_launch(config, run_opts, orig_run)
           return
         end
@@ -309,7 +369,7 @@ return {
             port = tonumber(config.port)
           end
           -- 2) FastAPI 런치 설정처럼 args 테이블에 '--port' '8095'가 있는 경우
-          if not port and config.args then
+          if not port and config.args and type(config.args) == 'table' then
             for i, arg in ipairs(config.args) do
               if arg == '--port' and config.args[i + 1] then
                 port = tonumber(config.args[i + 1])

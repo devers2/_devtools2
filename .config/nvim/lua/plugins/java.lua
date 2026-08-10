@@ -434,6 +434,12 @@ return {
           config_overrides = {},
         })
 
+        -- dap.providers.configs['jdtls'] 중복 등록 방지 (setup_dap_main_class_configs와 중복 방지)
+        local dap_ok, dap = pcall(require, 'dap')
+        if dap_ok and dap.providers and dap.providers.configs then
+          dap.providers.configs['jdtls'] = nil
+        end
+
         -- 클라이언트 자체에서 java-test를 재차 시도하지 않도록 리셋 (안전하게 체크)
         if client.config and client.config.settings and client.config.settings.java then
           client.config.settings.java.configuration.runtimes = opts.settings.java.configuration.runtimes
