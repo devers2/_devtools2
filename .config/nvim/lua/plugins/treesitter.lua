@@ -1,3 +1,29 @@
+-- [대용량 파일 트리시터 → 정규식(syntax) 폴백]
+-- nvim-treesitter가 "main" 브랜치(lazy-lock.json 참고)로 고정되어 있고,
+-- LazyVim의 lazyvim/plugins/treesitter.lua는 highlight.disable을
+-- "언어 이름 문자열 배열"로만 처리한다 (type(f.disable) == "table" 체크).
+-- 함수를 넘기는 구버전(master 브랜치) 방식은 무시되어 크기와 무관하게
+-- 트리시터가 항상 켜지므로, FileType 시점에 직접 크기를 검사해
+-- vim.treesitter.stop()으로 꺼서 기존 Vim 정규식 syntax 강조로 폴백시킨다.
+vim.api.nvim_create_autocmd('FileType', {
+  group = vim.api.nvim_create_augroup('devtools2_treesitter_large_file_fallback', { clear = true }),
+  callback = function(ev)
+    local buf = ev.buf
+    -- LazyVim의 lazyvim_treesitter FileType 콜백(vim.treesitter.start)이
+    -- 같은 이벤트 사이클에서 먼저 끝난 뒤 실행되도록 다음 틱으로 미룸
+    vim.schedule(function()
+      if not vim.api.nvim_buf_is_valid(buf) then
+        return
+      end
+      local fname = vim.api.nvim_buf_get_name(buf)
+      local ok, stat = pcall(vim.loop.fs_stat, fname)
+      if ok and stat and stat.size > _G.get_max_file_size(buf) then
+        pcall(vim.treesitter.stop, buf)
+      end
+    end)
+  end,
+})
+
 return {
   -- [Treesitter 파서 설정]
   -- Neovim에서 구문 강조 및 코드 분석을 위해 필요한 언어 파서들을 자동으로 설치합니다.
@@ -34,21 +60,10 @@ return {
         'regex',
         'xml', -- Java 설정 파일(pom.xml 등)을 위해 추가
       })
-      -- 파일이 열릴 때 파서가 없으면 백그라운드가 아닌 동기식(Sync)으로 즉시 설치 시도
-      opts.sync_install = true
-      -- 파서 자동 설치 활성화
-      opts.auto_install = true
 
-      -- 하이라이팅 설정 최적화 및 기존 Vim 내장 정규식 구문 강조와의 충돌 방지
+      -- 하이라이팅 활성화 (크기 기반 on/off는 위쪽 devtools2_treesitter_large_file_fallback autocmd가 담당)
       opts.highlight = opts.highlight or {}
       opts.highlight.enable = true
-      opts.highlight.additional_vim_regex_highlighting = false
-      opts.highlight.disable = function(lang, buf)
-        local ok, stats = pcall(vim.loop.fs_stat, vim.api.nvim_buf_get_name(buf))
-        if ok and stats and stats.size > _G.get_max_file_size(buf) then
-          return true
-        end
-      end
     end,
   },
 
