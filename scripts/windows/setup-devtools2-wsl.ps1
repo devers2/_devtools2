@@ -80,7 +80,10 @@ function Write-Fail {
 }
 
 function Pause-Script {
-    param([string]$Message = "계속하려면 엔터(Enter) 키를 누르세요")
+    # 기본 메시지: 이 함수를 부르는 모든 호출부(8곳)가 실제로는 곧이어 exit 하는 상황이라
+    # "계속하려면"이 아니라 "종료합니다"가 정확함. 계속 진행되는 경우가 생기면 그때 개별
+    # 호출부에서 -Message로 다른 문구를 넘기면 된다(마지막 완료 안내가 이미 그렇게 함).
+    param([string]$Message = "엔터(Enter) 키를 누르면 종료합니다")
     Write-Host ""
     Write-Host "👉 ${Message}: " -ForegroundColor Yellow -NoNewline
     [void][System.Console]::ReadLine()

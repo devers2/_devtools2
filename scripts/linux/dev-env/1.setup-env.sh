@@ -26,12 +26,19 @@ _load_colors() {
 
     # 캐시 우회 헤더 포함 (run_remote_script와 동일) — CDN이 방금 푸시 전 구버전을
     # 서빙하면 "진입 스크립트는 최신인데 _colors.sh만 구버전"이 될 수 있으므로 필수.
-    if curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_colors.sh" -o /tmp/_colors_remote.sh 2>/dev/null; then
+    # curl의 실제 실패 사유(stderr)를 버리지 않고 그대로 보여줘야 나중에 원인 진단이 가능하다.
+    local _curl_err _curl_ec=0
+    _curl_err=$(curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_colors.sh" -o /tmp/_colors_remote.sh 2>&1) || _curl_ec=$?
+    if [ "$_curl_ec" -eq 0 ]; then
         # shellcheck disable=SC1091
         source /tmp/_colors_remote.sh 2>/dev/null && _COLORS_LOADED=true && return 0
+        echo "[오류] _colors.sh를 다운로드했지만 source 실행 중 오류가 발생했습니다: /tmp/_colors_remote.sh" >&2
+        exit 1
     fi
 
-    echo "[오류] _colors.sh를 온라인에서 불러오지 못했습니다. 네트워크 연결을 확인하세요." >&2
+    echo "[오류] _colors.sh를 온라인에서 불러오지 못했습니다 (curl 종료 코드: $_curl_ec)." >&2
+    [ -n "$_curl_err" ] && echo "  curl: $_curl_err" >&2
+    echo "  네트워크 연결을 확인하세요." >&2
     exit 1
 }
 _load_colors
