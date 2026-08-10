@@ -100,7 +100,7 @@ return {
       -- 디버깅이 가동되기 직전(어댑터 작동 전)에 포트를 스캔하여 선점 프로세스를 사전에 제거합니다.
       local orig_run = dap.run
       ---@diagnostic disable-next-line: duplicate-set-field
-      dap.run = function(config, _)
+      dap.run = function(config, run_opts)
         if config and config.request == 'launch' then
           local port = nil
           -- 1) config 자체에 port가 있는 경우
@@ -173,7 +173,7 @@ return {
             end
           end
         end
-        return orig_run(config, opts)
+        return orig_run(config, run_opts)
       end
 
 
