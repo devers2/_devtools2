@@ -250,8 +250,7 @@ function Invoke-RemotePsScript {
     }
     $content = Invoke-RestMethod -Uri $Url -Headers $headers -ErrorAction Stop
     $scriptBlock = [scriptblock]::Create($content)
-    & $scriptBlock @Arguments
-    return $LASTEXITCODE
+    & $scriptBlock @Arguments | Out-Null
 }
 
 # ==============================================================================
