@@ -56,8 +56,15 @@ function M.register_interceptor(opts)
   end
 
   -- 2) vim.ui.select 인터셉터 설치 (Snacks, Telescope, WhichKey 등 일반 피커 대응)
+  -- ⚠️ Snacks.nvim도 자체적으로 vim.ui.select를 설정하는데, 둘 다 VeryLazy 시점에 동작해서
+  --   먼저 실행되는 쪽이 나중 쪽에 덮어써지는 경쟁 상태가 있었음(실측: 로드 순서에 따라
+  --   한글 번역 기능이 조용히 사라지는 경우 발생). vim.schedule로 한 틱 미뤄서 Snacks 설정이
+  --   항상 먼저 끝난 뒤에 그 위를 감싸도록 순서를 고정함(:checkhealth의 "vim.ui.select is not
+  --   set to Snacks.picker.select" 경고는 감싸는 구조상 계속 뜨지만, 안쪽에서 Snacks 피커를
+  --   그대로 호출하므로 기능상 문제 아님).
   if not vim._ui_select_translator_wrapped then
     vim._ui_select_translator_wrapped = true
+    vim.schedule(function()
     local orig_ui_select = vim.ui.select
     vim.ui.select = function(items, select_opts, on_choice)
       select_opts = select_opts or {}
@@ -127,6 +134,7 @@ function M.register_interceptor(opts)
 
       return orig_ui_select(items, select_opts, on_choice)
     end
+    end)
   end
 end
 
