@@ -112,6 +112,12 @@ EOF
     echo "✅ .vscode/settings.json 생성 완료"
 fi
 
+# projectName은 일부러 지정하지 않는다. VSCode Java 확장이 실제로 등록하는 프로젝트 이름은
+# settings.gradle의 rootProject.name과 다를 수 있고(임포터 종류에 따라 워크스페이스
+# 폴더명을 쓰기도 함 — 실측으로 확인됨), 이 스크립트가 미리 알 방법이 없다. projectName을
+# 생략하면 vscode-java-debug가 mainClass만으로 워크스페이스를 탐색해 프로젝트를 찾으므로
+# 임포터가 어떤 이름을 쓰든 항상 정상 동작한다 (동일 mainClass가 여러 프로젝트에 있는
+# 경우가 아니면 모호함이 없음 — 이 저장소는 단일 루트 프로젝트, 서브프로젝트 없음).
 if [ -f "$VSCODE_DIR/launch.json" ]; then
     echo "ℹ️  .vscode/launch.json 이 이미 존재합니다. 덮어쓰지 않습니다."
 else
@@ -124,7 +130,6 @@ else
       "name": "GoonoELNApplication",
       "request": "launch",
       "mainClass": "so.goono.GoonoELNApplication",
-      "projectName": "goono-eln",
       "vmArgs": ["-Dfile.encoding=UTF-8", "-Dspring.profiles.active=0_DEVELOP,0_LOCAL,s2"]
     }
   ]
