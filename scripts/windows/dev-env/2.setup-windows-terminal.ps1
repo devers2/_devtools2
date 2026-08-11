@@ -375,8 +375,8 @@ if (-not (Test-Path $settingsPath)) {
         if (-not $settings.profiles.defaults) {
             $settings.profiles | Add-Member -NotePropertyName defaults -NotePropertyValue ([PSCustomObject]@{}) -Force
         }
+        # size: 폰트 사이즈 (WT 공식 스키마 기본값 12)
         # cellHeight: CSS line-height와 유사하게 셀(줄) 높이를 조정합니다(WT 공식 스키마 확인, release-1.24 기준, 기본값 1.2)
-        # size: WT 공식 스키마 기본값(12)을 암묵적 상속 대신 명시적으로 고정합니다.
         $settings.profiles.defaults | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{ face = $fontFace; size = 11.5; cellHeight = '1.5' }) -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName opacity -NotePropertyValue 96 -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName colorScheme -NotePropertyValue "Kanagawa" -Force
