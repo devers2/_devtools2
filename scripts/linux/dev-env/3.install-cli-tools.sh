@@ -773,10 +773,11 @@ print_info "💡 Neovim 사용 안내:"
 echo "      - <leader> + d + a 단축키로 실행 중인 JVM에 attach 합니다."
 echo "      - ※ :Mason 에서 java-debug-adapter 가 설치되어 있어야 함."
 echo ""
-prompt_input "❓ Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [${_C_DEFAULT}Y${_C_RESET}/n]: "; read -r dap_answer
+prompt_input "❓ Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [y/${_C_DEFAULT}N${_C_RESET}]: "; read -r dap_answer
 
-# 기본값 y: 아무것도 입력 안 하거나 Y/y 입력 시 설치
-dap_answer_lower=$(echo "${dap_answer:-y}" | tr '[:upper:]' '[:lower:]')
+# 기본값 n: 이 프로젝트의 기본 디버그 흐름은 launch 모드(dap.lua)라서, attach용 전역
+# JDWP 설정을 기본으로 깔 필요가 없습니다 — 필요한 사람만 명시적으로 y를 입력하세요.
+dap_answer_lower=$(echo "${dap_answer:-n}" | tr '[:upper:]' '[:lower:]')
 
 if [ "$dap_answer_lower" = "y" ]; then
     GRADLE_INIT_DIR="$HOME/.gradle/init.d"
