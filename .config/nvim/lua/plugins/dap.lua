@@ -90,6 +90,31 @@ return {
         require('dap-view').close()
       end
 
+      -- Console(dap-view-term) 창에서 포커스가 벗어나면 자동으로 맨 아래로 스크롤합니다.
+      -- nvim-dap-view는 커서가 마지막 줄에 있을 때만 자동 스크롤하도록 이미 구현돼 있어서
+      -- (직접 위로 스크롤해 이전 로그를 볼 수 있도록 하기 위함 — nvim-dap-view 소스인
+      -- lua/dap-view/console/scroll.lua에서 확인), 창을 벗어나도 커서 위치가 그대로
+      -- 남아있어 다시 돌아왔을 때 최신 로그를 보려면 매번 수동으로 끝까지 스크롤해야
+      -- 하는 불편함이 있었습니다. WinLeave 시 커서를 마지막 줄로 옮기면, 플러그인 자체의
+      -- CursorMoved 감지 로직이 "사용자가 끝까지 스크롤했다"고 인식해서 자동 스크롤이
+      -- 자연스럽게 다시 켜집니다(플러그인 내부 구현을 직접 건드리지 않고 재동기화).
+      vim.api.nvim_create_autocmd('WinLeave', {
+        group = vim.api.nvim_create_augroup('dapview_console_autoscroll_resume', { clear = true }),
+        callback = function()
+          if vim.bo.filetype ~= 'dap-view-term' then
+            return
+          end
+          local winnr = vim.api.nvim_get_current_win()
+          local bufnr = vim.api.nvim_get_current_buf()
+          vim.schedule(function()
+            if vim.api.nvim_win_is_valid(winnr) and vim.api.nvim_buf_is_valid(bufnr) then
+              local last_line = vim.api.nvim_buf_line_count(bufnr)
+              pcall(vim.api.nvim_win_set_cursor, winnr, { last_line, 0 })
+            end
+          end)
+        end,
+      })
+
       -- [Java Launch: Spring 프로필 주입]
       -- 자바 launch 설정(setup_dap_main_class_configs가 자동 생성한 "Launch ..." 항목)을 실행할 때만
       -- Spring 프로필을 물어보고 --spring.profiles.active=... 를 프로그램 인자에 주입합니다.
