@@ -377,7 +377,7 @@ if (-not (Test-Path $settingsPath)) {
         }
         # cellHeight: CSS line-height와 유사하게 셀(줄) 높이를 조정합니다(WT 공식 스키마 확인, release-1.24 기준, 기본값 1.2)
         # size: WT 공식 스키마 기본값(12)을 암묵적 상속 대신 명시적으로 고정합니다.
-        $settings.profiles.defaults | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{ face = $fontFace; size = 12; cellHeight = '1.5' }) -Force
+        $settings.profiles.defaults | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{ face = $fontFace; size = 11.5; cellHeight = '1.5' }) -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName opacity -NotePropertyValue 96 -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName colorScheme -NotePropertyValue "Kanagawa" -Force
         Write-Success "기본 폰트($fontFace, 12pt) / 투명도(96) / Kanagawa 테마 적용 완료 (profiles.defaults)"

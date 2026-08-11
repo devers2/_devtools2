@@ -72,7 +72,7 @@
 
   // ❗Gradle 실행 시 사용할 JDK 경로: build.gradle / build.gradle.kts 파일에서 명시된 JDK 버전과 일치해야 함, [프로젝트 루트]/.vscode/settings.json 파일에 프로젝트별 설정 필요
   "java.import.gradle.java.home": "/var/opt/_devtools2/modules/java/jdk-25",
-  
+
   // "java.jdt.ls.java.home": "/var/opt/_devtools2/modules/java/jdk-25", // Java Language Server의 JDK 경로 (미 설정 시 Language Support for Java 확장의 기본 JRE 사용)
   // "spring-boot.ls.java.home": "/var/opt/_devtools2/modules/java/jdk-25", // Spring Boot Language Server의 JDK 경로 (미 설정 시 JAVA_HOME 또는 PATH 의 JDK 사용)
 
@@ -141,7 +141,7 @@
     "LANG": "ko_KR.UTF-8",
     "LC_ALL": "ko_KR.UTF-8"
   },
-  "terminal.integrated.fontSize": 14, // 터미널 글꼴 크기
+  "terminal.integrated.fontSize": 15, // 터미널 글꼴 크기
   "terminal.integrated.lineHeight": 1.5, // 터미널 줄 높이 (배수)
   "terminal.integrated.fontFamily": "D2Coding, Consolas, monospace",
   "terminal.integrated.cursorStyle": "line", // 터미널 커서 스타일 → "block": 블록, "underline": 밑줄, "line": 수직선
