@@ -94,45 +94,68 @@ return {
       -- 자바 launch 설정(setup_dap_main_class_configs가 자동 생성한 "Launch ..." 항목)을 실행할 때만
       -- Spring 프로필을 물어보고 --spring.profiles.active=... 를 프로그램 인자에 주입합니다.
       -- (테스트 러너 launch는 제외, Python 등 다른 언어는 애초에 이 조건에 안 걸립니다)
-      -- 프로젝트별 마지막 입력값은 ~/.nvim/state.json 에 기억합니다 (attach 포트 기억과 동일한 방식).
-      local java_state_dir = _G.HOME_DIR .. '/.nvim'
-      local java_state_file = java_state_dir .. '/state.json'
+      -- 프로젝트별 마지막 입력값은 command-palette(fzf)/setup-*.sh 와 완전히 동일한
+      -- ~/.devtools2/state.properties 파일 및 키 스킴(MD5(정규화된 cwd).gradle_run.profile)을
+      -- 공유합니다. 예전엔 ~/.nvim/state.json 이라는 별도 파일을 썼는데, 그러면
+      -- setup-goono-eln.sh가 미리 심어둔 기본값이나 fzf 쪽에서 입력한 값을 nvim이 전혀
+      -- 몰라서 <leader>dd 를 눌러도 기본값이 안 뜨는 불일치가 있었습니다(실측으로 발견).
+      local devtools2_state_file = _G.HOME_DIR .. '/.devtools2/state.properties'
+
+      -- bash 쪽 PROJ_KEY 계산과 완전히 동일한 방식(정규화한 cwd를 md5sum)을 재현합니다.
+      -- 실측으로 bash 결과와 Lua 결과가 정확히 일치함을 확인했습니다.
+      local function get_devtools2_proj_key()
+        local cwd = vim.fn.getcwd():gsub('\\', '/'):gsub('/$', '')
+        local ok, output = pcall(vim.fn.system, 'md5sum', cwd)
+        if not ok or vim.v.shell_error ~= 0 then
+          return nil
+        end
+        return output:match('^(%x+)')
+      end
 
       local function get_last_spring_profile()
-        local f = io.open(java_state_file, 'r')
+        local proj_key = get_devtools2_proj_key()
+        if not proj_key then
+          return ''
+        end
+        local full_key = proj_key .. '.gradle_run.profile'
+        local f = io.open(devtools2_state_file, 'r')
         if not f then
           return ''
         end
         local content = f:read('*all')
         f:close()
-        local ok, state = pcall(vim.json.decode, content)
-        if not ok or type(state) ~= 'table' then
-          return ''
+        for line in content:gmatch('[^\r\n]+') do
+          local k, v = line:match('^([^=]+)=(.*)$')
+          if k == full_key then
+            return v or ''
+          end
         end
-        local cwd_state = state[vim.fn.getcwd()] or {}
-        return cwd_state.last_spring_profile or ''
+        return ''
       end
 
       local function save_last_spring_profile(profile)
-        vim.fn.mkdir(java_state_dir, 'p')
-        local state = {}
-        local f_read = io.open(java_state_file, 'r')
+        local proj_key = get_devtools2_proj_key()
+        if not proj_key then
+          return
+        end
+        local full_key = proj_key .. '.gradle_run.profile'
+        vim.fn.mkdir(_G.HOME_DIR .. '/.devtools2', 'p')
+        local lines = {}
+        local f_read = io.open(devtools2_state_file, 'r')
         if f_read then
           local content = f_read:read('*all')
           f_read:close()
-          if content and content ~= '' then
-            local ok, decoded = pcall(vim.json.decode, content)
-            if ok and type(decoded) == 'table' then
-              state = decoded
+          for line in content:gmatch('[^\r\n]+') do
+            local k = line:match('^([^=]+)=')
+            if k ~= full_key then
+              table.insert(lines, line)
             end
           end
         end
-        local cwd = vim.fn.getcwd()
-        state[cwd] = state[cwd] or {}
-        state[cwd].last_spring_profile = profile
-        local f_write = io.open(java_state_file, 'w')
+        table.insert(lines, full_key .. '=' .. profile)
+        local f_write = io.open(devtools2_state_file, 'w')
         if f_write then
-          f_write:write(vim.json.encode(state))
+          f_write:write(table.concat(lines, '\n') .. '\n')
           f_write:close()
         end
       end
