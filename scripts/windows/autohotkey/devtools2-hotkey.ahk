@@ -12,9 +12,8 @@
 ;      - (대문자 고정 ON) CapsLock  → 대문자 고정 OFF + ESC
 ;      - (대문자 고정 ON) ESC       → 대문자 고정 OFF (ESC pass-through)
 ;
-;   2. WezTerm 터미널 전역 단축키 (Ctrl + Alt + T)
-;      - WezTerm 실행 및 최상단 포터블 창 활성화
-;      - Windows 보안 정책/SmartScreen 차단 발생 시 안전 예외 처리 (try-catch)
+;   2. WSL 터미널 전역 단축키 (Ctrl + Alt + T)
+;      - Windows Terminal을 통해 WSL(devtools2)을 새 창으로 열기
 ; ==============================================================================
 
 ; ------------------------------------------------------------------------------
@@ -93,98 +92,24 @@ _CleanupOnExit(reason, code) {
 }
 
 ; ------------------------------------------------------------------------------
-; Part 2. WezTerm 전역 단축키 (Ctrl + Alt + T)
+; Part 2. WSL 터미널 전역 단축키 (Ctrl + Alt + T)
 ; ------------------------------------------------------------------------------
-global _weztermExeCache := ""
-
-; WezTerm 창(래처 exe 종류 무관)을 하나의 그룹으로 묶어서
-; WinWait / WinActivate 시 "ahk_exe wezterm-gui.exe" / "ahk_exe wezterm.exe" 둘 다 인식하도록 함
-GroupAdd("WezTermGroup", "ahk_exe wezterm-gui.exe")
-GroupAdd("WezTermGroup", "ahk_exe wezterm.exe")
-
-_GetWeztermExe() {
-    global _weztermExeCache
-    if _weztermExeCache != "" && FileExist(_weztermExeCache)
-        return _weztermExeCache
-
-    paths := [
-        "C:\Program Files\WezTerm\wezterm-gui.exe",
-        "C:\Program Files\WezTerm\wezterm.exe",
-        EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm-gui.exe",
-        EnvGet("LOCALAPPDATA") "\Programs\WezTerm\wezterm.exe"
-    ]
-    for p in paths {
-        if FileExist(p) {
-            _weztermExeCache := p
-            return p
-        }
-    }
-    return ""
-}
-
+; wt.exe -w -1 : "-1"(=new)은 기존 창을 절대 재사용하지 않고 항상 새 창을 만들라는
+; 공식 옵션이라(Microsoft Learn 문서 확인), WezTerm 때처럼 "새로 생긴 창만 골라
+; 활성화"하는 HWND 스냅샷/폴링 로직이 필요 없다 — 새로 만들어진 창은 OS가 기본으로
+; 포그라운드를 준다.
+; wt.exe는 실행 별칭(App Execution Alias)이라 PATH로 바로 실행 가능하지만,
+; 별칭이 꺼져있는 예외 상황을 대비해 실제 설치 경로도 폴백으로 시도한다.
 ^!t::
 {
-    exe := _GetWeztermExe()
-    if exe != "" {
-        ; 새로 뜨는 창만 정확히 골라내기 위해, 실행 직전에 이미 열려있는 WezTerm 창들의
-        ; HWND를 미리 기록해둔다 (기존 창은 절대 건드리지 않기 위함)
-        existingHwnds := WinGetList("ahk_group WezTermGroup")
-
+    try {
+        Run('wt.exe -w -1 new-tab wsl.exe -d devtools2 --cd ~')
+    } catch {
         try {
-            Run('"' exe '"')
+            wtFallback := EnvGet("LOCALAPPDATA") "\Microsoft\WindowsApps\wt.exe"
+            Run('"' wtFallback '" -w -1 new-tab wsl.exe -d devtools2 --cd ~')
         } catch {
-            try {
-                Run('cmd.exe /c start "" "' exe '"', , "Hide")
-            } catch {
-                TrayTip("WezTerm 실행", "WezTerm 실행 중 오류가 발생했습니다.", 0x3)
-                return
-            }
+            TrayTip("Windows Terminal 실행", "Windows Terminal 실행 중 오류가 발생했습니다.", 0x3)
         }
-        _ActivateNewWezterm(existingHwnds)
-    } else {
-        TrayTip("WezTerm 실행", "WezTerm 실행 파일을 찾을 수 없습니다.", 0x2)
     }
-}
-
-; existingHwnds(실행 전 스냅샷)에 없던 "새로 생긴" WezTerm 창의 HWND를 찾을 때까지
-; 짧게 폴링한다(최대 5초). ahk_group으로 통째로 잡으면 이미 열려있던 예전 창이
-; 먼저 매칭돼서 그 창이 먼저 활성화되는 문제가 있어, 반드시 새 창의 HWND 하나만
-; 정확히 골라 활성화한다 (기존 창은 전혀 건드리지 않음).
-; WinActivate만으로는 Windows 포그라운드 잠금 때문에 실패할 수 있어
-; AlwaysOnTop을 순간적으로 켰다 끄는 방식으로 z-order를 확실히 최상단으로 올림
-_ActivateNewWezterm(existingHwnds) {
-    newHwnd := 0
-    startTime := A_TickCount
-    while (A_TickCount - startTime < 5000) {
-        for hwnd in WinGetList("ahk_group WezTermGroup") {
-            isOld := false
-            for oldHwnd in existingHwnds {
-                if (hwnd = oldHwnd) {
-                    isOld := true
-                    break
-                }
-            }
-            if !isOld {
-                newHwnd := hwnd
-                break
-            }
-        }
-        if newHwnd
-            break
-        Sleep(30)
-    }
-
-    if !newHwnd
-        return
-
-    ; 정수 HWND를 WinTitle 자리에 그냥 넘기면 버전별로 해석이 모호할 수 있어
-    ; "ahk_id " 접두사로 명시적으로 지정한다
-    newWin := "ahk_id " newHwnd
-
-    if WinGetMinMax(newWin) = -1
-        WinRestore(newWin)
-
-    WinActivate(newWin)
-    WinSetAlwaysOnTop(true, newWin)
-    WinSetAlwaysOnTop(false, newWin)
 }

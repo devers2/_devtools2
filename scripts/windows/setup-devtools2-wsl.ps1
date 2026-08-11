@@ -5,7 +5,7 @@
 #   1. Windows WSL2 가상 머신 생성 및 활성화 (0.setup-wsl.ps1)
 #   2. WSL2 내부로 Linux 초기화 스크립트를 실행하여 깃 자격증명 설정 및 클론 진행
 #   3. WSL2 내부의 환경변수 설정, 핵심 개발 런타임 및 CLI 유틸리티 도구 일괄 자동 설치
-#   4. Windows 호스트용 WezTerm 및 Zed 에디터 자동 설치 및 WSL2 설정 연동
+#   4. Windows 호스트용 AutoHotkey, Windows Terminal, Zed 에디터 자동 설치 및 WSL2 설정 연동
 #
 # ------------------------------------------------------------------------------
 # ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
@@ -278,7 +278,13 @@ if (-not $isAdmin) {
         $bytes = [System.Text.Encoding]::Unicode.GetBytes($onlineCmd)
         $encodedCmd = [Convert]::ToBase64String($bytes)
         $psExe = if ($pwshPath -and -not $isStorePwsh) { $pwshPath } else { 'powershell.exe' }
-        Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedCmd" -Verb RunAs
+        # conhost.exe로 감싸서 실행: Windows 11 기본 터미널 설정이 "Windows Terminal"이면
+        # 그냥 실행 시 이 관리자 권한 재실행 창도 Windows Terminal 안에서 열려버립니다.
+        # 그러면 2.setup-windows-terminal.ps1이 "Windows Terminal이 실행 중이니 닫아도 되냐"고
+        # 물을 때, 지금 설치를 진행 중인 바로 그 창까지 후보에 들어가 자기파괴 위험이 생깁니다.
+        # conhost.exe로 명시적으로 감싸면 Default Terminal 설정과 무관하게 항상 구형 콘솔
+        # 호스트로 뜨므로($env:WT_SESSION 자체가 안 생김) 이 문제를 원천 차단합니다.
+        Start-Process "conhost.exe" -ArgumentList "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedCmd" -Verb RunAs
         exit
     } else {
         # ── 로컬 파일 실행 모드 ────────────────────────────────────────────────
@@ -302,7 +308,9 @@ if (-not $isAdmin) {
             # 직접 설치 pwsh → UAC 자동 승격 재실행
             $psExe = if ($pwshPath) { $pwshPath } else { 'powershell.exe' }
             Write-Warn "전체 환경 구축을 위해 관리자 권한으로 스크립트를 재실행합니다..."
-            Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+            # conhost.exe로 감싸는 이유: 위 온라인 실행 모드 분기의 동일 주석 참고
+            # (Default Terminal 설정과 무관하게 구형 콘솔 호스트로 강제해 자기파괴 위험 차단).
+            Start-Process "conhost.exe" -ArgumentList "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
             exit
         }
     }
@@ -663,12 +671,16 @@ Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
 # ==============================================================================
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
-# ── 4-1. WezTerm ──────────────────────────────────────────────────────────────
-Write-SubStep "▶ (1/3) WezTerm 설치 및 설정 연동"
-Invoke-RemotePsScript -Url "$RAW_WIN/1.setup-wezterm.ps1" -Arguments @{ WslDistro = $wslDistro }
+# ── 4-1. AutoHotkey (CapsLock 리매핑 + Ctrl+Alt+T 단축키) ────────────────────
+Write-SubStep "▶ (1/4) AutoHotkey 배포 및 단축키 등록"
+Invoke-RemotePsScript -Url "$RAW_WIN/1.setup-autohotkey.ps1" -Arguments @{ WslDistro = $wslDistro }
 
-# ── 4-2. VSCode 설정 및 Windows 로컬 확장 연동 ───────────────────────────────
-Write-SubStep "▶ (2/3) VSCode 설정 연동 및 Windows 로컬 확장 설치"
+# ── 4-2. Windows Terminal (폰트/테마/fzf 단축키) ─────────────────────────────
+Write-SubStep "▶ (2/4) Windows Terminal 폰트/테마/단축키 설정"
+Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-windows-terminal.ps1" -Arguments @{ WslDistro = $wslDistro }
+
+# ── 4-3. VSCode 설정 및 Windows 로컬 확장 연동 ───────────────────────────────
+Write-SubStep "▶ (3/4) VSCode 설정 연동 및 Windows 로컬 확장 설치"
 
 $skipVsCodeLink = -not ($userChoseVscode -or $vscodeAlreadyInstalled)
 
@@ -777,10 +789,10 @@ if ($skipVsCodeLink) {
     Write-Success "VSCode 설정 연동 완료"
 }
 
-# ── 4-3. Zed ─────────────────────────────────────────────────────────────────
-Write-SubStep "▶ (3/3) Zed 에디터 설치 및 설정 연동"
+# ── 4-4. Zed ─────────────────────────────────────────────────────────────────
+Write-SubStep "▶ (4/4) Zed 에디터 설치 및 설정 연동"
 if ($userChoseZed) {
-    Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
+    Invoke-RemotePsScript -Url "$RAW_WIN/3.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
 } else {
     Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
 }
@@ -822,10 +834,11 @@ Write-Host "====================================================================
 Write-Host ""
 Write-Info "  윈도우와 WSL2가 완벽하게 상호 연동되어 동작합니다."
 Write-Info "  - Windows 셸에서 'wsl'을 치면 설정이 완료된 Ubuntu 개발 환경에 바로 진입합니다."
-Write-Info "  - Windows에 설치된 WezTerm 및 Zed 에디터의 설정은 WSL2 내부 설정과 실시간 공유됩니다."
+Write-Info "  - Windows에 설치된 Zed 에디터의 설정은 WSL2 내부 설정과 실시간 공유됩니다(심볼릭 링크)."
+Write-Info "  - Windows Terminal의 폰트/테마/단축키는 설치 시점에 WSL2 설정을 복사해 적용됩니다(실시간 공유 아님 — 재설치 스크립트로 갱신)."
 Write-Host ""
 Write-Host "  설치 성공을 확인하시려면 아래 도구들을 실행해 보세요:"
-Write-Host "    - Windows: WezTerm 터미널 열기 (WSL2 바로 진입 확인)" -ForegroundColor Gray
+Write-Host "    - Windows: Ctrl+Alt+T 눌러 Windows Terminal로 WSL2 바로 진입 확인" -ForegroundColor Gray
 Write-Host "    - Windows: Zed 에디터 열기" -ForegroundColor Gray
 Write-Host "    - WSL2 내부: nvim --version, java -version, node -v 실행 확인" -ForegroundColor Gray
 Write-Host ""

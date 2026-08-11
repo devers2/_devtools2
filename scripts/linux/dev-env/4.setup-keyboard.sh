@@ -80,7 +80,7 @@ print_subsep
 if grep -qi "microsoft\|wsl" /proc/version 2>/dev/null; then
     print_warn "WSL 환경이 감지되었습니다. keyd는 리눅스 네이티브 전용입니다."
     print_info "WSL/Windows 환경에서는 AutoHotKey 를 통해 동일한 키보드 리매핑이 제공됩니다."
-    print_info "Windows 설치 스크립트 (1.setup-wezterm.ps1) 를 참조하세요."
+    print_info "Windows 설치 스크립트 (1.setup-autohotkey.ps1) 를 참조하세요."
     exit 0
 fi
 

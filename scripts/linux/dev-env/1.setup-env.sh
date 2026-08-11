@@ -199,7 +199,7 @@ export PATH="\
 \$DEVTOOLS2/modules/win32yank:\
 \$PATH"
 
-# Windows-mounted NTFS 디렉터리 배경색 수정 (WSL2에서 WezTerm Kanagawa 테마 가독성 확보)
+# Windows-mounted NTFS 디렉터리 배경색 수정 (WSL2에서 터미널 Kanagawa 테마 가독성 확보)
 if [ -n "\${LS_COLORS:-}" ]; then
     LS_COLORS=\$(echo "\$LS_COLORS" | sed "s/ow=[^:]*:/ow=01;37;48;5;24:/g; s/tw=[^:]*:/tw=01;37;48;5;58:/g")
     export LS_COLORS
