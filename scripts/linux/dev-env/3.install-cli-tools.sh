@@ -827,8 +827,14 @@ EOF
         echo "      포트: 127.0.0.1:5005 (suspend=n, Attach 모드)"
     fi
 else
-    echo "   ⏭️  건너뜀: Gradle DAP Attach 전역 설정을 나중에 추가하려면"
-    echo "      $HOME/.gradle/init.d/debug.gradle 파일을 직접 생성하세요."
+    GRADLE_DEBUG_FILE="$HOME/.gradle/init.d/debug.gradle"
+    if [ -f "$GRADLE_DEBUG_FILE" ]; then
+        rm -f "$GRADLE_DEBUG_FILE"
+        echo "   🗑️  이전에 설치된 Attach 모드 설정을 삭제했습니다: $GRADLE_DEBUG_FILE"
+    else
+        echo "   ⏭️  건너뜀: Gradle DAP Attach 전역 설정을 나중에 추가하려면"
+        echo "      $GRADLE_DEBUG_FILE 파일을 직접 생성하세요."
+    fi
 fi
 echo ""
 

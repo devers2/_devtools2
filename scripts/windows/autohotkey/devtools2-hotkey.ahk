@@ -94,14 +94,15 @@ _CleanupOnExit(reason, code) {
 ; ------------------------------------------------------------------------------
 ; Part 2. WSL 터미널 전역 단축키 (Ctrl + Alt + T)
 ; ------------------------------------------------------------------------------
-; wt.exe -w -1 : "-1"(=new)은 기존 창을 절대 재사용하지 않고 항상 새 창을 만들라는
-; 공식 옵션이라(Microsoft Learn 문서 확인), WezTerm 때처럼 "새로 생긴 창만 골라
-; 활성화"하는 HWND 스냅샷/폴링 로직이 필요 없다 — 새로 만들어진 창은 OS가 기본으로
-; 포그라운드를 준다.
+; ⚠️ "새 창은 OS가 알아서 포그라운드를 준다"는 가정은 틀렸음(실측) — 다른 창(브라우저 등)에
+;   포커스가 있을 때 Ctrl+Alt+T를 누르면 Windows Terminal이 뒤에서 열리고 포커스는 안 옮겨감.
+;   WezTerm 때와 동일한 HWND 스냅샷/활성화 로직을 WindowsTerminal.exe 대상으로 복원함.
 ; wt.exe는 실행 별칭(App Execution Alias)이라 PATH로 바로 실행 가능하지만,
 ; 별칭이 꺼져있는 예외 상황을 대비해 실제 설치 경로도 폴백으로 시도한다.
 ^!t::
 {
+    existingHwnds := WinGetList("ahk_exe WindowsTerminal.exe")
+
     try {
         Run('wt.exe -w -1 new-tab wsl.exe -d devtools2 --cd ~')
     } catch {
@@ -110,6 +111,43 @@ _CleanupOnExit(reason, code) {
             Run('"' wtFallback '" -w -1 new-tab wsl.exe -d devtools2 --cd ~')
         } catch {
             TrayTip("Windows Terminal 실행", "Windows Terminal 실행 중 오류가 발생했습니다.", 0x3)
+            return
         }
     }
+    _ActivateNewTerminal(existingHwnds)
+}
+
+; existingHwnds(실행 전 스냅샷)에 없던 새 창의 HWND를 찾을 때까지 폴링(최대 5초) 후 활성화.
+; WinActivate만으로는 포그라운드 잠금 때문에 실패할 수 있어 AlwaysOnTop을 순간 켰다 끈다.
+_ActivateNewTerminal(existingHwnds) {
+    newHwnd := 0
+    startTime := A_TickCount
+    while (A_TickCount - startTime < 5000) {
+        for hwnd in WinGetList("ahk_exe WindowsTerminal.exe") {
+            isOld := false
+            for oldHwnd in existingHwnds {
+                if (hwnd = oldHwnd) {
+                    isOld := true
+                    break
+                }
+            }
+            if !isOld {
+                newHwnd := hwnd
+                break
+            }
+        }
+        if newHwnd
+            break
+        Sleep(30)
+    }
+
+    if !newHwnd
+        return
+
+    newWin := "ahk_id " newHwnd
+    if WinGetMinMax(newWin) = -1
+        WinRestore(newWin)
+    WinActivate(newWin)
+    WinSetAlwaysOnTop(true, newWin)
+    WinSetAlwaysOnTop(false, newWin)
 }
