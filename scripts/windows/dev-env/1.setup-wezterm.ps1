@@ -749,7 +749,9 @@ $ahkSetupJob = Start-Job -ScriptBlock {
         $tsClean = New-Object -ComObject Schedule.Service
         $tsClean.Connect()
         $rootClean = $tsClean.GetFolder("\")
-        @("DevTools2-Hotkey", "DevTools2-AutoHotkey") | ForEach-Object {
+        # DevTools2_Kanata: _devtools2와 무관한 kanata(키보드 리매퍼)를 실행하던 잔여 작업 —
+        # AutoHotkey와 저수준 키보드 후킹이 충돌해 로그온 시 AHK 실행 자체가 실패하므로 정리.
+        @("DevTools2-Hotkey", "DevTools2-AutoHotkey", "DevTools2_Kanata") | ForEach-Object {
             try { $rootClean.DeleteTask($_, 0) } catch {}
         }
     } catch {}
@@ -784,9 +786,19 @@ $ahkSetupJob = Start-Job -ScriptBlock {
     }
 
     # 통합 AutoHotkey 자동 실행 등록 (Task Scheduler)
-    # Startup 폴더 바로가기는 Windows가 수 분간 지연 실행하는 문제가 있으므로
-    # Task Scheduler 로그온 트리거를 사용해 로그온 즉시 실행합니다.
-    # AHK 파일이 Windows 로컬 경로이므로 WSL 의존 없이 즉시 실행 가능합니다.
+    # Startup 폴더 바로가기는 로그온 후 수 분씩 지연 실행되는 문제가 있어서,
+    # 지연 없이(PT0S) 즉시 실행되는 로그온 트리거로 등록합니다.
+    #
+    # ⚠️ CapsLock이 안 먹히거나 이 작업이 실패하면(LastTaskResult 확인):
+    #   원인은 kanata(별도 키보드 리매퍼, _devtools2와 무관, 수동 설치됨)가 같이 떠 있어서
+    #   AutoHotkey와 저수준 키보드 후킹이 충돌하는 것이었음(실측 확인 — SAC 차단 아니었음).
+    #   위에서 "DevTools2_Kanata" 작업은 자동 정리하지만, kanata.exe 자체가 다른 방식으로
+    #   계속 실행 중이면 또 충돌할 수 있음 (Get-Process kanata로 확인).
+    #
+    # 💡 kanata 필요성: AHK의 CapsLock 파트(Part 1: 탭=ESC, 홀드=Ctrl, Shift+CapsLock
+    #   토글 등)가 kanata 설정보다 기능이 더 많아서, 이 프로젝트에서는 kanata가 필요 없음.
+    #   나중에 kanata를 다시 쓰고 싶다면 AHK의 CapsLock 파트를 빼거나 kanata를 꺼야 함
+    #   — 둘을 동시에 실행하면 안 됨.
     if (Test-Path $ahkExe) {
         $taskName = "DevTools2-Hotkey"
         $registered = $false
