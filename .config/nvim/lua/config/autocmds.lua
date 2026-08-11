@@ -36,8 +36,8 @@ vim.api.nvim_create_autocmd('FileType', {
   callback = function()
     vim.opt_local.shiftwidth = 2 -- >> 또는 << 시 이동 간격
     vim.opt_local.tabstop = 2 -- 탭 문자의 너비
-    vim.opt.softtabstop = 2 -- 탭 키 입력 시 삽입되는 공백
-    vim.opt.expandtab = true -- 탭을 공백으로 변환
+    vim.opt_local.softtabstop = 2 -- 탭 키 입력 시 삽입되는 공백
+    vim.opt_local.expandtab = true -- 탭을 공백으로 변환
   end,
 })
 

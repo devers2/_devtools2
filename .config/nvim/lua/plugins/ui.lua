@@ -33,12 +33,4 @@ return {
       vim.diagnostic.config({ virtual_text = false })
     end,
   },
-
-  -- Trouble.nvim 단축키 한글 문서화를 위한 추가 설정 (옵션)
-  {
-    'folke/trouble.nvim',
-    opts = {
-      -- 기본 설정 유지
-    },
-  },
 }

@@ -1,24 +1,18 @@
+-- ⚠️ LazyVim이 기본 completion 엔진을 nvim-cmp → blink.cmp로 전환하면서(실측: lazy-lock.json에
+--   nvim-cmp는 없고 blink.cmp만 존재) 기존 hrsh7th/nvim-cmp opts 튜닝이 전혀 로드되지 않는
+--   죽은 설정이 되어 있었음. blink.cmp 대상으로 다시 작성함.
+--   (blink.cmp는 Rust 매처 기반이라 nvim-cmp식 debounce/throttle 옵션은 없음 —
+--   대신 소스별 최소 트리거 글자 수(min_keyword_length)만 이식)
 return {
   {
-    'hrsh7th/nvim-cmp',
-    opts = function(_, opts)
-      -- 1. 자동완성 팝업 성능 및 스레드 블로킹 타임아웃 튜닝
-      opts.performance = vim.tbl_deep_extend('force', opts.performance or {}, {
-        debounce = 60,          -- 컴플리션 창이 뜨는 반응 속도 제어 (기본값 완화)
-        throttle = 30,          -- 입력 처리 간격 지연으로 렌더링 부하 경감
-        fetching_timeout = 200, -- 백그라운드 lsp 응답 대기 타임아웃 (메인 스레드 대기 방지)
-      })
-
-      -- 2. 대용량 파일에서 오토컴플릿 무한 인덱싱 방지를 위한 글자 수 제약
-      if opts.sources then
-        for _, source in ipairs(opts.sources) do
-          if source.name == 'nvim_lsp' then
-            source.keyword_length = 2 -- LSP 자동완성은 2글자 이상부터 트리거
-          elseif source.name == 'buffer' then
-            source.keyword_length = 3 -- 버퍼 텍스트 인덱싱은 3글자 이상부터 트리거
-          end
-        end
-      end
-    end,
+    'saghen/blink.cmp',
+    opts = {
+      sources = {
+        providers = {
+          lsp = { min_keyword_length = 2 }, -- LSP 자동완성은 2글자 이상부터 트리거
+          buffer = { min_keyword_length = 3 }, -- 버퍼 텍스트 인덱싱은 3글자 이상부터 트리거
+        },
+      },
+    },
   },
 }

@@ -439,8 +439,10 @@ return {
         { '<leader>\\P', desc = 'LSP 이름 변경: PascalCase (LSP rename ToPascalCase)' },
         { '<leader>\\s', desc = 'snake_case로 변환 (to_snake_case)' },
         { '<leader>\\S', desc = 'LSP 이름 변경: snake_case (LSP rename to_snake_case)' },
+        { '<leader>\\t', desc = 'Title Case로 변환 (To Title Case)' },
         { '<leader>\\u', desc = '대문자로 변환 (TO UPPER CASE)' },
         { '<leader>\\U', desc = 'LSP 이름 변경: 대문자 (LSP rename TO UPPER CASE)' },
+        { '<leader>\\w', desc = 'phrase case로 변환 (to phrase case)' },
 
         -- ── 탭 관리 그룹 (<leader><tab>) ──
         { '<leader><tab>d', desc = '현재 탭 닫기 (Close Tab)' },

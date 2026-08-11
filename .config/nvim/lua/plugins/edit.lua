@@ -69,20 +69,23 @@ return {
         desc = '소문자로 변환 (to lower case)',
         mode = 'n',
       },
+      -- ⚠️ 원래 <leader>\a, <leader>\A였으나 config/keymaps.lua의 유니코드 인코드/디코드
+      --   기능과 같은 키를 공유하고 있었음(실측: keymaps.lua가 VeryLazy 시점에 나중에
+      --   vim.keymap.set으로 등록되어 이 매핑을 덮어써서 무력화됨). <leader>\w, <leader>\t로 이동.
       {
-        '<leader>\\a',
+        '<leader>\\w',
         function()
           require('textcase').quick_replace('to_phrase_case')
         end,
-        desc = 'Unicode 디코드 (Decode \\uXXXX → char)',
+        desc = 'phrase case로 변환 (to phrase case)',
         mode = 'n',
       },
       {
-        '<leader>\\A',
+        '<leader>\\t',
         function()
           require('textcase').quick_replace('to_title_case')
         end,
-        desc = 'Unicode 인코드 (Encode char → \\uXXXX)',
+        desc = 'Title Case로 변환 (To Title Case)',
         mode = 'n',
       },
 
