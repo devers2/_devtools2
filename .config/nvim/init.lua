@@ -133,4 +133,10 @@ if _G.OS_TYPE == _G.OS.WINDOWS then
   -- 경로 구분자 및 인용 부호 설정
   vim.opt.shellquote = ''
   vim.opt.shellxquote = ''
+else
+  -- Linux/macOS: 대화형 로그인 셸(bash/zsh 등)과 무관하게 Neovim 내부 셸 실행은
+  -- 항상 bash로 고정합니다. 플러그인이 system()/jobstart()로 조립하는 셸 명령은
+  -- POSIX(bash) 기준으로 작성되는 경우가 많아서, 로그인 셸을 zsh 등으로 바꿔도
+  -- Neovim 내부 동작(LSP 설치, 포매터 실행, :! 등)이 영향받지 않도록 분리해둡니다.
+  vim.opt.shell = '/bin/bash'
 end
