@@ -277,13 +277,9 @@ if (-not $isAdmin) {
         $bytes = [System.Text.Encoding]::Unicode.GetBytes($onlineCmd)
         $encodedCmd = [Convert]::ToBase64String($bytes)
         $psExe = if ($pwshPath -and -not $isStorePwsh) { $pwshPath } else { 'powershell.exe' }
-        # conhost.exe로 감싸서 실행: Windows 11 기본 터미널 설정이 "Windows Terminal"이면
-        # 그냥 실행 시 이 관리자 권한 재실행 창도 Windows Terminal 안에서 열려버립니다.
-        # 그러면 2.setup-windows-terminal.ps1이 "Windows Terminal이 실행 중이니 닫아도 되냐"고
-        # 물을 때, 지금 설치를 진행 중인 바로 그 창까지 후보에 들어가 자기파괴 위험이 생깁니다.
-        # conhost.exe로 명시적으로 감싸면 Default Terminal 설정과 무관하게 항상 구형 콘솔
-        # 호스트로 뜨므로($env:WT_SESSION 자체가 안 생김) 이 문제를 원천 차단합니다.
-        Start-Process "conhost.exe" -ArgumentList "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedCmd" -Verb RunAs
+        # ⚠️ conhost.exe로 감싸서 -Verb RunAs 승격 시도 금지 — "액세스 거부"로 실패함(실측).
+        #   (목적: WT 자기파괴 방지였음 — 2.setup-windows-terminal.ps1의 WT_SESSION 감지로만 방어 중)
+        Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedCmd" -Verb RunAs
         exit
     } else {
         # ── 로컬 파일 실행 모드 ────────────────────────────────────────────────
@@ -307,9 +303,9 @@ if (-not $isAdmin) {
             # 직접 설치 pwsh → UAC 자동 승격 재실행
             $psExe = if ($pwshPath) { $pwshPath } else { 'powershell.exe' }
             Write-Warn "전체 환경 구축을 위해 관리자 권한으로 스크립트를 재실행합니다..."
-            # conhost.exe로 감싸는 이유: 위 온라인 실행 모드 분기의 동일 주석 참고
-            # (Default Terminal 설정과 무관하게 구형 콘솔 호스트로 강제해 자기파괴 위험 차단).
-            Start-Process "conhost.exe" -ArgumentList "`"$psExe`" -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+            # ⚠️ conhost.exe로 감싸서 -Verb RunAs 승격 시도 금지 — "액세스 거부"로 실패함(실측).
+            #   (목적: WT 자기파괴 방지였음 — 2.setup-windows-terminal.ps1의 WT_SESSION 감지로만 방어 중)
+            Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
             exit
         }
     }
