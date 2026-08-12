@@ -376,6 +376,7 @@ if $GRADLEW_EXISTS; then
     fi
 fi
 MENU_OPTIONS+=("[JDTLS] 캐시 초기화")
+MENU_OPTIONS+=("[Project] 프로젝트 설정 (Clone & 초기화)")
 MENU_OPTIONS+=("[Git] Clone (Bitwarden 인증 자동)")
 MENU_OPTIONS+=("포트 확인 (Port Check)")
 MENU_OPTIONS+=("프로세스 확인 (Process Check)")
@@ -870,6 +871,72 @@ elif [[ "$CHOICE" == *"Python 버전 변경"* ]]; then
             echo "    source ~/.bashrc"
         fi
         echo "  - 또는 터미널을 다시 시작(새 창/새 탭)하십시오."
+    fi
+
+# ── [Project] 프로젝트 설정 (setup-projects/ 하위 스크립트 동적 탐색 실행) ────
+# scripts/linux/setup-projects/ 아래(단, _common/ 제외) .sh 스크립트를 재귀적으로
+# 찾아 목록으로 보여주고, 선택한 스크립트를 그대로 실행합니다. 프로젝트가 늘어나서
+# s2/ 처럼 하위 디렉토리로 나뉘어도(1단계든 그 이상이든) 자동으로 인식됩니다.
+elif [[ "$CHOICE" == *"프로젝트 설정"* ]]; then
+    if [ -n "${DEVTOOLS2:-}" ]; then
+        _SP_DIR="${DEVTOOLS2}/scripts/linux/setup-projects"
+    else
+        _SP_DIR="$(cd "$_CP_SCRIPT_DIR/../linux/setup-projects" && pwd)"
+    fi
+
+    if [ ! -d "$_SP_DIR" ]; then
+        echo "❌ setup-projects 디렉토리를 찾을 수 없습니다: $_SP_DIR"
+        exit 1
+    fi
+
+    _SP_SCRIPTS=()
+    while IFS= read -r -d '' _f; do
+        _SP_SCRIPTS+=("$_f")
+    done < <(find "$_SP_DIR" -type f -name "*.sh" -not -path "*/_common/*" -print0 | sort -z)
+
+    if [ ${#_SP_SCRIPTS[@]} -eq 0 ]; then
+        echo "ℹ️  실행 가능한 프로젝트 설정 스크립트를 찾지 못했습니다: $_SP_DIR"
+        exit 0
+    fi
+
+    # 표시용 라벨: setup-<이름>.sh → <이름>  (하위 폴더에 있으면 상대경로도 같이 표시)
+    _SP_LABELS=()
+    for _f in "${_SP_SCRIPTS[@]}"; do
+        _rel="${_f#$_SP_DIR/}"
+        _base="$(basename "$_f")"
+        _name="${_base#setup-}"
+        _name="${_name%.sh}"
+        _SP_LABELS+=("${_name}  (${_rel})")
+    done
+
+    _SP_CHOICE=$(printf "%s\n" "${_SP_LABELS[@]}" | fzf --prompt="📦 설정할 프로젝트 선택 > " --height=40% --reverse)
+    if [ -z "$_SP_CHOICE" ]; then
+        exit 0
+    fi
+
+    _SP_TARGET=""
+    for _i in "${!_SP_LABELS[@]}"; do
+        if [ "${_SP_LABELS[$_i]}" = "$_SP_CHOICE" ]; then
+            _SP_TARGET="${_SP_SCRIPTS[$_i]}"
+            break
+        fi
+    done
+
+    if [ -z "$_SP_TARGET" ]; then
+        echo "❌ 선택한 스크립트를 찾을 수 없습니다."
+        exit 1
+    fi
+
+    echo ""
+    echo "🚀 실행: $_SP_TARGET"
+    echo ""
+    if bash "$_SP_TARGET"; then
+        echo ""
+        echo "✅ 프로젝트 설정 스크립트 실행 완료"
+    else
+        _SP_RC=$?
+        echo ""
+        echo "❌ 프로젝트 설정 스크립트가 오류로 종료되었습니다 (종료 코드: $_SP_RC)"
     fi
 
 # ── [Git] Clone (Bitwarden 인증 자동) ────────────────────────────────────────

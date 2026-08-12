@@ -65,11 +65,15 @@ fi
 #  빌드에서 JDK 25 툴체인으로 컴파일하면서 --release 17 등으로 타깃을 낮추는
 #  방식도 그대로 지원됩니다 — JDTLS 서버 자체는 항상 JDK 21 이상에서 구동됨)
 echo "⚙️  .nvim.lua 설정 파일 생성 중..."
-cat > "$TARGET_DIR/.nvim.lua" <<'EOF'
+if [ -f "$TARGET_DIR/.nvim.lua" ]; then
+    echo "ℹ️  .nvim.lua 이 이미 존재합니다. 덮어쓰지 않습니다 (직접 수정했을 수 있으므로)."
+else
+    cat > "$TARGET_DIR/.nvim.lua" <<'EOF'
 PROJECT_ROOT = "./"
 JDK_VERSION = 17
 EOF
-echo "✅ .nvim.lua 생성 완료!"
+    echo "✅ .nvim.lua 생성 완료!"
+fi
 
 # ==============================================================================
 # 4. .vscode/settings.json 생성 - 멱등성 보장
@@ -148,4 +152,4 @@ fi
 
 echo ""
 echo "🎉 [s2-build-support] 프로젝트 설정이 성공적으로 완료되었습니다!"
-echo "    프로젝트 위치: ~/workspaces/s2/s2-build-support"
+echo "📁 프로젝트 위치: $TARGET_DIR"

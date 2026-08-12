@@ -56,12 +56,16 @@ fi
 # 3. .nvim.lua 파일 생성
 # ==============================================================================
 echo "⚙️  .nvim.lua 설정 파일 생성 중..."
-cat > "$TARGET_DIR/.nvim.lua" <<'EOF'
+if [ -f "$TARGET_DIR/.nvim.lua" ]; then
+    echo "ℹ️  .nvim.lua 이 이미 존재합니다. 덮어쓰지 않습니다 (직접 수정했을 수 있으므로)."
+else
+    cat > "$TARGET_DIR/.nvim.lua" <<'EOF'
 PROJECT_ROOT = "./"
 JDK_VERSION = 21
 MAIN_CLASS = "so.goono.GoonoELNApplication"
 EOF
-echo "✅ .nvim.lua 생성 완료!"
+    echo "✅ .nvim.lua 생성 완료!"
+fi
 
 # ==============================================================================
 # 4. command-palette 이전 실행 프로필 저장 (~/.devtools2/state.properties)
@@ -178,4 +182,4 @@ fi
 
 echo ""
 echo "🎉 [Goono-ELN] 프로젝트 설정이 성공적으로 완료되었습니다!"
-echo "    프로젝트 위치: ~/workspaces/goono/Goono-ELN"
+echo "📁 프로젝트 위치: $TARGET_DIR"
