@@ -24,10 +24,15 @@
 #   • "GPG Signing" 항목의 사용자 지정 필드
 #       signing.keyId, signing.password
 #       signing.secretKeyRingBase64 (단일 필드) 또는
-#       signing.secretKeyRingBase64_1 + signing.secretKeyRingBase64_2 (2분할, 둘 다 필수)
+#       signing.secretKeyRingBase64_1 ~ _5 (최대 5분할)
+#       → signing.secretKeyRingBase64 필드에 값이 있으면 그 값 하나만 사용합니다
+#         (이 경우 _1~_5는 무시).
+#       → 없으면 _1부터 순서대로 확인해서 값이 있는 부분까지만 이어붙입니다
+#         (예: _1, _2 만 있고 _3 이 없으면 _1+_2 까지만 사용. 중간에 빈 파트가
+#         나오면 그 뒤는 확인하지 않습니다). 최소 _1은 있어야 합니다.
 #       → command-palette의 "[Base64] 파일 → 텍스트 인코딩" 메뉴로 만든 값을 그대로
-#         붙여넣으면 됩니다 (Bitwarden 필드 1개 5000자 한도를 넘으면 자동으로
-#         _1/_2 두 파트로 나눠줍니다).
+#         붙여넣으면 됩니다 (Bitwarden 필드 1개 글자수 한도를 넘으면 여러 필드로
+#         나눠 담아주세요).
 # ==============================================================================
 
 # 내부 헬퍼: base64 문자열(파트 여러 개면 순서대로 이어붙인 뒤) 디코딩해 파일로 저장
@@ -129,27 +134,40 @@ setup_maven_central_publishing() {
 
     # ── 2) GPG Signing 필드 조회 (signing.keyId / signing.password / 키링 base64) ──
     echo "⏳ Bitwarden 'GPG Signing' 항목 조회 중..."
-    local _GPG_PARSED _KEY_ID="" _KEY_PASS="" _B64_SINGLE="" _B64_P1="" _B64_P2="" _GPG_OK=true
+    local _GPG_PARSED _KEY_ID="" _KEY_PASS="" _B64_SINGLE="" _GPG_OK=true
     local _HAS_KEYRING=false
     local -a _B64_PARTS=()
     _GPG_PARSED=$(bw_get_fields "GPG Signing" \
         "signing.keyId" "signing.password" \
-        "signing.secretKeyRingBase64" "signing.secretKeyRingBase64_1" "signing.secretKeyRingBase64_2")
+        "signing.secretKeyRingBase64" \
+        "signing.secretKeyRingBase64_1" "signing.secretKeyRingBase64_2" \
+        "signing.secretKeyRingBase64_3" "signing.secretKeyRingBase64_4" "signing.secretKeyRingBase64_5")
     if [ $? -ne 0 ]; then
         _GPG_OK=false
     else
         _KEY_ID=$(printf "%s" "$_GPG_PARSED" | cut -f1)
         _KEY_PASS=$(printf "%s" "$_GPG_PARSED" | cut -f2)
         _B64_SINGLE=$(printf "%s" "$_GPG_PARSED" | cut -f3)
-        _B64_P1=$(printf "%s" "$_GPG_PARSED" | cut -f4)
-        _B64_P2=$(printf "%s" "$_GPG_PARSED" | cut -f5)
 
         if [ -n "$_B64_SINGLE" ]; then
+            # 단일 필드(signing.secretKeyRingBase64)가 있으면 그 값만 사용 (_1~_5는 무시)
             _HAS_KEYRING=true
             _B64_PARTS=("$_B64_SINGLE")
-        elif [ -n "$_B64_P1" ] && [ -n "$_B64_P2" ]; then
-            _HAS_KEYRING=true
-            _B64_PARTS=("$_B64_P1" "$_B64_P2")
+        else
+            # 단일 필드가 없으면 _1부터 순서대로 존재하는 만큼만 이어붙임 (최대 5개,
+            # 중간에 빈 파트가 나오면 그 뒤는 확인하지 않고 거기까지만 사용)
+            local _CHUNK_COL
+            for _CHUNK_COL in 4 5 6 7 8; do
+                local _CHUNK
+                _CHUNK=$(printf "%s" "$_GPG_PARSED" | cut -f"$_CHUNK_COL")
+                if [ -z "$_CHUNK" ]; then
+                    break
+                fi
+                _B64_PARTS+=("$_CHUNK")
+            done
+            if [ "${#_B64_PARTS[@]}" -gt 0 ]; then
+                _HAS_KEYRING=true
+            fi
         fi
 
         if [ -z "$_KEY_ID" ] || [ -z "$_KEY_PASS" ] || [ "$_HAS_KEYRING" = "false" ]; then
@@ -168,7 +186,7 @@ setup_maven_central_publishing() {
             echo "   [GPG Signing] 항목 또는 다음 필드가 없습니다:"
             [ -z "$_KEY_ID" ] && echo "      - signing.keyId"
             [ -z "$_KEY_PASS" ] && echo "      - signing.password"
-            [ "$_HAS_KEYRING" = "false" ] && echo "      - signing.secretKeyRingBase64 (또는 _1 + _2 둘 다)"
+            [ "$_HAS_KEYRING" = "false" ] && echo "      - signing.secretKeyRingBase64 (또는 _1부터 순서대로 최소 1개, 최대 _5까지)"
         fi
         echo "   Bitwarden에 두 항목을 모두 채운 뒤 다시 실행해주세요."
         return 0

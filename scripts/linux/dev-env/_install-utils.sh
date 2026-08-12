@@ -132,3 +132,35 @@ _resolve_action() {
 
 # 설치 상태를 사람이 읽기 좋은 문자열로 표시 (true/false → 이모지+문구)
 _fmts() { [ "$1" = true ] && echo '✅ 설치됨' || echo '⬜ 미설치'; }
+
+# ─────────────────────────────────────────────────────────────────
+# 버전 설치 방식 선택 프롬프트 (1=최신 / 2=TOML 고정 / 3=도구별 개별) — 공용
+# 결과: 전역 변수 VERSION_MODE 에 "latest" | "pinned" | "individual" 설정
+# (2.install-core-tools.sh / 3.install-cli-tools.sh 공용)
+# ─────────────────────────────────────────────────────────────────
+_select_version_mode() {
+    print_question "❓ 적용할 버전 선택 방식을 선택하세요:"
+    echo ""
+    print_option "1" "모든 도구 최신 버전으로 설치 (온라인 최신 릴리스)"
+    print_option "2" "모든 도구 지정 버전으로 설치 (TOML 고정/최종 설치 버전)" "[기본값]"
+    print_option "3" "도구별 개별 확인 (최신/지정 버전 선택)"
+    echo ""
+    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "; read -r _ver_choice
+    echo ""
+    case "${_ver_choice:-2}" in
+        1) VERSION_MODE="latest"     ; print_info "버전 선택: 모든 도구 최신 버전 선택됨" ;;
+        3) VERSION_MODE="individual" ; print_info "버전 선택: 도구별 개별 확인 선택됨" ;;
+        *) VERSION_MODE="pinned"     ; print_info "버전 선택: 모든 도구 지정(TOML) 버전 선택됨" ;;
+    esac
+
+    # TOML 고정 버전이 아닌 다른 버전을 설치할 수 있는 경우, 문제가 생겼을 때
+    # 되돌리는 방법을 미리 안내합니다 (tool-versions.toml 상단 규칙과 동일한 절차).
+    if [ "$VERSION_MODE" != "pinned" ]; then
+        echo ""
+        print_info "💡 참고: 선택하신 방식은 TOML에 고정된 기본 버전과 다른 버전을 설치할 수 있습니다."
+        print_info "   설치한 버전이 호환되지 않는 문제가 발생하면, 아래 파일을 열어 배열 맨 앞에"
+        print_info "   새로 추가된 버전 항목을 지워 이전 버전으로 되돌린 뒤, 이 스크립트를 다시"
+        print_info "   실행해 '2) 지정 버전으로 설치'를 선택하면 이전 고정 버전으로 재설치됩니다."
+        print_info "   TOML 파일 위치: $TOOL_VERSIONS_TOML"
+    fi
+}

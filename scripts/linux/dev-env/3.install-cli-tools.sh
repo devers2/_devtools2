@@ -225,19 +225,8 @@ if [ "$_HAS_INSTALLED" = true ]; then
 fi
 
 # ── 버전 설치 방식 선택 ──────────────────────────────────────────
-print_question "❓ 적용할 버전 선택 방식을 선택하세요:"
-echo ""
-print_option "1" "모든 도구 최신 버전으로 설치 (온라인 최신 릴리스)"
-print_option "2" "모든 도구 지정 버전으로 설치 (TOML 고정/최종 설치 버전)" "[기본값]"
-print_option "3" "도구별 개별 확인 (최신/지정 버전 선택)"
-echo ""
-prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "; read -r _ver_choice
-echo ""
-case "${_ver_choice:-2}" in
-    1) VERSION_MODE="latest"     ; print_info "버전 선택: 모든 도구 최신 버전 선택됨" ;;
-    3) VERSION_MODE="individual" ; print_info "버전 선택: 도구별 개별 확인 선택됨" ;;
-    *) VERSION_MODE="pinned"     ; print_info "버전 선택: 모든 도구 지정(TOML) 버전 선택됨" ;;
-esac
+# _select_version_mode() 는 _install-utils.sh 에서 로드됨 (2.install-core-tools.sh 와 공유)
+_select_version_mode
 
 # 일괄 최신 버전 모드: 미리 모든 최신 버전 일괄 조회
 if [ "$VERSION_MODE" = "latest" ]; then

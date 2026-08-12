@@ -14,7 +14,7 @@
 #   2. GitHub Packages 의존성 설정 함수 호출:
 #      setup_gpr_gradle_properties "$TARGET_DIR" [BW_ITEM_NAME]
 #      - $1: 대상 프로젝트 루트 경로 (필수, 기본값: $PWD)
-#      - $2: Bitwarden 아이템 이름 (선택, 기본값: github.com-main)
+#      - $2: Bitwarden 아이템 이름 (선택, 기본값: $BW_DEFAULT_PAT_ITEM. bw-lib 참고)
 # ==============================================================================
 
 # ── gradle.properties 섹션 갱신 헬퍼 (gpr.*, Maven Central Portal, GPG Signing 공용) ──
@@ -84,10 +84,11 @@ with open(filepath, 'w', encoding='utf-8') as f:
 #   - 누락되거나 불일치 시 대소문자 구분 없이 (y/n) 대화형 입력을 받아 gpr.user 및 gpr.key 자동 생성/수정
 # 인수:
 #   $1 = 대상 프로젝트 디렉토리 (기본값: 현재 디렉토리)
-#   $2 = Bitwarden 아이템 이름 (선택, 기본값: github.com-main)
+#   $2 = Bitwarden 아이템 이름 (선택, 기본값: $BW_DEFAULT_PAT_ITEM. 이름이 정확히 일치하는
+#        항목이 없거나 2개 이상이면 bw_find_item_live 가 에러를 출력하고 실패합니다)
 setup_gpr_gradle_properties() {
     local TARGET_DIR="${1:-$PWD}"
-    local BW_ITEM="${2:-github.com-main}"
+    local BW_ITEM="${2:-${BW_DEFAULT_PAT_ITEM:-github.com-main}}"
 
     if [ ! -d "$TARGET_DIR" ]; then
         return 0
@@ -110,19 +111,21 @@ setup_gpr_gradle_properties() {
     local EXPECTED_USER=""
     EXPECTED_USER=$(git config user.name 2>/dev/null || git config --global user.name 2>/dev/null || echo "")
 
+    # bw_find_item_live 반환 형식: username\temail\tpassword\tpat\tnotes
+    # (username 은 사용자 지정 필드 "user.name" 값, 없으면 이메일의 @ 앞부분)
     local EXPECTED_PAT=""
-    local _EMAIL=""
+    local _BW_USERNAME=""
     if [ -n "${BW_SESSION:-}" ] && command -v bw_find_item_live &>/dev/null; then
         local _PARSED
         _PARSED=$(bw_find_item_live "$BW_ITEM" 2>/dev/null || true)
         if [ -n "$_PARSED" ]; then
-            _EMAIL=$(printf "%s" "$_PARSED" | cut -f1)
-            EXPECTED_PAT=$(printf "%s" "$_PARSED" | cut -f3) # 사용자 지정 필드 "PAT" 값
+            _BW_USERNAME=$(printf "%s" "$_PARSED" | cut -f1)
+            EXPECTED_PAT=$(printf "%s" "$_PARSED" | cut -f4) # 사용자 지정 필드 "PAT" 값
         fi
     fi
 
-    if [ -z "$EXPECTED_USER" ] && [ -n "$_EMAIL" ]; then
-        EXPECTED_USER=$(printf "%s" "$_EMAIL" | cut -d'@' -f1)
+    if [ -z "$EXPECTED_USER" ] && [ -n "$_BW_USERNAME" ]; then
+        EXPECTED_USER="$_BW_USERNAME"
     fi
 
     # 3. ~/.gradle/gradle.properties 확인
