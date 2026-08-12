@@ -839,83 +839,14 @@ elif [[ "$CHOICE" == *"Git"* && "$CHOICE" == *"Clone"* ]]; then
     echo "⏳ Bitwarden 상태 확인 중..."
     bw_ensure_session || exit 1
 
-    # ── 3. github.com-main 아이템 조회 ───────────────────────────────────────
-    _GIT_ITEM_NAME="github.com-main"
-    echo "⏳ Bitwarden에서 '${_GIT_ITEM_NAME}' 계정 정보 조회 중..."
-
-    # 전체 아이템 중에서 이름으로 검색 (어느 폴더에 있든 찾음)
-    _ALL_ITEMS_RAW=$(bw list items --search "$_GIT_ITEM_NAME" --session "$BW_SESSION" </dev/null 2>&1)
-    if echo "$_ALL_ITEMS_RAW" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
-        echo "❌ Bitwarden 세션이 만료되었습니다. 다시 실행해주세요."
-        rm -f "$_BW_SESSION_FILE"
-        exit 1
-    fi
-
-    # 이름 정확 일치 아이템에서 username(이메일), totp(인증 키=PAT) 추출
-    # Bitwarden 구조:
-    #   login.username → 이메일 (user.email 로 사용)
-    #   login.totp     → 인증 키 = GitHub PAT 토큰 (git clone 인증에 사용)
-    #   login.password → 비밀번호 (GitHub 계정 비밀번호, 사용 안 함)
-    _PY_GIT=$(mktemp /tmp/bw_git_XXXXXX.py)
-    cat > "$_PY_GIT" <<'PYEOF'
-import sys, json
-
-target_name = sys.argv[1] if len(sys.argv) > 1 else ''
-try:
-    raw = sys.stdin.read()
-    start = raw.find('[')
-    end = raw.rfind(']')
-    if start != -1 and end != -1 and start < end:
-        items = json.loads(raw[start:end+1], strict=False)
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            if str(item.get('name', '')).strip() == target_name:
-                login = item.get('login') or {}
-                username = (login.get('username') or '').strip()
-                # 인증 키 필드(totp)가 PAT 토큰
-                totp = (login.get('totp') or '').strip()
-                print(f"{username}\t{totp}")
-                sys.exit(0)
-except Exception as e:
-    sys.stderr.write(f'parse error: {e}\n')
-PYEOF
-
-    _GIT_PARSED=$(printf "%s" "$_ALL_ITEMS_RAW" | python3 "$_PY_GIT" "$_GIT_ITEM_NAME")
-    rm -f "$_PY_GIT"
-
-    if [ -z "$_GIT_PARSED" ]; then
-        echo "❌ Bitwarden에서 '${_GIT_ITEM_NAME}' 항목을 찾을 수 없습니다."
-        echo "   Bitwarden에 이름이 정확히 '${_GIT_ITEM_NAME}' 인 로그인 항목을 만들어주세요."
-        exit 1
-    fi
-
-    # 탭 구분으로 이메일과 PAT(비밀번호 필드) 분리
-    _GIT_EMAIL=$(printf "%s" "$_GIT_PARSED" | cut -f1)
-    _GIT_PAT=$(printf "%s" "$_GIT_PARSED" | cut -f2)
-    # user.name: 이메일의 @ 앞 부분
-    _GIT_USERNAME=$(printf "%s" "$_GIT_EMAIL" | cut -d'@' -f1)
-
-    echo ""
-    echo "✅ GitHub 계정 정보 확인:"
-    echo "   user.name : $_GIT_USERNAME"
-    echo "   이메일    : $_GIT_EMAIL"
-    echo "   PAT       : (인증 키 필드에서 자동 로드)"
-    echo ""
-
-    # ── 4. git config 설정 (bw-lib: bw_setup_git_config) ────────────────────
-    _BW_DEFAULT_NAME=$(echo "$_GIT_USERNAME" | tr -d '@')
-    bw_setup_git_config "$_BW_DEFAULT_NAME" "$_GIT_EMAIL"
-    echo ""
-
-    # ── 5. clone 할 URL 입력 ──────────────────────────────────────────────────
+    # ── 3. clone 할 URL 입력 ──────────────────────────────────────────────────
     read -rp "📋 Clone 할 저장소 URL 입력 (예: https://github.com/user/repo.git): " _CLONE_URL
     if [ -z "$_CLONE_URL" ]; then
         echo "❌ URL이 입력되지 않았습니다. 취소합니다."
         exit 0
     fi
 
-    # ── 6. clone 대상 디렉토리 입력 ──────────────────────────────────────────
+    # ── 4. clone 대상 디렉토리 입력 ──────────────────────────────────────────
     _DEFAULT_DIR=$(basename "$_CLONE_URL" .git)
     read -rp "📁 Clone 경로 (기본: 현재폴더/${_DEFAULT_DIR}) [엔터=기본값]: " _CLONE_DIR
     _CLONE_DIR=${_CLONE_DIR:-"./$_DEFAULT_DIR"}
@@ -926,43 +857,12 @@ PYEOF
     echo "   대상 경로 : $_CLONE_DIR"
     echo ""
 
-    # ── 7. GIT_ASKPASS 방식으로 PAT 자동 주입 ────────────────────────────────
-    # URL은 입력받은 그대로 사용하고, 인증 정보만 환경변수로 분리 주입
-    # git이 비밀번호를 요청할 때 _GIT_ASKPASS_SCRIPT 가 대신 응답함
-    # → 터미널에 비밀번호 입력창이 뜨지 않음
-    _GIT_ASKPASS_SCRIPT=$(mktemp /tmp/bw_askpass_XXXXXX.sh)
-    chmod 700 "$_GIT_ASKPASS_SCRIPT"
-
-    # Username 에는 @가 없는 순수 user.name 사용
-    _ASK_USER=$(git config --global user.name 2>/dev/null || echo "$_BW_DEFAULT_NAME")
-
-    cat > "$_GIT_ASKPASS_SCRIPT" <<ASKEOF
-#!/usr/bin/env bash
-case "\$1" in
-  Username*) echo "${_ASK_USER}" ;;
-  Password*) echo "${_GIT_PAT}"   ;;
-esac
-ASKEOF
-
-    GIT_ASKPASS="$_GIT_ASKPASS_SCRIPT" \
-    GIT_TERMINAL_PROMPT=0 \
-    git clone "$_CLONE_URL" "$_CLONE_DIR"
-    _CLONE_EXIT=$?
-
-    rm -f "$_GIT_ASKPASS_SCRIPT"
-
-    if [ $_CLONE_EXIT -eq 0 ]; then
-        echo ""
-        echo "✅ Clone 완료: $_CLONE_DIR"
-        echo ""
-
-        # PAT 저장 여부 질의 (bw-lib: bw_save_git_credentials)
-        bw_save_git_credentials "$_CLONE_URL" "$_GIT_PAT" "$_BW_DEFAULT_NAME"
-    else
-        echo ""
-        echo "❌ Clone 실패. URL 또는 PAT를 확인해주세요."
-        exit 1
-    fi
+    # ── 5. Bitwarden PAT 인증 clone (bw-lib: bw_git_clone) ───────────────────
+    # 아이템 조회 → PAT(사용자 지정 필드 "PAT") 인증 → git config 설정 → 자격 증명
+    # 저장까지 전부 bw_git_clone이 전담합니다. (예전엔 이 로직을 여기서 그대로
+    # 복붙해 썼으나 bw-lib의 bw_git_clone과 완전히 중복이라 제거하고 위임함 —
+    # 유지보수 지점을 bw-lib 하나로 통일)
+    bw_git_clone "$_CLONE_URL" "$_CLONE_DIR" "github.com-main" || exit 1
 
 fi
 

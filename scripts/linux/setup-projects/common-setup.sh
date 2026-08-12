@@ -52,13 +52,12 @@ setup_gpr_gradle_properties() {
 
     local EXPECTED_PAT=""
     local _EMAIL=""
-    if [ -n "${BW_SESSION:-}" ] && command -v bw_find_item_by_name &>/dev/null; then
-        local _ALL_ITEMS_RAW _PARSED
-        _ALL_ITEMS_RAW=$(bw list items --search "$BW_ITEM" --session "$BW_SESSION" </dev/null 2>&1)
-        _PARSED=$(bw_find_item_by_name "${_ALL_ITEMS_RAW}"$'\n---ITEM_SPLIT---\n' "$BW_ITEM" 2>/dev/null || true)
+    if [ -n "${BW_SESSION:-}" ] && command -v bw_find_item_live &>/dev/null; then
+        local _PARSED
+        _PARSED=$(bw_find_item_live "$BW_ITEM" 2>/dev/null || true)
         if [ -n "$_PARSED" ]; then
             _EMAIL=$(printf "%s" "$_PARSED" | cut -f1)
-            EXPECTED_PAT=$(printf "%s" "$_PARSED" | cut -f3) # totp 필드 = PAT
+            EXPECTED_PAT=$(printf "%s" "$_PARSED" | cut -f3) # 사용자 지정 필드 "PAT" 값
         fi
     fi
 

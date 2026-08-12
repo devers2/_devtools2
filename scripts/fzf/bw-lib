@@ -10,6 +10,8 @@
 #   bw_get_folder_ids            → 폴더명으로 일치하는 모든 폴더 ID 목록 반환
 #   bw_get_items_by_folder_name  → 폴더명으로 아이템 JSON 청크 목록 반환
 #   bw_find_item_by_name         → 이름이 정확히 일치하는 첫 번째 아이템 JSON 반환
+#   bw_find_item_live            → 아이템 이름으로 실시간 조회(bw list items) + 파싱을 한 번에 수행
+#                                  (세션 만료/미발견 시 에러 메시지 출력, 조용히 실패시키려면 2>/dev/null)
 #   bw_setup_git_config          → git 전역 설정 (user.name / user.email) — 없는 경우에만 대화형 설정
 #                                  사용법: bw_setup_git_config <default_name> <default_email>
 #   bw_save_git_credentials      → PAT 를 ~/.git-credentials 에 저장 (사용자 확인 후)
@@ -184,7 +186,9 @@ bw_get_items_by_folder_name() {
 # ── 이름이 정확히 일치하는 첫 번째 아이템의 필드를 추출 ───────────────────────
 # 인수: $1 = RAW_ITEMS_LIST (---ITEM_SPLIT--- 구분 문자열)
 #       $2 = 찾을 아이템 이름 (정확 일치)
-# 출력: username\tpassword\ttotp\tnotes (탭 구분)
+# 출력: username\tpassword\tpat\tnotes (탭 구분)
+#   pat 는 "사용자 지정 필드"(fields) 중 라벨이 "PAT"인 필드의 값입니다
+#   (대소문자/앞뒤공백 무관 매칭 — 계정마다 다른 Bitwarden 볼트에서도 라벨만 맞으면 동작)
 #   없으면 빈 출력
 bw_find_item_by_name() {
     local _RAW="$1"
@@ -217,9 +221,14 @@ for chunk in chunks:
                 login = item.get('login') or {}
                 username = login.get('username') or ''
                 password = login.get('password') or ''
-                totp = login.get('totp') or ''
+                # 사용자 지정 필드 중 라벨이 "PAT"인 값을 찾음 (대소문자/공백 무관)
+                pat = ''
+                for f in (item.get('fields') or []):
+                    if isinstance(f, dict) and str(f.get('name') or '').strip().lower() == 'pat':
+                        pat = f.get('value') or ''
+                        break
                 notes = str(item.get('notes') or '')
-                print(f"{username}\t{password}\t{totp}\t{notes}")
+                print(f"{username}\t{password}\t{pat}\t{notes}")
                 sys.exit(0)
     except Exception:
         pass
@@ -227,6 +236,35 @@ PYEOF
 
     printf "%s" "$_RAW" | python3 "$_PY" "$_TARGET_NAME"
     rm -f "$_PY"
+}
+
+# ── 아이템 이름으로 실시간 조회 + 필드 파싱까지 한 번에 수행 ───────────────────
+# (bw list items --search → 세션 만료 감지 → bw_find_item_by_name 파싱을 묶은 상위 래퍼.
+#  bw_git_clone / setup_gpr_gradle_properties(common-setup.sh)가 각자 이 글루 코드를
+#  복붙해 쓰고 있던 걸 한 곳으로 모음)
+# 인수: $1 = 찾을 아이템 이름 (정확 일치)
+# 출력: username\tpassword\tpat\tnotes (탭 구분, bw_find_item_by_name과 동일 포맷)
+# 반환: 0 = 성공, 1 = 세션 만료 또는 아이템 없음
+# 전제: BW_SESSION 이 유효한 상태여야 함
+#   실패 시 원인(세션 만료 / 항목 없음)에 맞는 에러 메시지를 stderr에 출력합니다.
+#   조용히 실패시키고 싶으면 호출부에서 2>/dev/null 로 감싸세요 (예: common-setup.sh의
+#   선택적 조회처럼 "없으면 그냥 넘어가는" 흐름).
+bw_find_item_live() {
+    local _ITEM_NAME="$1"
+    local _ALL_ITEMS_RAW
+    _ALL_ITEMS_RAW=$(bw list items --search "$_ITEM_NAME" --session "$BW_SESSION" </dev/null 2>&1)
+    if echo "$_ALL_ITEMS_RAW" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
+        echo "❌ Bitwarden 세션이 만료되었습니다. 다시 실행해주세요." >&2
+        rm -f "$_BW_SESSION_FILE"
+        return 1
+    fi
+    local _PARSED
+    _PARSED=$(bw_find_item_by_name "${_ALL_ITEMS_RAW}"$'\n---ITEM_SPLIT---\n' "$_ITEM_NAME")
+    if [ -z "$_PARSED" ]; then
+        echo "❌ Bitwarden에서 '${_ITEM_NAME}' 항목을 찾을 수 없습니다." >&2
+        return 1
+    fi
+    printf "%s" "$_PARSED"
 }
 
 # ── git 전역 설정 (user.name / user.email) ────────────────────────────────────
@@ -351,7 +389,7 @@ bw_save_git_credentials() {
 #   $1 = 클론할 저장소 URL (필수)
 #   $2 = 로컬 대상 경로 (필수)
 #   $3 = Bitwarden 아이템 이름 (선택, 기본값: github.com-main)
-#        → login.username = 이메일, login.totp = PAT 토큰
+#        → login.username = 이메일, 사용자 지정 필드(라벨 "PAT") = PAT 토큰
 # 반환: 0 = 성공, 1 = 실패
 # 전제: bw_ensure_session 이 선행 호출되어 BW_SESSION 이 유효한 상태여야 함
 bw_git_clone() {
@@ -371,25 +409,21 @@ bw_git_clone() {
     fi
 
     echo "⏳ Bitwarden에서 '${_BW_ITEM}' 계정 정보 조회 중..."
-    local _ALL_ITEMS_RAW
-    _ALL_ITEMS_RAW=$(bw list items --search "$_BW_ITEM" --session "$BW_SESSION" </dev/null 2>&1)
-
-    # bw_find_item_by_name 은 ---ITEM_SPLIT--- 구분 형식을 받으므로 단일 청크로 래핑
-    local _RAW_LIST="${_ALL_ITEMS_RAW}"$'\n---ITEM_SPLIT---\n'
     local _PARSED
-    _PARSED=$(bw_find_item_by_name "$_RAW_LIST" "$_BW_ITEM")
+    _PARSED=$(bw_find_item_live "$_BW_ITEM") || return 1
 
-    if [ -z "$_PARSED" ]; then
-        echo "❌ Bitwarden에서 '${_BW_ITEM}' 항목을 찾을 수 없습니다." >&2
-        return 1
-    fi
-
-    # bw_find_item_by_name 반환 형식: username\tpassword\ttotp\tnotes
-    # github.com-main 구조: username=이메일, totp=PAT 토큰
+    # bw_find_item_by_name 반환 형식: username\tpassword\tpat\tnotes
+    # github.com-main 구조: username=이메일, 사용자 지정 필드(라벨 "PAT")=PAT 토큰
     local _GIT_EMAIL _GIT_PAT _GIT_USERNAME
     _GIT_EMAIL=$(printf "%s" "$_PARSED"    | cut -f1)
-    _GIT_PAT=$(printf "%s" "$_PARSED"      | cut -f3)   # totp 필드 = PAT
+    _GIT_PAT=$(printf "%s" "$_PARSED"      | cut -f3)   # 사용자 지정 필드 "PAT" 값
     _GIT_USERNAME=$(printf "%s" "$_GIT_EMAIL" | cut -d'@' -f1)
+
+    if [ -z "$_GIT_PAT" ]; then
+        echo "❌ '${_BW_ITEM}' 항목에 라벨이 \"PAT\"인 사용자 지정 필드를 찾을 수 없습니다." >&2
+        echo "   Bitwarden 항목의 '사용자 지정 필드'에 라벨 \"PAT\", 값=GitHub PAT 토큰을 추가해주세요." >&2
+        return 1
+    fi
 
     echo "✅ GitHub 계정 확인: $_GIT_USERNAME ($_GIT_EMAIL)"
     mkdir -p "$(dirname "$_TARGET_DIR")"
