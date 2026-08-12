@@ -7,7 +7,8 @@ set -e
 
 # DEVTOOLS2 경로 설정
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEVTOOLS2="${DEVTOOLS2:-$(readlink -f "$SCRIPT_DIR/../..")}"
+# scripts/linux/setup-projects 에서 저장소 루트까지는 3단계 상위
+DEVTOOLS2="${DEVTOOLS2:-$(readlink -f "$SCRIPT_DIR/../../..")}"
 
 # ==============================================================================
 # [사전 점검] Python 3.12 버전 확인 및 자동 전환
@@ -45,10 +46,11 @@ else
 fi
 
 # common-setup.sh 로드 (setup_rclone_sftp_mount 등 공통 함수 포함)
-if [ -f "$SCRIPT_DIR/common-setup.sh" ]; then
-    source "$SCRIPT_DIR/common-setup.sh"
+# $DEVTOOLS2 기준 절대경로 사용 — 이 스크립트가 하위 디렉토리로 옮겨져도 안전
+if [ -f "$DEVTOOLS2/scripts/linux/setup-projects/_common/common-setup.sh" ]; then
+    source "$DEVTOOLS2/scripts/linux/setup-projects/_common/common-setup.sh"
 else
-    echo "❌ common-setup.sh 를 찾을 수 없습니다: $SCRIPT_DIR/common-setup.sh"
+    echo "❌ common-setup.sh 를 찾을 수 없습니다: $DEVTOOLS2/scripts/linux/setup-projects/_common/common-setup.sh"
     exit 1
 fi
 

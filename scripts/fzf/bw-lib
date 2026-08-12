@@ -12,6 +12,9 @@
 #   bw_find_item_by_name         → 이름이 정확히 일치하는 첫 번째 아이템 JSON 반환
 #   bw_find_item_live            → 아이템 이름으로 실시간 조회(bw list items) + 파싱을 한 번에 수행
 #                                  (세션 만료/미발견 시 에러 메시지 출력, 조용히 실패시키려면 2>/dev/null)
+#   bw_get_fields                → 아이템 이름 + 사용자 지정 필드 라벨 목록으로 값들을 한 번에 조회
+#                                  사용법: bw_get_fields "<아이템명>" "필드1" "필드2" ...
+#                                  → 탭 구분으로 요청 순서대로 반환 (없으면 빈 문자열)
 #   bw_setup_git_config          → git 전역 설정 (user.name / user.email) — 없는 경우에만 대화형 설정
 #                                  사용법: bw_setup_git_config <default_name> <default_email>
 #   bw_save_git_credentials      → PAT 를 ~/.git-credentials 에 저장 (사용자 확인 후)
@@ -249,15 +252,25 @@ PYEOF
 #   실패 시 원인(세션 만료 / 항목 없음)에 맞는 에러 메시지를 stderr에 출력합니다.
 #   조용히 실패시키고 싶으면 호출부에서 2>/dev/null 로 감싸세요 (예: common-setup.sh의
 #   선택적 조회처럼 "없으면 그냥 넘어가는" 흐름).
-bw_find_item_live() {
+# 내부 헬퍼: 아이템 이름으로 실시간 조회 + 세션 만료 감지까지 수행 (Raw JSON 반환)
+# bw_find_item_live / bw_get_fields 가 공유하는 글루 코드
+# 반환: 0 = 성공, 1 = 세션 만료
+_bw_search_raw() {
     local _ITEM_NAME="$1"
-    local _ALL_ITEMS_RAW
-    _ALL_ITEMS_RAW=$(bw list items --search "$_ITEM_NAME" --session "$BW_SESSION" </dev/null 2>&1)
-    if echo "$_ALL_ITEMS_RAW" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
+    local _RAW
+    _RAW=$(bw list items --search "$_ITEM_NAME" --session "$BW_SESSION" </dev/null 2>&1)
+    if echo "$_RAW" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
         echo "❌ Bitwarden 세션이 만료되었습니다. 다시 실행해주세요." >&2
         rm -f "$_BW_SESSION_FILE"
         return 1
     fi
+    printf "%s" "$_RAW"
+}
+
+bw_find_item_live() {
+    local _ITEM_NAME="$1"
+    local _ALL_ITEMS_RAW
+    _ALL_ITEMS_RAW=$(_bw_search_raw "$_ITEM_NAME") || return 1
     local _PARSED
     _PARSED=$(bw_find_item_by_name "${_ALL_ITEMS_RAW}"$'\n---ITEM_SPLIT---\n' "$_ITEM_NAME")
     if [ -z "$_PARSED" ]; then
@@ -265,6 +278,60 @@ bw_find_item_live() {
         return 1
     fi
     printf "%s" "$_PARSED"
+}
+
+# ── 아이템 이름 + 사용자 지정 필드 라벨 목록으로 값들을 한 번에 조회 ───────────
+# login.username/password/totp 처럼 고정된 필드가 아니라, 아이템의 "사용자 지정
+# 필드"(fields) 중 원하는 라벨들의 값만 골라 가져올 때 사용합니다
+# (Maven Central Portal의 centralUsername/centralPassword, GPG Signing의
+#  signing.keyId/signing.password/signing.secretKeyRingBase64 등 임의 필드 조합).
+# 인수: $1 = 아이템 이름 (정확 일치), $2.. = 조회할 필드 라벨 목록 (대소문자/공백 무관 매칭)
+# 출력: 요청한 순서대로 탭 구분 값 (아이템/필드가 없으면 해당 자리는 빈 문자열)
+# 반환: 0 = 조회 성공(필드 값 존재 여부와 무관), 1 = 세션 만료
+bw_get_fields() {
+    local _ITEM_NAME="$1"
+    shift
+    local _FIELD_NAMES=("$@")
+
+    local _RAW
+    _RAW=$(_bw_search_raw "$_ITEM_NAME") || return 1
+
+    local _PY
+    _PY=$(mktemp /tmp/bw_fields_XXXXXX.py)
+    cat > "$_PY" <<'PYEOF'
+import sys, json
+
+target_name = sys.argv[1]
+field_names = sys.argv[2:]
+
+raw = sys.stdin.read()
+start = raw.find('[')
+end = raw.rfind(']')
+
+found = None
+if start != -1 and end != -1 and start < end:
+    try:
+        items = json.loads(raw[start:end+1], strict=False)
+        for item in items:
+            if isinstance(item, dict) and str(item.get('name', '')).strip() == target_name:
+                found = item
+                break
+    except Exception:
+        pass
+
+field_map = {}
+if found:
+    for f in (found.get('fields') or []):
+        if isinstance(f, dict):
+            key = str(f.get('name') or '').strip().lower()
+            field_map[key] = f.get('value') or ''
+
+values = [field_map.get(fn.strip().lower(), '') for fn in field_names]
+print('\t'.join(values))
+PYEOF
+
+    printf "%s" "$_RAW" | python3 "$_PY" "$_ITEM_NAME" "${_FIELD_NAMES[@]}"
+    rm -f "$_PY"
 }
 
 # ── git 전역 설정 (user.name / user.email) ────────────────────────────────────

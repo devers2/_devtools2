@@ -6,9 +6,9 @@
 #   프로젝트 설정(setup-projects) 스크립트에서 공통으로 재사용 가능한 모듈 함수들을 제공합니다.
 #
 # 사용 방법 (다른 스크립트에서 호출 시):
-#   1. 모듈 불러오기:
-#      if [ -f "$SCRIPT_DIR/common-setup.sh" ]; then
-#          source "$SCRIPT_DIR/common-setup.sh"
+#   1. 모듈 불러오기 (하위 디렉토리로 이동해도 안전하도록 $DEVTOOLS2 기준 절대경로 사용):
+#      if [ -f "$DEVTOOLS2/scripts/linux/setup-projects/_common/common-setup.sh" ]; then
+#          source "$DEVTOOLS2/scripts/linux/setup-projects/_common/common-setup.sh"
 #      fi
 #
 #   2. GitHub Packages 의존성 설정 함수 호출:
@@ -16,6 +16,66 @@
 #      - $1: 대상 프로젝트 루트 경로 (필수, 기본값: $PWD)
 #      - $2: Bitwarden 아이템 이름 (선택, 기본값: github.com-main)
 # ==============================================================================
+
+# ── gradle.properties 섹션 갱신 헬퍼 (gpr.*, Maven Central Portal, GPG Signing 공용) ──
+# key=value 쌍들을 파일에서 찾아 있으면 값만 갱신하고, 없으면 새로 추가합니다.
+# 이번 호출에서 실제로 새로 추가되는 키가 하나라도 있으면, 그 앞에 빈 줄 + "# <header>"
+# 주석을 한 번만 붙입니다(header가 빈 문자열이면 주석 없이 추가, 이미 파일에 같은
+# 주석이 있으면 중복 추가 안 함).
+# 인수: $1 = 대상 파일 경로, $2 = 섹션 주석(헤더, 없으면 빈 문자열 ""), $3.. = "key=value" 쌍들
+_update_gradle_properties_section() {
+    local _file="$1"
+    local _header="$2"
+    shift 2
+
+    python3 -c "
+import sys, re
+
+filepath = sys.argv[1]
+header = sys.argv[2]
+pairs = sys.argv[3:]
+
+try:
+    with open(filepath, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+except Exception:
+    lines = []
+
+header_line = ('# ' + header + '\n') if header else None
+has_header = header_line is not None and any(line.rstrip('\n') == header_line.rstrip('\n') for line in lines)
+
+def update_or_append(lines, key, val):
+    pattern = re.compile(r'^\s*' + re.escape(key) + r'\s*=')
+    updated = False
+    new_lines = []
+    for line in lines:
+        if pattern.match(line):
+            new_lines.append(f'{key}={val}\n')
+            updated = True
+        else:
+            new_lines.append(line)
+    return new_lines, updated
+
+appended_any = False
+for pair in pairs:
+    key, _, val = pair.partition('=')
+    lines, updated = update_or_append(lines, key, val)
+    if not updated:
+        if not appended_any:
+            if lines and not lines[-1].endswith('\n'):
+                lines.append('\n')
+            if header_line:
+                if lines:
+                    lines.append('\n')
+                if not has_header:
+                    lines.append(header_line)
+        appended_any = True
+        lines.append(f'{key}={val}\n')
+
+with open(filepath, 'w', encoding='utf-8') as f:
+    f.writelines(lines)
+" "$_file" "$_header" "$@"
+}
 
 # ── GitHub Packages 의존성 관리 설정 (gpr.user / gpr.key) ───────────────────
 # 기능:
@@ -140,41 +200,9 @@ setup_gpr_gradle_properties() {
         read -rp "🔑 gpr.key 에 설정할 GitHub PAT(Personal Access Token)을 입력하세요: " EXPECTED_PAT
     fi
 
-    python3 -c "
-import sys, re
-
-filepath = sys.argv[1]
-user_val = sys.argv[2]
-key_val = sys.argv[3]
-
-try:
-    with open(filepath, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-except Exception:
-    lines = []
-
-def update_or_append(lines, key, val):
-    pattern = re.compile(r'^\s*' + re.escape(key) + r'\s*=')
-    updated = False
-    new_lines = []
-    for line in lines:
-        if pattern.match(line):
-            new_lines.append(f'{key}={val}\n')
-            updated = True
-        else:
-            new_lines.append(line)
-    if not updated:
-        if new_lines and not new_lines[-1].endswith('\n'):
-            new_lines.append('\n')
-        new_lines.append(f'{key}={val}\n')
-    return new_lines
-
-lines = update_or_append(lines, 'gpr.user', user_val)
-lines = update_or_append(lines, 'gpr.key', key_val)
-
-with open(filepath, 'w', encoding='utf-8') as f:
-    f.writelines(lines)
-" "$GRADLE_PROPS_FILE" "$EXPECTED_USER" "$EXPECTED_PAT"
+    _update_gradle_properties_section "$GRADLE_PROPS_FILE" "" \
+        "gpr.user=${EXPECTED_USER}" \
+        "gpr.key=${EXPECTED_PAT}"
 
     echo "✅ ~/.gradle/gradle.properties 에 gpr.user=${EXPECTED_USER} 및 gpr.key 설정 완료!"
 }
