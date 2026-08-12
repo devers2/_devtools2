@@ -131,6 +131,37 @@ paste_from_clipboard() {
 }
 
 # ==============================================================================
+# Gradle 프로젝트 속성 감지 유틸리티
+# ==============================================================================
+
+# 루트 gradle.properties → build.gradle(.kts) 순으로 지정한 속성 값을 감지
+# (Maven 중앙 저장소 배포 시 group/version 감지에 재사용 — 동일 패턴 중복 방지)
+# 인수: $1 = 프로젝트 디렉토리, $2 = 속성 키 (예: group, version)
+# 출력: 감지된 값 (없으면 빈 문자열)
+detect_gradle_property() {
+    local _dir="$1"
+    local _key="$2"
+    local _val=""
+
+    if [ -f "$_dir/gradle.properties" ]; then
+        _val=$(grep -E "^[[:space:]]*${_key}[[:space:]]*=" "$_dir/gradle.properties" 2>/dev/null \
+            | head -1 | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    fi
+    if [ -z "$_val" ]; then
+        # Groovy DSL은 "key = 'x'"와 "key 'x'"(등호 생략) 둘 다 유효하므로 등호를 선택적으로 처리
+        local _bf
+        for _bf in "$_dir/build.gradle.kts" "$_dir/build.gradle"; do
+            if [ -f "$_bf" ]; then
+                _val=$(grep -E "^[[:space:]]*${_key}[[:space:]]*=?[[:space:]]*[\"']" "$_bf" 2>/dev/null \
+                    | head -1 | sed -E "s/^[[:space:]]*${_key}[[:space:]]*=?[[:space:]]*[\"']([^\"']*)[\"'].*/\1/")
+                [ -n "$_val" ] && break
+            fi
+        done
+    fi
+    printf "%s" "$_val"
+}
+
+# ==============================================================================
 # OS 공통 포트 유틸리티 함수 (근본적 Non-blocking /proc/net 직접 조회)
 # ==============================================================================
 
@@ -636,31 +667,81 @@ elif [[ "$CHOICE" == *"중앙 저장소 배포"* ]]; then
             _CP_TARGET_MODULE="$_CP_PKG_CHOICE"
         fi
     fi
+    # 이후 요약/완료 메시지에서 반복 사용할 표시용 문자열
+    _CP_DISPLAY_TARGET="${_CP_TARGET_MODULE:-전체 (${_CP_ROOT_NAME})}"
 
-    # ── 3. 배포 버전 입력 (이전 값 기억) ──────────────────────────────────────
+    # ── 3. group 감지 + Maven Central에 마지막으로 배포된 버전 조회 ────────────
+    # 중복 배포는 Maven Central 자체가 거부해주니 별 문제가 아니지만, "존재하지
+    # 않는 엉뚱한 버전"(예: 최종 1.10인데 0.10이나 10.10으로 오타)은 그대로
+    # 통과해서 영구히 남는 게 훨씬 위험합니다. 그래서 실제 마지막 배포 버전을
+    # 미리 보여줘서 입력할 값과 비교할 수 있게 합니다.
+    _CP_GROUP=$(detect_gradle_property "$CWD" "group")
+    # 중첩 모듈 경로(:a:b)를 골랐으면 마지막 세그먼트를 아티팩트ID로 간주(관례, 커스텀 설정 시 다를 수 있음)
+    _CP_ARTIFACT_ID="${_CP_TARGET_MODULE:-$_CP_ROOT_NAME}"
+    _CP_ARTIFACT_ID="${_CP_ARTIFACT_ID##*:}"
+
+    _CP_LATEST_PUBLISHED=""
+    if [ -n "$_CP_GROUP" ] && command -v curl &>/dev/null; then
+        echo "⏳ Maven Central에서 마지막 배포 버전 확인 중... (${_CP_GROUP}:${_CP_ARTIFACT_ID})"
+        _CP_LATEST_JSON=$(curl -s -m 8 "https://search.maven.org/solrsearch/select?q=g:%22${_CP_GROUP}%22+AND+a:%22${_CP_ARTIFACT_ID}%22&rows=1&wt=json" 2>/dev/null)
+        _CP_LATEST_PUBLISHED=$(printf "%s" "$_CP_LATEST_JSON" | python3 -c "import sys,json
+try:
+    docs = json.load(sys.stdin).get('response',{}).get('docs',[])
+    print(docs[0].get('latestVersion','') if docs else '')
+except Exception:
+    print('')" 2>/dev/null)
+        if [ -n "$_CP_LATEST_PUBLISHED" ]; then
+            echo "ℹ️  Maven Central에 마지막으로 배포된 버전: $_CP_LATEST_PUBLISHED"
+        else
+            echo "ℹ️  Maven Central 배포 이력을 찾지 못했습니다 (최초 배포이거나 group/artifact 추정이 다를 수 있음)."
+        fi
+    else
+        echo "⚠️  group 정보를 찾지 못했거나 curl이 없어 Maven Central 배포 이력 조회를 건너뜁니다."
+    fi
+
+    # ── 4. 배포 버전 입력 (프로젝트에 설정된 값을 기본값으로 제안) ─────────────
+    # 입력 프롬프트의 기본값으로 보여줍니다(그냥 Enter만 치면 이 값 그대로 사용).
+    _CP_DETECTED_VERSION=$(detect_gradle_property "$CWD" "version")
+
     PREV_CP_VERSION=$(get_state "central_portal" "version")
-    read -rp "🏷️  배포할 버전 입력 (예: 1.2.3) [$PREV_CP_VERSION]: " CP_VERSION
-    CP_VERSION=${CP_VERSION:-$PREV_CP_VERSION}
+    _CP_VERSION_DEFAULT="${_CP_DETECTED_VERSION:-$PREV_CP_VERSION}"
+    if [ -n "$_CP_DETECTED_VERSION" ]; then
+        echo "ℹ️  프로젝트에 설정된 현재 버전: $_CP_DETECTED_VERSION (gradle.properties/build.gradle에서 감지)"
+    fi
+
+    read -rp "🏷️  배포할 버전 입력 (예: 1.2.3) [$_CP_VERSION_DEFAULT]: " CP_VERSION
+    CP_VERSION=${CP_VERSION:-$_CP_VERSION_DEFAULT}
     if [ -z "$CP_VERSION" ]; then
         echo "❌ 버전이 입력되지 않았습니다. 취소합니다."
         exit 1
     fi
     save_state "central_portal" "version" "$CP_VERSION"
 
-    # ── 4. 최종 확인 (대소문자 구분 없이 y, 기본값 N) ─────────────────────────
+    if command -v git &>/dev/null && [ -d "$CWD/.git" ]; then
+        _CP_GIT_DIRTY=$(git -C "$CWD" status --porcelain 2>/dev/null)
+        if [ -n "$_CP_GIT_DIRTY" ]; then
+            echo "⚠️  커밋되지 않은 변경 사항이 있습니다. 이 상태로 배포하면 나중에 정확히 어떤 코드가 배포됐는지 추적하기 어렵습니다."
+        fi
+    fi
+
+    # ── 5. 최종 확인 (대소문자 구분 없이 y, 기본값 N) ─────────────────────────
     echo ""
     echo "📋 배포 정보 확인:"
-    echo "   패키지 : ${_CP_TARGET_MODULE:-전체 (${_CP_ROOT_NAME})}"
+    echo "   패키지 : $_CP_DISPLAY_TARGET"
     echo "   버전   : $CP_VERSION"
+    if [ -n "$_CP_LATEST_PUBLISHED" ]; then
+        echo "   (Maven Central 마지막 배포 버전: $_CP_LATEST_PUBLISHED — 방금 입력한 버전과 비교해보세요)"
+    fi
     echo ""
-    read -rp "🚀 이 설정으로 Maven 중앙 저장소에 배포하시겠습니까? (y/N): " CP_CONFIRM
+    echo "⚠️  Maven Central은 한 번 배포하면 취소·수정·삭제가 불가능합니다(불변 저장소)."
+    read -rp "🚀 정말 이 설정으로 배포하시겠습니까? (y/N): " CP_CONFIRM
     CP_CONFIRM=$(echo "${CP_CONFIRM:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
     if [ "$CP_CONFIRM" != "y" ]; then
         echo "❌ 배포를 취소했습니다."
         exit 0
     fi
 
-    # ── 5. 실행 ────────────────────────────────────────────────────────────
+    # ── 6. 실행 ────────────────────────────────────────────────────────────
     # -Pversion=... : build.gradle(.kts)이 project.version을 이 프로퍼티로부터
     # 읽도록 구성돼 있어야 실제로 적용됩니다(흔한 관례지만 프로젝트마다 다를 수
     # 있으니, 배포 후 실제 게시된 버전이 의도한 값인지 한 번 확인해주세요).
@@ -681,7 +762,7 @@ elif [[ "$CHOICE" == *"중앙 저장소 배포"* ]]; then
     echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
     if "${CMD_ARGS[@]}"; then
         echo ""
-        echo "✅ Maven 중앙 저장소 배포 완료! (패키지: ${_CP_TARGET_MODULE:-전체 (${_CP_ROOT_NAME})}, 버전: $CP_VERSION)"
+        echo "✅ Maven 중앙 저장소 배포 완료! (패키지: $_CP_DISPLAY_TARGET, 버전: $CP_VERSION)"
     else
         _CP_RC=$?
         echo ""
