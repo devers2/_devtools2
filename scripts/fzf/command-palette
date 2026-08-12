@@ -372,7 +372,7 @@ if $GRADLEW_EXISTS; then
     MENU_OPTIONS+=("[Gradle] 실행 (bootRun)")
     MENU_OPTIONS+=("[Gradle] 빌드 (build)")
     if $CENTRAL_PORTAL_EXISTS; then
-        MENU_OPTIONS+=("[Gradle] 중앙 저장소 배포 (publishAllPublicationsToCentralPortalRepository)")
+        MENU_OPTIONS+=("[Gradle] Maven 중앙 저장소 배포 (publishAllPublicationsToCentralPortalRepository)")
     fi
 fi
 MENU_OPTIONS+=("[JDTLS] 캐시 초기화")
@@ -596,18 +596,100 @@ elif [[ "$CHOICE" == *"빌드"* ]]; then
     echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
     "${CMD_ARGS[@]}"
 
-# ── [Gradle] 중앙 저장소 배포 ────────────────────────────────────────────────
+# ── [Gradle] Maven 중앙 저장소 배포 ──────────────────────────────────────────
 elif [[ "$CHOICE" == *"중앙 저장소 배포"* ]]; then
+    # ── 1. settings.gradle(.kts)에서 서브모듈/루트 이름 탐색 ────────────────────
+    _CP_SETTINGS_FILE=""
+    if [ -f "$CWD/settings.gradle.kts" ]; then
+        _CP_SETTINGS_FILE="$CWD/settings.gradle.kts"
+    elif [ -f "$CWD/settings.gradle" ]; then
+        _CP_SETTINGS_FILE="$CWD/settings.gradle"
+    fi
+
+    _CP_ROOT_NAME=$(basename "$CWD")
+    if [ -n "$_CP_SETTINGS_FILE" ]; then
+        _CP_ROOT_NAME_FOUND=$(grep -oE "rootProject\.name[[:space:]]*=[[:space:]]*[\"'][^\"']+[\"']" "$_CP_SETTINGS_FILE" \
+            | sed -E "s/.*[\"']([^\"']+)[\"'].*/\1/" | head -1)
+        [ -n "$_CP_ROOT_NAME_FOUND" ] && _CP_ROOT_NAME="$_CP_ROOT_NAME_FOUND"
+    fi
+
+    # include(":a"), include(":a", ":b"), include ':a', ':a:b' 등 표기를 모두 포괄
+    _CP_MODULES=()
+    if [ -n "$_CP_SETTINGS_FILE" ]; then
+        while IFS= read -r _mod; do
+            [ -n "$_mod" ] && _CP_MODULES+=("$_mod")
+        done < <(grep -oE "[\"']:[A-Za-z0-9_.:-]+[\"']" "$_CP_SETTINGS_FILE" | tr -d "\"'" | sed 's/^://' | sort -u)
+    fi
+
+    # ── 2. 배포할 패키지(모듈) 선택 ───────────────────────────────────────────
+    _CP_TARGET_MODULE=""
+    if [ "${#_CP_MODULES[@]}" -eq 0 ]; then
+        echo "ℹ️  서브모듈이 감지되지 않아 루트 프로젝트(${_CP_ROOT_NAME}) 전체를 배포 대상으로 진행합니다."
+    else
+        _CP_PKG_OPTIONS=("전체 (루트 프로젝트: ${_CP_ROOT_NAME})")
+        _CP_PKG_OPTIONS+=("${_CP_MODULES[@]}")
+        _CP_PKG_CHOICE=$(printf "%s\n" "${_CP_PKG_OPTIONS[@]}" | fzf --prompt="📦 배포할 패키지 선택 > " --height=40% --reverse)
+        if [ -z "$_CP_PKG_CHOICE" ]; then
+            exit 0
+        fi
+        if [[ "$_CP_PKG_CHOICE" != "전체"* ]]; then
+            _CP_TARGET_MODULE="$_CP_PKG_CHOICE"
+        fi
+    fi
+
+    # ── 3. 배포 버전 입력 (이전 값 기억) ──────────────────────────────────────
+    PREV_CP_VERSION=$(get_state "central_portal" "version")
+    read -rp "🏷️  배포할 버전 입력 (예: 1.2.3) [$PREV_CP_VERSION]: " CP_VERSION
+    CP_VERSION=${CP_VERSION:-$PREV_CP_VERSION}
+    if [ -z "$CP_VERSION" ]; then
+        echo "❌ 버전이 입력되지 않았습니다. 취소합니다."
+        exit 1
+    fi
+    save_state "central_portal" "version" "$CP_VERSION"
+
+    # ── 4. 최종 확인 (대소문자 구분 없이 y, 기본값 N) ─────────────────────────
+    echo ""
+    echo "📋 배포 정보 확인:"
+    echo "   패키지 : ${_CP_TARGET_MODULE:-전체 (${_CP_ROOT_NAME})}"
+    echo "   버전   : $CP_VERSION"
+    echo ""
+    read -rp "🚀 이 설정으로 Maven 중앙 저장소에 배포하시겠습니까? (y/N): " CP_CONFIRM
+    CP_CONFIRM=$(echo "${CP_CONFIRM:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
+    if [ "$CP_CONFIRM" != "y" ]; then
+        echo "❌ 배포를 취소했습니다."
+        exit 0
+    fi
+
+    # ── 5. 실행 ────────────────────────────────────────────────────────────
+    # -Pversion=... : build.gradle(.kts)이 project.version을 이 프로퍼티로부터
+    # 읽도록 구성돼 있어야 실제로 적용됩니다(흔한 관례지만 프로젝트마다 다를 수
+    # 있으니, 배포 후 실제 게시된 버전이 의도한 값인지 한 번 확인해주세요).
     CMD_ARGS=()
     if $IS_WINDOWS; then
         CMD_ARGS+=("cmd.exe" "/c" "$GW_NAME")
     else
         CMD_ARGS+=("$GW_NAME")
     fi
-    CMD_ARGS+=("clean" "publishAllPublicationsToCentralPortalRepository" "-x" "test" "--build-cache")
+    CMD_ARGS+=("clean")
+    if [ -n "$_CP_TARGET_MODULE" ]; then
+        CMD_ARGS+=(":${_CP_TARGET_MODULE}:publishAllPublicationsToCentralPortalRepository")
+    else
+        CMD_ARGS+=("publishAllPublicationsToCentralPortalRepository")
+    fi
+    CMD_ARGS+=("-Pversion=${CP_VERSION}" "-x" "test" "--build-cache")
 
     echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
-    "${CMD_ARGS[@]}"
+    if "${CMD_ARGS[@]}"; then
+        echo ""
+        echo "✅ Maven 중앙 저장소 배포 완료! (패키지: ${_CP_TARGET_MODULE:-전체 (${_CP_ROOT_NAME})}, 버전: $CP_VERSION)"
+    else
+        _CP_RC=$?
+        echo ""
+        echo "❌ Maven 중앙 저장소 배포 실패 (종료 코드: $_CP_RC)"
+        echo "   위 Gradle 출력에서 'BUILD FAILED' 아래 원인(Caused by: 등)을 확인해주세요."
+        echo "   원인이 더 자세히 필요하면 --stacktrace 를 붙여 다시 실행해보세요:"
+        echo "   ${CMD_ARGS[*]} --stacktrace"
+    fi
 
 # ── [JDTLS] 캐시 초기화 ──────────────────────────────────────────────────────
 elif [[ "$CHOICE" == *"JDTLS"* ]]; then
