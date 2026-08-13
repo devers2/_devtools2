@@ -841,5 +841,8 @@
   "remote.autoForwardPortsSource": "hybrid", // 원격 개발 환경에서 포트 포워드 방식 → "hybrid": Process 방식과 Output 방식의 장점을 합친 기본 추천 설정
   "redhat.telemetry.enabled": false,
   "sqltools.connections": [],
+  "cSpell.ignoreRegExpList": [
+    "[\\uAC00-\\uD7A3]+"
+  ],
   "cSpell.userWords": []
 }
