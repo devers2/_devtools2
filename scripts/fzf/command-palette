@@ -388,6 +388,11 @@ if [ -f "$CWD/gradlew" ] || [ -f "$CWD/build.gradle" ] || [ -f "$CWD/build.gradl
 fi
 
 # CentralPortal 설정 여부 확인 (build.gradle 또는 build.gradle.kts 확인)
+# 단순 부분 문자열 검색이라 아래 두 형태를 모두 자동으로 잡아낸다 (의도된 동작, 우연이 아님):
+#   1) 리포지토리를 직접 선언하는 구식: maven { name = "CentralPortal" ... }
+#   2) s2-build-support 플러그인의 공용 헬퍼 호출: S2BuildUtils.configureCentralPortalRepository(project)
+#      → 메서드 이름 자체가 "CentralPortal"을 부분 문자열로 포함하므로 별도 패턴 추가 없이 감지됨.
+#      (메서드 이름을 바꾸면 이 감지가 깨지니, 이름을 바꿀 경우 이 주석과 함께 패턴도 갱신할 것)
 CENTRAL_PORTAL_EXISTS=false
 if $GRADLEW_EXISTS; then
     if grep -q "CentralPortal" "$CWD/build.gradle" 2>/dev/null || grep -q "CentralPortal" "$CWD/build.gradle.kts" 2>/dev/null; then
