@@ -53,7 +53,7 @@ return {
 
           files = { hidden = true }, -- 파일 검색: <leader>ff
           grep = { hidden = true }, -- 문자열 검색: <leader>sg
-          explorer = { hidden = false }, -- 익스플로러: 숨김 파일 기본 비활성
+          explorer = { hidden = false, ignored = true }, -- 익스플로러: 숨김 파일 기본 비활성, gitignore 항목은 비활성화 색상(NonText)으로 표시
         },
       },
       image = {
