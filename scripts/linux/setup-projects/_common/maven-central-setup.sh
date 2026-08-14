@@ -67,13 +67,23 @@ _mc_decode_base64_to_file() {
 # ── Maven Central 배포용 설정 (centralUsername/Password + GPG 서명) ─────────
 # 기능:
 #   - 대상 디렉토리에 Gradle 설정 파일 존재 여부 확인 (없으면 조용히 건너뜀)
-#   - 대소문자 구분 없이 (y/n) 확인 후 진행 (기본값 N — Enter만 누르면 건너뜀)
+#   - git 전역 설정 확인 로직과 동일하게, Bitwarden에서 조회한 값이 이미
+#     ~/.gradle/gradle.properties + ~/.gnupg/secring.gpg 에 그대로 반영되어
+#     있으면 아무것도 묻지 않고 조용히 건너뜁니다. GPG 키링은 Bitwarden 값을
+#     디코딩해서 비교하지 않고 반대로, 기존 secring.gpg가 있으면 그걸
+#     command-palette의 "[Base64] 파일 → 텍스트 인코딩" 메뉴와 동일한 형식으로
+#     메모리상에서만 인코딩해 문자열로 비교합니다 — 비교 단계에서 시크릿을
+#     디스크(임시 파일 포함)에 전혀 쓰지 않기 위함입니다. 디코딩은 사용자가
+#     y로 확정한 뒤, 최종 목적지 파일에 한 번만 직접 수행합니다.
+#   - 누락되거나 하나라도 다를 때만 대소문자 구분 없이 (y/n) 확인 후 진행
+#     (기본값 N — Enter만 누르면 건너뜀)
 #   - Bitwarden "Maven Central Portal"(centralUsername/centralPassword) +
 #     "GPG Signing"(signing.keyId/signing.password/secretKeyRingBase64 또는 _1+_2)
 #     두 항목의 필수값을 모두 조회
 #     → 하나라도(항목 자체 또는 필드) 없으면 배포가 어차피 안 되므로 gradle.properties를
-#       전혀 건드리지 않고 통째로 건너뜀 (부분 반영 없음)
-#     → 둘 다 갖춰졌을 때만 ~/.gnupg/secring.gpg 복원 + gradle.properties 전체 반영
+#       전혀 건드리지 않고 통째로 건너뜀 (부분 반영 없음, y/n 확인도 하지 않음)
+#     → 둘 다 갖춰졌을 때만 (그리고 기존 설정과 다를 때만) ~/.gnupg/secring.gpg 복원 +
+#       gradle.properties 전체 반영
 # 인수:
 #   $1 = 대상 프로젝트 디렉토리 (기본값: 현재 디렉토리)
 # 의존성: common-setup.sh(_update_gradle_properties_section), bw-lib(bw_get_fields)
@@ -96,15 +106,6 @@ setup_maven_central_publishing() {
         return 0
     fi
 
-    # 2. 설정 여부 확인 (기본값 N)
-    echo ""
-    read -rp "❓ Maven 중앙 저장소(Central Portal) 배포용 설정을 하시겠습니까? [y/N]: " _MC_CHOICE
-    _MC_CHOICE=$(echo "${_MC_CHOICE:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
-    if [ "$_MC_CHOICE" != "y" ]; then
-        echo "ℹ️  Maven 중앙 저장소 배포용 설정을 건너뜁니다."
-        return 0
-    fi
-
     if ! command -v _update_gradle_properties_section &>/dev/null; then
         echo "❌ common-setup.sh 가 로드되지 않아 진행할 수 없습니다 (_update_gradle_properties_section 없음)." >&2
         return 1
@@ -114,6 +115,8 @@ setup_maven_central_publishing() {
         return 1
     fi
 
+    # 이미 최신 상태인지 먼저 판단해야 하므로, y/n으로 묻기 전에 Bitwarden에서
+    # 기대값을 조회합니다 (git 전역 설정 확인과 동일한 순서).
     # Maven Central Portal 계정과 GPG 서명 정보 둘 다 있어야 실제로 배포가 되므로
     # (하나라도 없으면 어차피 publish가 실패함), 둘 다 필수값을 갖췄을 때만 반영하고
     # 하나라도 부족하면 아무것도 쓰지 않고 통째로 건너뜁니다(부분 반영 없음).
@@ -192,14 +195,68 @@ setup_maven_central_publishing() {
         return 0
     fi
 
-    # ── 4) GPG 키링 복원 시도 — 값은 있어도 디코딩이 실패할 수 있으므로 여기서도 검증 ──
     # ~ 는 Gradle이 자동으로 확장해주지 않고(properties 값을 그대로 File 경로로 해석)
     # 리터럴 "~"라는 이름의 디렉토리를 찾다가 실패하므로, 실제 홈 경로로 치환해서 저장합니다.
     # $HOME은 지금 로그인해서 이 스크립트를 실행 중인 계정 기준으로 셸이 채워주는 값이라,
     # 실행하는 사람이 바뀌면 그 사람의 홈 경로로 자동으로 달라집니다(하드코딩 아님).
     local _HOME_DIR="${HOME:-$USERPROFILE}"
     local _KEYRING_PATH="${_HOME_DIR}/.gnupg/secring.gpg"
+    local GRADLE_PROPS_DIR="$HOME/.gradle"
+    local GRADLE_PROPS_FILE="$GRADLE_PROPS_DIR/gradle.properties"
 
+    # ── 4) Bitwarden base64 조각을 문자열로만 이어붙입니다 (디코딩/파일 기록 없음) ──
+    local _EXPECTED_B64="" _b64_part
+    for _b64_part in "${_B64_PARTS[@]}"; do
+        _EXPECTED_B64="${_EXPECTED_B64}${_b64_part}"
+    done
+
+    # ── 5) 이미 동일하게 설정되어 있는지 확인 (git 전역 설정 확인과 동일한 취지) ──
+    # gradle.properties의 텍스트 값들을 비교하고, GPG 키링은 "Bitwarden 값을 디코딩해
+    # 파일로 쓴 뒤 비교"하지 않고 반대 방향으로 — 기존 secring.gpg가 있으면 그걸
+    # command-palette의 "[Base64] 파일 → 텍스트 인코딩" 메뉴와 동일한 형식
+    # (`base64 file | tr -d '\n'`)으로 메모리상에서만 인코딩해 문자열로 비교합니다.
+    # 이러면 비교 단계에서는 시크릿을 디스크에 전혀 쓰지 않고, 임시 파일도 생기지
+    # 않습니다. 공백/개행 차이로 인한 오탐을 피하기 위해 양쪽 다 공백을 제거하고 비교합니다.
+    local _CUR_CP_USER="" _CUR_CP_PASS="" _CUR_KEY_ID="" _CUR_KEY_PASS="" _CUR_KEYRING_FILE=""
+    if [ -f "$GRADLE_PROPS_FILE" ]; then
+        _CUR_CP_USER=$(grep -E '^\s*centralUsername\s*=' "$GRADLE_PROPS_FILE" 2>/dev/null | head -n1 | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        _CUR_CP_PASS=$(grep -E '^\s*centralPassword\s*=' "$GRADLE_PROPS_FILE" 2>/dev/null | head -n1 | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        _CUR_KEY_ID=$(grep -E '^\s*signing\.keyId\s*=' "$GRADLE_PROPS_FILE" 2>/dev/null | head -n1 | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        _CUR_KEY_PASS=$(grep -E '^\s*signing\.password\s*=' "$GRADLE_PROPS_FILE" 2>/dev/null | head -n1 | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        _CUR_KEYRING_FILE=$(grep -E '^\s*signing\.secretKeyRingFile\s*=' "$GRADLE_PROPS_FILE" 2>/dev/null | head -n1 | cut -d'=' -f2- | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    fi
+
+    local _CUR_B64=""
+    if [ -f "$_KEYRING_PATH" ]; then
+        _CUR_B64=$(base64 "$_KEYRING_PATH" 2>/dev/null | tr -d '[:space:]')
+    fi
+    local _EXPECTED_B64_NORM
+    _EXPECTED_B64_NORM=$(printf '%s' "$_EXPECTED_B64" | tr -d '[:space:]')
+
+    local NEEDS_UPDATE=false
+    if [ "$_CUR_CP_USER" != "$_CP_USER" ] || [ "$_CUR_CP_PASS" != "$_CP_PASS" ] ||
+        [ "$_CUR_KEY_ID" != "$_KEY_ID" ] || [ "$_CUR_KEY_PASS" != "$_KEY_PASS" ] ||
+        [ "$_CUR_KEYRING_FILE" != "$_KEYRING_PATH" ] ||
+        [ "$_CUR_B64" != "$_EXPECTED_B64_NORM" ]; then
+        NEEDS_UPDATE=true
+    fi
+
+    if [ "$NEEDS_UPDATE" = "false" ]; then
+        echo "ℹ️  Maven 중앙 저장소(Central Portal) 배포용 설정이 이미 최신 상태입니다. (user: ${_CP_USER}, keyId: ${_KEY_ID})"
+        return 0
+    fi
+
+    # ── 6) 다를 때만 확인 후 진행 (기본값 N — Enter만 누르면 건너뜀) ──
+    echo ""
+    echo "⚠️  Maven 중앙 저장소(Central Portal) 배포용 설정이 없거나 Bitwarden 값과 다릅니다."
+    read -rp "❓ ~/.gradle/gradle.properties 와 GPG 키링을 Bitwarden 값으로 설정하시겠습니까? [y/N]: " _MC_CHOICE
+    _MC_CHOICE=$(echo "${_MC_CHOICE:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
+    if [ "$_MC_CHOICE" != "y" ]; then
+        echo "ℹ️  Maven 중앙 저장소 배포용 설정을 건너뜁니다."
+        return 0
+    fi
+
+    # ── 7) 여기서만(실제 적용 시점에만) 최종 목적지에 직접 디코딩 — 비교용 임시 파일 없음 ──
     if ! _mc_decode_base64_to_file "$_KEYRING_PATH" "${_B64_PARTS[@]}"; then
         echo ""
         echo "❌ GPG 시크릿 키링 Base64 디코딩에 실패해 설정을 전부 건너뜁니다(배포 자체가 안 되므로)."
@@ -210,9 +267,7 @@ setup_maven_central_publishing() {
     _KEYRING_SIZE=$(wc -c <"$_KEYRING_PATH" | tr -d ' ')
     echo "✅ GPG 시크릿 키링 복원 완료: $_KEYRING_PATH (${_KEYRING_SIZE} bytes)"
 
-    # ── 5) 여기까지 왔으면 둘 다 확실히 갖춰졌으므로 gradle.properties에 반영 ──
-    local GRADLE_PROPS_DIR="$HOME/.gradle"
-    local GRADLE_PROPS_FILE="$GRADLE_PROPS_DIR/gradle.properties"
+    # ── 7) gradle.properties에 반영 ──
     mkdir -p "$GRADLE_PROPS_DIR"
     touch "$GRADLE_PROPS_FILE"
 
