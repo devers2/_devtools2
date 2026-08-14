@@ -685,14 +685,19 @@ elif [[ "$CHOICE" == *"중앙 저장소 배포"* ]]; then
     _CP_ARTIFACT_ID="${_CP_TARGET_MODULE:-$_CP_ROOT_NAME}"
     _CP_ARTIFACT_ID="${_CP_ARTIFACT_ID##*:}"
 
+    # search.maven.org의 solrsearch API는 Central Publisher Portal로 새로 배포되는
+    # 그룹(예: io.github.* 네임스페이스)을 색인하지 않는 경우가 있어(실제로 존재하는
+    # 배포 이력도 0건으로 나옴), 대신 실제 CDN인 repo1.maven.org의 maven-metadata.xml을
+    # 직접 조회합니다 — 이게 진짜 배포 여부를 반영하는 소스입니다.
     _CP_LATEST_PUBLISHED=""
     if [ -n "$_CP_GROUP" ] && command -v curl &>/dev/null; then
         echo "⏳ Maven Central에서 마지막 배포 버전 확인 중... (${_CP_GROUP}:${_CP_ARTIFACT_ID})"
-        _CP_LATEST_JSON=$(curl -s -m 8 "https://search.maven.org/solrsearch/select?q=g:%22${_CP_GROUP}%22+AND+a:%22${_CP_ARTIFACT_ID}%22&rows=1&wt=json" 2>/dev/null)
-        _CP_LATEST_PUBLISHED=$(printf "%s" "$_CP_LATEST_JSON" | python3 -c "import sys,json
+        _CP_GROUP_PATH="${_CP_GROUP//./\/}"
+        _CP_METADATA_XML=$(curl -s -f -m 8 "https://repo1.maven.org/maven2/${_CP_GROUP_PATH}/${_CP_ARTIFACT_ID}/maven-metadata.xml" 2>/dev/null)
+        _CP_LATEST_PUBLISHED=$(printf "%s" "$_CP_METADATA_XML" | python3 -c "import sys, xml.etree.ElementTree as ET
 try:
-    docs = json.load(sys.stdin).get('response',{}).get('docs',[])
-    print(docs[0].get('latestVersion','') if docs else '')
+    versioning = ET.fromstring(sys.stdin.read()).find('versioning')
+    print(versioning.findtext('release') or versioning.findtext('latest') or '')
 except Exception:
     print('')" 2>/dev/null)
         if [ -n "$_CP_LATEST_PUBLISHED" ]; then
