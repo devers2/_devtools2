@@ -14,7 +14,7 @@ param(
 #      — 둘 다 한글을 지원하지만, D2Koding은 한글 자체 글리프가 있어 Windows Terminal이
 #        폰트 폴백을 지원하지 않는 한계를 우회할 수 있습니다(JetBrainsMono는 영문 전용이라
 #        한글은 OS가 자동 대체하는 다른 폰트로 렌더링되어 정렬이 어긋날 수 있음).
-#   3. Windows Terminal settings.json에 Kanagawa 색 배열 추가, 기본 폰트/투명도(96) 적용
+#   3. Windows Terminal settings.json에 Kanagawa 색 배열 추가, 기본 폰트/투명도(97) 적용
 #   4. ALT+c(command-palette) / ALT+h(bw-server-manager) fzf 스크립트 실행 단축키 등록
 #
 # ------------------------------------------------------------------------------
@@ -378,9 +378,9 @@ if (-not (Test-Path $settingsPath)) {
         # size: 폰트 사이즈 (WT 공식 스키마 기본값 12)
         # cellHeight: CSS line-height와 유사하게 셀(줄) 높이를 조정합니다(WT 공식 스키마 확인, release-1.24 기준, 기본값 1.2)
         $settings.profiles.defaults | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{ face = $fontFace; size = 11.5; cellHeight = '1.5' }) -Force
-        $settings.profiles.defaults | Add-Member -NotePropertyName opacity -NotePropertyValue 96 -Force
+        $settings.profiles.defaults | Add-Member -NotePropertyName opacity -NotePropertyValue 97 -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName colorScheme -NotePropertyValue "Kanagawa" -Force
-        Write-Success "기본 폰트($fontFace, 12pt) / 투명도(96) / Kanagawa 테마 적용 완료 (profiles.defaults)"
+        Write-Success "기본 폰트($fontFace, 12pt) / 투명도(97) / Kanagawa 테마 적용 완료 (profiles.defaults)"
 
         # ── ALT+c / ALT+h fzf 스크립트 실행 단축키 (sendInput, 이미 있으면 교체) ─
         if (-not $settings.actions) {
@@ -418,7 +418,7 @@ Write-Host ""
 Write-Host "  [적용된 설정]" -ForegroundColor Cyan
 Write-Host "  · 폰트     : $fontFace, 12pt" -ForegroundColor White
 Write-Host "  · 테마     : Kanagawa" -ForegroundColor White
-Write-Host "  · 투명도   : 96%" -ForegroundColor White
+Write-Host "  · 투명도   : 97%" -ForegroundColor White
 Write-Host "  · ALT+c    : 명령어 팔레트 (command-palette)" -ForegroundColor White
 Write-Host "  · ALT+h    : SSH/Bitwarden 매니저 (bw-server-manager)" -ForegroundColor White
 Write-Host ""
