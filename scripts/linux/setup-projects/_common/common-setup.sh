@@ -79,7 +79,13 @@ with open(filepath, 'w', encoding='utf-8') as f:
 
 # ── GitHub Packages 의존성 관리 설정 (gpr.user / gpr.key) ───────────────────
 # 기능:
-#   - 대상 디렉토리에 Gradle 설정 파일(build.gradle, settings.gradle, build.gradle.kts, settings.gradle.kts) 존재 여부 확인
+#   - 대상 디렉토리의 Gradle 설정 파일(build.gradle, settings.gradle, build.gradle.kts, settings.gradle.kts)
+#     내용에서 실제 GitHub Packages 사용 시그니처(maven.pkg.github.com,
+#     configureGitHubPackagesRepository, gpr.user/gpr.key, GITHUB_PACKAGES 등)를 검색
+#     (단순히 Gradle 프로젝트라는 이유만으로는 물어보지 않음 — s2-build-support 플러그인
+#     소스(~/workspaces/s2/s2-build-support, S2BuildUtils#configureGitHubPackagesRepository)를
+#     보면 이 메서드를 프로젝트가 명시적으로 호출해야만 GitHub Packages 리포지토리가 설정되므로,
+#     Maven Central 등 다른 곳에만 배포/의존하는 프로젝트에서는 나타나면 안 됨)
 #   - ~/.gradle/gradle.properties 파일의 gpr.user 와 gpr.key 설정 상태 검증
 #   - 누락되거나 불일치 시 대소문자 구분 없이 (y/n) 대화형 입력을 받아 gpr.user 및 gpr.key 자동 생성/수정
 # 인수:
@@ -94,16 +100,19 @@ setup_gpr_gradle_properties() {
         return 0
     fi
 
-    # 1. Gradle 빌드/설정 파일 존재 여부 확인
-    local HAS_GRADLE=false
+    # 1. Gradle 빌드/설정 파일에 실제 GitHub Packages 사용 흔적이 있는지 확인
+    #    (파일이 "존재"하기만 해도 통과시키면, Maven Central 등 GitHub Packages를
+    #     전혀 쓰지 않는 순수 Gradle 프로젝트에서도 매번 gpr.user/gpr.key 를 물어보게 됨)
+    local HAS_GPR_USAGE=false
+    local _GPR_SIGNATURE_PATTERN='maven\.pkg\.github\.com|configureGitHubPackagesRepository|gpr\.user|gpr\.key|GITHUB_PACKAGES'
     for gfile in "build.gradle" "settings.gradle" "build.gradle.kts" "settings.gradle.kts"; do
-        if [ -f "$TARGET_DIR/$gfile" ]; then
-            HAS_GRADLE=true
+        if [ -f "$TARGET_DIR/$gfile" ] && grep -qE "$_GPR_SIGNATURE_PATTERN" "$TARGET_DIR/$gfile" 2>/dev/null; then
+            HAS_GPR_USAGE=true
             break
         fi
     done
 
-    if [ "$HAS_GRADLE" = "false" ]; then
+    if [ "$HAS_GPR_USAGE" = "false" ]; then
         return 0
     fi
 
