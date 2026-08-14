@@ -103,10 +103,21 @@ setup_gpr_gradle_properties() {
     # 1. Gradle 빌드/설정 파일에 실제 GitHub Packages 사용 흔적이 있는지 확인
     #    (파일이 "존재"하기만 해도 통과시키면, Maven Central 등 GitHub Packages를
     #     전혀 쓰지 않는 순수 Gradle 프로젝트에서도 매번 gpr.user/gpr.key 를 물어보게 됨)
+    #    /* ... */ 블록 주석(내부 줄이 '*'로 시작하지 않는 자유 형식 포함) 과 // 줄
+    #    주석을 실제로 제거한 뒤 검색합니다 — "필요하면 이렇게 추가로 호출할 수 있다"는
+    #    설명용 주석(예: s2-util build.gradle.kts)까지 실사용으로 오인하지 않도록 하기
+    #    위함입니다. //는 URL(https://...) 오탐을 막기 위해 ':' 바로 뒤에 오는 경우는
+    #    주석으로 취급하지 않습니다.
     local HAS_GPR_USAGE=false
-    local _GPR_SIGNATURE_PATTERN='maven\.pkg\.github\.com|configureGitHubPackagesRepository|gpr\.user|gpr\.key|GITHUB_PACKAGES'
     for gfile in "build.gradle" "settings.gradle" "build.gradle.kts" "settings.gradle.kts"; do
-        if [ -f "$TARGET_DIR/$gfile" ] && grep -qE "$_GPR_SIGNATURE_PATTERN" "$TARGET_DIR/$gfile" 2>/dev/null; then
+        if [ -f "$TARGET_DIR/$gfile" ] && python3 -c "
+import re, sys
+content = open(sys.argv[1], encoding='utf-8', errors='ignore').read()
+content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+content = re.sub(r'(?<!:)//.*', '', content)
+sig = re.compile(r'maven\.pkg\.github\.com|configureGitHubPackagesRepository|gpr\.user|gpr\.key|GITHUB_PACKAGES')
+sys.exit(0 if sig.search(content) else 1)
+" "$TARGET_DIR/$gfile" 2>/dev/null; then
             HAS_GPR_USAGE=true
             break
         fi
