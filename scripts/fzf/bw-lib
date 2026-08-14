@@ -30,6 +30,12 @@
 #                                  (성공 시 bw_setup_git_config + bw_save_git_credentials 자동 호출)
 #                                  사용법: bw_git_clone <repo_url> <target_dir> [bw_item_name]
 #                                  bw_item_name 기본값: $BW_DEFAULT_PAT_ITEM (기본 "github.com-main")
+#   bw_git_clone_interactive     → bw_git_clone 대화형 래퍼: Bitwarden 항목 이름을 사용자에게
+#                                  프롬프트로 입력받은 뒤 bw_git_clone 호출 (기본값 제안, 엔터 시 기본값 사용)
+#                                  사용법: bw_git_clone_interactive <repo_url> <target_dir>
+#                                  → 개별 프로젝트 설정 스크립트/command-palette 등에서 항목명을
+#                                    직접 프롬프트하고 싶을 때 이 함수 하나만 호출하면 됩니다
+#                                    (프롬프트 문구/로직을 바꿀 일이 생기면 여기 한 곳만 수정)
 #
 # 공통 상수:
 #   BW_DEFAULT_PAT_ITEM          → PAT 인증에 사용할 Bitwarden 아이템 이름의 공통 기본값
@@ -568,4 +574,26 @@ ASKEOF
         echo "❌ 깃 클론 실패 (종료 코드: $_RC)" >&2
     fi
     return $_RC
+}
+
+# ── bw_git_clone 대화형 래퍼: 항목 이름을 사용자에게 프롬프트로 입력받아 clone ──
+# 인수:
+#   $1 = 클론할 저장소 URL (필수)
+#   $2 = 로컬 대상 경로 (필수)
+# 동작:
+#   $BW_DEFAULT_PAT_ITEM 을 기본값으로 보여주고, 사용자 입력을 받아(엔터=기본값)
+#   bw_git_clone 을 호출합니다. 여러 GitHub 계정을 항목별로 나눠 관리할 때
+#   호출부마다 프롬프트 코드를 복붙하지 않도록 이 함수 하나로 모았습니다.
+# 반환: bw_git_clone 과 동일
+# 전제: bw_ensure_session 이 선행 호출되어 BW_SESSION 이 유효한 상태여야 함
+bw_git_clone_interactive() {
+    local _REPO_URL="$1"
+    local _TARGET_DIR="$2"
+    local _BW_DEFAULT_ITEM="${BW_DEFAULT_PAT_ITEM:-github.com-main}"
+    local _BW_ITEM_NAME
+
+    read -rp "🔑 Bitwarden 항목 이름 [기본값: ${_BW_DEFAULT_ITEM}]: " _BW_ITEM_NAME
+    _BW_ITEM_NAME="${_BW_ITEM_NAME:-$_BW_DEFAULT_ITEM}"
+
+    bw_git_clone "$_REPO_URL" "$_TARGET_DIR" "$_BW_ITEM_NAME"
 }

@@ -42,7 +42,7 @@ bw_ensure_session || exit 1
 if [ -d "$TARGET_DIR/.git" ]; then
     echo "ℹ️  이미 깃 저장소가 존재합니다. 클론 단계를 건너뜁니다."
 else
-    bw_git_clone "$REPO_URL" "$TARGET_DIR" || exit 1
+    bw_git_clone_interactive "$REPO_URL" "$TARGET_DIR" || exit 1
 fi
 
 # ==============================================================================
