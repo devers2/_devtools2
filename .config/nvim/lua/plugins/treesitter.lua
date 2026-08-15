@@ -31,6 +31,13 @@ return {
     'nvim-treesitter/nvim-treesitter',
     lazy = false, -- 지연 로딩 완전히 비활성화: 에디터 켜질 때 무조건 즉시 로드하여 첫 버퍼부터 100% 신뢰성 보장
     priority = 1000, -- 가장 높은 우선순위로 먼저 로드
+    -- [.properties 파일 하이라이팅 연결]
+    -- Neovim 내장 filetype 감지는 *.properties 파일을 'jproperties'로 인식하지만,
+    -- nvim-treesitter의 파서 이름은 'properties' 이므로 명시적으로 매핑해줘야
+    -- gradle.properties / application.properties 등에서 트리시터 하이라이팅이 실제로 켜집니다.
+    init = function()
+      vim.treesitter.language.register('properties', 'jproperties')
+    end,
     opts = function(_, opts)
       -- 기존 설정이 있으면 유지하면서 필요한 파서들 추가
       opts.ensure_installed = opts.ensure_installed or {}
@@ -59,6 +66,7 @@ return {
         'query',
         'regex',
         'xml', -- Java 설정 파일(pom.xml 등)을 위해 추가
+        'properties', -- gradle.properties, application.properties, gradle-wrapper.properties 등을 위해 추가
       })
 
       -- 하이라이팅 활성화 (크기 기반 on/off는 위쪽 devtools2_treesitter_large_file_fallback autocmd가 담당)
