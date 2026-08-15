@@ -84,6 +84,12 @@
   "java.format.settings.profile": "Standard-s2", // Java 코드 스타일 프로필 이름
   "java.format.enabled": true,
 
+  /* [Python 인터프리터 전역 기본값]
+   * - 프로젝트별 venv(.vscode/settings.json 의 python.defaultInterpreterPath)가 있으면 그쪽이 우선 적용된다.
+   * - venv가 아직 없는 프로젝트/단일 스크립트를 열었을 때를 위한 전역 폴백(fallback)이다.
+   */
+  "python.defaultInterpreterPath": "/var/opt/_devtools2/modules/python/python-314/bin/python3",
+
   /* Portable Git 경로 설정 - 무설치 버전 Git 은 VS Code 가 알 수 있도록 직접 경로를 지정한다. */
   // "git.path": "/var/opt/_devtools2/modules/git/PortableGit/cmd/git.exe",
 
@@ -236,8 +242,11 @@
     }
   ],
   "java.test.defaultConfig": "test-config",
+  "java.maven.downloadSources": true, // Maven 의존성(외부 라이브러리)의 소스 jar 자동 다운로드 → true: "정의로 이동" 시 디컴파일 코드가 아닌 실제 소스/자바독 표시
+  "java.eclipse.downloadSources": true, // Gradle(Eclipse 프로젝트 모델 경유) 의존성의 소스 jar 자동 다운로드 → true: 위와 동일한 효과를 Gradle 프로젝트에도 적용
 
   "python.analysis.typeCheckingMode": "standard", // 파이썬 코드의 타입(Data Type) 오류 검사 모드 → standard: 명백한 타입 불일치, 존재하지 않는 속성 접근 등을 경고(가장 권장됨)
+  "ruff.configuration": "/var/opt/_devtools2/.config/ruff/ruff.toml", // Ruff(린터/포맷터) 설정 파일 경로 고정 → 프로젝트에 별도 ruff.toml/pyproject.toml 이 없어도 공통 스타일(line-length, quote-style)이 항상 적용됨
 
   /* 에디터 기본 설정 */
   "editor.formatOnSave": true, // 저장 시 자동 포맷팅 여부, 포맷팅 없이 저장: 시퀀스(연속) 단축키 "Ctrl + K Ctrl + S" 또는 명령어 팔레트(Ctrl + Shift + P) 에서 "Save without Formatting" 명령어 실행
@@ -844,5 +853,5 @@
   "cSpell.ignoreRegExpList": [
     "[\\uAC00-\\uD7A3]+"
   ],
-  "cSpell.userWords": []
+  "cSpell.userWords": ["venv", "pyproject"]
 }
