@@ -65,5 +65,28 @@ if (Test-Path $SET_ENV_PATH) {
     exit 1
 }
 
-# 6. 결과 처리 (이미 set_env에서 안내를 했으므로 바로 종료)
+# 6. PATH에도 새 JDK\bin을 반영
+# ⚠️ JAVA_HOME만 바꾸고 PATH를 그대로 두면, PATH에 이전 버전의
+# modules\java\jdk-*\bin 경로가 남아있는 한 새 터미널에서도 java 명령어가 실제로는
+# 전환되지 않습니다(bash용 jdk_switch.sh는 PATH까지 관리하므로 동일하게 맞춤).
+# Windows JDK 배포판은 항상 <root>\bin\java.exe 구조를 사용합니다.
+try {
+    $envTarget = if ($isAdmin) { [EnvironmentVariableTarget]::Machine } else { [EnvironmentVariableTarget]::User }
+    $newBinPath = Join-Path $TARGET_PATH "bin"
+
+    [string]$curPath = [Environment]::GetEnvironmentVariable('Path', $envTarget)
+    if ($null -eq $curPath) { $curPath = '' }
+
+    $entries = $curPath.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries) |
+        Where-Object { $_ -notmatch '\\modules\\java\\jdk-[\d.]+\\bin$' -and $_ -notmatch '\\bin\\java\\jdk-[\d.]+\\bin$' }
+
+    $updatedPath = (@($newBinPath) + @($entries)) -join ';'
+    [Environment]::SetEnvironmentVariable('Path', $updatedPath, $envTarget)
+    Write-Host "[정보] PATH에 $newBinPath 를 반영했습니다 (이전 JDK 경로는 제거됨)."
+}
+catch {
+    Write-Host "[경고] PATH 갱신 중 오류가 발생했습니다: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+# 7. 결과 처리 (이미 set_env에서 안내를 했으므로 바로 종료)
 exit

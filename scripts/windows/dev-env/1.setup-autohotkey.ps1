@@ -332,9 +332,14 @@ $ahkSetupJob = Start-Job -ScriptBlock {
     param($WslDistro, $startupDir, $ahkModuleDir, $ahkExe)
 
     # 헬퍼: WSL2 디렉터리 존재 여부를 UNC Test-Path 대신 wsl test -d 로 0.01초만에 빠르게 검사
+    # ⚠️ 호출부(아래)는 '$DEVTOOLS2'처럼 bash 변수 참조 리터럴을 넘겨 "WSL 안에서
+    # $DEVTOOLS2가 실제로 유효한 디렉터리를 가리키는지" 검사하려는 의도입니다.
+    # bash에서 작은따옴표는 변수 확장을 막으므로 test -d '$linuxPath'는 "$DEVTOOLS2"라는
+    # 리터럴 이름의 디렉터리를 찾게 되어 항상 실패합니다(직접 테스트로 확인됨). 큰따옴표로
+    # 바꾸면 변수 참조는 정상 확장되면서, 공백이 포함된 일반 경로도 여전히 안전합니다.
     function Test-WslDirFast {
         param($distro, $linuxPath)
-        $res = wsl -d $distro -- bash -c "test -d '$linuxPath' && echo 'OK'" 2>$null
+        $res = wsl -d $distro -- bash -c "test -d ""$linuxPath"" && echo 'OK'" 2>$null
         return ($res -eq 'OK')
     }
 

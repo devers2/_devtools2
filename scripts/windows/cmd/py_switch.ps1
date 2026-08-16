@@ -58,5 +58,30 @@ if (Test-Path $SET_ENV_PATH) {
     exit 1
 }
 
-# 6. 결과 처리
+# 6. PATH에도 새 Python 경로를 반영
+# ⚠️ PYTHON_HOME만 바꾸고 PATH를 그대로 두면, PATH에 이전 버전의
+# modules\python\python-*\ 경로가 남아있는 한 새 터미널에서도 python 명령어가 실제로는
+# 전환되지 않습니다(bash용 py_switch.sh는 PATH까지 관리하므로 동일하게 맞춤).
+# Windows Python 배포판(python.org/embeddable 포함)은 java와 달리 bin\ 하위가 아니라
+# <root>\python.exe 구조를 사용합니다.
+try {
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $envTarget = if ($isAdmin) { [EnvironmentVariableTarget]::Machine } else { [EnvironmentVariableTarget]::User }
+    $newBinPath = $TARGET_PATH
+
+    [string]$curPath = [Environment]::GetEnvironmentVariable('Path', $envTarget)
+    if ($null -eq $curPath) { $curPath = '' }
+
+    $entries = $curPath.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries) |
+        Where-Object { $_ -notmatch '\\modules\\python\\python-[\d]+$' -and $_ -notmatch '\\bin\\python\\python-[\d]+$' }
+
+    $updatedPath = (@($newBinPath) + @($entries)) -join ';'
+    [Environment]::SetEnvironmentVariable('Path', $updatedPath, $envTarget)
+    Write-Host "[정보] PATH에 $newBinPath 를 반영했습니다 (이전 Python 경로는 제거됨)."
+}
+catch {
+    Write-Host "[경고] PATH 갱신 중 오류가 발생했습니다: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+# 7. 결과 처리
 exit

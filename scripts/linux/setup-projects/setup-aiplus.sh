@@ -21,8 +21,11 @@ if [ "$_CURRENT_PY_VER" != "$REQUIRED_PY_VERSION" ]; then
     echo "⚠️  현재 Python 버전: $(python3 --version 2>&1)  →  Python 3.12로 자동 전환합니다..."
     _PY_SWITCH_SCRIPT="$DEVTOOLS2/scripts/linux/cmd/py_switch.sh"
     if [ -f "$_PY_SWITCH_SCRIPT" ]; then
-        source "$_PY_SWITCH_SCRIPT" "$REQUIRED_PY_VERSION"
-        if [ $? -ne 0 ]; then
+        # ⚠️ set -e가 활성화된 상태에서 source를 if 조건 없이 최상위 문장으로 실행하면,
+        # py_switch.sh 내부의 `return 1`이 그대로 -e를 발동시켜 스크립트가 즉시 종료되고
+        # 바로 아래의 `if [ $? -ne 0 ]` 커스텀 에러 메시지는 절대 출력되지 않습니다
+        # (직접 테스트로 확인됨). source 자체를 if 조건으로 감싸 -e 발동을 막습니다.
+        if ! source "$_PY_SWITCH_SCRIPT" "$REQUIRED_PY_VERSION"; then
             echo "❌ Python 3.12 전환에 실패했습니다. py_switch.sh 스크립트를 확인해주세요."
             exit 1
         fi
@@ -192,7 +195,10 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🎉 [aiplus] 프로젝트 설정이 완료되었습니다!"
 echo "   프로젝트 위치: $TARGET_DIR"
-echo "   SFTP 서비스 상태 확인: systemctl --user status ${SERVICE_NAME}.service"
+# ⚠️ SERVICE_NAME은 setup_rclone_sftp_mount() 내부에 local로 선언되어 있어 함수가
+# 끝나면 여기서는 비어 있습니다(호출부에서 참조 시 "systemctl --user status .service"처럼
+# 이름 없이 출력되는 버그였음). SFTP 마운트가 성공했다면 그 단계(Step 3)에서 이미
+# common-setup.sh가 정확한 서비스 이름으로 된 상태 확인 안내를 출력했으므로 중복 제거.
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # ==============================================================================

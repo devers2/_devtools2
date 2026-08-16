@@ -89,24 +89,10 @@ function Pause-Script {
     [void][System.Console]::ReadLine()
 }
 
-function Show-BiosVirtualizationHelp {
-    Write-Host ""
-    Write-Host "===========================================================================" -ForegroundColor Red
-    Write-Host "  ❌ 메인보드(BIOS/UEFI) 가상화(Virtualization) 비활성화 오류" -ForegroundColor Red
-    Write-Host "===========================================================================" -ForegroundColor Red
-    Write-Host "  WSL2 가상 머신을 실행하려면 CPU 가상화 기능(VT-x / AMD-V)이" -ForegroundColor Yellow
-    Write-Host "  BIOS/UEFI 설정에서 활성화되어 있어야 합니다." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  [BIOS/UEFI 가상화 활성화 방법 안내]" -ForegroundColor White
-    Write-Host "  1. 컴퓨터를 재부팅한 후, 부팅 화면에서 [F2], [Del], 또는 [F12] 키를 누릅니다." -ForegroundColor White
-    Write-Host "  2. Advanced / CPU Configuration / Security 메뉴로 이동합니다." -ForegroundColor White
-    Write-Host "     • Intel CPU : 'Intel Virtualization Technology' 또는 'VT-x' → [Enabled]" -ForegroundColor Cyan
-    Write-Host "     • AMD CPU   : 'SVM Mode' 또는 'AMD-V' → [Enabled]" -ForegroundColor Cyan
-    Write-Host "  3. [F10] 키를 눌러 저장 후 재부팅(Save & Exit)을 진행합니다." -ForegroundColor White
-    Write-Host "  4. 윈도우 재부팅 후 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
-    Write-Host "===========================================================================" -ForegroundColor Red
-    Write-Host ""
-}
+# ⚠️ Show-BiosVirtualizationHelp는 예전에 여기 정의되어 있었으나, 실제 WSL 설치는
+# 항상 0.setup-wsl.ps1(Invoke-RemotePsScript로 스트리밍 실행)에 위임되어 있어 이
+# 마스터 스크립트에서는 절대 호출되지 않는 도달 불가능한 중복 코드였습니다. 실제
+# BIOS/UEFI 가상화 안내는 0.setup-wsl.ps1 자신의 동일한 함수가 담당합니다.
 
 # 파일/심볼릭 링크(dangling 포함)를 안전하게 제거하는 헬퍼
 # Test-Path는 대상이 없는 dangling symlink를 $false로 반환하여 기존 링크가 남아

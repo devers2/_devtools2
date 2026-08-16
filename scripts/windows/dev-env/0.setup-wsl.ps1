@@ -202,6 +202,18 @@ if (-not $isWslEngineInstalled) {
         return $installProc.HasExited
     } -MaxTimeoutSeconds 900
 
+    # ⚠️ $waitSuccess를 체크하지 않으면, 타임아웃(900초) 후에도 프로세스가 아직 실행
+    # 중인 상태로 바로 아래 ExitCode를 확인하게 됩니다. PowerShell은 이 경우 예외를
+    # 던지지 않고 그냥 빈 값을 반환하므로(직접 테스트로 확인) "-eq 3010"이 조용히
+    # false가 되어, 설치가 실제로 끝나지도 않았는데 아무 경고 없이 다음 단계로
+    # 넘어가 버립니다. 타임아웃을 명시적으로 처리합니다.
+    if (-not $waitSuccess) {
+        Write-Fail "WSL2 설치가 제한 시간(900초) 내에 완료되지 않았습니다."
+        Write-Warn "설치가 백그라운드에서 계속 진행 중일 수 있습니다. 잠시 기다린 후 이 스크립트를 다시 실행해 주세요."
+        Pause-Script
+        exit 1
+    }
+
     if ($installProc.ExitCode -eq 3010) {
         Write-Host ""
         Write-Host "===========================================================================" -ForegroundColor Red
@@ -211,6 +223,15 @@ if (-not $isWslEngineInstalled) {
         Write-Host "===========================================================================" -ForegroundColor Red
         Pause-Script
         exit 3010
+    }
+    elseif ($installProc.ExitCode -ne 0) {
+        # ⚠️ Show-BiosVirtualizationHelp 함수가 정의되어 있었지만 실제로는 어디서도
+        # 호출되지 않아, WSL2 설치 실패의 가장 흔한 원인(BIOS/UEFI 가상화 비활성화)일
+        # 때조차 아무 안내 없이 조용히 다음 단계로 넘어가던 공백을 연결합니다.
+        Write-Fail "WSL2 설치가 실패했습니다. (종료 코드: $($installProc.ExitCode))"
+        Show-BiosVirtualizationHelp
+        Pause-Script
+        exit 1
     }
 }
 
@@ -262,7 +283,12 @@ if ($isUpdateRequired) {
             return $updateProc.HasExited
         } -MaxTimeoutSeconds 600
 
-        if ($updateProc.ExitCode -eq 3010) {
+        # ⚠️ 위 설치 단계와 동일한 이유로 타임아웃 여부를 먼저 확인합니다 — 체크하지
+        # 않으면 업데이트가 실제로 끝나지 않았는데도 조용히 다음 단계로 넘어갑니다.
+        if (-not $waitSuccess) {
+            Write-Warn "WSL 업데이트가 제한 시간(600초) 내에 완료되지 않았습니다. 업데이트를 건너뛰고 계속 진행합니다."
+        }
+        elseif ($updateProc.ExitCode -eq 3010) {
             Write-Host ""
             Write-Host "===========================================================================" -ForegroundColor Red
             Write-Host "  ⚠️  WSL 업데이트 적용을 완료하기 위해 시스템 재부팅이 필요합니다." -ForegroundColor Red

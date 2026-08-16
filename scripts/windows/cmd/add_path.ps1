@@ -65,12 +65,10 @@ try {
 Write-Host ""
 Write-Host "변경 사항을 적용하려면 현재 열려 있는 터미널 창을 닫고 다시 열어주세요."
 
-# 7. 에러 발생 시 처리 및 일시 정지
-if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) {
-    Write-Host ""
-    Write-Host "[오류] 환경 변수 등록에 실패했습니다."
-    pause
-    exit $LASTEXITCODE
-}
+# ⚠️ 이 스크립트는 외부 실행 파일을 전혀 호출하지 않으므로 $LASTEXITCODE는 항상
+# "이 세션에서 이전에 실행됐던 다른 네이티브 명령"의 잔여값일 뿐입니다(cmdlet/.NET
+# 호출은 $LASTEXITCODE를 갱신하지 않음 — PowerShell의 잘 알려진 동작). 실제 실패는
+# 이미 위 catch 블록에서 exit 1로 처리되므로, 이 죽은 코드는 오히려 이전 세션의
+# 무관한 실패값 때문에 정상 성공 시에도 거짓 오류를 띄울 수 있어 제거합니다.
 
 pause

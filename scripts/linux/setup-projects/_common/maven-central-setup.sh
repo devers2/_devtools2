@@ -124,8 +124,11 @@ setup_maven_central_publishing() {
     # ── 1) Maven Central Portal 필드 조회 (centralUsername / centralPassword) ──
     echo "⏳ Bitwarden 'Maven Central Portal' 항목 조회 중..."
     local _CP_PARSED _CP_USER="" _CP_PASS="" _CP_OK=true
-    _CP_PARSED=$(bw_get_fields "Maven Central Portal" "centralUsername" "centralPassword")
-    if [ $? -ne 0 ]; then
+    # ⚠️ 이 함수를 호출하는 상위 스크립트들은 set -e를 사용합니다. 대입문을 if 조건
+    # 없이 최상위 문장으로 두면 bw_get_fields가 실패(세션 만료)할 때 -e가 즉시 발동해
+    # 스크립트가 죽어버리고, 바로 아래 "필수값 부족 시 조용히 건너뛰기" 로직이 전혀
+    # 실행되지 않습니다(직접 테스트로 확인됨). 대입 자체를 if 조건으로 감쌉니다.
+    if ! _CP_PARSED=$(bw_get_fields "Maven Central Portal" "centralUsername" "centralPassword"); then
         _CP_OK=false
     else
         _CP_USER=$(printf "%s" "$_CP_PARSED" | cut -f1)
@@ -140,12 +143,13 @@ setup_maven_central_publishing() {
     local _GPG_PARSED _KEY_ID="" _KEY_PASS="" _B64_SINGLE="" _GPG_OK=true
     local _HAS_KEYRING=false
     local -a _B64_PARTS=()
-    _GPG_PARSED=$(bw_get_fields "GPG Signing" \
+    # ⚠️ 위 centralUsername/Password 조회와 동일한 이유로 대입을 if 조건으로 감쌉니다
+    # (set -e 하에서 최상위 대입문으로 두면 세션 만료 시 즉시 종료되어 버림).
+    if ! _GPG_PARSED=$(bw_get_fields "GPG Signing" \
         "signing.keyId" "signing.password" \
         "signing.secretKeyRingBase64" \
         "signing.secretKeyRingBase64_1" "signing.secretKeyRingBase64_2" \
-        "signing.secretKeyRingBase64_3" "signing.secretKeyRingBase64_4" "signing.secretKeyRingBase64_5")
-    if [ $? -ne 0 ]; then
+        "signing.secretKeyRingBase64_3" "signing.secretKeyRingBase64_4" "signing.secretKeyRingBase64_5"); then
         _GPG_OK=false
     else
         _KEY_ID=$(printf "%s" "$_GPG_PARSED" | cut -f1)
