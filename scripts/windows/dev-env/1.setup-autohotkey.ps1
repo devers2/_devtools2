@@ -41,79 +41,12 @@ $ProgressPreference = 'SilentlyContinue'
 # ==============================================================================
 # 헬퍼 함수
 # ==============================================================================
-
-function Write-Step {
-    param([string]$Message)
-    Write-Host ""
-    Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host $Message -ForegroundColor Cyan
-}
-
-function Write-Success {
-    param([string]$Message)
-    Write-Host "[성공] $Message" -ForegroundColor Green
-}
-
-function Write-Fail {
-    param([string]$Message)
-    Write-Host "[오류] $Message" -ForegroundColor Red
-}
-
-function Write-Info {
-    param([string]$Message)
-    Write-Host "[정보] $Message" -ForegroundColor White
-}
-
-function Write-Warn {
-    param([string]$Message)
-    Write-Host "[경고] $Message" -ForegroundColor Yellow
-}
-
-# 프로세스 종료 시까지 스피너를 표시해 대기하는 함수
-function Wait-ProcessWithSpinner {
-    param(
-        [System.Diagnostics.Process]$Process,
-        [string]$Message
-    )
-
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    $spinIdx = 0
-    while (-not $Process.HasExited) {
-        $char = $spinner[$spinIdx]
-        Write-Host -NoNewline "`r  [$char] $Message...   " -ForegroundColor Cyan
-        $spinIdx = ($spinIdx + 1) % $spinner.Count
-        Start-Sleep -Milliseconds 150
-    }
-    Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
-}
-
-# 조건 만족 시까지 스피너를 표시해 대기하는 일반 함수
-function Wait-WithSpinner {
-    param(
-        [string]$Message,
-        [scriptblock]$Condition,
-        [int]$MaxTimeoutSeconds = 300
-    )
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    $spinIdx = 0
-    $startTime = Get-Date
-    while ($true) {
-        $elapsed = (Get-Date) - $startTime
-        if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
-            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)   " -ForegroundColor Red
-            return $false
-        }
-        $done = & $Condition
-        if ($done) {
-            Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
-            return $true
-        }
-        $char = $spinner[$spinIdx % $spinner.Count]
-        Write-Host -NoNewline "`r  [$char] $Message...   " -ForegroundColor Cyan
-        Start-Sleep -Milliseconds 150
-        $spinIdx++
-    }
-}
+# 여러 ps1 파일에 거의 동일하게 복붙되어 있던 Write-*/Wait-* 헬퍼를 _colors.ps1
+# 공용 파일로 통합했습니다(scripts/windows/dev-env/_colors.ps1, bash _colors.sh와
+# 동일한 패턴). 항상 온라인 최신본을 dot-source합니다.
+$_colorsHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
+$_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_colors.ps1" -Headers $_colorsHeaders -ErrorAction Stop
+. ([scriptblock]::Create($_colorsContent))
 
 # ==============================================================================
 # [Step 0] 관리자 권한 확인 및 재실행

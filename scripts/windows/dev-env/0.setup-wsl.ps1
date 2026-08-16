@@ -25,51 +25,14 @@ $ProgressPreference = 'SilentlyContinue'
 # ==============================================================================
 # 헬퍼 함수
 # ==============================================================================
-
-function Write-Step {
-    param([string]$Message)
-    Write-Host ""
-    Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host $Message -ForegroundColor Cyan
-}
-
-function Write-SubStep {
-    param([string]$Message)
-    Write-Host ""
-    Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host "  $Message" -ForegroundColor Cyan
-}
-
-function Write-Success {
-    param([string]$Message)
-    Write-Host "[성공] $Message" -ForegroundColor Green
-}
-
-function Write-Skip {
-    param([string]$Message)
-    Write-Host "[건너뜀] $Message" -ForegroundColor Yellow
-}
-
-function Write-Info {
-    param([string]$Message)
-    Write-Host "[정보] $Message" -ForegroundColor White
-}
-
-function Write-Warn {
-    param([string]$Message)
-    Write-Host "[경고] $Message" -ForegroundColor Yellow
-}
-
-function Write-Fail {
-    param([string]$Message)
-    Write-Host "[오류] $Message" -ForegroundColor Red
-}
-
-function Pause-Script {
-    Write-Host ""
-    Write-Host "👉 계속하려면 엔터(Enter) 키를 누르세요: " -ForegroundColor Yellow -NoNewline
-    [void][System.Console]::ReadLine()
-}
+# Write-Step/Write-Success/Pause-Script/Wait-WithSpinner 등은 여러 ps1 파일에
+# 거의 동일하게 복붙되어 있던 걸 _colors.ps1(scripts/windows/dev-env/_colors.ps1)
+# 공용 파일로 통합했습니다(bash의 _colors.sh와 동일한 패턴). 한쪽 사본에서만 고쳐진
+# 버그(Pause-Script 문구)가 다른 사본에는 전파되지 않는 드리프트가 실제로 있었습니다.
+# 항상 온라인 최신본을 dot-source(다른 스크립트 스트리밍 실행과 동일한 캐시 우회 원칙).
+$_colorsHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
+$_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_colors.ps1" -Headers $_colorsHeaders -ErrorAction Stop
+. ([scriptblock]::Create($_colorsContent))
 
 function Show-BiosVirtualizationHelp {
     Write-Host ""
@@ -88,36 +51,6 @@ function Show-BiosVirtualizationHelp {
     Write-Host "  4. 윈도우 재부팅 후 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
     Write-Host "===========================================================================" -ForegroundColor Red
     Write-Host ""
-}
-
-# 단순 프로세스/조건 대기형 스피너 헬퍼
-function Wait-WithSpinner {
-    param(
-        [string]$Message,
-        [scriptblock]$Condition,
-        [int]$MaxTimeoutSeconds = 600
-    )
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    $i = 0
-    $startTime = Get-Date
-    while ($true) {
-        $elapsed = (Get-Date) - $startTime
-        if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
-            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)   " -ForegroundColor Red
-            return $false
-        }
-        
-        $success = & $Condition
-        if ($success) {
-            Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
-            return $true
-        }
-        
-        $char = $spinner[$i % $spinner.Count]
-        Write-Host -NoNewline "`r  [$char] $Message...   "
-        Start-Sleep -Milliseconds 150
-        $i++
-    }
 }
 
 # ==============================================================================
