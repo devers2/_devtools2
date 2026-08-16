@@ -10,7 +10,10 @@
       "type": "shell",
       "command": "code --list-extensions | grep -E '^[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+$' > \"${DEVTOOLS2:-/var/opt/_devtools2}/.config/vscode/extensions.txt\" && echo \"✅ extensions.txt 저장 완료\"",
       "windows": {
-        "command": "powershell -Command \"code --list-extensions | Where-Object { $_ -match '^[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+$' } | Out-File -Encoding utf8 '$env:DEVTOOLS2\\.config\\vscode\\extensions.txt'\""
+        // ⚠️ Out-File -Encoding utf8은 PS 5.1/7 모두 BOM을 붙입니다(이 저장소의 "순수
+        // UTF-8 NoBOM 보장" 원칙 위반). 이 태스크는 powershell(PS 5.1 고정)로 실행되어
+        // -Encoding utf8NoBOM(PS7 전용)도 쓸 수 없으므로, .NET API로 직접 BOM 없이 씁니다.
+        "command": "powershell -Command \"$exts = code --list-extensions | Where-Object { $_ -match '^[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+$' }; [System.IO.File]::WriteAllLines('$env:DEVTOOLS2\\.config\\vscode\\extensions.txt', $exts, (New-Object System.Text.UTF8Encoding $false))\""
       },
       "problemMatcher": [],
       "presentation": {
