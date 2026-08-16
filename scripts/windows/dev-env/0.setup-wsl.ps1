@@ -123,7 +123,11 @@ if (Test-Path "$env:TEMP\wsl_version_error.txt") { Remove-Item "$env:TEMP\wsl_ve
 # 3. WSL 엔진 미설치 → wsl --install --no-distribution 으로 설치
 if (-not $isWslEngineInstalled) {
     Write-Warn "WSL2 구성 요소가 설치되어 있지 않거나 반응하지 않습니다. 설치를 진행합니다..."
-    $installProc = Start-Process wsl.exe -ArgumentList "--install --no-distribution" -PassThru -NoNewWindow -ErrorAction SilentlyContinue
+    # stderr를 캡처해두는 이유: 아래에서 실패 원인이 실제로 BIOS/UEFI 가상화 비활성화인지,
+    # 아니면 네트워크/Windows Update 등 다른 이유인지 구분해야 하기 때문입니다.
+    $installErrPath = "$env:TEMP\wsl_install_error.txt"
+    $installProc = Start-Process wsl.exe -ArgumentList "--install --no-distribution" -PassThru -NoNewWindow `
+        -RedirectStandardError $installErrPath -ErrorAction SilentlyContinue
 
     if ($null -eq $installProc) {
         Write-Fail "WSL 설치 프로세스를 시작할 수 없습니다."
@@ -147,6 +151,12 @@ if (-not $isWslEngineInstalled) {
         exit 1
     }
 
+    $installErrContent = ""
+    if (Test-Path $installErrPath) {
+        $installErrContent = Get-Content $installErrPath -Raw -ErrorAction SilentlyContinue
+        Remove-Item $installErrPath -Force -ErrorAction SilentlyContinue
+    }
+
     if ($installProc.ExitCode -eq 3010) {
         Write-Host ""
         Write-Host "===========================================================================" -ForegroundColor Red
@@ -157,12 +167,28 @@ if (-not $isWslEngineInstalled) {
         Pause-Script
         exit 3010
     }
-    elseif ($installProc.ExitCode -ne 0) {
-        # ⚠️ Show-BiosVirtualizationHelp 함수가 정의되어 있었지만 실제로는 어디서도
-        # 호출되지 않아, WSL2 설치 실패의 가장 흔한 원인(BIOS/UEFI 가상화 비활성화)일
-        # 때조차 아무 안내 없이 조용히 다음 단계로 넘어가던 공백을 연결합니다.
+    # ⚠️ $installProc.ExitCode가 $null인 경우가 실제로 발생합니다(HasExited는 true인데
+    # ExitCode 프로퍼티만 비어 있는 케이스). PowerShell에서 "$null -ne 0"은 $true이므로,
+    # 이 상태를 걸러내지 않으면 "종료 코드를 못 읽음"까지 전부 "설치 실패"로 오판됩니다.
+    # 이런 애매한 경우는 여기서 바로 실패 처리하지 않고, 뒤이은 "wsl --list" 등
+    # 실제 설치 상태 확인 단계로 넘겨 판단합니다.
+    elseif ($null -ne $installProc.ExitCode -and $installProc.ExitCode -ne 0) {
         Write-Fail "WSL2 설치가 실패했습니다. (종료 코드: $($installProc.ExitCode))"
-        Show-BiosVirtualizationHelp
+        if (-not [string]::IsNullOrWhiteSpace($installErrContent)) {
+            Write-Host "  [상세 오류 메시지]" -ForegroundColor Yellow
+            Write-Host "  $($installErrContent.Trim())" -ForegroundColor Gray
+        }
+        # ⚠️ 이 단계(--install --no-distribution)는 Windows 기능 활성화/커널 다운로드
+        # 단계일 뿐입니다. BIOS/UEFI 가상화(VT-x/AMD-V) 비활성화는 보통 이 단계가 아니라
+        # "VM을 실제로 구동"할 때 나는 오류이므로, 여기서 나는 모든 실패를 가상화
+        # 문제로 단정하면 오탐이 발생합니다(원인은 네트워크/Windows Update/재부팅
+        # 대기 등 다양함). 오류 메시지에 가상화 관련 키워드가 실제로 포함된 경우에만
+        # BIOS 안내를 보여주고, 그 외에는 일반 실패 안내만 표시합니다.
+        if ($installErrContent -match "0x80370102|0x80370109|가상화|Virtualization|Hyper-V") {
+            Show-BiosVirtualizationHelp
+        } else {
+            Write-Warn "네트워크 연결, Windows Update 서비스 상태, 또는 재부팅 대기 여부를 확인한 후 스크립트를 다시 실행해 주세요."
+        }
         Pause-Script
         exit 1
     }
