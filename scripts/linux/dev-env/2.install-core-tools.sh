@@ -742,8 +742,13 @@ else
 fi
 ORCA_APPIMAGE="$ORCA_DIR/$ORCA_APPIMAGE_NAME"
 
+_orca_proceed=false
+
 if [ -f "$ORCA_APPIMAGE" ]; then
-    echo "   ⏭️ [건너뜀] orca AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$ORCA_DIR'"
+    echo "   ⏭️ [건너뜀] orca AppImage가 이미 존재합니다. (재설치하려면 삭제: sudo rm -rf '$ORCA_DIR')"
+    echo "   ℹ️  이미 설치되어 있어도 아래 systemd/페어링 상태는 매번 다시 점검합니다"
+    echo "      (예: systemd 활성화를 위해 WSL을 재시작하고 이 스크립트를 다시 실행한 경우)."
+    _orca_proceed=true
 else
     echo "   ℹ️  Orca는 여러 코딩 에이전트를 Git worktree로 격리해 병렬로 실행/조율하는"
     echo "      에이전트 오케스트레이션 도구입니다 (Claude Code, Codex, Gemini 등 지원)."
@@ -771,52 +776,62 @@ else
                 echo ""
             fi
 
-            # orca AppImage 실행에 필요한 의존성 (공식 헤드리스 서버 가이드 기준:
-            # curl file jq xvfb zlib1g-dev). curl은 이미 이 저장소 전체가 의존하므로 생략.
-            _ensure_pkg file file
-            _ensure_pkg jq jq
-            _ensure_pkg Xvfb xvfb
-            if ! dpkg -s libfuse2 >/dev/null 2>&1 && ! dpkg -s libfuse2t64 >/dev/null 2>&1; then
-                echo -n "   📦 필수 패키지 (libfuse2) 자동 설치 중..."
-                sudo apt-get update -qq >/dev/null 2>&1 || true
-                sudo apt-get install -y libfuse2t64 >/dev/null 2>&1 || sudo apt-get install -y libfuse2 >/dev/null 2>&1 || true
-                echo " 완료"
-            fi
-            if ! dpkg -s zlib1g-dev >/dev/null 2>&1; then
-                echo -n "   📦 필수 패키지 (zlib1g-dev) 자동 설치 중..."
-                sudo apt-get update -qq >/dev/null 2>&1 || true
-                sudo apt-get install -y zlib1g-dev >/dev/null 2>&1 || true
-                echo " 완료"
-            fi
-
             mkdir -p "$ORCA_DIR"
             echo -n "   📥 orca 다운로드 중..."
             curl -Ls "https://github.com/stablyai/orca/releases/latest/download/${ORCA_APPIMAGE_NAME}" -o "$ORCA_APPIMAGE" &
             show_spinner $!
             echo " 완료"
             chmod +x "$ORCA_APPIMAGE"
-            # PATH에서 'orca'라는 짧은 이름으로 바로 실행할 수 있도록 심볼릭 링크 생성
-            # (상대 경로 링크라 $DEVTOOLS2가 통째로 이동해도 깨지지 않음)
-            ln -sf "$ORCA_APPIMAGE_NAME" "$ORCA_DIR/orca"
-            echo "   ✅ orca ($ARCH) 설치 완료 → $ORCA_APPIMAGE (PATH: orca)"
+            echo "   ✅ orca ($ARCH) 설치 완료 → $ORCA_APPIMAGE"
+            _orca_proceed=true
+            ;;
+        *)
+            echo "   ⏭️ Orca 설치를 건너뜁니다."
+            ;;
+    esac
+fi
 
-            # 설정/상태 디렉터리 심볼릭 링크. Orca는 아래 세 곳을 모두 씁니다(공식 문서 확인):
-            # 소문자 ~/.config/orca, Electron GUI용 대문자 ~/.config/Orca, 그리고 keybindings.json
-            # 등 CLI 전역 설정용 ~/.orca. 안 쓰는 게 있어도 빈 심볼릭 링크라 해될 게 없어 셋 다 둡니다.
-            _orca_symlink_script="$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh"
-            _orca_link() {
-                if [ -f "$_orca_symlink_script" ]; then
-                    "$_orca_symlink_script" "$1" "$2"
-                else
-                    curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/cmd/create-symbolic-link.sh" \
-                        | bash -s -- "$1" "$2"
-                fi
-            }
-            _orca_link "$DEVTOOLS2/.config/orca" "$HOME/.config/orca"
-            _orca_link "$DEVTOOLS2/.config/Orca" "$HOME/.config/Orca"
-            _orca_link "$DEVTOOLS2/.config/orca-home" "$HOME/.orca"
+if [ "$_orca_proceed" = true ]; then
+    # orca AppImage 실행에 필요한 의존성 (공식 헤드리스 서버 가이드 기준:
+    # curl file jq xvfb zlib1g-dev). curl은 이미 이 저장소 전체가 의존하므로 생략.
+    # 이미 설치된 상태로 재실행돼도 전부 존재 여부부터 확인하고 스킵하므로 안전합니다.
+    _ensure_pkg file file
+    _ensure_pkg jq jq
+    _ensure_pkg Xvfb xvfb
+    if ! dpkg -s libfuse2 >/dev/null 2>&1 && ! dpkg -s libfuse2t64 >/dev/null 2>&1; then
+        echo -n "   📦 필수 패키지 (libfuse2) 자동 설치 중..."
+        sudo apt-get update -qq >/dev/null 2>&1 || true
+        sudo apt-get install -y libfuse2t64 >/dev/null 2>&1 || sudo apt-get install -y libfuse2 >/dev/null 2>&1 || true
+        echo " 완료"
+    fi
+    if ! dpkg -s zlib1g-dev >/dev/null 2>&1; then
+        echo -n "   📦 필수 패키지 (zlib1g-dev) 자동 설치 중..."
+        sudo apt-get update -qq >/dev/null 2>&1 || true
+        sudo apt-get install -y zlib1g-dev >/dev/null 2>&1 || true
+        echo " 완료"
+    fi
 
-            # ── 권장 스킬 전역 설치 (베스트 에포트) ──
+    # PATH에서 'orca'라는 짧은 이름으로 바로 실행할 수 있도록 심볼릭 링크 생성
+    # (상대 경로 링크라 $DEVTOOLS2가 통째로 이동해도 깨지지 않음). ln -sf라 재실행해도 안전.
+    ln -sf "$ORCA_APPIMAGE_NAME" "$ORCA_DIR/orca"
+
+    # 설정/상태 디렉터리 심볼릭 링크. Orca는 아래 세 곳을 모두 씁니다(공식 문서 확인):
+    # 소문자 ~/.config/orca, Electron GUI용 대문자 ~/.config/Orca, 그리고 keybindings.json
+    # 등 CLI 전역 설정용 ~/.orca. 안 쓰는 게 있어도 빈 심볼릭 링크라 해될 게 없어 셋 다 둡니다.
+    _orca_symlink_script="$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh"
+    _orca_link() {
+        if [ -f "$_orca_symlink_script" ]; then
+            "$_orca_symlink_script" "$1" "$2"
+        else
+            curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/cmd/create-symbolic-link.sh" \
+                | bash -s -- "$1" "$2"
+        fi
+    }
+    _orca_link "$DEVTOOLS2/.config/orca" "$HOME/.config/orca"
+    _orca_link "$DEVTOOLS2/.config/Orca" "$HOME/.config/Orca"
+    _orca_link "$DEVTOOLS2/.config/orca-home" "$HOME/.orca"
+
+    # ── 권장 스킬 전역 설치 (베스트 에포트) ──
             # orca-cli/orchestration은 공식 문서가 일반적인 기본 조합으로 예시하는 스킬입니다.
             # CLI 에이전트(claude/codex 등)가 아직 없으면 그냥 아무것도 안 하고 넘어갑니다
             # (에이전트 설치 후 'orca skills install --all' 로 나중에 다시 돌리면 됩니다).
@@ -835,7 +850,8 @@ else
                 || echo "   ⚠️  스킬 설치를 건너뜁니다(타임아웃 또는 미감지 — 에이전트 CLI 설치 후 'orca skills install --all'로 다시 시도 가능)"
 
             # ── WSL2: orca serve 헤드리스 자동 실행 등록 + 페어링 링크 자동 확보 ──
-            # keyd(4.setup-keyboard.sh)와 동일한 방식: systemd 있으면 활용, 없으면 수동 실행 안내로 폴백.
+            # systemd가 이미 활성화돼 있으면 바로 등록하고, 아직이면 common-setup.sh의
+            # setup_rclone_sftp_mount와 동일하게 wsl.conf 자동 설정 + 재시작 안내로 처리합니다.
             if [ "$IS_WSL2" = true ]; then
                 echo ""
 
@@ -852,18 +868,34 @@ exec "$ORCA_APPIMAGE" serve --port 6768 --pairing-address "\$(hostname -I | awk 
 EOF
                 chmod +x "$ORCA_DIR/orca-serve-wrapper.sh"
 
-                if command -v systemctl &>/dev/null; then
+                # ⚠️ command -v systemctl 만으로는 부족합니다 — Ubuntu는 systemd 패키지가
+                # 기본 설치돼 있어 WSL2에서 systemd가 실제로 PID 1로 안 떠 있어도 systemctl
+                # 바이너리 자체는 존재합니다. 실제 동작 여부는 'systemctl --user status'의
+                # 종료 코드로 확인해야 합니다(common-setup.sh의 setup_rclone_sftp_mount와
+                # 동일한 검증 방식 — 이 저장소에서 이미 검증된 패턴을 그대로 재사용).
+                if systemctl --user status >/dev/null 2>&1; then
                     echo "   ⚙️  systemd 사용자 서비스로 'orca serve' 자동 실행을 등록합니다..."
                     mkdir -p "$HOME/.config/systemd/user"
+                    # 공식 헤드리스 가이드(docs/reference/headless-linux-server.md)의 systemd
+                    # 예시를 그대로 따릅니다: StartLimitIntervalSec/Burst로 재시작 폭주 방지,
+                    # RestartPreventExitStatus=3(= "이미 같은 userData 프로필을 쓰는 다른 인스턴스가
+                    # 떠 있음" — 재시작해봐야 성공할 수 없는 경우라 그냥 멈춤), KillMode=mixed로
+                    # 내부 Xvfb가 깨끗이 종료되도록 함.
                     cat > "$HOME/.config/systemd/user/orca-serve.service" <<EOF
 [Unit]
 Description=Orca headless agent orchestration server
 After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
+WorkingDirectory=%h
 ExecStart=$ORCA_DIR/orca-serve-wrapper.sh
+KillMode=mixed
 Restart=on-failure
+RestartPreventExitStatus=3
 RestartSec=5
 
 [Install]
@@ -895,10 +927,48 @@ EOF
                         fi
                     else
                         echo "   ⚠️  systemd --user 서비스 활성화 실패. 수동 실행: $ORCA_DIR/orca-serve-wrapper.sh &"
+                        echo "   💬 반복 실패로 재시작 제한(StartLimitBurst)에 걸린 경우:"
+                        echo "      systemctl --user reset-failed orca-serve.service 후 다시 시도하세요."
                     fi
                 else
-                    echo "   ⚠️  systemctl을 찾을 수 없습니다(WSL2 systemd 미활성). 자동 실행 등록을 건너뜁니다."
-                    echo "   💬 필요할 때 수동으로 실행하세요: $ORCA_DIR/orca-serve-wrapper.sh &"
+                    # common-setup.sh의 setup_rclone_sftp_mount와 동일한 절차: wsl.conf에
+                    # systemd=true를 자동으로 추가하고, WSL 재시작이 필요하다는 걸 명확히 안내합니다.
+                    echo "   ⚠️  WSL2에서 systemd가 활성화되어 있지 않습니다."
+                    echo "      orca serve 자동 실행은 systemd user 서비스로 동작하므로 systemd가 필요합니다."
+                    echo ""
+
+                    _WSL_CONF="/etc/wsl.conf"
+                    _NEEDS_SYSTEMD=true
+                    if grep -q 'systemd\s*=\s*true' "$_WSL_CONF" 2>/dev/null; then
+                        _NEEDS_SYSTEMD=false
+                    fi
+
+                    if [ "$_NEEDS_SYSTEMD" = true ]; then
+                        echo "   ⏳ /etc/wsl.conf 에 systemd 활성화 설정을 추가합니다... (sudo 필요)"
+                        if grep -q '\[boot\]' "$_WSL_CONF" 2>/dev/null; then
+                            sudo sed -i '/^\[boot\]/a systemd=true' "$_WSL_CONF"
+                        else
+                            printf '\n[boot]\nsystemd=true\n' | sudo tee -a "$_WSL_CONF" > /dev/null
+                        fi
+                        echo "   ✅ /etc/wsl.conf 에 systemd=true 추가 완료!"
+                    else
+                        echo "   ℹ️  /etc/wsl.conf 에는 이미 systemd=true 가 설정되어 있습니다."
+                        echo "      WSL 인스턴스가 아직 재시작되지 않아 systemd가 비활성 상태입니다."
+                    fi
+
+                    echo ""
+                    echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    echo "   🔄  WSL 인스턴스를 재시작해야 systemd가 활성화됩니다."
+                    echo ""
+                    echo "      PowerShell 에서 아래 명령어를 실행하세요:"
+                    echo ""
+                    echo "        wsl --shutdown"
+                    echo ""
+                    echo "      재시작 후 이 설치 스크립트를 다시 실행하면 orca-serve.service 자동 등록이"
+                    echo "      이어서 완료됩니다(orca AppImage는 이미 설치돼 있어 다운로드는 다시 안 함)."
+                    echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    echo ""
+                    echo "   💬 지금 당장 쓰려면 수동으로도 실행 가능합니다: $ORCA_DIR/orca-serve-wrapper.sh &"
                 fi
                 echo ""
                 echo "   💬 Windows Orca 앱과의 페어링 안내는 4.setup-orca.ps1 완료 화면에서 보여드립니다."
@@ -940,14 +1010,9 @@ EOF
             echo "   에이전트 CLI를 새로 설치했다면 스킬 인식을 갱신해주세요(위에서 자동 설치는 이미 됨):"
             echo "     orca skills install --all"
             echo ""
-            echo "   설치 확인 후에는 Orca에서 바로 에이전트를 지정해 워크트리를 만들 수 있습니다:"
-            echo "     orca worktree create --agent claude --prompt \"할 일\""
-            echo "   ---------------------------------------------------------------------"
-            ;;
-        *)
-            echo "   ⏭️ Orca 설치를 건너뜁니다."
-            ;;
-    esac
+    echo "   설치 확인 후에는 Orca에서 바로 에이전트를 지정해 워크트리를 만들 수 있습니다:"
+    echo "     orca worktree create --agent claude --prompt \"할 일\""
+    echo "   ---------------------------------------------------------------------"
 fi
 echo ""
 

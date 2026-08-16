@@ -113,15 +113,30 @@ return {
           end,
         },
       },
-      -- ⚠️ CodeCompanion의 인라인 편집(interactions.inline)은 ACP 어댑터를 지원하지 않고
-      -- HTTP 어댑터만 지원합니다(공식 문서 확인) — claude_code/codex 등은 ACP라서 inline에
-      -- 쓰면 동작하지 않습니다. 그래서 inline만 내장 HTTP 어댑터 'anthropic'을 씁니다
-      -- (별도 등록 없이 기본으로 ANTHROPIC_API_KEY를 자동 인식하므로 위 claude_code와
-      -- 같은 키를 그대로 재사용). chat은 ACP를 그대로 씁니다.
+      -- ⚠️ ACP 어댑터(claude_code/codex/gemini_cli/opencode/goose)는 chat 인터랙션에서만
+      -- 지원됩니다(공식 문서 확인). inline/cmd는 HTTP 어댑터 전용이라 여기 ACP 이름을 넣으면
+      -- 동작하지 않습니다 — 그래서 둘 다 내장 HTTP 어댑터 'anthropic'을 씁니다(별도 등록 없이
+      -- 기본으로 ANTHROPIC_API_KEY를 자동 인식하므로 위 claude_code와 같은 키를 재사용).
+      -- 지정 안 하면 CodeCompanion 자체 기본값인 'copilot'으로 조용히 빠지므로 반드시 명시해야 함.
       -- 채팅 어댑터만 바꾸고 싶으면 chat.adapter 문자열만 교체하면 됨(예: 'codex'/'gemini_cli').
       interactions = {
         chat = { adapter = 'claude_code' },
         inline = { adapter = 'anthropic' },
+        cmd = { adapter = 'anthropic' },
+        -- [CLI 인터랙션] chat의 ACP 통합과는 별개의 기능 — 순수 터미널 래퍼로 CLI를 그대로
+        -- 띄웁니다(:CodeCompanionCLI). agents를 채워야 동작합니다 — 기본값은 빈 테이블이라
+        -- 아무것도 안 뜹니다(공식 문서 확인). cmd/args는 각 CLI를 터미널에서 그대로 부르는
+        -- 값이라 codex는 ACP 브릿지(codex-acp)가 아니라 원래 codex CLI를 씁니다.
+        cli = {
+          agent = 'claude_code',
+          agents = {
+            claude_code = { cmd = 'claude', args = {}, description = 'Claude Code CLI', provider = 'terminal' },
+            codex = { cmd = 'codex', args = {}, description = 'Codex CLI', provider = 'terminal' },
+            gemini_cli = { cmd = 'gemini', args = {}, description = 'Gemini CLI', provider = 'terminal' },
+            opencode = { cmd = 'opencode', args = {}, description = 'OpenCode CLI', provider = 'terminal' },
+            goose = { cmd = 'goose', args = {}, description = 'Goose CLI', provider = 'terminal' },
+          },
+        },
       },
     },
     -- keys 자체가 지연 로드 트리거를 겸함(위 cmd 목록과 중복 등록돼도 무해함).
