@@ -84,7 +84,7 @@ return {
           -- [Codex] OpenAI Codex CLI 브릿지. codex-acp 바이너리가 PATH에 있어야 함.
           codex = function()
             return require('codecompanion.adapters').extend('codex', {
-              defaults = { auth_method = 'api-key' }, -- 'chatgpt' 로 바꾸면 ChatGPT 로그인 방식
+              defaults = { auth_method = 'api-key' }, -- 'chat-gpt' 로 바꾸면 ChatGPT 로그인 방식
               env = {
                 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY'),
               },
@@ -113,11 +113,15 @@ return {
           end,
         },
       },
-      -- 어댑터 이름 문자열만 바꾸면 기본 채팅/인라인 어시스턴트를 즉시 전환할 수 있음
-      -- (예: 'claude_code' → 'codex' 또는 'gemini_cli').
+      -- ⚠️ CodeCompanion의 인라인 편집(interactions.inline)은 ACP 어댑터를 지원하지 않고
+      -- HTTP 어댑터만 지원합니다(공식 문서 확인) — claude_code/codex 등은 ACP라서 inline에
+      -- 쓰면 동작하지 않습니다. 그래서 inline만 내장 HTTP 어댑터 'anthropic'을 씁니다
+      -- (별도 등록 없이 기본으로 ANTHROPIC_API_KEY를 자동 인식하므로 위 claude_code와
+      -- 같은 키를 그대로 재사용). chat은 ACP를 그대로 씁니다.
+      -- 채팅 어댑터만 바꾸고 싶으면 chat.adapter 문자열만 교체하면 됨(예: 'codex'/'gemini_cli').
       interactions = {
         chat = { adapter = 'claude_code' },
-        inline = { adapter = 'claude_code' },
+        inline = { adapter = 'anthropic' },
       },
     },
     -- keys 자체가 지연 로드 트리거를 겸함(위 cmd 목록과 중복 등록돼도 무해함).

@@ -771,13 +771,21 @@ else
                 echo ""
             fi
 
-            # orca AppImage 실행에 필요한 의존성 (공식 헤드리스 서버 가이드 기준)
+            # orca AppImage 실행에 필요한 의존성 (공식 헤드리스 서버 가이드 기준:
+            # curl file jq xvfb zlib1g-dev). curl은 이미 이 저장소 전체가 의존하므로 생략.
+            _ensure_pkg file file
             _ensure_pkg jq jq
             _ensure_pkg Xvfb xvfb
             if ! dpkg -s libfuse2 >/dev/null 2>&1 && ! dpkg -s libfuse2t64 >/dev/null 2>&1; then
                 echo -n "   📦 필수 패키지 (libfuse2) 자동 설치 중..."
                 sudo apt-get update -qq >/dev/null 2>&1 || true
                 sudo apt-get install -y libfuse2t64 >/dev/null 2>&1 || sudo apt-get install -y libfuse2 >/dev/null 2>&1 || true
+                echo " 완료"
+            fi
+            if ! dpkg -s zlib1g-dev >/dev/null 2>&1; then
+                echo -n "   📦 필수 패키지 (zlib1g-dev) 자동 설치 중..."
+                sudo apt-get update -qq >/dev/null 2>&1 || true
+                sudo apt-get install -y zlib1g-dev >/dev/null 2>&1 || true
                 echo " 완료"
             fi
 
@@ -915,9 +923,14 @@ EOF
             echo "     • OpenCode    : opencode.ai 설치 스크립트 →  opencode auth login"
             echo "     • Goose       : Block의 Goose CLI 설치    →  goose configure"
             echo ""
-            echo "   💡 CodeCompanion.nvim(codecompanion.lua)용으로 ANTHROPIC_API_KEY/OPENAI_API_KEY/"
-            echo "      GEMINI_API_KEY를 이미 셸에 export해두셨다면, Orca가 띄우는 에이전트 프로세스도"
-            echo "      같은 셸 환경을 그대로 물려받아 별도 설정 없이 그 키를 사용합니다."
+            echo "   ⚠️  ANTHROPIC_API_KEY 등을 .bashrc에 export해두신 게 있어도, orca serve가"
+            echo "      systemd(또는 데스크톱 런처)로 뜬 경우엔 .bashrc를 거치지 않아 그 값을 못 봅니다"
+            echo "      (WSL2 터미널에서 직접 치는 orca account add 같은 명령은 대화형 셸이라 문제없음)."
+            echo "      orca serve 데몬에서도 보이게 하려면 아래처럼 등록해주세요(로그인마다 자동 반영):"
+            echo "        mkdir -p ~/.config/environment.d"
+            echo "        printf 'ANTHROPIC_API_KEY=%s\\n' \"\$ANTHROPIC_API_KEY\" >> ~/.config/environment.d/orca.conf"
+            echo "      등록 후에는 'systemctl --user restart orca-serve.service'로 반영하거나 WSL2를"
+            echo "      재시작하면 적용됩니다."
             echo ""
             echo "   Claude/Codex는 Orca 자체 계정 전환/사용량 추적 기능도 지원합니다(선택 사항):"
             echo "     orca account add --agent claude"

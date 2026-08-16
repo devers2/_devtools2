@@ -1,6 +1,10 @@
 -- [성능 최적화] 대용량 파일 기준 임계값 정의
-_G.MAX_FILE_SIZE_COMPLEX = 200 * 1024 -- 복합 언어 템플릿용 (HTML, Django/Jinja, Vue, Svelte, Astro, PHP, JSP 등)
-_G.MAX_FILE_SIZE_SINGLE = 500 * 1024  -- 단일 소스 코드용 (Java, Python, JS, TS 등)
+-- LazyVim 공식 bigfile(snacks.nvim) 기본값 1.5MB를 기준점으로 재조정함:
+-- 트리시터는 크기 때문에 "깨지지"(크래시/오동작) 않고 속도만 완만히 느려지는 구조라,
+-- 단일 문법(injection 없음)은 공식 기준값에 가깝게, 복합 템플릿(injection 있음)은
+-- 방향성만 유지하며 이전 200/500KB보다 완화함.
+_G.MAX_FILE_SIZE_COMPLEX = 500 * 1024   -- 복합 언어 템플릿용 (HTML, Django/Jinja, Vue, Svelte, Astro, PHP, JSP 등)
+_G.MAX_FILE_SIZE_SINGLE = 1024 * 1024   -- 단일 소스 코드용 (Java, Python, JS, TS 등)
 
 -- 복합 언어 템플릿 파일타입 목록 (자바/스프링, 파이썬, Node/Frontend 관련 포함)
 _G.COMPLEX_FILETYPES = {
