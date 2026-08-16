@@ -1,5 +1,5 @@
 /**
- * SCSS를 포함한 Stylelint 설정을 정의
+ * 순수 CSS 전용 Stylelint 설정을 정의 (SCSS는 stylelint.scss.config.mjs 참고)
  * @type {import('stylelint').Config}
  */
 const config = {
@@ -8,7 +8,7 @@ const config = {
     'stylelint-prettier' // Prettier와의 통합을 위한 플러그인
   ],
 
-  // SCSS 환경에 최적화된 표준 규칙 세트를 상속받아 사용
+  // 표준 CSS 규칙 세트를 상속받아 사용
   extends: [
     'stylelint-config-standard', // 순수 CSS 표준 규칙
 

@@ -546,6 +546,13 @@ return {
 
             ---@diagnostic disable-next-line: undefined-field
             local search_root = _G.PROJECT_ROOT and vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p') or vim.fn.getcwd()
+            -- ⚠️ getcwd()와 trailing slash 없는 PROJECT_ROOT(예: "./my-project")를 fnamemodify(':p')한
+            -- 결과에는 끝에 '/'가 없습니다. 아래 common_paths에서 'src/main/java/'와 그대로 이어붙이면
+            -- 구분자 없이 "...my-projectsrc/main/java/..."처럼 경로가 깨져서, "성능 최적화"용 빠른 경로
+            -- 확인이 항상 실패하고 매번 느린 glob 폴백만 타게 됩니다. 끝에 '/'를 보장합니다.
+            if not search_root:match('/$') then
+              search_root = search_root .. '/'
+            end
             ---@diagnostic disable-next-line: undefined-field
             local class_rel_path = _G.MAIN_CLASS:gsub('%.', '/') .. '.java'
 

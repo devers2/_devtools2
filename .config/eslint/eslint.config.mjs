@@ -166,7 +166,14 @@ export default [
   {
     files: ['**/*.html'],
     plugins: {
-      html: eslintPluginHtml // HTML 플러그인
+      html: eslintPluginHtml, // HTML 플러그인
+      // ⚠️ prettier 플러그인을 이 config 객체 자체에 등록합니다. 예전에는 섹션 4
+      // (files 목록에 html 포함)가 이 등록을 제공했는데, 섹션 4에서 html을 뺀 뒤로는
+      // .prettierrc.cjs에 HTML 전용 override가 우연히 있을 때만 prettierOverrideConfigs가
+      // 대신 등록해주는 취약한 상태였습니다(없어지면 'prettier/prettier': 'off' 아래 줄이
+      // "플러그인을 찾을 수 없음" 에러를 낼 수 있음). 이 config 객체 스스로 등록해서
+      // 다른 config의 존재 여부와 무관하게 항상 유효하도록 만듭니다.
+      prettier: prettierPlugin
     },
     languageOptions: {
       sourceType: 'module',
@@ -289,10 +296,16 @@ export default [
   /**
    * 4. Prettier 플러그인(eslint-plugin-prettier) 설정
    * ESLint 검사 시 포맷팅 규칙을 강제 한다.
-   * ※ JS, TS, Vue, HTML 모든 파일에 대해 적용
+   * ※ JS, TS, Vue 파일에 대해 적용 (HTML은 섹션 2에서 별도로 무조건 off 처리)
    */
   {
-    files: ['**/*.{js,mjs,cjs,jsx,ts,tsx,vue,html}'],
+    // ⚠️ html은 이 목록에서 제외합니다. 섹션 2에서 이미 HTML은 prettier/prettier를
+    // 무조건 off로 설정했는데, 여기서 html까지 포함해 다시 켜면(배열 순서상 이 설정이
+    // 섹션 2보다 뒤라 덮어씀) .prettierrc.cjs에 HTML 전용 override가 우연히 존재할
+    // 때만 아래 prettierOverrideConfigs가 다시 off로 되돌려서 상쇄되는 취약한 구조가
+    // 됩니다(현재는 우연히 override가 있어 안 깨져 있었음). html을 원천적으로 빼서
+    // 이 의존성을 제거합니다.
+    files: ['**/*.{js,mjs,cjs,jsx,ts,tsx,vue}'],
     plugins: {
       prettier: prettierPlugin
     },

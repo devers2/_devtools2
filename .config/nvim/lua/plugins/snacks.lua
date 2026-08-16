@@ -18,7 +18,7 @@ return {
         },
       },
       picker = {
-        -- 전역 설정: 모든 피커(파일, 그렙, 익스플로러 등)에서 숨김 파일 허용
+        -- 전역 기본값: 숨김 파일 비허용 (아래 sources에서 소스별로 개별 override)
         hidden = false,
         -- 이미 열려있는 버퍼 프리뷰 시 외부 플러그인에 의해 모드가 풀리는 현상 수정
         preview = function(ctx)
