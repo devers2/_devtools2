@@ -746,9 +746,16 @@ _orca_proceed=false
 
 if [ -f "$ORCA_APPIMAGE" ]; then
     echo "   ⏭️ [건너뜀] orca AppImage가 이미 존재합니다. (재설치하려면 삭제: sudo rm -rf '$ORCA_DIR')"
-    echo "   ℹ️  이미 설치되어 있어도 아래 systemd/페어링 상태는 매번 다시 점검합니다"
-    echo "      (예: systemd 활성화를 위해 WSL을 재시작하고 이 스크립트를 다시 실행한 경우)."
-    _orca_proceed=true
+    if [ "${DT2_ORCA_CHOICE:-}" = "N" ] || [ "${DT2_ORCA_CHOICE:-}" = "n" ]; then
+        # Windows 쪽에서 이번 실행은 명시적으로 N을 선택한 경우 — systemd/페어링 재점검도
+        # 이번엔 건너뜁니다(4.setup-orca.ps1도 이번엔 안 돌기 때문에 재점검해봐야 그 결과를
+        # 받아줄 곳이 없어 불필요한 작업이 됨).
+        echo "   ℹ️  이번 실행은 Windows 쪽에서 'N'을 선택하셔서 systemd/페어링 재점검도 건너뜁니다."
+    else
+        echo "   ℹ️  이미 설치되어 있어도 아래 systemd/페어링 상태는 매번 다시 점검합니다"
+        echo "      (예: systemd 활성화를 위해 WSL을 재시작하고 이 스크립트를 다시 실행한 경우)."
+        _orca_proceed=true
+    fi
 else
     echo "   ℹ️  Orca는 여러 코딩 에이전트를 Git worktree로 격리해 병렬로 실행/조율하는"
     echo "      에이전트 오케스트레이션 도구입니다 (Claude Code, Codex, Gemini 등 지원)."
