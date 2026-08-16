@@ -330,6 +330,7 @@ return {
         { '<leader>cR', desc = '파일 이름 변경 (Rename File)' },
         { '<leader>cs', desc = '심볼 목록 - Trouble (Symbols - Trouble)' },
         { '<leader>cS', desc = 'LSP 참조/정의 목록 - Trouble (LSP Refs/Defs - Trouble)' },
+        { '<leader>cv', desc = 'Python 가상환경 선택 (Select VirtualEnv)' },
 
         -- ── 문자열/패턴 검색 그룹 (<leader>s) ──
         { '<leader>sa', desc = '자동 명령 목록 (Autocmds)' },

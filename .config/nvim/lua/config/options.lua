@@ -193,13 +193,13 @@ vim.on_key(function(key)
   end
 end)
 
--- Diagnostic 설정 (LSP 실시간 에러 가상 텍스트 표시)
+-- Diagnostic 설정 (LSP 실시간 에러 표시)
+-- ⚠️ virtual_text 는 여기서 설정해도 죽은 설정입니다: plugins/edit.lua의 tiny-inline-diagnostic.nvim이
+--   VeryLazy 시점에 vim.diagnostic.config({ virtual_text = false })를 다시 호출해서 완전히 덮어씁니다
+--   (vim.diagnostic.config는 얕은 병합이라 나중 호출이 virtual_text 테이블 전체를 통째로 교체함,
+--   실측: spacing/source/prefix를 여기 넣어도 화면에 전혀 반영되지 않음). 가상 텍스트 스타일을
+--   바꾸려면 plugins/edit.lua의 tiny-inline-diagnostic.nvim setup()을 수정하세요.
 vim.diagnostic.config({
-  virtual_text = {
-    spacing = 4,
-    source = 'if_many',
-    prefix = '●',
-  },
   severity_sort = true,
   signs = true,
   underline = true,
