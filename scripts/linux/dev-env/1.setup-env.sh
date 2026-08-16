@@ -166,6 +166,7 @@ $DEVTOOLS2/modules/lazygit:\
 $DEVTOOLS2/modules/ast-grep:\
 $DEVTOOLS2/modules/bitwarden:\
 $DEVTOOLS2/modules/rclone:\
+$DEVTOOLS2/modules/orca:\
 $PATH"
 
 EOF
@@ -197,6 +198,7 @@ export PATH="\
 \$DEVTOOLS2/modules/bitwarden:\
 \$DEVTOOLS2/modules/rclone:\
 \$DEVTOOLS2/modules/win32yank:\
+\$DEVTOOLS2/modules/orca:\
 \$PATH"
 
 # Windows-mounted NTFS 디렉터리 배경색 수정 (WSL2에서 터미널 Kanagawa 테마 가독성 확보)

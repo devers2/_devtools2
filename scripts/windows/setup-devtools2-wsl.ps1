@@ -604,6 +604,15 @@ Write-Host "]: " -ForegroundColor Yellow -NoNewline
 $installZedInput = Read-Host
 $userChoseZed = $installZedInput -match '^[Yy]'
 
+# 3. Orca 설치 여부 사전 확인 (Windows+WSL 조합에서는 WSL2에 orca serve 헤드리스로,
+#    Windows에는 거기 페어링만 하는 GUI 클라이언트를 설치 — 4.setup-orca.ps1 참고)
+Write-Host ""
+Write-Host "👉 Orca(멀티 에이전트 오케스트레이션 ADE)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+Write-Host "N" -ForegroundColor Green -NoNewline
+Write-Host "]: " -ForegroundColor Yellow -NoNewline
+$installOrcaInput = Read-Host
+$userChoseOrca = $installOrcaInput -match '^[Yy]'
+
 # ==============================================================================
 # [Step 3 사전] WSL Interop (Windows ↔ Linux 실행 파일 연동) 상태 확인
 # ==============================================================================
@@ -646,7 +655,10 @@ wsl -d $wslDistro -- rm -f /tmp/_dt2_1.sh 2>$null
 if ($envExit -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, VSCode 확장)"
-wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh"
+# Orca 설치 여부는 위에서 이미 물어봤으므로(사전 질문 블록), WSL2 내부 스크립트가 같은 질문을
+# 다시 하지 않도록 환경 변수로 답을 그대로 전달합니다.
+$orcaChoiceEnv = if ($userChoseOrca) { "Y" } else { "N" }
+wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_ORCA_CHOICE=$orcaChoiceEnv bash -l /tmp/_dt2_2.sh"
 $coreExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_2.sh 2>$null
 if ($coreExit -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
@@ -667,15 +679,15 @@ Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
 # ── 4-1. AutoHotkey (CapsLock 리매핑 + Ctrl+Alt+T 단축키) ────────────────────
-Write-SubStep "▶ (1/4) AutoHotkey 배포 및 단축키 등록"
+Write-SubStep "▶ (1/5) AutoHotkey 배포 및 단축키 등록"
 Invoke-RemotePsScript -Url "$RAW_WIN/1.setup-autohotkey.ps1" -Arguments @{ WslDistro = $wslDistro }
 
 # ── 4-2. Windows Terminal (폰트/테마/fzf 단축키) ─────────────────────────────
-Write-SubStep "▶ (2/4) Windows Terminal 폰트/테마/단축키 설정"
+Write-SubStep "▶ (2/5) Windows Terminal 폰트/테마/단축키 설정"
 Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-windows-terminal.ps1" -Arguments @{ WslDistro = $wslDistro }
 
 # ── 4-3. VSCode 설정 및 Windows 로컬 확장 연동 ───────────────────────────────
-Write-SubStep "▶ (3/4) VSCode 설정 연동 및 Windows 로컬 확장 설치"
+Write-SubStep "▶ (3/5) VSCode 설정 연동 및 Windows 로컬 확장 설치"
 
 $skipVsCodeLink = -not ($userChoseVscode -or $vscodeAlreadyInstalled)
 
@@ -785,11 +797,19 @@ if ($skipVsCodeLink) {
 }
 
 # ── 4-4. Zed ─────────────────────────────────────────────────────────────────
-Write-SubStep "▶ (4/4) Zed 에디터 설치 및 설정 연동"
+Write-SubStep "▶ (4/5) Zed 에디터 설치 및 설정 연동"
 if ($userChoseZed) {
     Invoke-RemotePsScript -Url "$RAW_WIN/3.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
 } else {
     Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+}
+
+# ── 4-5. Orca (Windows GUI 클라이언트 — 에이전트 실행부는 WSL2의 orca serve) ──
+Write-SubStep "▶ (5/5) Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 안내"
+if ($userChoseOrca) {
+    Invoke-RemotePsScript -Url "$RAW_WIN/4.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
+} else {
+    Write-Skip "Orca 설치를 건너뜁니다."
 }
 
 # 🌟 [Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동]
@@ -829,8 +849,13 @@ Write-Host "====================================================================
 Write-Host ""
 Write-Info "  윈도우와 WSL2가 완벽하게 상호 연동되어 동작합니다."
 Write-Info "  - Windows 셸에서 'wsl'을 치면 설정이 완료된 Ubuntu 개발 환경에 바로 진입합니다."
-Write-Info "  - Windows에 설치된 Zed 에디터의 설정은 WSL2 내부 설정과 실시간 공유됩니다(심볼릭 링크)."
+Write-Info "  - Windows에 설치된 Zed 에디터의 설정은 설치 시점에 WSL2 내부 설정을 복사해 적용됩니다"
+Write-Info "    (WSL 심볼릭 링크가 Windows UNC 경로를 못 따라가 복사 방식을 씀 — 실시간 공유 아님, 재설치 스크립트로 갱신)."
 Write-Info "  - Windows Terminal의 폰트/테마/단축키는 설치 시점에 WSL2 설정을 복사해 적용됩니다(실시간 공유 아님 — 재설치 스크립트로 갱신)."
+if ($userChoseOrca) {
+    Write-Info "  - Orca는 에이전트 CLI가 있는 WSL2에서 'orca serve'로 실행되고, Windows GUI는 거기 페어링만 합니다."
+    Write-Info "    (자동/수동 페어링 방법은 방금 위 4.setup-orca.ps1 실행 결과에 안내되어 있습니다.)"
+}
 Write-Host ""
 Write-Host "  설치 성공을 확인하시려면 아래 도구들을 실행해 보세요:"
 Write-Host "    - Windows: Ctrl+Alt+T 눌러 Windows Terminal로 WSL2 바로 진입 확인" -ForegroundColor Gray

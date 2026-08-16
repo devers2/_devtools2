@@ -721,6 +721,224 @@ fi
 echo ""
 
 echo "---------------------------------------------------------------------------"
+# 9. Orca 설치 (멀티 에이전트 오케스트레이션 ADE): https://github.com/stablyai/orca
+#    전체 설치 과정의 마지막 단계 — Zed 설치 여부를 물은 바로 다음에 위치.
+#
+#    ⚠️ Zed/Ghostty와 달리 WSL2에서도 "건너뛰지 않고" 여기(리눅스 내부)에 설치합니다.
+#    이유: Orca는 Claude Code/Codex/Gemini 같은 CLI 에이전트를 직접 실행(spawn)해야 하는데,
+#    그 CLI들은 (npm i -g @anthropic-ai/claude-code 등으로) 전부 이 WSL2 내부에 설치되어
+#    있습니다. Orca를 Windows 네이티브로만 설치하면 WSL2 안의 그 바이너리를 실행할 방법이
+#    없습니다(공식 문서에 WSL 브릿지 기능 없음). 대신 Orca 공식 "Remote Orca Servers" 모드를
+#    사용합니다: 에이전트 실행부(orca serve)는 CLI가 실제로 있는 WSL2에 헤드리스로 두고,
+#    Windows에는 거기 페어링만 하는 가벼운 GUI 클라이언트를 설치합니다(4.setup-orca.ps1).
+echo "🐋 9. Orca 설치 단계"
+echo ""
+
+ORCA_DIR="$DEVTOOLS2/modules/orca"
+if [ "$IS_ARM64" = true ]; then
+    ORCA_APPIMAGE_NAME="orca-linux-arm64.AppImage"
+else
+    ORCA_APPIMAGE_NAME="orca-linux.AppImage"
+fi
+ORCA_APPIMAGE="$ORCA_DIR/$ORCA_APPIMAGE_NAME"
+
+if [ -f "$ORCA_APPIMAGE" ]; then
+    echo "   ⏭️ [건너뜀] orca AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$ORCA_DIR'"
+else
+    echo "   ℹ️  Orca는 여러 코딩 에이전트를 Git worktree로 격리해 병렬로 실행/조율하는"
+    echo "      에이전트 오케스트레이션 도구입니다 (Claude Code, Codex, Gemini 등 지원)."
+    echo ""
+    if [ -n "${DT2_ORCA_CHOICE:-}" ]; then
+        # setup-devtools2-wsl.ps1(Windows)에서 Zed 질문 직후 이미 물어본 답을 그대로 사용합니다.
+        # WSL2 조합에서 여기서 또 물으면 같은 질문을 두 번 하게 되므로 건너뜁니다.
+        _orca_choice="$DT2_ORCA_CHOICE"
+        echo "   ℹ️  Windows 쪽에서 이미 선택하신 값을 사용합니다: ${_orca_choice}"
+    else
+        printf "   👉 Orca를 설치하시겠습니까? [y/\033[1;32mN\033[0m]: "
+        if [ -t 0 ]; then
+            read -r _orca_choice
+        else
+            _orca_choice="N"
+        fi
+    fi
+    echo ""
+    case "${_orca_choice:-N}" in
+        y|Y)
+            if [ "$IS_WSL2" = true ]; then
+                echo "   ⚠️  [WSL2 환경 감지] Orca 실행부(orca serve)는 CLI 에이전트가 실제로 설치된"
+                echo "      이 WSL2 내부에 헤드리스로 설치합니다. Windows 쪽에는 여기 페어링만 하는"
+                echo "      GUI 클라이언트가 별도로 설치됩니다(setup-devtools2-wsl.ps1 마지막 단계)."
+                echo ""
+            fi
+
+            # orca AppImage 실행에 필요한 의존성 (공식 헤드리스 서버 가이드 기준)
+            _ensure_pkg jq jq
+            _ensure_pkg Xvfb xvfb
+            if ! dpkg -s libfuse2 >/dev/null 2>&1 && ! dpkg -s libfuse2t64 >/dev/null 2>&1; then
+                echo -n "   📦 필수 패키지 (libfuse2) 자동 설치 중..."
+                sudo apt-get update -qq >/dev/null 2>&1 || true
+                sudo apt-get install -y libfuse2t64 >/dev/null 2>&1 || sudo apt-get install -y libfuse2 >/dev/null 2>&1 || true
+                echo " 완료"
+            fi
+
+            mkdir -p "$ORCA_DIR"
+            echo -n "   📥 orca 다운로드 중..."
+            curl -Ls "https://github.com/stablyai/orca/releases/latest/download/${ORCA_APPIMAGE_NAME}" -o "$ORCA_APPIMAGE" &
+            show_spinner $!
+            echo " 완료"
+            chmod +x "$ORCA_APPIMAGE"
+            # PATH에서 'orca'라는 짧은 이름으로 바로 실행할 수 있도록 심볼릭 링크 생성
+            # (상대 경로 링크라 $DEVTOOLS2가 통째로 이동해도 깨지지 않음)
+            ln -sf "$ORCA_APPIMAGE_NAME" "$ORCA_DIR/orca"
+            echo "   ✅ orca ($ARCH) 설치 완료 → $ORCA_APPIMAGE (PATH: orca)"
+
+            # 설정/상태 디렉터리 심볼릭 링크. Orca는 아래 세 곳을 모두 씁니다(공식 문서 확인):
+            # 소문자 ~/.config/orca, Electron GUI용 대문자 ~/.config/Orca, 그리고 keybindings.json
+            # 등 CLI 전역 설정용 ~/.orca. 안 쓰는 게 있어도 빈 심볼릭 링크라 해될 게 없어 셋 다 둡니다.
+            _orca_symlink_script="$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh"
+            _orca_link() {
+                if [ -f "$_orca_symlink_script" ]; then
+                    "$_orca_symlink_script" "$1" "$2"
+                else
+                    curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/cmd/create-symbolic-link.sh" \
+                        | bash -s -- "$1" "$2"
+                fi
+            }
+            _orca_link "$DEVTOOLS2/.config/orca" "$HOME/.config/orca"
+            _orca_link "$DEVTOOLS2/.config/Orca" "$HOME/.config/Orca"
+            _orca_link "$DEVTOOLS2/.config/orca-home" "$HOME/.orca"
+
+            # ── 권장 스킬 전역 설치 (베스트 에포트) ──
+            # orca-cli/orchestration은 공식 문서가 일반적인 기본 조합으로 예시하는 스킬입니다.
+            # CLI 에이전트(claude/codex 등)가 아직 없으면 그냥 아무것도 안 하고 넘어갑니다
+            # (에이전트 설치 후 'orca skills install --all' 로 나중에 다시 돌리면 됩니다).
+            # orca serve 데몬을 아직 띄우기 전에 실행합니다 — 같은 AppImage를 동시에 두 번
+            # 띄웠을 때 생길 수 있는 Electron 단일 인스턴스 락 충돌 가능성을 애초에 피하기 위함.
+            # timeout으로 감싸는 이유: 실패해도 무해해야 할 이 단계가 혹시라도 응답 없이 멈추면
+            # (예: 디스플레이 요구) 전체 devtools2 설치가 그 자리에서 무한 대기하게 되기 때문.
+            # 공식 문서(onorca.dev/docs/cli/skills)가 헤드리스 호스트(SSH/컨테이너/CI/orca serve)용으로
+            # 정확히 명시한 명령입니다: "orca skills install --skill orca-cli --skill orchestration"
+            # (--global 플래그는 문서 예시에 없어 임의로 추가하지 않음 — 헤드리스 CLI 래퍼는 애초에
+            # 전역 스코프만 의미가 있어 기본값이 global인 것으로 보입니다).
+            echo ""
+            echo "   🧩 권장 스킬(orca-cli, orchestration) 설치 시도 중..."
+            timeout 20 "$ORCA_DIR/orca" skills install --skill orca-cli --skill orchestration >/dev/null 2>&1 \
+                && echo "   ✅ 스킬 설치 완료 (감지된 에이전트가 없었다면 지금은 조용히 아무 일도 안 했을 수 있음)" \
+                || echo "   ⚠️  스킬 설치를 건너뜁니다(타임아웃 또는 미감지 — 에이전트 CLI 설치 후 'orca skills install --all'로 다시 시도 가능)"
+
+            # ── WSL2: orca serve 헤드리스 자동 실행 등록 + 페어링 링크 자동 확보 ──
+            # keyd(4.setup-keyboard.sh)와 동일한 방식: systemd 있으면 활용, 없으면 수동 실행 안내로 폴백.
+            if [ "$IS_WSL2" = true ]; then
+                echo ""
+
+                # ⚠️ 127.0.0.1은 Orca 공식 문서가 "원격 클라이언트 페어링에 쓰지 말라"고 명시적으로
+                # 경고하는 주소라 쓰지 않습니다. 대신 WSL2 자체 IP(Windows에서 직접 라우팅 가능)를
+                # 매번 기동 시점에 새로 조회하는 래퍼 스크립트를 둡니다 — WSL2 IP는 재부팅마다
+                # 바뀔 수 있어 systemd 유닛 파일에 고정 IP를 박아두면 재부팅 후 깨지기 때문입니다.
+                # LIBGL_ALWAYS_SOFTWARE=1도 여기 직접 넣어둡니다 — systemd의 Environment= 줄에만
+                # 있으면 "systemctl 없음" 폴백으로 이 파일을 수동 실행할 때는 안 먹기 때문입니다.
+                cat > "$ORCA_DIR/orca-serve-wrapper.sh" <<EOF
+#!/bin/bash
+export LIBGL_ALWAYS_SOFTWARE=1
+exec "$ORCA_APPIMAGE" serve --port 6768 --pairing-address "\$(hostname -I | awk '{print \$1}')"
+EOF
+                chmod +x "$ORCA_DIR/orca-serve-wrapper.sh"
+
+                if command -v systemctl &>/dev/null; then
+                    echo "   ⚙️  systemd 사용자 서비스로 'orca serve' 자동 실행을 등록합니다..."
+                    mkdir -p "$HOME/.config/systemd/user"
+                    cat > "$HOME/.config/systemd/user/orca-serve.service" <<EOF
+[Unit]
+Description=Orca headless agent orchestration server
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=$ORCA_DIR/orca-serve-wrapper.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+                    systemctl --user daemon-reload 2>/dev/null || true
+                    if systemctl --user enable --now orca-serve.service 2>/dev/null; then
+                        echo "   ✅ orca-serve.service 등록 및 실행 완료 (포트 6768)"
+
+                        # 페어링 링크 자동 확보 시도(베스트 에포트, 최대 20초 폴링). 헤드리스
+                        # 리눅스에서는 pairing 코드가 아예 출력되지 않는 알려진 미해결 버그가
+                        # 있어(stablyai/orca#9759) 안 나와도 정상입니다 — 그 경우 대체 안내를 출력합니다.
+                        _orca_pair_link=""
+                        for _i in 1 2 3 4 5 6 7 8 9 10; do
+                            sleep 2
+                            _orca_pair_link=$(journalctl --user -u orca-serve.service --no-pager -n 80 2>/dev/null | grep -oE 'orca://pair[^[:space:]]*' | tail -1)
+                            [ -n "$_orca_pair_link" ] && break
+                        done
+                        mkdir -p "$DEVTOOLS2/data"
+                        if [ -n "$_orca_pair_link" ]; then
+                            echo "$_orca_pair_link" > "$DEVTOOLS2/data/orca-pairing-link.txt"
+                            echo "   🔗 페어링 링크 확보: $_orca_pair_link"
+                            echo "      (Windows 쪽 4.setup-orca.ps1 이 이 링크를 자동으로 읽어갑니다)"
+                        else
+                            rm -f "$DEVTOOLS2/data/orca-pairing-link.txt"
+                            echo "   ⚠️  페어링 링크를 자동으로 찾지 못했습니다(알려진 업스트림 버그일 수 있음:"
+                            echo "      https://github.com/stablyai/orca/issues/9759 )."
+                            echo "      필요하면 직접 확인: journalctl --user -u orca-serve.service --no-pager | grep orca://"
+                        fi
+                    else
+                        echo "   ⚠️  systemd --user 서비스 활성화 실패. 수동 실행: $ORCA_DIR/orca-serve-wrapper.sh &"
+                    fi
+                else
+                    echo "   ⚠️  systemctl을 찾을 수 없습니다(WSL2 systemd 미활성). 자동 실행 등록을 건너뜁니다."
+                    echo "   💬 필요할 때 수동으로 실행하세요: $ORCA_DIR/orca-serve-wrapper.sh &"
+                fi
+                echo ""
+                echo "   💬 Windows Orca 앱과의 페어링 안내는 4.setup-orca.ps1 완료 화면에서 보여드립니다."
+            else
+                echo "   💬 일반 데스크톱 GUI 앱으로 바로 실행할 수 있습니다: $ORCA_APPIMAGE"
+            fi
+
+            # ── 실제로 쓰려면 필요한 다음 단계 안내 ──
+            # Orca는 오케스트레이터일 뿐, claude/codex/gemini 등 실제 에이전트 CLI 바이너리는
+            # 별도로 설치/로그인해야 함(Orca가 PATH에서 찾아 그대로 실행). codecompanion.lua에
+            # 정리된 것과 동일한 CLI라서 이미 그쪽을 설정했다면 이 단계는 생략 가능.
+            echo ""
+            echo "   ---------------------------------------------------------------------"
+            echo "   📋 실제로 사용하려면 (에이전트 CLI 설치 + 로그인, 1회만):"
+            echo "   ---------------------------------------------------------------------"
+            echo "   Orca는 오케스트레이터일 뿐이라, 아래 CLI들을 PATH에서 찾아 그대로 실행합니다."
+            echo "   설치 + 로그인은 각 CLI 자체 방식으로 1회만 하면 됩니다:"
+            echo ""
+            echo "     • Claude Code : npm i -g @anthropic-ai/claude-code  →  claude  (최초 실행 시 로그인)"
+            echo "     • Codex       : codex-acp 바이너리 필요(OpenAI Codex CLI의 ACP 브릿지, 별도 설치)"
+            echo "     • Gemini CLI  : npm i -g @google/gemini-cli        →  gemini  (최초 실행 시 로그인)"
+            echo "     • OpenCode    : opencode.ai 설치 스크립트 →  opencode auth login"
+            echo "     • Goose       : Block의 Goose CLI 설치    →  goose configure"
+            echo ""
+            echo "   💡 CodeCompanion.nvim(codecompanion.lua)용으로 ANTHROPIC_API_KEY/OPENAI_API_KEY/"
+            echo "      GEMINI_API_KEY를 이미 셸에 export해두셨다면, Orca가 띄우는 에이전트 프로세스도"
+            echo "      같은 셸 환경을 그대로 물려받아 별도 설정 없이 그 키를 사용합니다."
+            echo ""
+            echo "   Claude/Codex는 Orca 자체 계정 전환/사용량 추적 기능도 지원합니다(선택 사항):"
+            echo "     orca account add --agent claude"
+            echo "     orca account add --agent codex"
+            echo "     orca account list"
+            echo ""
+            echo "   에이전트 CLI를 새로 설치했다면 스킬 인식을 갱신해주세요(위에서 자동 설치는 이미 됨):"
+            echo "     orca skills install --all"
+            echo ""
+            echo "   설치 확인 후에는 Orca에서 바로 에이전트를 지정해 워크트리를 만들 수 있습니다:"
+            echo "     orca worktree create --agent claude --prompt \"할 일\""
+            echo "   ---------------------------------------------------------------------"
+            ;;
+        *)
+            echo "   ⏭️ Orca 설치를 건너뜁니다."
+            ;;
+    esac
+fi
+echo ""
+
+echo "---------------------------------------------------------------------------"
 echo "🔍 설치 완료: JDK 설치 검증"
 echo ""
 
