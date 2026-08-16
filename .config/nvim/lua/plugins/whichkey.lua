@@ -15,6 +15,7 @@ return {
         { '<leader>m', group = '[m] 미니맵 (Minimap)' },
         { '<leader>q', group = '[q] 종료/세션 (Quit/Session)' },
         { '<leader>s', group = '[s] 문자열/패턴 검색 (Search)' },
+        { '<leader>t', group = '[t] 테스트 (Test)' },
         { '<leader>u', group = '[u] UI 설정/토글 (UI)' },
         { '<leader>w', group = '[w] 창 관리 (Windows)' },
         { '<leader>x', group = '[x] 진단/퀵픽스 (Diagnostics/Quickfix)' },
@@ -423,6 +424,19 @@ return {
         { '<leader>uw', desc = '줄 바꿈 활성화 (Enable Wrap)' },
         { '<leader>uz', desc = '젠 모드 활성화 (Enable Zen Mode)' },
         { '<leader>uZ', desc = '줌 모드 활성화 (Enable Zoom Mode)' },
+
+        -- ── 테스트 그룹 (<leader>t / Neotest) ──
+        { '<leader>ta', desc = '테스트 러너 연결 (Attach to Test)' },
+        { '<leader>td', desc = '가장 가까운 테스트 디버그 (Debug Nearest)' },
+        { '<leader>tl', desc = '마지막 테스트 재실행 (Run Last)' },
+        { '<leader>to', desc = '테스트 결과 출력 (Show Output)' },
+        { '<leader>tO', desc = '출력 패널 토글 (Toggle Output Panel)' },
+        { '<leader>tr', desc = '가장 가까운 테스트 실행 (Run Nearest)' },
+        { '<leader>ts', desc = '테스트 요약 토글 (Toggle Summary)' },
+        { '<leader>tS', desc = '테스트 중지 (Stop)' },
+        { '<leader>tt', desc = '현재 파일 테스트 실행 (Run File)' },
+        { '<leader>tT', desc = '전체 테스트 파일 실행 (Run All Test Files)' },
+        { '<leader>tw', desc = '테스트 감시 모드 토글 (Toggle Watch)' },
 
         -- ── 대소문자 변환 그룹 (<leader>\) ── (convert-case)
         { '<leader>\\a', desc = 'Unicode 디코드 (Decode \\uXXXX → char)' },
