@@ -94,14 +94,14 @@
   // "git.path": "/var/opt/_devtools2/modules/git/PortableGit/cmd/git.exe",
 
   /* [Node.js 모듈/도구 실행 경로] */
-  "prettier.prettierPath": "/var/opt/_devtools2/data/.npm-packages/node_modules/prettier", // Prettier 실행 파일 경로
+  "prettier.prettierPath": "/var/opt/_devtools2/data/.npm-packages/lib/node_modules/prettier", // Prettier 실행 파일 경로
   "prettier.configPath": "/var/opt/_devtools2/.config/prettier/.prettierrc.cjs", // Prettier 설정 파일 경로
   "prettier.ignorePath": "/var/opt/_devtools2/.config/prettier/.prettierignore",
-  "eslint.nodePath": "/var/opt/_devtools2/data/.npm-packages/node_modules", // ESLint 작업 디렉토리 설정
+  "eslint.nodePath": "/var/opt/_devtools2/data/.npm-packages/lib/node_modules", // ESLint 작업 디렉토리 설정
   "eslint.options": {
     "overrideConfigFile": "/var/opt/_devtools2/.config/eslint/eslint.config.mjs"
   },
-  "stylelint.stylelintPath": "/var/opt/_devtools2/data/.npm-packages/node_modules/stylelint", // Stylelint 실행 파일 경로
+  "stylelint.stylelintPath": "/var/opt/_devtools2/data/.npm-packages/lib/node_modules/stylelint", // Stylelint 실행 파일 경로
   // ⚠️ stylelint.validate(아래)에 scss가 포함되어 있는데 이 configFile은 파일타입별로
   // 나눠 지정할 수 없는 단일 값입니다. CSS 전용 stylelint.config.mjs를 가리키면 SCSS
   // 파일도 SCSS 문법 파서 없이 검사되어(중첩, $변수, & 등에서) 파싱 오류가 날 수 있습니다.
