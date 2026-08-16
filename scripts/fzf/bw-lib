@@ -61,6 +61,7 @@ fi
 
 # ── bw vault 잠금 해제 수행 ───────────────────────────────────────────────────
 _bw_do_unlock() {
+    local _MASTER_PASS
     echo ""
     read -rsp "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒 " _MASTER_PASS
     echo ""
@@ -72,8 +73,13 @@ _bw_do_unlock() {
 
     echo "🔓 Bitwarden vault 잠금 해제 중..."
     local _UNLOCK_OUTPUT
-    _UNLOCK_OUTPUT=$(bw unlock "$_MASTER_PASS" 2>&1)
+    # ⚠️ 비밀번호를 `bw unlock "$_MASTER_PASS"`처럼 커맨드라인 인자로 넘기면 실행되는
+    # 짧은 순간 동안 ps/proc/cmdline을 통해 같은 시스템의 다른 사용자에게 노출될 수 있습니다.
+    # Bitwarden 공식 문서가 권장하는 --passwordenv로 환경변수를 통해서만 전달합니다.
+    export BW_PASSWORD="$_MASTER_PASS"
     unset _MASTER_PASS
+    _UNLOCK_OUTPUT=$(bw unlock --passwordenv BW_PASSWORD 2>&1)
+    unset BW_PASSWORD
 
     BW_SESSION=$(echo "$_UNLOCK_OUTPUT" | grep -oP '(?<=export BW_SESSION=")[^"]+' | head -1)
 
@@ -163,6 +169,9 @@ bw_get_folder_ids() {
         return 1
     fi
 
+    # ⚠️ 폴더명을 파이썬 소스에 문자열로 직접 이어붙이지 않고 sys.argv로 전달합니다.
+    # (bw_find_item_by_name / bw_get_fields와 동일한 안전한 패턴 — 폴더명에 따옴표 등
+    # 특수문자가 섞여 들어와도 파이썬 코드로 해석되지 않습니다.)
     echo "$_FOLDERS_JSON" | python3 -c "
 import sys, json
 
@@ -172,12 +181,12 @@ try:
     end = raw.rfind(']')
     if start != -1 and end != -1 and start < end:
         folders = json.loads(raw[start:end+1], strict=False)
-        target = '''$_FOLDER_NAME'''.strip()
+        target = sys.argv[1].strip()
         matched = [f.get('id','') for f in folders if isinstance(f, dict) and str(f.get('name','')).strip() == target and f.get('id')]
         print(' '.join(matched))
 except Exception:
     pass
-" 2>/dev/null
+" "$_FOLDER_NAME" 2>/dev/null
 }
 
 # ── 폴더명으로 아이템 전체 조회 후 RAW_ITEMS_LIST 반환 ────────────────────────

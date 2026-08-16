@@ -189,6 +189,26 @@ vim.api.nvim_create_autocmd('FileType', {
       return
     end
 
+    -- ⚠️ 이미 다른 형식의 Prettier 설정 파일이 존재하면 자동 생성을 건너뜁니다.
+    -- Prettier의 설정 파일 탐색 우선순위(.prettierrc/.prettierrc.json/.yaml 등이
+    -- prettier.config.js보다 항상 우선)때문에, 여기서 새 prettier.config.js를 만들어도
+    -- 다른 포맷의 기존 파일에 밀려 조용히 무시되거나(있는지도 모르고 "성공" 알림만 뜸),
+    -- 반대로 기존 prettier.config.js와 동일 경로라면 사용자의 기존 커스텀 설정을
+    -- 통째로 덮어쓰게 됩니다. 두 경우 모두 위험하므로 자동 생성 대신 안내만 합니다.
+    if config_path then
+      vim.schedule(function()
+        vim.notify(
+          '⚠️ 이미 Prettier 설정 파일이 있습니다: '
+            .. config_path
+            .. '\nJinja 포맷팅이 필요하면 해당 파일에 parser 오버라이드를 직접 추가해주세요.\n'
+            .. '(자동 생성 시 Prettier 설정 탐색 우선순위 때문에 무시되거나 기존 설정을 덮어쓸 수 있어 건너뜁니다.)',
+          vim.log.levels.WARN,
+          { title = 'Jinja Formatter' }
+        )
+      end)
+      return
+    end
+
     -- 비동기로 사용자에게 적용 의사 및 경로 입력 유도
     vim.schedule(function()
       vim.ui.input({

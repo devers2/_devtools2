@@ -35,7 +35,15 @@ if ok then
     end
     local content = f:read('*all')
     f:close()
-    local state = vim.json.decode(content) or {}
+    -- save_last_debug_port와 동일하게 빈 내용 방어: 쓰기 도중 중단 등으로 파일이
+    -- 0바이트인 경우 vim.json.decode('')가 에러를 던지는 것을 방지합니다.
+    if not content or content == '' then
+      return default_port
+    end
+    local ok, state = pcall(vim.json.decode, content)
+    if not ok or type(state) ~= 'table' then
+      return default_port
+    end
     local cwd = vim.fn.getcwd()
     local cwd_state = state[cwd] or {}
     -- 자바의 경우 기존 last_debug_port 키 하위 호환 처리

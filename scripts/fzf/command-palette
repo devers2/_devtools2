@@ -819,7 +819,9 @@ elif [[ "$CHOICE" == *"포트 확인"* ]]; then
         else
             if $IS_WINDOWS; then
                 # Windows: netstat -ano & tasklist
-                local win_pids
+                # ⚠️ 이 if/elif 분기는 함수 안이 아닌 최상위 스크립트 레벨이라 local을 쓰면
+                # "local: can only be used in a function" 에러가 매번 출력됩니다(기능은
+                # 깨지지 않지만 지저분한 에러가 뜸). 전역 변수로 선언합니다.
                 win_pids=$(netstat -ano 2>/dev/null | grep -E ":${PORT}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
                 print_pids_info "$win_pids"
             elif $IS_MAC; then
@@ -888,11 +890,10 @@ elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
     echo ""
     echo "🔪 포트 $PORT 점유 프로세스 해제 중..."
     if $IS_WINDOWS; then
-        local win_pids
+        # ⚠️ 함수 밖(최상위 스크립트 레벨)이라 local을 쓰면 매번 에러가 출력되므로 제거
         win_pids=$(netstat -ano 2>/dev/null | grep -E ":${PORT}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
         kill_pids "$win_pids"
     elif $IS_MAC; then
-        local mac_pids
         mac_pids=$(lsof -ti :"$PORT" 2>/dev/null)
         if [[ -n "$mac_pids" ]]; then
             kill_pids "$mac_pids"
