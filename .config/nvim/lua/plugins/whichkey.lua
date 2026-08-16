@@ -7,6 +7,7 @@ return {
       spec = {
         -- ── 최상위 그룹 (Top-level Leader Groups) ──
         -- 그룹명 앞에 [키] 를 표시하여 breadcrumb 타이틀에서 어떤 키를 눌렀는지 직관적으로 확인 가능
+        { '<leader>a', group = '[a] AI 에이전트 (CodeCompanion)' },
         { '<leader>b', group = '[b] 버퍼 (Buffer)' },
         { '<leader>c', group = '[c] 코드/LSP (Code)' },
         { '<leader>d', group = '[d] 디버그 (Debug)' },
@@ -39,6 +40,24 @@ return {
         { '<leader>`', desc = '이전 버퍼로 전환 (Switch to Other Buffer)' },
         { '<leader>|', desc = '창 오른쪽으로 분할 (Split Window Right)' },
         { '<leader><space>', desc = '스마트 파일/버퍼 검색 (Smart Picker)' },
+
+        -- ── AI 에이전트 그룹 (<leader>a / CodeCompanion) ──
+        { '<leader>aa', desc = '액션 팔레트 (Action Palette)' },
+        { '<leader>ac', desc = '채팅 토글 (Toggle Chat)' },
+        { '<leader>ai', desc = '인라인 편집 (Inline Edit)' },
+        { '<leader>al', desc = 'CLI 상호작용 (CLI Interaction)' },
+        { '<leader>am', desc = '커맨드라인 명령 생성 (Generate Command)' },
+        { '<leader>an', desc = '새 채팅 (New Chat)' },
+        { '<leader>ar', desc = '코드 리뷰 (Code Review)' },
+        { '<leader>av', desc = '선택 영역 채팅에 추가 (Add Selection to Chat)', mode = 'v' },
+
+        -- ── 에이전트 전환 그룹 (<leader>ag) ──
+        { '<leader>ag', group = '[g] 에이전트 전환 (Switch Agent)' },
+        { '<leader>agc', desc = 'Claude Code로 채팅' },
+        { '<leader>agg', desc = 'Gemini CLI로 채팅' },
+        { '<leader>ago', desc = 'OpenCode로 채팅' },
+        { '<leader>ags', desc = 'Goose로 채팅' },
+        { '<leader>agx', desc = 'Codex로 채팅' },
 
         -- ── 디버그 그룹 (<leader>d) ──
         { '<leader>da', desc = '포트 지정 디버그 연결 (Attach/Launch Debug)' },
