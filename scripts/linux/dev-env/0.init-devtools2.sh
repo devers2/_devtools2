@@ -104,8 +104,19 @@ print_sep
 print_step "[Step 0] 시스템 필수 패키지 설치 (unzip, tar, curl, wget, rsync, python3-pip)"
 print_sep
 
-# 만약 이전 패키지 작업이 락을 쥐고 멈춰있는 경우 락 강제 해제
-rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null
+# 만약 이전 패키지 작업이 락을 쥐고 멈춰있는 경우(WSL2 비정상 종료 등으로 stale 상태가 된
+# 경우) 락 강제 해제 — 단, fuser로 실제로 쥐고 있는 프로세스가 없을 때만 지웁니다.
+# unattended-upgrades 같은 진짜 실행 중인 apt/dpkg 프로세스와 경합해 dpkg 데이터베이스가
+# 손상되는 걸 방지하기 위함(fuser가 없는 극단적 환경이면 기존처럼 무조건 삭제로 폴백).
+for _lockfile in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock; do
+    if [ -e "$_lockfile" ]; then
+        if command -v fuser &>/dev/null; then
+            fuser "$_lockfile" >/dev/null 2>&1 || rm -f "$_lockfile"
+        else
+            rm -f "$_lockfile"
+        fi
+    fi
+done
 dpkg --configure -a 2>/dev/null
 
 # 한국 카카오 미러 서버 연결 가능 여부 확인 (스피너 표시, 최대 3초)
@@ -140,7 +151,11 @@ wait "$_apt_pid" || APT_DIRECT_EXIT=$?
 if [ "$APT_DIRECT_EXIT" -ne 0 ] && [ "$_use_kakao" = "true" ]; then
     print_warn "카카오 미러 서버 실패. 기본 Ubuntu 서버로 폴백 후 재시도합니다..."
     _switch_mirror "http://mirror.kakao.com/ubuntu/" "http://archive.ubuntu.com/ubuntu/"
-    rm -f /var/lib/apt/lists/lock 2>/dev/null
+    if command -v fuser &>/dev/null; then
+        fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || rm -f /var/lib/apt/lists/lock 2>/dev/null
+    else
+        rm -f /var/lib/apt/lists/lock 2>/dev/null
+    fi
     (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko) > /tmp/_apt_install.log 2>&1 &
     _apt_pid=$!
     run_with_spinner "폴백 서버로 apt 재시도 중..." "$_apt_pid"

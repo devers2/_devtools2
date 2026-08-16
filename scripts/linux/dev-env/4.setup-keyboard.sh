@@ -107,8 +107,18 @@ else
     # ── (1-A) apt 패키지로 설치 시도 ──────────────────────────────────────────
     print_info "apt 로 keyd 설치 시도 중..."
 
-    # 이전 apt 작업이 락을 쥐고 중단된 경우를 대비해 먼저 락을 강제 해제
-    rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null
+    # 이전 apt 작업이 락을 쥐고 중단된 경우를 대비해 먼저 락을 강제 해제 — 단, fuser로
+    # 실제로 쥐고 있는 프로세스가 없을 때만 지웁니다(진짜 실행 중인 apt/dpkg와 경합해
+    # 데이터베이스가 손상되는 걸 방지; fuser가 없으면 기존처럼 무조건 삭제로 폴백).
+    for _lockfile in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock; do
+        if [ -e "$_lockfile" ]; then
+            if command -v fuser &>/dev/null; then
+                fuser "$_lockfile" >/dev/null 2>&1 || rm -f "$_lockfile"
+            else
+                rm -f "$_lockfile"
+            fi
+        fi
+    done
     dpkg --configure -a 2>/dev/null || true
 
     apt-get update -qq >/tmp/_keyd_apt_update.log 2>&1 || true

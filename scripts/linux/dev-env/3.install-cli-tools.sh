@@ -690,8 +690,18 @@ print_done "모든 바이너리 도구($ARCH) 설치가 완료되었습니다!"
 echo ""
 
 echo "---------------------------------------------------------------------------"
-# apt 락 강제 해제
-sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock 2>/dev/null
+# apt 락 강제 해제 — 단, fuser로 실제로 쥐고 있는 프로세스가 없을 때만 지웁니다.
+# unattended-upgrades 같은 진짜 실행 중인 apt/dpkg 프로세스와 경합해 dpkg 데이터베이스가
+# 손상되는 걸 방지하기 위함(fuser가 없는 극단적 환경이면 기존처럼 무조건 삭제로 폴백).
+for _lockfile in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock; do
+    if [ -e "$_lockfile" ]; then
+        if command -v fuser &>/dev/null; then
+            sudo fuser "$_lockfile" >/dev/null 2>&1 || sudo rm -f "$_lockfile"
+        else
+            sudo rm -f "$_lockfile"
+        fi
+    fi
+done
 sudo dpkg --configure -a 2>/dev/null
 
 echo -n "   - apt 패키지 인덱스 업데이트 중..."
