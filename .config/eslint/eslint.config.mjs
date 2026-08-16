@@ -189,14 +189,16 @@ export default [
       'no-const-assign': 'error',
       // 재할당이 없는 변수는 반드시 const로 선언 (let 대신 const 권장)
       'prefer-const': 'error',
-      // HTML 내장 JS에서도 일반 .js 파일과 동일한 Prettier 기본 규칙 적용
-      // ⚠️ [html]의 editor.defaultFormatter가 vscode.html-language-features이고
-      // html.format.unformatted에 "script"가 지정되어 있어(vscode-html이 <script>는
-      // 건드리지 않음) Prettier HTML 파서(parser: 'html')가 실행되지 않으므로,
-      // 예전에 이 규칙을 끄게 만들었던 "Prettier HTML 파서 결과 vs 추출된 JS 결과"
-      // 충돌 조건 자체가 지금은 없습니다. eslint-plugin-html이 추출한 <script>를
-      // 독립 JS 파일처럼 취급해 저장 시 source.fixAll.eslint가 포맷합니다.
-      'prettier/prettier': ['warn', basePrettierOptions]
+      // HTML 내장 JS에서 prettier/prettier 룰 비활성화
+      // Prettier HTML 파서는 <script> 블록을 HTML 들여쓰기 컨텍스트(+2칸)로 처리하지만
+      // ESLint prettier/prettier 룰은 추출된 JS를 독립 파일로 보고 다른 기준을 적용하여
+      // 저장할 때마다 포맷팅 충돌이 발생한다. HTML 포맷팅은 Prettier 직접 실행에 맡긴다.
+      // ⚠️ 2026-08-17 실측으로 재확인됨: 켜봤더니 CDATA 주석으로 감싸진 <script> 블록에서
+      // 저장할 때마다 함수 들여쓰기가 계속 밀리는(누적되는) 버그가 실제로 발생했음
+      // (vscode-html의 <script> 처리 기준과 ESLint가 보는 추출된 JS 기준이 어긋남).
+      // "vscode-html이 <script>를 건드리지 않으니 충돌이 없을 것"이라는 추정은 틀렸음 —
+      // 다시 켜기 전에 반드시 CDATA로 감싼 <script> 블록으로 직접 재현 테스트할 것.
+      'prettier/prettier': 'off'
     }
   },
 
