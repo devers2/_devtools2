@@ -995,7 +995,7 @@ EOF
             echo "   설치 + 로그인은 각 CLI 자체 방식으로 1회만 하면 됩니다:"
             echo ""
             echo "     • Claude Code : npm i -g @anthropic-ai/claude-code  →  claude  (최초 실행 시 로그인)"
-            echo "     • Codex       : codex-acp 바이너리 필요(OpenAI Codex CLI의 ACP 브릿지, 별도 설치)"
+            echo "     • Codex       : npm i -g @openai/codex             →  codex   (최초 실행 시 로그인)"
             echo "     • Gemini CLI  : npm i -g @google/gemini-cli        →  gemini  (최초 실행 시 로그인)"
             echo "     • OpenCode    : opencode.ai 설치 스크립트 →  opencode auth login"
             echo "     • Goose       : Block의 Goose CLI 설치    →  goose configure"

@@ -24,9 +24,14 @@ avante.nvim 대신 CodeCompanion 선택 — Neovim 버퍼/LSP에 더 자연스�
 export 해뒀다면 아무것도 안 적어도 되고, 굳이 명시하고 싶을 때만 env 블록을 채우면 됩니다.
 
 [사전 준비물 — 각 CLI 바이너리가 PATH에 있어야 함]
-  - Claude Code : npm i -g @anthropic-ai/claude-code
-  - Codex       : codex-acp 바이너리 필요 (OpenAI Codex CLI의 ACP 브릿지, 별도 설치)
-  - Gemini CLI  : npm i -g @google/gemini-cli
+  - Claude Code : npm i -g @anthropic-ai/claude-code                    →  claude
+  - Codex(채팅) : codex-acp 바이너리 필요 (OpenAI Codex CLI의 ACP 브릿지, 별도 설치)
+  - Codex(CLI)  : npm i -g @openai/codex                                →  codex
+                  (아래 interactions.cli.agents.codex가 직접 부르는 원본 CLI로,
+                  codex-acp와는 별개 설치입니다 — codex-acp가 내부적으로 @openai/codex를
+                  의존성으로 번들하긴 하지만 그게 전역 codex 명령으로 노출된다는 보장이
+                  없어서, 이 CLI 인터랙션을 쓰려면 명시적으로 따로 설치해야 합니다.)
+  - Gemini CLI  : npm i -g @google/gemini-cli                           →  gemini
   - OpenCode    : opencode.ai 설치 스크립트 — 인증은 CodeCompanion의 env가 아니라
                   OpenCode 자체 CLI(`opencode auth login`)로 하고, 모델 지정은
                   ~/.config/opencode/config.json 에서 함(공식 문서에 env 방식 없음).
