@@ -702,8 +702,11 @@ wait "$_apt_upd_pid" 2>/dev/null || true
 rm -f /tmp/_apt_update.log 2>/dev/null
 echo " 완료"
 
-echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli, xclip, wl-clipboard) 설치 중..."
-(sudo apt-get install -y build-essential libreadline-dev git trash-cli xclip wl-clipboard -qq >/tmp/_apt_install.log 2>&1) &
+echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli, xclip, wl-clipboard, sqlite3) 설치 중..."
+# sqlite3/libsqlite3-dev: Neovim Snacks.picker의 frecency(최근·자주 쓴 파일 우선순위)/히스토리 저장용.
+# 없어도 파일 기반으로 폴백되어 동작은 하지만, 세션이 쌓일수록 느려지고 :checkhealth snacks에
+# 경고가 뜸. lazy.nvim/Mason 대상이 아닌 OS 공유 라이브러리라 여기 apt 등급에 포함(버전 고정 없음).
+(sudo apt-get install -y build-essential libreadline-dev git trash-cli xclip wl-clipboard sqlite3 libsqlite3-dev -qq >/tmp/_apt_install.log 2>&1) &
 _apt_inst_pid=$!
 show_spinner "$_apt_inst_pid"
 _apt_inst_ec=0
