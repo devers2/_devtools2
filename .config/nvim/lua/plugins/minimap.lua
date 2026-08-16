@@ -2,6 +2,25 @@ return {
   {
     'nvim-mini/mini.map',
     version = false,
+    -- [성능] keys 없이는 lazy.lua의 기본값(lazy=false)이 적용되어 매 시작마다 무조건 로드됨.
+    -- <leader>mm/<leader>mf를 처음 누를 때만 로드되도록 지연 트리거를 명시(setup() 자체는
+    -- 가벼워 체감 영향은 작지만, 안 쓰는 세션에서도 매번 로드되는 건 불필요함).
+    keys = {
+      {
+        '<leader>mm',
+        function()
+          require('mini.map').toggle()
+        end,
+        desc = 'Toggle Minimap',
+      },
+      {
+        '<leader>mf',
+        function()
+          require('mini.map').toggle_focus()
+        end,
+        desc = 'Toggle Focus Minimap',
+      },
+    },
     config = function()
       local minimap = require('mini.map')
 
@@ -26,9 +45,7 @@ return {
         },
       })
 
-      -- 단축키 바인딩
-      vim.keymap.set('n', '<leader>mm', minimap.toggle, { desc = 'Toggle Minimap' })
-      vim.keymap.set('n', '<leader>mf', minimap.toggle_focus, { desc = 'Toggle Focus Minimap' })
+      -- 단축키는 위쪽 keys 필드에서 지연 로드 트리거로 등록됨 (여기서 다시 set 하지 않음)
 
       -- 현재 위치 표시가 한눈에 잘 띄도록 밝은 색상 적용 (Kanagawa 테마 계열 매칭)
       vim.api.nvim_set_hl(0, 'MiniMapNormal', { fg = '#727169', bg = 'NONE' })
