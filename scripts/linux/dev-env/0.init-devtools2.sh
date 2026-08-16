@@ -7,6 +7,43 @@
 # - /var/opt/_devtools2 에 공개 저장소 클론 (공개 저장소이므로 별도 인증 불필요)
 # - 운영 환경에서 여러 개발자가 DevTools2 디렉토리를 안전하게 공유할 수 있도록
 #   그룹 소유권 및 퍼미션, SGID를 설정합니다.
+#
+# =====================================================================================
+# 📦 [포터블 관련 메모: 이 저장소는 100% 포터블이 아닙니다 — 재검토 시 참고]
+# =====================================================================================
+# "$DEVTOOLS2 폴더만 다른 PC로 복사 + 최소 스크립트로 환경변수만 추가" 방식의 완전 포터블은
+# 안 됩니다. 데이터 계층(Neovim 플러그인/Mason 도구/트리시터 컴파일 파서, Gradle 캐시,
+# Maven 저장소)은 전부 $DEVTOOLS2/data/* 안에 물리적으로 존재하고 XDG 표준 위치로는
+# 심볼릭 링크만 나가 있어(1.setup-env.sh의 _run_symlink 호출부 참고) 이미 포터블 구조지만,
+# 아래 apt/dpkg 설치 항목들은 $DEVTOOLS2 밖(/usr/*, dpkg DB)에 설치되어 폴더 복사로는
+# 절대 따라오지 않습니다.
+#
+# [이 스크립트가 까는 것] unzip, tar, curl, wget, rsync, python3-pip, locales, language-pack-ko
+#   - unzip/tar/curl/wget: 포터블 도구를 내려받는 데 필요한 부트스트랩(닭과 달걀 문제)
+#   - python3-pip: 3.install-cli-tools.sh의 hererocks 설치용
+#   - locales/language-pack-ko: glibc 로케일 데이터 — OS 전역 설정이라 폴더 복사 개념 자체가 안 맞음
+#
+# [다른 스크립트가 까는 것 — 전체 그림]
+#   - 3.install-cli-tools.sh: build-essential/libreadline-dev(컴파일러 — 아래 참고),
+#     git, trash-cli, xclip, wl-clipboard, sqlite3, libsqlite3-dev
+#   - 4.setup-keyboard.sh: keyd (커널 input 레벨 통합 — 개념상 포터블화 불가능)
+#   - install_hangle.sh: fcitx5, fcitx5-hangul, im-config (디스플레이 서버 입력기 통합 — 개념상 불가능)
+#
+# [구조적으로 회피 불가능한 것] nvim-treesitter의 :TSInstall/:TSUpdate와 hererocks(Lua/Luarocks
+# 빌드)는 시스템 C 컴파일러(gcc/make, build-essential)로 소스를 직접 컴파일합니다. 컴파일
+# 결과물(.so)은 $DEVTOOLS2/data/nvim 안에 남아 폴더 복사로 같이 옮겨지긴 하지만, 아키텍처나
+# glibc 버전이 크게 다른 PC로 옮기면 깨질 수 있어 "아무 PC에나" 수준의 포터블은 보장 안 됩니다.
+#
+# [WSL2 한정으로 줄일 수 있는 부분] xclip/wl-clipboard는 실제로 이 환경에서 안 씁니다 —
+# options.lua의 클립보드 설정이 WSL에서는 win32yank(포터블)나 PowerShell clip.exe를 우선
+# 쓰고, xclip/wl-clipboard는 네이티브 리눅스(비-WSL) 전용 폴백이라 WSL2 전용으로 좁히면
+# 이 apt 의존성 2개는 빼도 됩니다.
+#
+# [현실적인 최소선] 목적지 PC에 "apt-get install build-essential git curl wget tar unzip
+# locales language-pack-ko sqlite3 libsqlite3-dev" 한 줄만 한 번 실행해주면(이미 devtools2로
+# 셋업된 WSL이면 이마저 불필요), 그 뒤로는 $DEVTOOLS2 폴더 복사 + 1.setup-env.sh(심볼릭 링크
+# 재생성)만으로 재현됩니다.
+# =====================================================================================
 
 set -euo pipefail
 

@@ -703,9 +703,14 @@ rm -f /tmp/_apt_update.log 2>/dev/null
 echo " 완료"
 
 echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli, xclip, wl-clipboard, sqlite3) 설치 중..."
-# sqlite3/libsqlite3-dev: Neovim Snacks.picker의 frecency(최근·자주 쓴 파일 우선순위)/히스토리 저장용.
-# 없어도 파일 기반으로 폴백되어 동작은 하지만, 세션이 쌓일수록 느려지고 :checkhealth snacks에
-# 경고가 뜸. lazy.nvim/Mason 대상이 아닌 OS 공유 라이브러리라 여기 apt 등급에 포함(버전 고정 없음).
+# ⚠️ 이 줄은 포터블 원칙의 예외입니다(전체 목록/이유는 0.init-devtools2.sh 상단 메모 참고).
+# - build-essential/libreadline-dev: hererocks(아래 7번) 및 nvim-treesitter :TSInstall이
+#   C 소스를 직접 컴파일하는 데 필요 — 컴파일러라 포터블 바이너리로 대체 불가능.
+# - xclip/wl-clipboard: 사실 WSL2에서는 안 씀(options.lua가 win32yank/PowerShell clip.exe를
+#   우선 사용) — 네이티브 리눅스 전용 폴백이라 WSL2 한정이면 빼도 되는 항목.
+# - sqlite3/libsqlite3-dev: Neovim Snacks.picker의 frecency(최근·자주 쓴 파일 우선순위)/히스토리 저장용.
+#   없어도 파일 기반으로 폴백되어 동작은 하지만, 세션이 쌓일수록 느려지고 :checkhealth snacks에
+#   경고가 뜸. lazy.nvim/Mason 대상이 아닌 OS 공유 라이브러리라 여기 apt 등급에 포함(버전 고정 없음).
 (sudo apt-get install -y build-essential libreadline-dev git trash-cli xclip wl-clipboard sqlite3 libsqlite3-dev -qq >/tmp/_apt_install.log 2>&1) &
 _apt_inst_pid=$!
 show_spinner "$_apt_inst_pid"

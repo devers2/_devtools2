@@ -97,6 +97,9 @@ print_step "[Step 1] keyd 설치"
 print_subsep
 
 # 이미 설치되어 있는지 확인
+# ⚠️ 포터블 원칙의 예외입니다(전체 목록/이유는 0.init-devtools2.sh 상단 메모 참고).
+# keyd는 커널 input 레벨(/dev/input, uinput)에 systemd 서비스로 등록되어 동작하는 데몬이라
+# 바이너리만 복사해서는 개념적으로 동작할 수 없습니다(항상 대상 OS에 직접 설치 필요).
 if command -v keyd &>/dev/null; then
     KEYD_VER=$(keyd --version 2>/dev/null || echo "unknown")
     print_info "keyd 이미 설치되어 있음: $KEYD_VER"
