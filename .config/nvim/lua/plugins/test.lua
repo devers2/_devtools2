@@ -23,6 +23,18 @@ lazyvim.json 의 lazyvim.plugins.extras.test.core 익스트라가 neotest 코어
     nvim-dap-view를 쓰고 있으므로(dap.lua 참고) 넣지 않았고, <leader>td(Debug Nearest)는
     기존 nvim-dap-view 화면 그대로 뜹니다.
 
+[:checkhealth 경고 — 정상, 무시해도 됨]
+  :checkhealth neotest-java 실행 시 아래 2개가 뜨는데 둘 다 실제 동작엔 문제없습니다.
+  - "ERROR Plugin 'dapui' is missing": neotest-java의 health.lua가 rcarriga/nvim-dap-ui
+    설치 여부를 하드코딩으로 검사합니다(다른 DAP UI를 쓸 가능성은 아예 고려 안 함).
+    실제 디버그 실행 코드(init.lua)는 require("dapui")를 어디서도 호출하지 않고, DAP 설정
+    테이블만 만들어서 nvim-dap에 넘길 뿐입니다 — 화면 표시는 dap.lua에 이미 등록된
+    dap.listeners.after.event_initialized 리스너가 담당하며, 이 config는 dapui 대신
+    nvim-dap-view를 쓰고 있으므로 <leader>td(Debug Nearest)도 기존 dap-view 화면 그대로
+    정상 동작합니다. dapui를 설치할 필요 없습니다(설치해도 enabled=false라 로드조차 안 됨).
+  - "WARNING Make sure Tree-sitter parser for 'java' is up-to-date": 일상적인 안내일 뿐이고
+    신경 쓰이면 :TSUpdate java 한 번이면 사라집니다.
+
 [사용 전 필수: 최초 1회 수동 설정]
   :NeotestJava setup
   → JUnit Platform Console Standalone jar를 Maven Central에서 SHA-256 체크섬 검증 후
