@@ -19,7 +19,14 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 $ProgressPreference = 'SilentlyContinue'
 
 # --- [설정]
-$newPath = "Z:\llm-models"
+# Z: 개발자 드라이브(ReFS)가 없는 머신도 있으므로(0.setup-wsl.ps1과 동일한 전제),
+# 존재하지 않으면 예외로 죽는 대신 C: 사용자 폴더로 안전하게 폴백합니다.
+if (Test-Path "Z:\") {
+    $newPath = "Z:\llm-models"
+} else {
+    $newPath = Join-Path $env:USERPROFILE "llm-models"
+    Write-Host "[알림] Z: 개발자 드라이브를 찾을 수 없어 대신 사용합니다: $newPath" -ForegroundColor Yellow
+}
 
 # --- [관리자 권한 확인 및 재실행 로직]
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)

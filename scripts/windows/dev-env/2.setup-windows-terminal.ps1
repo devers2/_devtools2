@@ -380,7 +380,7 @@ if (-not (Test-Path $settingsPath)) {
         $settings.profiles.defaults | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{ face = $fontFace; size = 11.5; cellHeight = '1.5' }) -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName opacity -NotePropertyValue 97 -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName colorScheme -NotePropertyValue "Kanagawa" -Force
-        Write-Success "기본 폰트($fontFace, 12pt) / 투명도(97) / Kanagawa 테마 적용 완료 (profiles.defaults)"
+        Write-Success "기본 폰트($fontFace, 11.5pt) / 투명도(97) / Kanagawa 테마 적용 완료 (profiles.defaults)"
 
         # ── ALT+c / ALT+h fzf 스크립트 실행 단축키 (sendInput, 이미 있으면 교체) ─
         if (-not $settings.actions) {
@@ -416,7 +416,7 @@ Write-Host "====================================================================
 Write-Host "🎉 Windows Terminal 설정 완료!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  [적용된 설정]" -ForegroundColor Cyan
-Write-Host "  · 폰트     : $fontFace, 12pt" -ForegroundColor White
+Write-Host "  · 폰트     : $fontFace, 11.5pt" -ForegroundColor White
 Write-Host "  · 테마     : Kanagawa" -ForegroundColor White
 Write-Host "  · 투명도   : 97%" -ForegroundColor White
 Write-Host "  · ALT+c    : 명령어 팔레트 (command-palette)" -ForegroundColor White

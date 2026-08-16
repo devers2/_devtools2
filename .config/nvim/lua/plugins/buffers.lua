@@ -28,8 +28,8 @@ return {
         vim.cmd('buffer ' .. n)
       end
 
-      -- 마우스 우클릭(중간 버튼)도 동일하게 처리
-      opts.options.middle_mouse_command = nil -- 중간 버튼 클릭은 기본 비활성 유지
+      -- 중간 버튼(휠 클릭)은 위 왼쪽 클릭과 달리 별도 처리 없이 기본 비활성 유지
+      opts.options.middle_mouse_command = nil
 
       return opts
     end,
