@@ -116,9 +116,13 @@ _resolve_action() {
             echo "reinstall"
             ;;
         individual)
-            echo ""
-            echo "   ⚠️  ${tool_name}이(가) 이미 설치되어 있습니다."
-            prompt_input "   삭제 후 재설치하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: "; read -r _dup_sel
+            # ⚠️ 이 함수의 결과는 모든 호출부에서 $(_resolve_action ...)로 캡처됩니다.
+            # 안내 메시지/프롬프트를 stdout에 그대로 출력하면 최종 반환값("reinstall"/
+            # "skip")에 섞여 들어가 호출부의 case 분기가 깨지고, 동시에 프롬프트 문구도
+            # 화면에 안 보인 채 read만 기다리는 상태가 됩니다. stderr로 분리합니다.
+            echo "" >&2
+            echo "   ⚠️  ${tool_name}이(가) 이미 설치되어 있습니다." >&2
+            prompt_input "   삭제 후 재설치하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: " >&2; read -r _dup_sel
             case "${_dup_sel:-N}" in
                 y|Y) echo "reinstall" ;;
                 *)   echo "skip" ;;

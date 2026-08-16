@@ -57,12 +57,24 @@ CURRENT_PATH_WITHOUT_OLD_JAVA_BIN=$(echo "$PATH" | sed -e "s|${DEVTOOLS2}/module
 export PATH="$JAVA_HOME/bin:$CURRENT_PATH_WITHOUT_OLD_JAVA_BIN"
 
 # 6. 영구 적용 (사용자 홈의 설정 파일 업데이트)
+# ⚠️ $ZSH_VERSION/$BASH_VERSION은 "지금 이 스크립트를 실행 중인 셸"만 알려줍니다.
+# command-palette(#!/usr/bin/env bash로 실행되는 별도 프로세스)를 통해 source될 경우
+# 사용자의 로그인 셸이 zsh여도 이 스크립트 자신은 항상 bash 프로세스이므로 $BASH_VERSION만
+# 잡혀 .bashrc에 잘못 기록되고 zsh 세션에는 영구 반영되지 않습니다. 로그인 셸을 정확히
+# 반영하는 $SHELL(로그인 시 설정되어 하위 프로세스에도 상속됨)을 우선 사용합니다.
 SHELL_RC=""
-if [ -n "$ZSH_VERSION" ]; then
-    SHELL_RC="$HOME/.zshrc"
-elif [ -n "$BASH_VERSION" ]; then
-    SHELL_RC="$HOME/.bashrc"
-fi
+case "$SHELL" in
+*/zsh) SHELL_RC="$HOME/.zshrc" ;;
+*/bash) SHELL_RC="$HOME/.bashrc" ;;
+*)
+    # $SHELL이 없거나 인식할 수 없으면 현재 실행 중인 셸 기준으로 폴백
+    if [ -n "$ZSH_VERSION" ]; then
+        SHELL_RC="$HOME/.zshrc"
+    elif [ -n "$BASH_VERSION" ]; then
+        SHELL_RC="$HOME/.bashrc"
+    fi
+    ;;
+esac
 
 if [ -f "$SHELL_RC" ]; then
     # 기존 'export JAVA_HOME=' 문자열로 시작하는 라인이 있는지 검사

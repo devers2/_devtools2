@@ -29,7 +29,14 @@ target_link="$2"
 # 1. 소스 보장 — 파일이면 mkdir 스킵, 디렉터리이거나 아직 없는 경우에만 생성
 if [ ! -e "$source_dir" ]; then
     filename=$(basename "$source_dir")
-    if [[ "$filename" == *.* ]]; then
+    # ⚠️ 단순히 "점이 있으면 파일"로 보면 .m2, .ssh, .gnupg, .config 처럼 이
+    # 저장소에서 실제로 자주 쓰이는 "점으로 시작하는 디렉터리" 이름이 전부 파일로
+    # 오판됩니다 (실제로 data/.m2 최초 생성 시 디렉터리 대신 빈 파일이 만들어져
+    # ~/.m2 심볼릭 링크가 깨지는 사례로 확인됨). 맨 앞의 점 하나는 확장자 판별에서
+    # 제외하고, 그 뒤에 남는 부분에 점이 있을 때만 파일(예: settings.json,
+    # .prettierrc.json)로 판단합니다.
+    name_without_leading_dot="${filename#.}"
+    if [[ "$name_without_leading_dot" == *.* ]]; then
         mkdir -p "$(dirname "$source_dir")" 2>/dev/null || true
         touch "$source_dir" 2>/dev/null || true
     else

@@ -441,11 +441,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${RCLONE_BIN} mount ${SERVICE_NAME}:${REMOTE_MOUNT_PATH} ${LOCAL_MOUNT_PATH} \\
+ExecStart=${RCLONE_BIN} mount "${SERVICE_NAME}:${REMOTE_MOUNT_PATH}" "${LOCAL_MOUNT_PATH}" \\
     --vfs-cache-mode full \\
     --allow-other \\
     --config=${RCLONE_CONF}
-ExecStop=${FUSERMOUNT_BIN} -u ${LOCAL_MOUNT_PATH}
+ExecStop=${FUSERMOUNT_BIN} -u "${LOCAL_MOUNT_PATH}"
 Restart=on-failure
 RestartSec=10
 

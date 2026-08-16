@@ -7,12 +7,20 @@
 
 echo ">>> 패키지 목록 업데이트 및 Fcitx5 설치 시작..."
 sudo apt update
-sudo apt install -y fcitx5 fcitx5-hangul im-config
+# ⚠️ 종료코드를 확인하지 않으면 설치가 실패해도 아래에서 "설치가 완료되었습니다"가
+# 그대로 출력됩니다(3.install-cli-tools.sh의 apt install 오류 처리 관례와 동일하게 맞춤).
+if ! sudo apt install -y fcitx5 fcitx5-hangul im-config; then
+    echo "❌ Fcitx5 패키지 설치에 실패했습니다. 위 오류 메시지를 확인해주세요." >&2
+    exit 1
+fi
 
 echo ">>> 기본 입력기를 Fcitx5로 설정 중..."
 
 # im-config를 비대화형 모드로 실행하여 fcitx5 지정
-im-config -n fcitx5
+if ! im-config -n fcitx5; then
+    echo "❌ im-config를 통한 Fcitx5 기본 입력기 설정에 실패했습니다." >&2
+    exit 1
+fi
 
 echo ">>> .bashrc 파일 백업 생성 중..."
 cp ~/.bashrc ~/.bashrc.bak
