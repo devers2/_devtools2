@@ -75,6 +75,59 @@ end
 -- 기존 코드 호환성용 폴백 정의
 _G.MAX_FILE_SIZE = _G.MAX_FILE_SIZE_SINGLE
 
+-- [예외 케이스 방어] 파일 전체 크기는 정상 범위(예: 500KB 이하)여도, HTML 등 복합 문법
+-- 파일 안에 유독 거대한 <script>/<style> 인라인 블록 하나가 있으면(SPA를 한 파일에 다
+-- 밀어넣은 경우 등) 그 블록 하나를 위해 JS/CSS 문법이 사실상 그만큼을 별도로 다시 훑어야
+-- 해서 트리시터 비용이 파일 크기 기준 추정보다 커질 수 있습니다. 이런 경우만 골라 더
+-- 보수적으로(트리시터 끔) 처리하기 위한 전용 검사입니다.
+-- 버퍼에 이미 로드된 내용을 재사용하므로(디스크 재읽기 없음) 비용이 낮고, 복합 문법
+-- 파일타입에만 적용되므로 일반 파일에는 전혀 영향이 없습니다.
+-- 블록 하나가 아니라 모든 <script>/<style> 블록의 합계로 판단합니다 — "거대한 블록 하나"뿐
+-- 아니라 "중간 크기 블록 여러 개로 파일이 채워진" 경우도 실제 트리시터 injection 비용은
+-- 결국 임베디드 콘텐츠 총량에 비례하므로 동일하게 잡아야 하기 때문입니다.
+_G.INLINE_BLOCK_LIMIT = 150 * 1024 -- <script>/<style> 블록 합계가 이보다 크면 트리시터 끔
+_G.has_oversized_inline_block = function(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then
+    return false
+  end
+  local filetype = vim.bo[buf].filetype or ""
+  if not _G.COMPLEX_FILETYPES[filetype] then
+    return false
+  end
+
+  local ok, lines = pcall(vim.api.nvim_buf_get_lines, buf, 0, -1, false)
+  if not ok then
+    return false
+  end
+  local text = table.concat(lines, "\n")
+
+  local total = 0
+  for _, tag in ipairs({ "script", "style" }) do
+    local pos = 1
+    while true do
+      local open_s, open_e = text:find("<" .. tag .. "[^>]*>", pos)
+      if not open_s then
+        break -- 이 태그 종류의 열린 태그가 더 없음 — 정상 종료
+      end
+      local close_s = text:find("</" .. tag .. ">", open_e, true)
+      if not close_s then
+        -- 이 열린 태그는 닫는 태그를 못 찾음(파일이 잘렸거나 손상된 경우 등).
+        -- 예전엔 여기서 전체를 중단해서 이 태그 뒤에 있는 멀쩡한 블록들까지
+        -- 전부 못 셌습니다 — 이 태그 하나만 건너뛰고 계속 찾도록 고쳤습니다.
+        pos = open_e + 1
+      else
+        total = total + (close_s - open_e)
+        if total > _G.INLINE_BLOCK_LIMIT then
+          return true -- 조기 종료: 합계가 이미 넘었으면 더 스캔할 필요 없음
+        end
+        pos = close_s + 1
+      end
+    end
+  end
+
+  return false
+end
+
 -- 캐시 경로 설정 (전역 변수 _G.NVIM_CACHE_DIR 사용)
 vim.opt.undodir = _G.NVIM_CACHE_DIR .. '/undo'
 vim.opt.directory = _G.NVIM_CACHE_DIR .. '/swp'
