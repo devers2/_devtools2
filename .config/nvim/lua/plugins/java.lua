@@ -285,8 +285,12 @@ return {
             },
           },
           -- [생산성] 저장 시 자동 액션 설정
+          -- ⚠️ 이 서버 설정만으로는 실제로 아무 일도 일어나지 않습니다(VS Code의 redhat.java와 달리
+          --   nvim-jdtls는 이 설정을 저장 이벤트에 자동으로 연결해주지 않음 — 실측/공식 이슈로 확인됨).
+          --   그래서 아래 opts.jdtls.on_attach 안에 BufWritePre 오토커맨드로 직접
+          --   require('jdtls').organize_imports()를 호출하도록 연결해뒀습니다. 이 설정 자체는 남겨둡니다
+          --   (서버가 organize imports 코드 액션 자체를 제공하는 데는 필요할 수 있음).
           saveActions = {
-            -- 파일 저장 시 사용하지 않는 import 제거 및 필요한 import 자동 추가
             organizeImports = true,
           },
           -- [멀티 모듈] 하위 프로젝트 탐색 설정
@@ -444,6 +448,19 @@ return {
         if client.config and client.config.settings and client.config.settings.java then
           client.config.settings.java.configuration.runtimes = opts.settings.java.configuration.runtimes
         end
+
+        -- [저장 시 자동 import 정리] settings.java.saveActions.organizeImports 만으로는
+        -- nvim-jdtls에서 아무 효과가 없어(VS Code의 redhat.java와 달리 저장 이벤트에 자동 연결이
+        -- 안 되는 게 nvim-jdtls의 알려진 동작), BufWritePre에서 직접 organize_imports를 호출합니다.
+        -- 버퍼 단위 augroup(clear=true)이라 on_attach가 같은 버퍼에서 재실행돼도 중복 등록되지 않습니다.
+        vim.api.nvim_create_augroup('jdtls_organize_imports_' .. bufnr, { clear = true })
+        vim.api.nvim_create_autocmd('BufWritePre', {
+          group = 'jdtls_organize_imports_' .. bufnr,
+          buffer = bufnr,
+          callback = function()
+            require('jdtls').organize_imports()
+          end,
+        })
       end
 
       -- 로그 창 색상 및 가독성 유지 설정 (syntax 덮어씌워짐 방지 적용)
