@@ -38,56 +38,13 @@ $ProgressPreference = 'SilentlyContinue'
 # ==============================================================================
 # 헬퍼 함수
 # ==============================================================================
-
-function Write-Step {
-    param([string]$Message)
-    Write-Host ""
-    Write-Host "===========================================================================" -ForegroundColor DarkCyan
-    Write-Host "  $Message" -ForegroundColor DarkCyan
-    Write-Host "===========================================================================" -ForegroundColor DarkCyan
-}
-
-function Write-SubStep {
-    param([string]$Message)
-    Write-Host ""
-    Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host "  $Message" -ForegroundColor Cyan
-}
-
-function Write-Success {
-    param([string]$Message)
-    Write-Host "[성공] $Message" -ForegroundColor Green
-}
-
-function Write-Skip {
-    param([string]$Message)
-    Write-Host "[건너뜀] $Message" -ForegroundColor Yellow
-}
-
-function Write-Info {
-    param([string]$Message)
-    Write-Host "[정보] $Message" -ForegroundColor White
-}
-
-function Write-Warn {
-    param([string]$Message)
-    Write-Host "[경고] $Message" -ForegroundColor Yellow
-}
-
-function Write-Fail {
-    param([string]$Message)
-    Write-Host "[오류] $Message" -ForegroundColor Red
-}
-
-function Pause-Script {
-    # 기본 메시지: 이 함수를 부르는 모든 호출부(8곳)가 실제로는 곧이어 exit 하는 상황이라
-    # "계속하려면"이 아니라 "종료합니다"가 정확함. 계속 진행되는 경우가 생기면 그때 개별
-    # 호출부에서 -Message로 다른 문구를 넘기면 된다(마지막 완료 안내가 이미 그렇게 함).
-    param([string]$Message = "엔터(Enter) 키를 누르면 종료합니다")
-    Write-Host ""
-    Write-Host "👉 ${Message}: " -ForegroundColor Yellow -NoNewline
-    [void][System.Console]::ReadLine()
-}
+# Write-Step/Write-Success/Pause-Script/Wait-WithSpinner 등은 여러 ps1 파일에
+# 거의 동일하게 복붙되어 있던 걸 _colors.ps1(scripts/windows/dev-env/_colors.ps1)
+# 공용 파일로 통합했습니다(bash의 _colors.sh와 동일한 패턴).
+# 항상 온라인 최신본을 dot-source(다른 스크립트 스트리밍 실행과 동일한 캐시 우회 원칙).
+$_colorsHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
+$_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_colors.ps1" -Headers $_colorsHeaders -ErrorAction Stop
+. ([scriptblock]::Create($_colorsContent))
 
 # ⚠️ Show-BiosVirtualizationHelp는 예전에 여기 정의되어 있었으나, 실제 WSL 설치는
 # 항상 0.setup-wsl.ps1(Invoke-RemotePsScript로 스트리밍 실행)에 위임되어 있어 이
@@ -179,35 +136,7 @@ function Backup-AndLink {
     return New-SymlinkIdempotent -LinkPath $LinkPath -TargetPath $TargetPath -Description $label
 }
 
-# 단순 프로세스/조건 대기형 스피너 헬퍼
-function Wait-WithSpinner {
-    param(
-        [string]$Message,
-        [scriptblock]$Condition,
-        [int]$MaxTimeoutSeconds = 600
-    )
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    $i = 0
-    $startTime = Get-Date
-    while ($true) {
-        $elapsed = (Get-Date) - $startTime
-        if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
-            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)   " -ForegroundColor Red
-            return $false
-        }
 
-        $success = & $Condition
-        if ($success) {
-            Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
-            return $true
-        }
-
-        $char = $spinner[$i % $spinner.Count]
-        Write-Host -NoNewline "`r  [$char] $Message...   "
-        Start-Sleep -Milliseconds 150
-        $i++
-    }
-}
 
 # GitHub raw URL에서 PowerShell 스크립트를 문자열로 받아 즉시 실행하는 헬퍼
 #
