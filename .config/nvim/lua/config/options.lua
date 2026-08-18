@@ -248,7 +248,7 @@ vim.on_key(function(key)
       end
     end
   end
-end)
+end, vim.api.nvim_create_namespace('lang_warn_detect'))
 
 -- Diagnostic 설정 (LSP 실시간 에러 표시)
 -- ⚠️ virtual_text 는 여기서 설정해도 죽은 설정입니다: plugins/ui.lua의 tiny-inline-diagnostic.nvim이

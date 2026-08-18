@@ -471,6 +471,7 @@ return {
       vim.api.nvim_set_hl(0, 'LogTag', { fg = '#c678dd', bold = true }) -- 보라색 ([JDTLS] 태그)
 
       vim.api.nvim_create_autocmd({ 'BufReadPost', 'BufNewFile', 'FileType', 'BufWinEnter' }, {
+        group = vim.api.nvim_create_augroup('jdtls_log_syntax_highlight', { clear = true }),
         pattern = { '*.log', 'log' },
         callback = function()
           if vim.bo.filetype == 'log' or vim.fn.expand('%:e') == 'log' then
