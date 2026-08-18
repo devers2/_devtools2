@@ -49,7 +49,7 @@ return {
     opts = function(_, opts)
       -- 기존 설정이 있으면 유지하면서 필요한 파서들 추가
       opts.ensure_installed = opts.ensure_installed or {}
-      vim.list_extend(opts.ensure_installed, {
+      local parsers = {
         'html',
         'htmldjango',
         'javascript',
@@ -75,11 +75,22 @@ return {
         'regex',
         'xml', -- Java 설정 파일(pom.xml 등)을 위해 추가
         'properties', -- gradle.properties, application.properties, gradle-wrapper.properties 등을 위해 추가
-      })
+      }
+      local existing = {}
+      for _, p in ipairs(opts.ensure_installed) do
+        existing[p] = true
+      end
+      for _, p in ipairs(parsers) do
+        if not existing[p] then
+          table.insert(opts.ensure_installed, p)
+          existing[p] = true
+        end
+      end
 
       -- 하이라이팅 활성화 (크기 기반 on/off는 위쪽 devtools2_treesitter_large_file_fallback autocmd가 담당)
       opts.highlight = opts.highlight or {}
       opts.highlight.enable = true
+      return opts
     end,
   },
 

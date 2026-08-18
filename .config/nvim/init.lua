@@ -13,7 +13,7 @@ end
 local config_path = vim.fn.stdpath('config')
 local raw_devtools2 = os.getenv('DEVTOOLS2') or (config_path:gsub('\\', '/') .. '/../..')
 local resolved = vim.uv.fs_realpath(raw_devtools2)
-_G.DEVTOOLS2_DIR = (resolved or raw_devtools2):gsub('/$', '')
+_G.DEVTOOLS2_DIR = ((resolved or raw_devtools2):gsub('\\', '/')):gsub('/$', '')
 
 -- 운영체제 식별 전역 상수 및 변수 설정
 _G.OS = {

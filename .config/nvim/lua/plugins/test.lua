@@ -83,7 +83,17 @@ return {
       opts.adapters['neotest-python'] = {
         runner = 'pytest',
         python = function()
-          return os.getenv('VIRTUAL_ENV') and (os.getenv('VIRTUAL_ENV') .. '/bin/python') or 'python'
+          local venv = os.getenv('VIRTUAL_ENV')
+          if venv then
+            local win_py = venv .. '/Scripts/python.exe'
+            local unix_py = venv .. '/bin/python'
+            if vim.fn.filereadable(win_py) == 1 then
+              return win_py
+            elseif vim.fn.filereadable(unix_py) == 1 then
+              return unix_py
+            end
+          end
+          return 'python'
         end,
       }
       return opts

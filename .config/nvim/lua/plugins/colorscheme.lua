@@ -36,7 +36,7 @@ return {
       })
 
       -- 테마 적용 명령
-      vim.cmd('colorscheme kanagawa')
+      vim.cmd.colorscheme('kanagawa')
 
       -- 기본 경계선 모양 설정 (두껍게)
       -- vim.opt.fillchars = {

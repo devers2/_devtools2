@@ -58,10 +58,10 @@ _G.get_max_file_size = function(buf_or_path)
     if vim.api.nvim_buf_is_valid(buf_or_path) then
       filetype = vim.bo[buf_or_path].filetype or ""
       local fname = vim.api.nvim_buf_get_name(buf_or_path)
-      ext = vim.fn.fnamemodify(fname, ":e"):lower()
+      ext = (fname:match('%.([^./\\]+)$') or ''):lower()
     end
   elseif type(buf_or_path) == "string" then
-    ext = vim.fn.fnamemodify(buf_or_path, ":e"):lower()
+    ext = (buf_or_path:match('%.([^./\\]+)$') or ''):lower()
   end
 
   local is_complex = _G.COMPLEX_FILETYPES[filetype] or _G.COMPLEX_EXTENSIONS[ext]
@@ -376,7 +376,7 @@ vim.api.nvim_create_autocmd('FileType', {
     local cfg = vim.api.nvim_win_get_config(win)
     -- floating 창(Snacks 팝업 피커)에는 적용하지 않음
     if cfg.relative == '' then
-      pcall(function() vim.opt_local.winfixbuf = true end)
+      pcall(function() vim.wo[win].winfixbuf = true end)
     end
   end,
 })

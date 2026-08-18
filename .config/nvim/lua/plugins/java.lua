@@ -535,6 +535,7 @@ return {
     lazy = false,
     config = function()
       vim.api.nvim_create_autocmd('VimEnter', {
+        group = vim.api.nvim_create_augroup('java_main_class_autostart', { clear = true }),
         callback = function()
           ---@diagnostic disable-next-line: undefined-field
           if _G.MAIN_CLASS then
@@ -594,7 +595,7 @@ return {
                   -- 2. 버퍼 내용을 로드
                   vim.fn.bufload(java_buf)
                   -- 3. 파일 타입을 java로 명시하여 jdtls 서버 가동 트리거
-                  vim.api.nvim_set_option_value('filetype', 'java', { buf = java_buf })
+                  vim.bo[java_buf].filetype = 'java'
 
                   if _G.log_jdtls then
                     _G.log_jdtls(

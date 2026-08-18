@@ -29,16 +29,19 @@ return {
         prettier_html = {
           command = 'prettier',
           args = function(self, ctx)
-            local has_local_config = vim.fs.root(ctx.filename, {
-              '.prettierrc',
-              '.prettierrc.json',
-              '.prettierrc.js',
-              '.prettierrc.cjs',
-              '.prettierrc.yaml',
-              '.prettierrc.yml',
-              'prettier.config.js',
-              'prettier.config.cjs',
-            }) ~= nil
+            local has_local_config = false
+            if ctx.filename and ctx.filename ~= '' then
+              has_local_config = vim.fs.root(ctx.filename, {
+                '.prettierrc',
+                '.prettierrc.json',
+                '.prettierrc.js',
+                '.prettierrc.cjs',
+                '.prettierrc.yaml',
+                '.prettierrc.yml',
+                'prettier.config.js',
+                'prettier.config.cjs',
+              }) ~= nil
+            end
 
             if has_local_config then
               -- 프로젝트 로컬 설정 파일이 존재할 경우: --config 없이 자동으로 로컬 설정을 찾아서 사용하도록 유도
@@ -55,7 +58,7 @@ return {
           end,
         },
         stylua = {
-          prepend_args = { '--config-path', vim.fn.stdpath('config') .. '/stylua.toml' },
+          prepend_args = { '--config-path', vim.fs.joinpath(vim.fn.stdpath('config'), 'stylua.toml') },
         },
         -- Python
         ruff_format = {
