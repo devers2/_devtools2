@@ -24,12 +24,13 @@ return {
       -- winfixbuf 관련 버퍼 스위칭 에러(E1513) 방지를 위한 커스텀 switchbuf 로직
       dap.defaults.fallback.switchbuf = function(bufnr, line, column)
         local api = vim.api
+        local col = math.max(0, (column or 1) - 1)
 
         -- 1) 현재 창이 winfixbuf가 아니면 바로 사용
         local cur_win = api.nvim_get_current_win()
         if not vim.wo[cur_win].winfixbuf then
           api.nvim_win_set_buf(cur_win, bufnr)
-          pcall(api.nvim_win_set_cursor, cur_win, { line, column - 1 })
+          pcall(api.nvim_win_set_cursor, cur_win, { line, col })
           api.nvim_set_current_win(cur_win)
           return true
         end
@@ -38,7 +39,7 @@ return {
         for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
           if not vim.wo[win].winfixbuf then
             api.nvim_win_set_buf(win, bufnr)
-            pcall(api.nvim_win_set_cursor, win, { line, column - 1 })
+            pcall(api.nvim_win_set_cursor, win, { line, col })
             api.nvim_set_current_win(win)
             return true
           end
@@ -48,7 +49,7 @@ return {
         vim.cmd('split')
         local new_win = api.nvim_get_current_win()
         api.nvim_win_set_buf(new_win, bufnr)
-        pcall(api.nvim_win_set_cursor, new_win, { line, column - 1 })
+        pcall(api.nvim_win_set_cursor, new_win, { line, col })
         return true
       end
 

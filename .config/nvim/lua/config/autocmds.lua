@@ -141,12 +141,7 @@ vim.api.nvim_create_autocmd('FileType', {
     end
 
     -- 프로젝트 루트 디렉토리 찾기 (.git, .prettierrc 등을 기준)
-    local root_dirs = vim.fs.find({ '.git', '.prettierrc', 'package.json' }, {
-      upward = true,
-      path = vim.fs.dirname(buf_name),
-    })
-
-    local project_root = #root_dirs > 0 and vim.fs.dirname(root_dirs[1]) or nil
+    local project_root = vim.fs.root(buf_name, { '.git', '.prettierrc', 'package.json' })
     if not project_root then
       return
     end
@@ -345,7 +340,7 @@ vim.api.nvim_create_autocmd({ 'BufReadPost', 'FileType' }, {
       end
 
       -- 2. Neovim 0.12 공식 고수준 API로 하이라이터 안전 바인딩 및 구식 정규식 차단(syntax manual) 완벽 수행
-      local ft = vim.api.nvim_get_option_value('filetype', { buf = buf })
+      local ft = vim.bo[buf].filetype
       vim.treesitter.start(buf, ft)
     end)
   end,

@@ -4,7 +4,8 @@
 --   2. Neovim이 생성하는 모든 하위 프로세스(LSP, 포맷터 등)가 경로를 상속
 local mason_bin = vim.fn.stdpath('data') .. '/mason/bin'
 if vim.fn.isdirectory(mason_bin) == 1 then
-  vim.env.PATH = mason_bin .. ':' .. vim.env.PATH
+  local path_sep = (vim.fn.has('win32') == 1) and ';' or ':'
+  vim.env.PATH = mason_bin .. path_sep .. vim.env.PATH
 end
 
 -- 전역 공통 디렉토리 경로 설정 (환경변수 DEVTOOLS2 값 우선, 없으면 설정 폴더 기준 상대 경로)

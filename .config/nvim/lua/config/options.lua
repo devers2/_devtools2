@@ -197,13 +197,21 @@ vim.opt.clipboard = 'unnamedplus'
 -- (인텔리제이처럼 수정 즉시 또는 창을 옮길 때 확실하게 저장되도록 이벤트를 보강)
 vim.api.nvim_create_autocmd({ 'FocusLost', 'BufLeave', 'InsertLeave' }, {
   group = vim.api.nvim_create_augroup('IntelliJAutoSave', { clear = true }),
-  callback = function()
-    -- 버퍼가 수정되었고, 일반 파일 버퍼(buftype이 빈값)인 경우에만 실행
-    if vim.bo.modified and vim.bo.buftype == '' then
+  callback = function(args)
+    local buf = args.buf
+    -- 버퍼가 유효하고, 실제 수정되었으며, 일반 파일 버퍼(buftype이 빈값)이고 파일 경로가 있는 경우에만 실행
+    if
+      vim.api.nvim_buf_is_valid(buf)
+      and vim.bo[buf].modified
+      and vim.bo[buf].buftype == ''
+      and vim.api.nvim_buf_get_name(buf) ~= ''
+    then
       -- 인서트 모드 도중이 아닐 때만 안전하게 저장 (타이핑 끊김 방지)
       local mode = vim.api.nvim_get_mode().mode
       if mode ~= 'i' and mode ~= 'R' then
-        vim.cmd('silent! update') -- 변경 사항이 있을 때만 파일 저장 (wall 대신 현재 버퍼 안전 저장)
+        pcall(vim.api.nvim_buf_call, buf, function()
+          vim.cmd('silent! update')
+        end)
       end
     end
   end,
