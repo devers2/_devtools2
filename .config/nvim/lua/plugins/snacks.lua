@@ -9,7 +9,19 @@ return {
             { icon = ' ', key = 'f', desc = '스마트 파일 검색 (Smart Picker)', action = ':lua Snacks.picker.smart()' },
             { icon = ' ', key = 'n', desc = '새 파일 생성 (New File)', action = ':ene | startinsert' },
             { icon = ' ', key = 'g', desc = '프로젝트 전체 검색 (Grep)', action = ':lua Snacks.picker.grep()' },
-            { icon = ' ', key = 'r', desc = '최근 연 파일 (Recent Files)', action = ':lua Snacks.picker.recent()' },
+            {
+              icon = ' ',
+              key = 'r',
+              desc = '최근 연 파일 (Recent Files)',
+              action = function()
+                local oldfiles = vim.v.oldfiles or {}
+                if #oldfiles == 0 then
+                  Snacks.picker.smart()
+                else
+                  Snacks.picker.recent()
+                end
+              end,
+            },
             { icon = ' ', key = 'c', desc = '설정 파일 검색 (Config Files)', action = ":lua Snacks.picker.files({ cwd = vim.fn.stdpath('config') })" },
             { icon = ' ', key = 's', desc = '마지막 세션 복원 (Restore Session)', section = 'session' },
             { icon = '󰒲 ', key = 'L', desc = 'Lazy 플러그인 관리자', action = ':Lazy' },
