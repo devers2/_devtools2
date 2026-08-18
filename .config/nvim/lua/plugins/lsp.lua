@@ -78,11 +78,7 @@ return {
 
           -- root_dir: .git 폴더 기준 탐색, 없으면 현재 작업 디렉토리 사용
           opts.root_dir = function(fname)
-            if not fname or type(fname) ~= 'string' then
-              return vim.uv.cwd()
-            end
-            local root = vim.fs.dirname(vim.fs.find('.git', { upward = true, path = fname })[1])
-            return root or vim.uv.cwd()
+            return (fname and vim.fs.root(fname, '.git')) or vim.uv.cwd()
           end
 
           local config_file = vim.uv.fs_realpath(_G.DEVTOOLS2_DIR .. '/.config/eslint/eslint.config.mjs')

@@ -5,17 +5,7 @@
 -- 현재 위치의 시스템 탐색기 열기: <Leader>fE (File Explore)
 vim.keymap.set('n', '<leader>fE', function()
   local path = vim.fn.expand('%:p:h')
-  if _G.OS_TYPE == _G.OS.WINDOWS then
-    -- Windows: explorer.exe 사용
-    path = path:gsub('/', '\\')
-    vim.fn.jobstart({ 'explorer.exe', path }, { detach = true })
-  elseif _G.OS_TYPE == _G.OS.MACOS then
-    -- macOS: open 사용
-    vim.fn.jobstart({ 'open', path }, { detach = true })
-  else
-    -- Linux: xdg-open 사용
-    vim.fn.jobstart({ 'xdg-open', path }, { detach = true })
-  end
+  vim.ui.open(path)
 end, { desc = 'Open System Explorer' })
 
 local ok, dap = pcall(require, 'dap')
@@ -234,40 +224,24 @@ local function run_manual_eslint()
 
   vim.notify('⚡ ESLint 코드 분석 중...', vim.log.levels.INFO, { title = '수동 ESLint 린터', timeout = 2000 })
 
-  local stdout_lines = {}
-  local stderr_lines = {}
-  
   -- 현재 버퍼의 전체 텍스트 가져오기
   local buffer_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+  local input_text = table.concat(buffer_lines, '\n')
 
-  local job_id = vim.fn.jobstart(eslint_cmd, {
-    stdout_buffered = true,
-    stderr_buffered = true,
-    on_stdout = function(_, data)
-      if data then
-        for _, line in ipairs(data) do
-          if line ~= '' then
-            table.insert(stdout_lines, line)
-          end
-        end
+  vim.system(eslint_cmd, { stdin = input_text }, function(obj)
+    local stdout_str = obj.stdout or ''
+    local stderr_str = obj.stderr or ''
+
+    vim.schedule(function()
+      if not vim.api.nvim_buf_is_valid(bufnr) then
+        return
       end
-    end,
-    on_stderr = function(_, data)
-      if data then
-        for _, line in ipairs(data) do
-          if line ~= '' then
-            table.insert(stderr_lines, line)
-          end
-        end
-      end
-    end,
-    on_exit = function(_, exit_code)
-      local stdout_str = table.concat(stdout_lines, '\n')
+
       local ok_json, parsed = pcall(vim.json.decode, stdout_str)
 
       if not ok_json or type(parsed) ~= 'table' then
-        if #stderr_lines > 0 then
-          vim.notify(table.concat(stderr_lines, '\n'), vim.log.levels.ERROR, { title = 'ESLint 엔진 오류', timeout = 10000 })
+        if #stderr_str > 0 then
+          vim.notify(stderr_str, vim.log.levels.ERROR, { title = 'ESLint 엔진 오류', timeout = 10000 })
         else
           vim.notify('ESLint 결과를 파싱할 수 없습니다:\n' .. stdout_str, vim.log.levels.ERROR, { title = 'ESLint 파싱 오류' })
         end
@@ -338,20 +312,14 @@ local function run_manual_eslint()
         items = qf_items,
       })
       vim.cmd('copen')
-      
+
       vim.notify(
         string.format('⚠️  %d개의 JS 오류가 발견되었습니다. (목록에서 Enter로 해당 줄 이동)', #qf_items),
         vim.log.levels.WARN,
         { title = 'ESLint 분석 완료' }
       )
-    end,
-  })
-
-  -- stdin으로 현재 버퍼 내용을 전송하여 디스크 저장 없이도 실시간 분석을 가능하게 합니다.
-  if job_id > 0 then
-    vim.fn.chansend(job_id, buffer_lines)
-    vim.fn.chanclose(job_id, 'stdin')
-  end
+    end)
+  end)
 end
 
 -- <leader>l : 수동 ESLint 실행 (비동기, Non-blocking)

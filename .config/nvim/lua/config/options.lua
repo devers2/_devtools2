@@ -136,15 +136,7 @@ vim.opt.directory = _G.NVIM_CACHE_DIR .. '/swp'
 vim.opt.shortmess:append('A')
 
 -- JDTLS, Copilot 등 구동 시 발생하는 정상적인 stderr 알림들이 에러로 로그에 계속 쌓이는 현상 방지 (경고 이상의 중요한 에러만 기록)
-if vim.lsp.log then
-  vim.lsp.log.set_level('WARN')
-else
-  ---@diagnostic disable-next-line: deprecated
-  local legacy_func = vim.lsp['set_log_level']
-  if legacy_func then
-    legacy_func('WARN')
-  end
-end
+vim.lsp.log.set_level(vim.log.levels.WARN)
 
 -- 마우스 지원 활성화 (IDE와 유사한 경험 제공)
 vim.opt.mouse = 'a'
@@ -280,21 +272,13 @@ vim.filetype.add({
       local file_dir = vim.fs.dirname(path)
 
       -- 1) Django 프로젝트 감지
-      local django_markers = { 'manage.py', 'wsgi.py', 'asgi.py' }
-      for _, marker in ipairs(django_markers) do
-        local result = vim.fs.find(marker, { path = file_dir, upward = true, limit = 1 })
-        if #result > 0 then
-          return 'htmldjango'
-        end
+      if vim.fs.root(file_dir, { 'manage.py', 'wsgi.py', 'asgi.py' }) then
+        return 'htmldjango'
       end
 
       -- 2) Flask / FastAPI 등 Python 웹 프로젝트 감지
-      local python_markers = { 'requirements.txt', 'pyproject.toml', 'Pipfile' }
-      for _, marker in ipairs(python_markers) do
-        local result = vim.fs.find(marker, { path = file_dir, upward = true, limit = 1 })
-        if #result > 0 then
-          return 'htmldjango'
-        end
+      if vim.fs.root(file_dir, { 'requirements.txt', 'pyproject.toml', 'Pipfile' }) then
+        return 'htmldjango'
       end
 
       -- 3) 매칭 없음: 기본 filetype 감지로 fallback (html → Spring Thymeleaf 등)
@@ -316,7 +300,7 @@ vim.filetype.add({
 --
 -- 해결 (3단계 방어):
 --   1) find_editor_win() 전역 헬퍼: 항상 유효한 에디터 창을 찾아 반환
---   2) winfixbuf (Neovim 0.10+): 사이드바 창이 일반 파일 버퍼 전환을 OS 수준에서 차단
+--   2) winfixbuf: 사이드바 창이 일반 파일 버퍼 전환을 OS 수준에서 차단
 --   3) BufWinEnter 리다이렉트: winfixbuf 없거나 우회된 경우 즉시 에디터 창으로 이동
 -- ============================================================
 
@@ -373,23 +357,21 @@ vim.api.nvim_create_autocmd('WinLeave', {
   end,
 })
 
--- [Fix 1] winfixbuf: Neovim 0.10+ 에서 사이드바/비floating 특수 창의 버퍼 전환 차단
+-- [Fix 1] winfixbuf: 사이드바/비floating 특수 창의 버퍼 전환 차단
 -- 이 옵션이 있으면 해당 창에서 :buffer N 이 거부되므로,
 -- bufferline이 실수로 Explorer 창을 대상으로 클릭 명령을 실행해도 아무 일도 일어나지 않습니다.
-if vim.fn.has('nvim-0.10') == 1 then
-  vim.api.nvim_create_autocmd('FileType', {
-    group = vim.api.nvim_create_augroup('SidebarWinfixbuf', { clear = true }),
-    pattern = vim.tbl_keys(_sidebar_fts),
-    callback = function()
-      local win = vim.api.nvim_get_current_win()
-      local cfg = vim.api.nvim_win_get_config(win)
-      -- floating 창(Snacks 팝업 피커)에는 적용하지 않음
-      if cfg.relative == '' then
-        pcall(function() vim.opt_local.winfixbuf = true end)
-      end
-    end,
-  })
-end
+vim.api.nvim_create_autocmd('FileType', {
+  group = vim.api.nvim_create_augroup('SidebarWinfixbuf', { clear = true }),
+  pattern = vim.tbl_keys(_sidebar_fts),
+  callback = function()
+    local win = vim.api.nvim_get_current_win()
+    local cfg = vim.api.nvim_win_get_config(win)
+    -- floating 창(Snacks 팝업 피커)에는 적용하지 않음
+    if cfg.relative == '' then
+      pcall(function() vim.opt_local.winfixbuf = true end)
+    end
+  end,
+})
 
 -- [Fix 2] BufWinEnter 리다이렉트: winfixbuf가 없거나 우회된 경우의 최후 방어선
 -- 사이드바/특수 창에 일반 파일 버퍼가 진입하면 마지막 에디터 창으로 즉시 이동시킵니다.

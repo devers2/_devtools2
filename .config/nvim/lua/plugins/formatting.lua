@@ -29,7 +29,7 @@ return {
         prettier_html = {
           command = 'prettier',
           args = function(self, ctx)
-            local config_files = vim.fs.find({
+            local has_local_config = vim.fs.root(ctx.filename, {
               '.prettierrc',
               '.prettierrc.json',
               '.prettierrc.js',
@@ -38,9 +38,9 @@ return {
               '.prettierrc.yml',
               'prettier.config.js',
               'prettier.config.cjs',
-            }, { path = ctx.filename, upward = true })
+            }) ~= nil
 
-            if #config_files > 0 then
+            if has_local_config then
               -- 프로젝트 로컬 설정 파일이 존재할 경우: --config 없이 자동으로 로컬 설정을 찾아서 사용하도록 유도
               return { '--stdin-filepath', '$FILENAME' }
             else
