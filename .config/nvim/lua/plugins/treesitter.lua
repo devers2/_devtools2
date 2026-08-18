@@ -16,7 +16,7 @@ vim.api.nvim_create_autocmd('FileType', {
         return
       end
       local fname = vim.api.nvim_buf_get_name(buf)
-      local ok, stat = pcall(vim.loop.fs_stat, fname)
+      local ok, stat = pcall(vim.uv.fs_stat, fname)
       local oversized = ok and stat and stat.size > _G.get_max_file_size(buf)
       -- 파일 전체 크기는 정상이어도, HTML 등 복합 문법 파일에 <script>/<style> 인라인
       -- 콘텐츠가 유독 많으면(options.lua의 has_oversized_inline_block 참고) 별도로 더

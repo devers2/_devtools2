@@ -38,8 +38,7 @@ return {
             local title = ctx.item.preview_title or ctx.item.title
             if not title then
               local name = vim.api.nvim_buf_get_name(ctx.item.buf)
-              local uv = vim.uv or vim.loop
-              title = uv.fs_stat(name) and vim.fn.fnamemodify(name, ':t') or name
+              title = vim.uv.fs_stat(name) and vim.fn.fnamemodify(name, ':t') or name
             end
             ctx.preview:set_title(title)
 

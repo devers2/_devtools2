@@ -113,7 +113,7 @@ return {
           -- _G.MAX_FILE_SIZE 이상의 대용량 파일(예: Jinja2 통합 HTML)에서 실시간 코드 검사가 CPU를 장악하여 에디터가 완전히 멈추는 현상을 방지
           opts.on_attach = function(client, bufnr)
             local fname = vim.api.nvim_buf_get_name(bufnr)
-            local ok, stat = pcall(vim.loop.fs_stat, fname)
+            local ok, stat = pcall(vim.uv.fs_stat, fname)
             if ok and stat and stat.size > _G.get_max_file_size(bufnr) then
               -- 대용량 파일: ESLint LSP 실시간 진단 기능을 조용히 끕니다.
               client.server_capabilities.diagnosticProvider = nil

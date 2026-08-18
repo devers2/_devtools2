@@ -90,35 +90,10 @@ vim.opt.termguicolors = true
 -- 노멀(n), 비주얼(v), 커맨드(c) 모드에서는 block, 인서트(i) 모드에서는 세로선(ver25) 지정을 확실히 명시
 vim.opt.guicursor = 'n-v-c:block,i-ci-ve:ver25,r-cr:hor20,o:hor50'
 
-local function file_exists(name)
-  local f = io.open(name, 'r')
-  if f ~= nil then
-    io.close(f)
-    return true
-  else
-    return false
-  end
-end
-
-local function command_exists(cmd)
-  local path = os.getenv('PATH')
-  if not path then
-    return false
-  end
-  local sep = package.config:sub(1, 1) -- 플랫폼별 경로 구분자 ('\' or '/')
-  for dir in string.gmatch(path, '[^' .. (sep == '\\' and ';' or ':') .. ']+') do
-    local full_path = dir .. sep .. cmd
-    if file_exists(full_path) then
-      return true
-    end
-  end
-  return false
-end
-
 -- 터미널 셸 설정 (PowerShell 7 우선 사용)
 if _G.OS_TYPE == _G.OS.WINDOWS then
   -- Windows에서만 적용
-  if command_exists('pwsh.exe') then
+  if vim.fn.executable('pwsh.exe') == 1 then
     -- PowerShell 7 사용
     vim.opt.shell = 'pwsh.exe'
     vim.opt.shellcmdflag =

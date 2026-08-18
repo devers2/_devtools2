@@ -59,7 +59,10 @@ if ok then
     if f_read then
       local content = f_read:read('*all')
       if content and content ~= '' then
-        state = vim.json.decode(content) or {}
+        local ok_decode, decoded = pcall(vim.json.decode, content)
+        if ok_decode and type(decoded) == 'table' then
+          state = decoded
+        end
       end
       f_read:close()
     end

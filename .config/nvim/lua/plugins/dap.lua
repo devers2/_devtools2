@@ -202,7 +202,7 @@ return {
         end
 
         local settled = false
-        local timer = vim.loop.new_timer()
+        local timer = vim.uv.new_timer()
         timer:start(60000, 0, vim.schedule_wrap(function()
           if settled then
             return
@@ -306,7 +306,7 @@ return {
             timer:stop()
             timer:close()
           end
-          timer = vim.loop.new_timer()
+          timer = vim.uv.new_timer()
           timer:start(60000, 0, vim.schedule_wrap(on_timeout))
         end
         start_timer()
@@ -498,19 +498,25 @@ return {
             else
               -- macOS & Linux 환경
               local cmd = string.format('lsof -t -i:%d', port)
-              local pids = vim.fn.system(cmd)
-              if pids and pids ~= '' then
-                local clean_pids = pids:gsub('\n', ' ')
-                vim.fn.system(string.format('kill -9 %s', clean_pids))
-                vim.cmd('sleep 100m')
-                vim.notify(
-                  string.format(
-                    '기존 포트 %d의 프로세스(%s)를 종료하고 디버깅을 시작합니다.',
-                    port,
-                    clean_pids
-                  ),
-                  vim.log.levels.INFO
-                )
+              local pids_output = vim.fn.system(cmd)
+              if pids_output and pids_output ~= '' then
+                local valid_pids = {}
+                for pid in pids_output:gmatch('%d+') do
+                  table.insert(valid_pids, pid)
+                end
+                if #valid_pids > 0 then
+                  local clean_pids = table.concat(valid_pids, ' ')
+                  vim.fn.system(string.format('kill -9 %s', clean_pids))
+                  vim.cmd('sleep 100m')
+                  vim.notify(
+                    string.format(
+                      '기존 포트 %d의 프로세스(%s)를 종료하고 디버깅을 시작합니다.',
+                      port,
+                      clean_pids
+                    ),
+                    vim.log.levels.INFO
+                  )
+                end
               end
             end
           end

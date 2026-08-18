@@ -65,75 +65,75 @@ function M.register_interceptor(opts)
   if not vim._ui_select_translator_wrapped then
     vim._ui_select_translator_wrapped = true
     vim.schedule(function()
-    local orig_ui_select = vim.ui.select
-    vim.ui.select = function(items, select_opts, on_choice)
-      select_opts = select_opts or {}
-      local prompt = select_opts.prompt or ''
-      local format_item = select_opts.format_item or function(item)
-        return tostring(item)
-      end
+      local orig_ui_select = vim.ui.select
+      vim.ui.select = function(items, select_opts, on_choice)
+        select_opts = select_opts or {}
+        local prompt = select_opts.prompt or ''
+        local format_item = select_opts.format_item or function(item)
+          return tostring(item)
+        end
 
-      local matched_interceptor = nil
-      if prompt and items then
-        for _, interceptor in ipairs(M._registered_interceptors) do
-          for _, pattern in ipairs(interceptor.prompt_patterns) do
-            if prompt:find(pattern) then
-              matched_interceptor = interceptor
+        local matched_interceptor = nil
+        if prompt and items then
+          for _, interceptor in ipairs(M._registered_interceptors) do
+            for _, pattern in ipairs(interceptor.prompt_patterns) do
+              if prompt:find(pattern) then
+                matched_interceptor = interceptor
+                break
+              end
+            end
+            if matched_interceptor then
               break
             end
           end
-          if matched_interceptor then
-            break
-          end
         end
-      end
 
-      if matched_interceptor and type(items) == 'table' then
-        local decorated = {}
-        for idx, item in ipairs(items) do
-          local raw_label = format_item(item)
-          local trans = matched_interceptor.translations[raw_label]
-          local display, priority
-          if trans then
-            display = trans.ko .. ' (' .. raw_label .. ')'
-            priority = trans.priority or matched_interceptor.default_priority
-          else
-            display = raw_label
-            priority = matched_interceptor.default_priority
+        if matched_interceptor and type(items) == 'table' then
+          local decorated = {}
+          for idx, item in ipairs(items) do
+            local raw_label = format_item(item)
+            local trans = matched_interceptor.translations[raw_label]
+            local display, priority
+            if trans then
+              display = trans.ko .. ' (' .. raw_label .. ')'
+              priority = trans.priority or matched_interceptor.default_priority
+            else
+              display = raw_label
+              priority = matched_interceptor.default_priority
+            end
+            table.insert(decorated, {
+              original = item,
+              display = display,
+              priority = priority,
+              idx = idx,
+            })
           end
-          table.insert(decorated, {
-            original = item,
-            display = display,
-            priority = priority,
-            idx = idx,
+
+          table.sort(decorated, function(a, b)
+            if a.priority ~= b.priority then
+              return a.priority < b.priority
+            end
+            return a.idx < b.idx
+          end)
+
+          local new_items = {}
+          local item_to_display = {}
+          for _, d in ipairs(decorated) do
+            table.insert(new_items, d.original)
+            item_to_display[d.original] = d.display
+          end
+
+          local custom_opts = vim.tbl_extend('force', select_opts, {
+            format_item = function(item)
+              return item_to_display[item] or format_item(item)
+            end,
           })
+
+          return orig_ui_select(new_items, custom_opts, on_choice)
         end
 
-        table.sort(decorated, function(a, b)
-          if a.priority ~= b.priority then
-            return a.priority < b.priority
-          end
-          return a.idx < b.idx
-        end)
-
-        local new_items = {}
-        local item_to_display = {}
-        for _, d in ipairs(decorated) do
-          table.insert(new_items, d.original)
-          item_to_display[d.original] = d.display
-        end
-
-        local custom_opts = vim.tbl_extend('force', select_opts, {
-          format_item = function(item)
-            return item_to_display[item] or format_item(item)
-          end,
-        })
-
-        return orig_ui_select(new_items, custom_opts, on_choice)
+        return orig_ui_select(items, select_opts, on_choice)
       end
-
-      return orig_ui_select(items, select_opts, on_choice)
-    end
     end)
   end
 end

@@ -55,7 +55,7 @@ vim.api.nvim_create_autocmd({ 'BufReadPre', 'BufEnter' }, {
     end
 
     local fname = vim.api.nvim_buf_get_name(buf)
-    local ok, stat = pcall(vim.loop.fs_stat, fname)
+    local ok, stat = pcall(vim.uv.fs_stat, fname)
 
     if ok and stat and stat.size > _G.get_max_file_size(buf) then
       -- 1. 폴딩 연산을 수동(manual)으로 바꾸어 타이핑 시 구조 재계산 렉 방지
@@ -93,7 +93,7 @@ vim.api.nvim_create_autocmd('BufWritePost', {
     end
 
     local fname = vim.api.nvim_buf_get_name(buf)
-    local ok, stat = pcall(vim.loop.fs_stat, fname)
+    local ok, stat = pcall(vim.uv.fs_stat, fname)
 
     if ok and stat and stat.size > _G.get_max_file_size(buf) then
       -- 비동기로 conform.nvim 포맷팅 실행
@@ -332,7 +332,7 @@ vim.api.nvim_create_autocmd({ 'BufReadPost', 'FileType' }, {
 
     -- 대용량 파일은 동기 파싱 및 강제 하이라이팅 적용 대상에서 제외
     local fname = vim.api.nvim_buf_get_name(buf)
-    local ok, stat = pcall(vim.loop.fs_stat, fname)
+    local ok, stat = pcall(vim.uv.fs_stat, fname)
     if ok and stat and stat.size > _G.get_max_file_size(buf) then
       return
     end
@@ -365,12 +365,12 @@ vim.api.nvim_create_autocmd("BufReadCmd", {
     local filepath = vim.fn.expand("<amatch>")
     -- OS(리눅스, 맥, 윈도우)에 무관하게 시스템 기본 지정 앱으로 비동기 실행
     vim.ui.open(filepath)
-    
+
     -- 2. Neovim 버퍼가 바이너리 데이터를 읽지 않도록 빈 상태로 제어
     vim.bo[ev.buf].modifiable = false
     vim.bo[ev.buf].modified = false
     vim.bo[ev.buf].buftype = "nofile"
-    
+
     -- 3. 이 버퍼를 Neovim 화면에서 즉시 닫고 이전 버퍼로 원복
     vim.schedule(function()
       if vim.api.nvim_buf_is_valid(ev.buf) then
