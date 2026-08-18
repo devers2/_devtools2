@@ -212,7 +212,7 @@ vim.api.nvim_create_autocmd({ 'FocusLost', 'BufLeave', 'InsertLeave' }, {
       local mode = vim.api.nvim_get_mode().mode
       if mode ~= 'i' and mode ~= 'R' then
         pcall(vim.api.nvim_buf_call, buf, function()
-          vim.cmd('silent! update')
+          vim.cmd.update({ mods = { silent = true } })
         end)
       end
     end

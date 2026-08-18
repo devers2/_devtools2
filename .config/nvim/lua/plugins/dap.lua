@@ -46,7 +46,7 @@ return {
         end
 
         -- 3) 모든 창이 잠겨있다면 새 창을 분할해 열고 로드
-        vim.cmd('split')
+        vim.cmd.split()
         local new_win = api.nvim_get_current_win()
         api.nvim_win_set_buf(new_win, bufnr)
         pcall(api.nvim_win_set_cursor, new_win, { line, col })

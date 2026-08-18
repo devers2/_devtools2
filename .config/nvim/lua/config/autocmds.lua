@@ -49,6 +49,7 @@ vim.api.nvim_create_autocmd('FileType', {
 -- 최적화하여 타이핑 렉 및 화면 스크롤/이동 렉을 완벽하게 차단합니다.
 -- =========================================================================
 vim.api.nvim_create_autocmd({ 'BufReadPre', 'BufEnter' }, {
+  group = vim.api.nvim_create_augroup('large_file_buffer_optimize', { clear = true }),
   pattern = '*',
   callback = function(args)
     local buf = args.buf
@@ -142,6 +143,7 @@ vim.api.nvim_create_autocmd('LspAttach', {
 local jinja_setup_checked = {}
 
 vim.api.nvim_create_autocmd('FileType', {
+  group = vim.api.nvim_create_augroup('jinja_formatter_setup', { clear = true }),
   pattern = 'python',
   callback = function()
     local buf_name = vim.api.nvim_buf_get_name(0)
@@ -327,6 +329,7 @@ export default {
 --    이러한 비동기 주입 과정이 없어 시작 지연이 없으므로 최적화 대상에서 제외합니다.
 -- =========================================================================
 vim.api.nvim_create_autocmd({ 'BufReadPost', 'FileType' }, {
+  group = vim.api.nvim_create_augroup('compound_lang_highlight', { clear = true }),
   pattern = { 'html', 'htmldjango', 'vue' },
   callback = function(args)
     local buf = args.buf

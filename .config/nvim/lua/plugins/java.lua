@@ -125,7 +125,7 @@ return {
       local root_str = tostring(type(opts.root_dir) == 'function' and opts.root_dir(buf_name) or opts.root_dir)
 
       -- [실행 정보 기록 시작] 모든 분석 로그보다 먼저 세션 헤더를 출력
-      local project_name = vim.fn.fnamemodify(root_str, ':p:h:t')
+      local project_name = root_str:match('([^/\\]+)[/\\]?$') or root_str
       _G.log_jdtls('================================================================================')
       _G.log_jdtls(string.format('[SESSION] Project Name: %s', project_name:upper()))
       _G.log_jdtls('================================================================================')
@@ -479,7 +479,7 @@ return {
         pattern = { '*.log', 'log' },
         callback = function(args)
           local buf = args.buf
-          if vim.bo[buf].filetype == 'log' or vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ':e') == 'log' then
+          if vim.bo[buf].filetype == 'log' or (vim.api.nvim_buf_get_name(buf):match('%.([^.]+)$') or '') == 'log' then
             -- 자동 줄바꿈
             vim.wo.wrap = true
 

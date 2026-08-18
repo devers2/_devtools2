@@ -4,7 +4,7 @@
 
 -- 현재 위치의 시스템 탐색기 열기: <Leader>fE (File Explore)
 vim.keymap.set('n', '<leader>fE', function()
-  local path = vim.fn.expand('%:p:h')
+  local path = vim.api.nvim_buf_get_name(0):match('(.*)[/\\]') or vim.fn.getcwd()
   vim.ui.open(path)
 end, { desc = 'Open System Explorer' })
 
@@ -307,7 +307,7 @@ local function run_manual_eslint()
 
       if #qf_items == 0 then
         vim.fn.setqflist({}, 'r')
-        vim.cmd('cclose')
+        vim.cmd.cclose()
         vim.notify('🎉 완벽합니다! JS 문법 오류나 스타일 위반이 없습니다.', vim.log.levels.INFO, { title = 'ESLint 분석 완료' })
         -- 확실하게 진단 마킹을 0개로 덮어쓰기하여 화면에 남은 에러를 지웁니다.
         vim.diagnostic.set(eslint_ns, bufnr, {})
@@ -319,10 +319,10 @@ local function run_manual_eslint()
 
       -- Quickfix 목록에 등록 후 창 열기
       vim.fn.setqflist({}, 'r', {
-        title = string.format('ESLint (%s)', vim.fn.fnamemodify(file, ':t')),
+        title = string.format('ESLint (%s)', file:match('([^/\\]+)$') or file),
         items = qf_items,
       })
-      vim.cmd('copen')
+      vim.cmd.copen()
 
       vim.notify(
         string.format('⚠️  %d개의 JS 오류가 발견되었습니다. (목록에서 Enter로 해당 줄 이동)', #qf_items),
@@ -337,7 +337,7 @@ end
 -- <leader>L : 결과 창 닫기 및 진단 마킹 초기화
 vim.keymap.set('n', '<leader>l', run_manual_eslint, { desc = 'ESLint: Run Manual Lint' })
 vim.keymap.set('n', '<leader>L', function()
-  vim.cmd('cclose')
+  vim.cmd.cclose()
   -- 모든 수동 린트 진단 마킹 초기화
   vim.diagnostic.reset(eslint_ns)
 end, { desc = 'ESLint: Close Result Window & Clear Diagnostics' })
@@ -350,7 +350,7 @@ end, { desc = 'ESLint: Close Result Window & Clear Diagnostics' })
 -- ============================================================
 vim.keymap.set('n', '<leader>\\a', function()
   -- \uXXXX 형식의 유니코드 이스케이프 시퀀스를 실제 유니코드 문자로 변환
-  local ok, err = pcall(vim.cmd, [[%s/\\u\([0-9a-fA-F]\{4\}\)/\=nr2char(str2nr(submatch(1), 16))/ge]])
+  local ok, _ = pcall(vim.cmd, [[%s/\\u\([0-9a-fA-F]\{4\}\)/\=nr2char(str2nr(submatch(1), 16))/ge]])
   if ok then
     vim.notify('유니코드 디코딩이 완료되었습니다.', vim.log.levels.INFO, { title = '유니코드 변환' })
   end
@@ -358,7 +358,7 @@ end, { desc = 'Unicode: Decode \\uXXXX → char (전체 버퍼)' })
 
 vim.keymap.set('n', '<leader>\\A', function()
   -- ASCII 범위를 벗어난 문자(한글, 특수문자 등)를 \uXXXX 이스케이프 시퀀스로 변환
-  local ok, err = pcall(vim.cmd, [[%s/[^\x00-\x7F]/\=printf('\\u%04X', char2nr(submatch(0)))/ge]])
+  local ok, _ = pcall(vim.cmd, [[%s/[^\x00-\x7F]/\=printf('\\u%04X', char2nr(submatch(0)))/ge]])
   if ok then
     vim.notify('유니코드 인코딩이 완료되었습니다.', vim.log.levels.INFO, { title = '유니코드 변환' })
   end
