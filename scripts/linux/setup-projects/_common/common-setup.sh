@@ -231,6 +231,7 @@ sys.exit(0 if sig.search(content) else 1)
         "gpr.key=${EXPECTED_PAT}"
 
     echo "✅ ~/.gradle/gradle.properties 에 gpr.user=${EXPECTED_USER} 및 gpr.key 설정 완료!"
+    echo ""
 }
 
 # ── rclone SFTP 마운트 설정 (systemd user 서비스 등록 포함) ─────────────────
