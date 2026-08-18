@@ -4,6 +4,7 @@ return {
     -- 목적: Normal 모드로 전환할 때 자동으로 입력기를 영문으로 변경하여,
     -- 한글 입력 상태에서 단축키가 작동하지 않는 문제를 방지합니다.
     'keaising/im-select.nvim',
+    event = 'VeryLazy',
 
     -- 플러그인 로드 조건 설정
     cond = function()

@@ -477,6 +477,14 @@ return {
         { '<leader>\\u', desc = '대문자로 변환 (TO UPPER CASE)' },
         { '<leader>\\U', desc = 'LSP 이름 변경: 대문자 (LSP rename TO UPPER CASE)' },
         { '<leader>\\w', desc = 'phrase case로 변환 (to phrase case)' },
+        { '<leader>\\o', group = '[o] 모션 지정 변환 (Motion Operator)' },
+        { '<leader>\\oc', desc = 'camelCase 모션 변환 (toCamelCase motion)' },
+        { '<leader>\\od', desc = 'dash-case 모션 변환 (to-dash-case motion)' },
+        { '<leader>\\ol', desc = '소문자 모션 변환 (to lower case motion)' },
+        { '<leader>\\on', desc = 'CONSTANT_CASE 모션 변환 (TO_CONSTANT_CASE motion)' },
+        { '<leader>\\op', desc = 'PascalCase 모션 변환 (ToPascalCase motion)' },
+        { '<leader>\\os', desc = 'snake_case 모션 변환 (to_snake_case motion)' },
+        { '<leader>\\ou', desc = '대문자 모션 변환 (TO UPPER CASE motion)' },
 
         -- ── 탭 관리 그룹 (<leader><tab>) ──
         { '<leader><tab>d', desc = '현재 탭 닫기 (Close Tab)' },

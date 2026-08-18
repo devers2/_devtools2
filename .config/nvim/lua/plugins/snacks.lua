@@ -38,13 +38,14 @@ return {
             local title = ctx.item.preview_title or ctx.item.title
             if not title then
               local name = vim.api.nvim_buf_get_name(ctx.item.buf)
-              title = vim.uv.fs_stat(name) and vim.fn.fnamemodify(name, ':t') or name
+              title = (name ~= '' and vim.fs.basename(name)) or '[No Name]'
             end
             ctx.preview:set_title(title)
 
             -- 원본 버퍼를 직접 셋하면 다른 플러그인의 윈도우 감지 오동작으로 모드가 풀리므로
             -- 텍스트와 파일 타입만 복사하여 스크래치 버퍼를 통해 프리뷰합니다.
-            local lines = vim.api.nvim_buf_get_lines(ctx.item.buf, 0, -1, false)
+            -- 대용량 버퍼의 경우 최대 1000줄까지만 가져와 프리뷰 렌더링 렉을 방지합니다.
+            local lines = vim.api.nvim_buf_get_lines(ctx.item.buf, 0, 1000, false)
             local ft = vim.bo[ctx.item.buf].filetype
             ctx.preview:reset()
             ctx.preview:set_lines(lines)

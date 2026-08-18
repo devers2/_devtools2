@@ -84,8 +84,8 @@ return {
             return (fname and vim.fs.root(fname, '.git')) or vim.uv.cwd()
           end
 
-          local config_file = vim.uv.fs_realpath(_G.DEVTOOLS2_DIR .. '/.config/eslint/eslint.config.mjs')
-            or (_G.DEVTOOLS2_DIR .. '/.config/eslint/eslint.config.mjs')
+          local raw_config = _G.DEVTOOLS2_DIR .. '/.config/eslint/eslint.config.mjs'
+          local config_file = (vim.uv.fs_realpath(raw_config) or raw_config):gsub('\\', '/')
 
           opts.settings = {
             useFlatConfig = true,
@@ -112,18 +112,20 @@ return {
           -- _G.MAX_FILE_SIZE 이상의 대용량 파일(예: Jinja2 통합 HTML)에서 실시간 코드 검사가 CPU를 장악하여 에디터가 완전히 멈추는 현상을 방지
           opts.on_attach = function(client, bufnr)
             local fname = vim.api.nvim_buf_get_name(bufnr)
-            local ok, stat = pcall(vim.uv.fs_stat, fname)
-            if ok and stat and stat.size > _G.get_max_file_size(bufnr) then
-              -- 대용량 파일: ESLint LSP 실시간 진단 기능을 조용히 끕니다.
-              client.server_capabilities.diagnosticProvider = nil
-              vim.notify(
-                string.format(
-                  '📄 대용량 파일(%.0fKB)이므로 ESLint 실시간 검사를 비활성화합니다.\n수동 린트가 필요하면 <leader>l 을 실행하세요.',
-                  stat.size / 1024
-                ),
-                vim.log.levels.INFO,
-                { title = 'ESLint 자동 최적화', timeout = 4000 }
-              )
+            if fname ~= '' then
+              local ok, stat = pcall(vim.uv.fs_stat, fname)
+              if ok and stat and stat.size > _G.get_max_file_size(bufnr) then
+                -- 대용량 파일: ESLint LSP 실시간 진단 기능을 조용히 끕니다.
+                client.server_capabilities.diagnosticProvider = nil
+                vim.notify(
+                  string.format(
+                    '📄 대용량 파일(%.0fKB)이므로 ESLint 실시간 검사를 비활성화합니다.\n수동 린트가 필요하면 <leader>l 을 실행하세요.',
+                    stat.size / 1024
+                  ),
+                  vim.log.levels.INFO,
+                  { title = 'ESLint 자동 최적화', timeout = 4000 }
+                )
+              end
             end
           end
 

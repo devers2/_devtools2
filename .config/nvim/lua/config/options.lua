@@ -226,29 +226,34 @@ vim.opt.spell = false
 -- 일반(Normal) 및 비주얼(Visual) 모드에서 영문이나 단축키용 특수문자가 아닌
 -- 다국어 문자(한글, 한자, 일어 등)를 쳤을 때 안내 메시지를 띄웁니다.
 -- ============================================================
-vim.on_key(function(key)
-  -- Neovim 내부에서 마우스 클릭이나 방향키 등은 K_SPECIAL(128, 0x80) 코드로 처리됩니다.
-  -- 실제 UTF-8 기반 다국어 텍스트(한/중/일 등)는 무조건 첫 바이트가 192(0xC0) 이상입니다.
-  -- 따라서 192 이상일 때만 감지하면 방향키나 마우스 스크롤 등의 영문 모드 조작을 완벽하게 무시합니다!
-  if key and #key > 0 and string.byte(key, 1) >= 192 then
-    local mode = vim.api.nvim_get_mode().mode
-    -- i(Insert), c(Command) 등 텍스트를 직접 입력하는 모드가 아닐 때만 작동
-    if mode == 'n' or mode == 'v' or mode == 'V' or mode == '\22' then
-      local now = vim.uv.now()
-      -- 알림 도배 방지 (2초에 한 번만 안내)
-      if not _G.__last_lang_warn or (now - _G.__last_lang_warn) > 2000 then
-        _G.__last_lang_warn = now
-        vim.schedule(function()
-          vim.notify(
-            '일반 모드에서는 영문 단축키만 지원합니다.\n입력 언어(한/영 등)를 전환해 주세요.',
-            vim.log.levels.WARN,
-            { title = '입력 모드 경고' }
-          )
-        end)
+do
+  local last_lang_warn = 0
+  local shortcut_modes = { n = true, v = true, V = true, ['\22'] = true }
+
+  vim.on_key(function(key)
+    -- Neovim 내부에서 마우스 클릭이나 방향키 등은 K_SPECIAL(128, 0x80) 코드로 처리됩니다.
+    -- 실제 UTF-8 기반 다국어 텍스트(한/중/일 등)는 무조건 첫 바이트가 192(0xC0) 이상입니다.
+    -- 따라서 192 이상일 때만 감지하면 방향키나 마우스 스크롤 등의 영문 모드 조작을 완벽하게 무시합니다!
+    if key and #key > 0 and string.byte(key, 1) >= 192 then
+      local mode = vim.api.nvim_get_mode().mode
+      -- i(Insert), c(Command) 등 텍스트를 직접 입력하는 모드가 아닐 때만 작동
+      if shortcut_modes[mode] then
+        local now = vim.uv.now()
+        -- 알림 도배 방지 (2초에 한 번만 안내)
+        if (now - last_lang_warn) > 2000 then
+          last_lang_warn = now
+          vim.schedule(function()
+            vim.notify(
+              '일반 모드에서는 영문 단축키만 지원합니다.\n입력 언어(한/영 등)를 전환해 주세요.',
+              vim.log.levels.WARN,
+              { title = '입력 모드 경고' }
+            )
+          end)
+        end
       end
     end
-  end
-end, vim.api.nvim_create_namespace('lang_warn_detect'))
+  end, vim.api.nvim_create_namespace('lang_warn_detect'))
+end
 
 -- Diagnostic 설정 (LSP 실시간 에러 표시)
 -- ⚠️ virtual_text 는 여기서 설정해도 죽은 설정입니다: plugins/ui.lua의 tiny-inline-diagnostic.nvim이

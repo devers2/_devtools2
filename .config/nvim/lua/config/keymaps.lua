@@ -44,6 +44,7 @@ if ok then
   end
 
   local function save_last_debug_port(ft, port)
+    vim.fn.mkdir(nvim_state_dir, 'p')
     local f_read = io.open(state_file, 'r')
     local state = {}
     if f_read then
