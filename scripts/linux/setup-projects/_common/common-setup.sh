@@ -195,6 +195,7 @@ sys.exit(0 if sig.search(content) else 1)
         MASKED_EXP_KEY="${EXPECTED_PAT:0:4}****"
     fi
     echo "   [권장 설정] gpr.user='${EXPECTED_USER}', gpr.key='${MASKED_EXP_KEY}'"
+    echo "   ❗ GitHub Packages에 의존성이 있는 경우(공개/비공개 무관) 설정이 없으면 패키지를 참조(다운로드)하지 못해 빌드 오류가 발생할 수 있습니다."
     echo ""
 
     local USER_CHOICE=""
@@ -209,6 +210,7 @@ sys.exit(0 if sig.search(content) else 1)
 
     if [ "$USER_CHOICE" = "n" ]; then
         echo "ℹ️  gpr.user 및 gpr.key 설정을 추가/수정하지 않고 다음 단계로 진행합니다."
+        echo "⚠️  GitHub Packages에 의존성이 있는 경우 빌드 시 인증 오류가 발생할 수 있습니다."
         return 0
     fi
 
