@@ -48,9 +48,17 @@ return {
       -- 단축키는 위쪽 keys 필드에서 지연 로드 트리거로 등록됨 (여기서 다시 set 하지 않음)
 
       -- 현재 위치 표시가 한눈에 잘 띄도록 밝은 색상 적용 (Kanagawa 테마 계열 매칭)
-      vim.api.nvim_set_hl(0, 'MiniMapNormal', { fg = '#727169', bg = 'NONE' })
-      vim.api.nvim_set_hl(0, 'MiniMapSymbolView', { fg = '#ff9e3b', bold = true }) -- 현재 화면 영역 (황색 강조)
-      vim.api.nvim_set_hl(0, 'MiniMapSymbolLine', { fg = '#7e9cd8', bold = true }) -- 현재 커서 라인 (청색 화살표)
+      local function set_minimap_hl()
+        vim.api.nvim_set_hl(0, 'MiniMapNormal', { fg = '#727169', bg = 'NONE' })
+        vim.api.nvim_set_hl(0, 'MiniMapSymbolView', { fg = '#ff9e3b', bold = true }) -- 현재 화면 영역 (황색 강조)
+        vim.api.nvim_set_hl(0, 'MiniMapSymbolLine', { fg = '#7e9cd8', bold = true }) -- 현재 커서 라인 (청색 화살표)
+      end
+      set_minimap_hl()
+
+      vim.api.nvim_create_autocmd('ColorScheme', {
+        group = vim.api.nvim_create_augroup('devtools2_minimap_hl', { clear = true }),
+        callback = set_minimap_hl,
+      })
     end,
   },
 }

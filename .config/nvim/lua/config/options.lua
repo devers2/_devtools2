@@ -199,10 +199,12 @@ vim.api.nvim_create_autocmd({ 'FocusLost', 'BufLeave', 'InsertLeave' }, {
   group = vim.api.nvim_create_augroup('IntelliJAutoSave', { clear = true }),
   callback = function(args)
     local buf = args.buf
-    -- 버퍼가 유효하고, 실제 수정되었으며, 일반 파일 버퍼(buftype이 빈값)이고 파일 경로가 있는 경우에만 실행
+    -- 버퍼가 유효하고, 실제 수정되었으며, 수정 가능하고 읽기 전용이 아닌 일반 파일 버퍼인 경우에만 실행
     if
       vim.api.nvim_buf_is_valid(buf)
       and vim.bo[buf].modified
+      and vim.bo[buf].modifiable
+      and not vim.bo[buf].readonly
       and vim.bo[buf].buftype == ''
       and vim.api.nvim_buf_get_name(buf) ~= ''
     then
@@ -279,24 +281,29 @@ vim.diagnostic.config({
 --   2) Flask/FastAPI: requirements.txt / pyproject.toml / Pipfile 존재
 --   3) 그 외:         nil 반환 → Neovim 기본 html 감지 유지 (Spring 등)
 -- ============================================================
+local function detect_python_html(path, _)
+  if not path or path == '' then
+    return nil
+  end
+
+  -- 1) Django 프로젝트 감지
+  if vim.fs.root(path, { 'manage.py', 'wsgi.py', 'asgi.py' }) then
+    return 'htmldjango'
+  end
+
+  -- 2) Flask / FastAPI 등 Python 웹 프로젝트 감지
+  if vim.fs.root(path, { 'requirements.txt', 'pyproject.toml', 'Pipfile' }) then
+    return 'htmldjango'
+  end
+
+  -- 3) 매칭 없음: 기본 filetype 감지로 fallback (html → Spring Thymeleaf 등)
+  return nil
+end
+
 vim.filetype.add({
   extension = {
-    html = function(path, _)
-      local file_dir = vim.fs.dirname(path)
-
-      -- 1) Django 프로젝트 감지
-      if vim.fs.root(file_dir, { 'manage.py', 'wsgi.py', 'asgi.py' }) then
-        return 'htmldjango'
-      end
-
-      -- 2) Flask / FastAPI 등 Python 웹 프로젝트 감지
-      if vim.fs.root(file_dir, { 'requirements.txt', 'pyproject.toml', 'Pipfile' }) then
-        return 'htmldjango'
-      end
-
-      -- 3) 매칭 없음: 기본 filetype 감지로 fallback (html → Spring Thymeleaf 등)
-      return nil
-    end,
+    html = detect_python_html,
+    htm = detect_python_html,
   },
 })
 

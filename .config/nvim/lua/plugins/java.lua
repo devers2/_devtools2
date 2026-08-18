@@ -146,12 +146,17 @@ return {
             f:close()
             -- 다양한 설정 방식(Groovy, Kotlin DSL, Maven)에 대응하는 통합 정규식
             local version = content:match('languageVersion%.of%((%d+)%)')
+              or content:match('JavaLanguageVersion%.of%((%d+)%)')
+              or content:match('JavaVersion%.VERSION_1_(%d+)')
+              or content:match('JavaVersion%.VERSION_(%d+)')
               or content:match('sourceCompatibility%s*=%s*[\'"]?([%d%.]+)[\'"]?')
+              or content:match('targetCompatibility%s*=%s*[\'"]?([%d%.]+)[\'"]?')
               or content:match('<java%.version>([%d%.]+)</java%.version>')
               or content:match('<maven%.compiler%.source>([%d%.]+)</maven%.compiler%.source>')
+              or content:match('<maven%.compiler%.target>([%d%.]+)</maven%.compiler%.target>')
             if version then
               -- '1.8' -> 8, '17' -> 17 등 숫자로 변환
-              local v_num = tonumber(version:match('^1%.(%d+)$') or version)
+              local v_num = tonumber(version:match('^1%.(%d+)$') or version:match('^1_(%d+)$') or version)
               local source = file:match('gradle') and 'gradle' or 'maven'
 
               -- 그래들인 경우 wrapper 버전을 추가로 확인하여 로그 품질 향상

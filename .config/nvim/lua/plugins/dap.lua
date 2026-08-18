@@ -254,7 +254,7 @@ return {
             vim.ui.select({ '예, 그래도 실행', '아니오, 취소' }, {
               prompt = '⚠️ 빌드 에러가 있습니다 (:copen 목록 확인). 그래도 디버깅을 실행할까요?',
             }, function(choice)
-              on_done(choice ~= nil and choice:find('예') ~= nil)
+              on_done(choice ~= nil and choice:find('예', 1, true) ~= nil)
             end)
           end)
         end, 0)
@@ -295,7 +295,7 @@ return {
             if settled then
               return
             end
-            if choice and choice:find('계속') then
+            if choice and choice:find('계속', 1, true) then
               start_timer()
             else
               settled = true

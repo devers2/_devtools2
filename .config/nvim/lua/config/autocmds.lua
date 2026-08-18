@@ -84,23 +84,28 @@ vim.api.nvim_create_autocmd({ 'BufReadPre', 'BufEnter' }, {
 -- =========================================================================
 -- [대용량 파일 비동기 포맷팅 최적화]
 -- _G.MAX_FILE_SIZE 를 초과하는 대용량 파일 저장 시 동기식 포맷팅으로 인한 렉을 방지하고 백그라운드 비동기로 포맷팅합니다.
--- (모든 포맷터에 일괄 적용)
+-- (모든 포맷터에 일괄 적용, 재귀 트리거 방지 가드 포함)
 -- =========================================================================
+local _async_formatting_bufs = {}
 vim.api.nvim_create_autocmd('BufWritePost', {
   group = vim.api.nvim_create_augroup('large_file_format_async', { clear = true }),
   callback = function(event)
     local buf = event.buf
-    if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    if not buf or not vim.api.nvim_buf_is_valid(buf) or _async_formatting_bufs[buf] then
       return
     end
 
     local fname = vim.api.nvim_buf_get_name(buf)
+    if fname == '' then
+      return
+    end
     local ok, stat = pcall(vim.uv.fs_stat, fname)
 
     if ok and stat and stat.size > _G.get_max_file_size(buf) then
       -- 비동기로 conform.nvim 포맷팅 실행
       local conform_ok, conform = pcall(require, 'conform')
       if conform_ok then
+        _async_formatting_bufs[buf] = true
         vim.notify(
           '📄 대용량 파일('
             .. math.floor(stat.size / 1024)
@@ -108,7 +113,9 @@ vim.api.nvim_create_autocmd('BufWritePost', {
           vim.log.levels.INFO,
           { title = 'Formatter' }
         )
-        conform.format({ bufnr = buf, async = true, lsp_fallback = true })
+        conform.format({ bufnr = buf, async = true, lsp_fallback = true }, function()
+          _async_formatting_bufs[buf] = nil
+        end)
       end
     end
   end,

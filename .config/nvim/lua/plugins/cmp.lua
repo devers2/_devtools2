@@ -6,13 +6,12 @@
 return {
   {
     'saghen/blink.cmp',
-    opts = {
-      sources = {
-        providers = {
-          lsp = { min_keyword_length = 2 }, -- LSP 자동완성은 2글자 이상부터 트리거
-          buffer = { min_keyword_length = 3 }, -- 버퍼 텍스트 인덱싱은 3글자 이상부터 트리거
-        },
-      },
-    },
+    opts = function(_, opts)
+      opts.sources = opts.sources or {}
+      opts.sources.providers = opts.sources.providers or {}
+      opts.sources.providers.lsp = vim.tbl_deep_extend('force', opts.sources.providers.lsp or {}, { min_keyword_length = 2 })
+      opts.sources.providers.buffer = vim.tbl_deep_extend('force', opts.sources.providers.buffer or {}, { min_keyword_length = 3 })
+      return opts
+    end,
   },
 }

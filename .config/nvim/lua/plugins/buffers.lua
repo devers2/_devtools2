@@ -17,6 +17,9 @@ return {
 
       -- 마우스 탭 클릭 시 항상 유효한 에디터 창에서 버퍼 전환
       opts.options.left_mouse_command = function(n)
+        if not n or type(n) ~= 'number' or not vim.api.nvim_buf_is_valid(n) then
+          return
+        end
         -- [1] 유효한 에디터 창으로 먼저 포커스 이동
         if _G.find_editor_win then
           local target = _G.find_editor_win()

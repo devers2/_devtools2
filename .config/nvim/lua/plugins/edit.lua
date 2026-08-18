@@ -2,11 +2,9 @@ return {
   {
     -- 변수 표기법 변환 (camelCase, snake_case, PascalCase, kebab-case 등)
     'johmsalas/text-case.nvim',
-    config = function()
-      require('textcase').setup({
-        prefix = '<leader>\\',
-      })
-    end,
+    opts = {
+      prefix = '<leader>\\',
+    },
     keys = {
       -- Which-Key 그룹 레이블 등록
       { '<leader>\\', group = '[\\] 대소문자 변환 (Convert Case)' },
