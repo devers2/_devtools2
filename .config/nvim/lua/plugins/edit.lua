@@ -73,7 +73,7 @@ return {
       {
         '<leader>\\w',
         function()
-          require('textcase').quick_replace('to_phrase_case')
+          require('textcase').current_word('to_phrase_case')
         end,
         desc = 'phrase case로 변환 (to phrase case)',
         mode = 'n',
@@ -81,7 +81,7 @@ return {
       {
         '<leader>\\t',
         function()
-          require('textcase').quick_replace('to_title_case')
+          require('textcase').current_word('to_title_case')
         end,
         desc = 'Title Case로 변환 (To Title Case)',
         mode = 'n',
