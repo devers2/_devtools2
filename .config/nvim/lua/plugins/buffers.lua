@@ -25,7 +25,7 @@ return {
           end
         end
         -- [2] 해당 창에서 버퍼 전환
-        vim.cmd('buffer ' .. n)
+        pcall(vim.api.nvim_set_current_buf, n)
       end
 
       -- 중간 버튼(휠 클릭)은 위 왼쪽 클릭과 달리 별도 처리 없이 기본 비활성 유지

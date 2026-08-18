@@ -58,25 +58,34 @@ return {
       -- dap.configurations.java에 넣어두므로, 여기서 명시적으로 비워야 <leader>dd 피커에서 빠집니다.
       dap.configurations.java = {}
 
-      -- Python FastAPI launch 기본 구성 (수동 실행 시 DAP UI에 표시됨)
+      -- Python FastAPI launch 기본 구성 (수동 실행 시 DAP UI에 표시됨, 중복 등록 방지)
       dap.configurations.python = dap.configurations.python or {}
-      table.insert(dap.configurations.python, {
-        type = 'python',
-        request = 'launch',
-        name = 'FastAPI 디버깅 실행 (기본: 8095)',
-        module = 'uvicorn',
-        args = {
-          'main:app',
-          '--reload',
-          '--port',
-          '8095',
-          '--host',
-          '0.0.0.0',
-        },
-        pythonPath = function()
-          return os.getenv('VIRTUAL_ENV') and (os.getenv('VIRTUAL_ENV') .. '/bin/python') or 'python'
-        end,
-      })
+      local has_fastapi = false
+      for _, conf in ipairs(dap.configurations.python) do
+        if conf.name and conf.name:find('FastAPI') then
+          has_fastapi = true
+          break
+        end
+      end
+      if not has_fastapi then
+        table.insert(dap.configurations.python, {
+          type = 'python',
+          request = 'launch',
+          name = 'FastAPI 디버깅 실행 (기본: 8095)',
+          module = 'uvicorn',
+          args = {
+            'main:app',
+            '--reload',
+            '--port',
+            '8095',
+            '--host',
+            '0.0.0.0',
+          },
+          pythonPath = function()
+            return os.getenv('VIRTUAL_ENV') and (os.getenv('VIRTUAL_ENV') .. '/bin/python') or 'python'
+          end,
+        })
+      end
 
 
       -- 대신 디버깅 시작 시 nvim-dap-view가 자동으로 열리도록 설정

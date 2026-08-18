@@ -89,7 +89,6 @@ return {
     'nvim-treesitter/nvim-treesitter-context',
     event = 'BufReadPost',
     opts = {
-      enable = true, -- 플러그인 활성화
       max_lines = 3, -- 상단에 고정될 최대 줄 수 (너무 많으면 화면을 가리므로 3~5줄 추천)
       min_window_height = 0, -- 설정한 높이 이상의 창에서만 작동
       line_numbers = true,
