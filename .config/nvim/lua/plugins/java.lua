@@ -453,9 +453,8 @@ return {
         -- nvim-jdtls에서 아무 효과가 없어(VS Code의 redhat.java와 달리 저장 이벤트에 자동 연결이
         -- 안 되는 게 nvim-jdtls의 알려진 동작), BufWritePre에서 직접 organize_imports를 호출합니다.
         -- 버퍼 단위 augroup(clear=true)이라 on_attach가 같은 버퍼에서 재실행돼도 중복 등록되지 않습니다.
-        vim.api.nvim_create_augroup('jdtls_organize_imports_' .. bufnr, { clear = true })
         vim.api.nvim_create_autocmd('BufWritePre', {
-          group = 'jdtls_organize_imports_' .. bufnr,
+          group = vim.api.nvim_create_augroup('jdtls_organize_imports_' .. bufnr, { clear = true }),
           buffer = bufnr,
           callback = function()
             require('jdtls').organize_imports()
@@ -473,8 +472,9 @@ return {
       vim.api.nvim_create_autocmd({ 'BufReadPost', 'BufNewFile', 'FileType', 'BufWinEnter' }, {
         group = vim.api.nvim_create_augroup('jdtls_log_syntax_highlight', { clear = true }),
         pattern = { '*.log', 'log' },
-        callback = function()
-          if vim.bo.filetype == 'log' or vim.fn.expand('%:e') == 'log' then
+        callback = function(args)
+          local buf = args.buf
+          if vim.bo[buf].filetype == 'log' or vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ':e') == 'log' then
             -- 자동 줄바꿈
             vim.wo.wrap = true
 

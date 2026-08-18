@@ -27,7 +27,7 @@ function M.register_interceptor(opts)
       if prompt and items then
         for _, interceptor in ipairs(M._registered_interceptors) do
           for _, pattern in ipairs(interceptor.prompt_patterns) do
-            if prompt:find(pattern) then
+            if prompt:find(pattern, 1, true) then
               for _, item in ipairs(items) do
                 local raw_label = label_fn(item)
                 local trans = interceptor.translations[raw_label]
@@ -77,7 +77,7 @@ function M.register_interceptor(opts)
         if prompt and items then
           for _, interceptor in ipairs(M._registered_interceptors) do
             for _, pattern in ipairs(interceptor.prompt_patterns) do
-              if prompt:find(pattern) then
+              if prompt:find(pattern, 1, true) then
                 matched_interceptor = interceptor
                 break
               end

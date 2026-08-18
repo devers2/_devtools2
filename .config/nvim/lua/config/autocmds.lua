@@ -12,6 +12,7 @@ pcall(vim.api.nvim_del_augroup_by_name, 'lazyvim_wrap_spell')
 
 -- 마크다운 파일에서 맞춤법 검사(spell) 강제 비활성화
 vim.api.nvim_create_autocmd('FileType', {
+  group = vim.api.nvim_create_augroup('user_md_nospell', { clear = true }),
   pattern = 'markdown',
   callback = function()
     vim.opt_local.spell = false
@@ -20,6 +21,7 @@ vim.api.nvim_create_autocmd('FileType', {
 
 -- HTML, JS, TS, CSS 등 특정 파일에서만 들여쓰기를 2칸으로 설정
 vim.api.nvim_create_autocmd('FileType', {
+  group = vim.api.nvim_create_augroup('user_indent_2', { clear = true }),
   pattern = {
     'html',
     'javascript',
@@ -357,7 +359,7 @@ vim.api.nvim_create_autocmd("BufReadCmd", {
   group = image_group,
   pattern = { "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.bmp", "*.pdf" },
   callback = function(ev)
-    local filepath = vim.fn.expand("<amatch>")
+    local filepath = ev.match
     -- OS(리눅스, 맥, 윈도우)에 무관하게 시스템 기본 지정 앱으로 비동기 실행
     vim.ui.open(filepath)
 

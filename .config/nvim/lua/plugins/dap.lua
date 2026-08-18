@@ -136,12 +136,13 @@ return {
       -- 몰라서 <leader>dd 를 눌러도 기본값이 안 뜨는 불일치가 있었습니다(실측으로 발견).
       local devtools2_state_file = _G.HOME_DIR .. '/.devtools2/state.properties'
 
-      -- bash 쪽 PROJ_KEY 계산과 완전히 동일한 방식(정규화한 cwd를 md5sum)을 재현합니다.
+      -- bash 쪽 PROJ_KEY 계산과 완전히 동일한 방식(정규화한 cwd를 md5sum에 stdin으로 전달)을 재현합니다.
       -- 실측으로 bash 결과와 Lua 결과가 정확히 일치함을 확인했습니다.
       local function get_devtools2_proj_key()
         local cwd = vim.fn.getcwd():gsub('\\', '/'):gsub('/$', '')
-        local ok, output = pcall(vim.fn.system, 'md5sum', cwd)
-        if not ok or vim.v.shell_error ~= 0 then
+        -- vim.fn.system(cmd, input)은 input을 stdin으로 전달 — bash의 `echo cwd | md5sum`과 동일합니다.
+        local output = vim.fn.system('md5sum', cwd)
+        if vim.v.shell_error ~= 0 or output == '' then
           return nil
         end
         return output:match('^(%x+)')
@@ -470,68 +471,93 @@ return {
           end
 
           if port then
-            if _G.OS_TYPE == _G.OS.WINDOWS then
-              -- Windows 환경: netstat -ano를 이용해 포트 점유 PID 검출 및 taskkill
-              local cmd = 'netstat -ano'
-              local handle = io.popen(cmd)
-              if handle then
-                local result = handle:read('*a')
-                handle:close()
+            -- [비동기 포트 킬러] vim.system으로 UI 블록 없이 포트 점유 프로세스를 제거한 뒤
+            -- 100ms 후 원래 dap.run을 실행합니다 (vim.cmd('sleep') 대신 타이머 사용).
+            local function do_run_after_delay()
+              local t = vim.uv.new_timer()
+              t:start(100, 0, vim.schedule_wrap(function()
+                t:stop(); t:close()
+                orig_run(config, run_opts)
+              end))
+            end
 
-                local pids = {}
-                for line in result:gmatch('[^\r\n]+') do
-                  local tokens = {}
-                  for token in line:gmatch('%S+') do
-                    table.insert(tokens, token)
-                  end
-                  if #tokens >= 5 then
-                    local local_addr = tokens[2]
-                    local state = tokens[4]
-                    local pid = tokens[5]
-                    if local_addr:match(':' .. port .. '$') and state == 'LISTENING' and tonumber(pid) then
-                      pids[pid] = true
+            if _G.OS_TYPE == _G.OS.WINDOWS then
+              -- Windows: netstat -ano → PID 추출 → taskkill (비동기)
+              vim.system({ 'netstat', '-ano' }, { text = true }, function(netstat_out)
+                vim.schedule(function()
+                  local pids = {}
+                  local result = (netstat_out.stdout or '')
+                  for line in result:gmatch('[^\r\n]+') do
+                    local tokens = {}
+                    for token in line:gmatch('%S+') do
+                      table.insert(tokens, token)
+                    end
+                    if #tokens >= 5 then
+                      local local_addr = tokens[2]
+                      local state      = tokens[4]
+                      local pid        = tokens[5]
+                      if local_addr:match(':' .. port .. '$') and state == 'LISTENING' and tonumber(pid) then
+                        pids[pid] = true
+                      end
                     end
                   end
-                end
 
-                for pid, _ in pairs(pids) do
-                  vim.fn.system(string.format('taskkill /F /PID %s', pid))
-                  vim.notify(
-                    string.format('기존 포트 %d의 Windows 프로세스(%s)를 종료했습니다.', port, pid),
-                    vim.log.levels.INFO
-                  )
-                end
-                if next(pids) then
-                  vim.cmd('sleep 100m')
-                end
-              end
+                  local any = false
+                  for pid in pairs(pids) do
+                    any = true
+                    vim.system({ 'taskkill', '/F', '/PID', pid }, {}, function()
+                      vim.schedule(function()
+                        vim.notify(
+                          string.format('기존 포트 %d의 Windows 프로세스(%s)를 종료했습니다.', port, pid),
+                          vim.log.levels.INFO
+                        )
+                      end)
+                    end)
+                  end
+
+                  if any then
+                    do_run_after_delay()
+                  else
+                    orig_run(config, run_opts)
+                  end
+                end)
+              end)
+              return -- orig_run은 콜백 내에서 실행
             else
-              -- macOS & Linux 환경
-              local cmd = string.format('lsof -t -i:%d', port)
-              local pids_output = vim.fn.system(cmd)
-              if pids_output and pids_output ~= '' then
-                local valid_pids = {}
-                for pid in pids_output:gmatch('%d+') do
-                  table.insert(valid_pids, pid)
-                end
-                if #valid_pids > 0 then
-                  local clean_pids = table.concat(valid_pids, ' ')
-                  vim.fn.system(string.format('kill -9 %s', clean_pids))
-                  vim.cmd('sleep 100m')
-                  vim.notify(
-                    string.format(
-                      '기존 포트 %d의 프로세스(%s)를 종료하고 디버깅을 시작합니다.',
-                      port,
-                      clean_pids
-                    ),
-                    vim.log.levels.INFO
-                  )
-                end
-              end
+              -- macOS & Linux: lsof -t → kill -9 (비동기)
+              vim.system({ 'lsof', '-t', string.format('-i:%d', port) }, { text = true }, function(lsof_out)
+                vim.schedule(function()
+                  local valid_pids = {}
+                  for pid in (lsof_out.stdout or ''):gmatch('%d+') do
+                    table.insert(valid_pids, pid)
+                  end
+
+                  if #valid_pids > 0 then
+                    local kill_args = { 'kill', '-9' }
+                    vim.list_extend(kill_args, valid_pids)
+                    vim.system(kill_args, {}, function()
+                      vim.schedule(function()
+                        vim.notify(
+                          string.format(
+                            '기존 포트 %d의 프로세스(%s)를 종료하고 디버깅을 시작합니다.',
+                            port,
+                            table.concat(valid_pids, ' ')
+                          ),
+                          vim.log.levels.INFO
+                        )
+                      end)
+                    end)
+                    do_run_after_delay()
+                  else
+                    orig_run(config, run_opts)
+                  end
+                end)
+              end)
+              return -- orig_run은 콜백 내에서 실행
             end
           end
         end
-        return orig_run(config, run_opts)
+        orig_run(config, run_opts)
       end
 
 

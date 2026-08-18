@@ -339,10 +339,16 @@ end, { desc = 'ESLint: Close Result Window & Clear Diagnostics' })
 -- ============================================================
 vim.keymap.set('n', '<leader>\\a', function()
   -- \uXXXX 형식의 유니코드 이스케이프 시퀀스를 실제 유니코드 문자로 변환
-  vim.cmd([[%s/\\u\([0-9a-fA-F]\{4\}\)/\=nr2char(str2nr(submatch(1), 16))/g]])
+  local ok, err = pcall(vim.cmd, [[%s/\\u\([0-9a-fA-F]\{4\}\)/\=nr2char(str2nr(submatch(1), 16))/ge]])
+  if ok then
+    vim.notify('유니코드 디코딩이 완료되었습니다.', vim.log.levels.INFO, { title = '유니코드 변환' })
+  end
 end, { desc = 'Unicode: Decode \\uXXXX → char (전체 버퍼)' })
 
 vim.keymap.set('n', '<leader>\\A', function()
   -- ASCII 범위를 벗어난 문자(한글, 특수문자 등)를 \uXXXX 이스케이프 시퀀스로 변환
-  vim.cmd([[%s/[^\x00-\x7F]/\=printf('\u%04X', char2nr(submatch(0)))/g]])
+  local ok, err = pcall(vim.cmd, [[%s/[^\x00-\x7F]/\=printf('\\u%04X', char2nr(submatch(0)))/ge]])
+  if ok then
+    vim.notify('유니코드 인코딩이 완료되었습니다.', vim.log.levels.INFO, { title = '유니코드 변환' })
+  end
 end, { desc = 'Unicode: Encode char → \\uXXXX (전체 버퍼)' })
