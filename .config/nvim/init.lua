@@ -3,9 +3,9 @@
 --   1. 셸 설정(.bashrc) 없이도 Neovim과 Neovim 내부 터미널(:terminal)에서 즉시 사용 가능
 --   2. Neovim이 생성하는 모든 하위 프로세스(LSP, 포맷터 등)가 경로를 상속
 local mason_bin = vim.fn.stdpath('data') .. '/mason/bin'
-if vim.fn.isdirectory(mason_bin) == 1 then
+if vim.fn.isdirectory(mason_bin) == 1 and not (vim.env.PATH or ''):find(mason_bin, 1, true) then
   local path_sep = (vim.fn.has('win32') == 1) and ';' or ':'
-  vim.env.PATH = mason_bin .. path_sep .. vim.env.PATH
+  vim.env.PATH = mason_bin .. path_sep .. (vim.env.PATH or '')
 end
 
 -- 전역 공통 디렉토리 경로 설정 (환경변수 DEVTOOLS2 값 우선, 없으면 설정 폴더 기준 상대 경로)
@@ -32,7 +32,7 @@ end
 
 -- 전역 사용자 홈 디렉토리
 if _G.OS_TYPE == _G.OS.WINDOWS then
-  _G.HOME_DIR = os.getenv('USERPROFILE') or os.getenv('HOMEPATH') or '.'
+  _G.HOME_DIR = ((os.getenv('USERPROFILE') or os.getenv('HOMEPATH') or '.'):gsub('\\', '/'))
 else
   _G.HOME_DIR = os.getenv('HOME') or '.'
 end
