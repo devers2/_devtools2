@@ -71,6 +71,7 @@ if (Test-Path $SET_ENV_PATH) {
 # 전환되지 않습니다(bash용 jdk_switch.sh는 PATH까지 관리하므로 동일하게 맞춤).
 # Windows JDK 배포판은 항상 <root>\bin\java.exe 구조를 사용합니다.
 try {
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     $envTarget = if ($isAdmin) { [EnvironmentVariableTarget]::Machine } else { [EnvironmentVariableTarget]::User }
     $newBinPath = Join-Path $TARGET_PATH "bin"
 
