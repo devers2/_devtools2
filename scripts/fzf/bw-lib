@@ -30,7 +30,7 @@
 #                                  (성공 시 bw_setup_git_config + bw_save_git_credentials 자동 호출)
 #                                  사용법: bw_git_clone <repo_url> <target_dir> [bw_item_name]
 #                                  bw_item_name 기본값: $BW_DEFAULT_PAT_ITEM (기본 "github.com-main")
-#   bw_git_clone_interactive     → bw_git_clone 대화형 래퍼: Bitwarden 항목 이름을 사용자에게
+#   bw_git_clone_interactive     → bw_git_clone 대화형 래퍼: Bitwarden 'GitHub' 항목 이름을 사용자에게
 #                                  프롬프트로 입력받은 뒤 bw_git_clone 호출 (기본값 제안, 엔터 시 기본값 사용)
 #                                  사용법: bw_git_clone_interactive <repo_url> <target_dir>
 #                                  → 개별 프로젝트 설정 스크립트/command-palette 등에서 항목명을
@@ -601,7 +601,7 @@ bw_git_clone_interactive() {
     local _BW_DEFAULT_ITEM="${BW_DEFAULT_PAT_ITEM:-github.com-main}"
     local _BW_ITEM_NAME
 
-    read -rp "🔑 Bitwarden 항목 이름 [기본값: ${_BW_DEFAULT_ITEM}]: " _BW_ITEM_NAME
+    read -rp "🔑 Bitwarden 'GitHub' 항목 이름 [기본값: ${_BW_DEFAULT_ITEM}]: " _BW_ITEM_NAME
     _BW_ITEM_NAME="${_BW_ITEM_NAME:-$_BW_DEFAULT_ITEM}"
 
     bw_git_clone "$_REPO_URL" "$_TARGET_DIR" "$_BW_ITEM_NAME"
