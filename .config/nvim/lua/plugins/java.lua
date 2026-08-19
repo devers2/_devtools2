@@ -225,9 +225,22 @@ return {
         return nil, 'default (21 LTS)'
       end
 
-      -- [JDTLS 실행 명령 런타임 동적 재구성]
-      -- 프로젝트 디렉토리 진입 시점(.nvim.lua 로딩 완료 후)에 JDK_VERSION 및 build.gradle을 동적으로 평가하여
-      -- Gradle 데몬 및 JDTLS 프로세스의 JAVA_HOME을 정확한 JDK 버전으로 고정합니다.
+      -- ===========================================================================================
+      -- [JDTLS 실행 명령 런타임 동적 재구성] ⚠️ AI 수정 주의: 절대 정적 평가로 변경 금지!
+      -- ===========================================================================================
+      -- 1. 배경 및 원인:
+      --    Neovim 시작 시점(opts 로드 시점)에는 프로젝트 루트의 `.nvim.lua`가 아직 실행(exrc)되기 전입니다.
+      --    따라서 `opts.cmd`를 정적으로 미리 평가해버리면 `_G.JDK_VERSION`을 읽지 못하고 기본값(예: JDK 25)으로 고정됩니다.
+      --    Gradle 7.x/8.x 및 Spring Boot 2.7은 JDK 25(실험적 버전)에서 `TypeNotPresentException: Type T not present`
+      --    크래시를 일으키므로, 반드시 실제 자바 버퍼/프로젝트에 attach되는 런타임 시점(`opts.full_cmd`)에
+      --    동적으로 `_G.JDK_VERSION`을 평가하여 `JAVA_HOME` 및 `cmd`를 생성해야 합니다.
+      --
+      -- 2. JDK 버전 결정 우선순위:
+      --    ① .nvim.lua의 `JDK_VERSION` (예: 21, 17, 8 등) -> 최우선 적용
+      --    ② 프로젝트 빌드 스크립트 (build.gradle / build.gradle.kts / pom.xml) -> 자동 파싱
+      --    ③ 시스템 환경변수 `JAVA_HOME` / `PATH` -> 3순위 탐색
+      --    ④ 최종 기본 폴백 -> `JDK 21 LTS` (가장 안정적이며 Gradle 7/8/Spring Boot 2/3 호환성 보장)
+      -- ===========================================================================================
       opts.full_cmd = function(o)
         local current_path = vim.api.nvim_buf_get_name(0)
         local root = (type(o.root_dir) == 'function' and o.root_dir(current_path)) or o.root_dir or vim.fn.getcwd()
@@ -458,9 +471,21 @@ return {
               end
             end
 
-            -- [버그 픽스 2] java.project.getSettings: 빈 버퍼 URI("file://") 예외 처리
-            -- 비-자바 프로젝트 또는 빈 버퍼 상태에서 LazyVim이 JDTLS를 로드할 때 "Expected authority at index 7: file://" 에러 방지
-            -- (nvim-jdtls는 settings[setting]의 반환값을 ipairs로 순회하므로 빈 테이블 { [setting_key] = {} }을 넘겨야 함)
+            -- =======================================================================================
+            -- [버그 픽스 2] java.project.getSettings: 빈 버퍼 URI("file://") 예외 처리 (⚠️ 삭제/수정 주의!)
+            -- =======================================================================================
+            -- 1. 발생 원인:
+            --    비-자바 프로젝트(예: _devtools2)나 초기 대시보드 화면에서 LazyVim/체크헬스 등이 구동될 때
+            --    JDTLS가 로드되면 `start_or_attach` 당시의 버퍼(파일명 없음)가 캡처됩니다.
+            --    이후 JDTLS가 ServiceReady를 보내면 `vim.uri_from_bufnr(0)`이 "file://"를 반환하여
+            --    JDTLS 서버가 `java.net.URISyntaxException: Expected authority at index 7: file://` 예외를 발생시키고
+            --    화면에 "Couldn't retrieve source path settings" 경고를 띄웁니다.
+            --
+            -- 2. 해결 방식:
+            --    URI가 "file://"이거나 비어있으면 서버로 요청을 보내지 않고 즉시 콜백을 호출합니다.
+            --    ⚠️ 주의: nvim-jdtls의 setup.lua는 `paths = settings[setting]` 후 `ipairs(paths)`를 순회하므로
+            --    단순 `{}`를 넘기면 `ipairs(nil)` 런타임 에러가 납니다. 반드시 `{ [setting_key] = {} }`를 넘겨야 합니다!
+            -- =======================================================================================
             if params.command == 'java.project.getSettings' then
               local uri = params.arguments and params.arguments[1]
               if not uri or uri == 'file://' or uri == '' then

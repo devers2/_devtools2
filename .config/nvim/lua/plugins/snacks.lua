@@ -14,12 +14,7 @@ return {
               key = 'r',
               desc = '최근 연 파일 (Recent Files)',
               action = function()
-                local oldfiles = vim.v.oldfiles or {}
-                if #oldfiles == 0 then
-                  Snacks.picker.smart()
-                else
-                  Snacks.picker.recent()
-                end
+                Snacks.picker.recent({ filter = { cwd = true } })
               end,
             },
             { icon = ' ', key = 'c', desc = '설정 파일 검색 (Config Files)', action = ":lua Snacks.picker.files({ cwd = vim.fn.stdpath('config') })" },
@@ -63,6 +58,9 @@ return {
             -- layout = { preview = false }, -- (필요시 주석 해제) 스마트 검색 시 우측 미리보기 창 끄기
           }, -- 스마트 검색: <leader><space>, 최근 사용 파일 + 자주 쓰는 파일 + 프로젝트 파일 조합
 
+          recent = {
+            filter = { cwd = true }, -- 최근 연 파일 기본값을 현재 프로젝트(CWD) 기준으로 고정
+          },
           files = { hidden = true }, -- 파일 검색: <leader>ff
           grep = { hidden = true }, -- 문자열 검색: <leader>sg
           explorer = { hidden = false, ignored = true }, -- 익스플로러: 숨김 파일 기본 비활성, gitignore 항목은 비활성화 색상(NonText)으로 표시
@@ -94,6 +92,22 @@ return {
           Snacks.picker.smart()
         end,
         desc = 'Smart Picker',
+      },
+      -- <leader>fr: 현재 프로젝트 기준 최근 연 파일 (권장 기본값)
+      {
+        '<leader>fr',
+        function()
+          Snacks.picker.recent({ filter = { cwd = true } })
+        end,
+        desc = '최근 연 파일 - 현재 폴더 (Recent Files)',
+      },
+      -- <leader>fR: 전체 프로젝트 통합 최근 연 파일 (전역 히스토리)
+      {
+        '<leader>fR',
+        function()
+          Snacks.picker.recent({ filter = { cwd = false } })
+        end,
+        desc = '최근 연 파일 - 전체 프로젝트 (Recent - Global)',
       },
     },
   },

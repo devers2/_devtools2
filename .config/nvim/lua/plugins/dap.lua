@@ -352,8 +352,19 @@ return {
         run_next(config, run_opts)
       end
 
-      -- Gradle/Maven 프로젝트의 경우 디버그 실행 직전에 processResources(프로필/리소스 생성)를
-      -- Neovim 0.12의 비동기 vim.system으로 실행하여 @build-0_LOCAL.yml 등의 템플릿 변수가 누락되지 않도록 보장합니다.
+      -- ===========================================================================================
+      -- [Java Launch 전 자동 리소스 빌드: run_project_prebuild] ⚠️ AI 수정 주의: 필수 로직!
+      -- ===========================================================================================
+      -- 1. 배경 및 원인:
+      --    JDTLS의 `java/buildWorkspace`는 Eclipse 내장 컴파일러(ECJ)로 `.java` → `.class` 컴파일만 수행합니다.
+      --    하지만 Spring Boot 프로젝트(예: Goono-ELN)는 `build.gradle`의 `processResources` 태스크를 통해
+      --    `src/main/resources/config/@build-0_LOCAL.yml` 파일 생성 및 `${build.project.basepath}` 치환 등을 수행합니다.
+      --    이 과정이 누락되면 스프링 기동 시 `IllegalArgumentException: Could not resolve placeholder 'build.project.basepath'`
+      --    크래시가 발생하므로, DAP 디버깅 실행 직전에 반드시 `gradlew processResources`를 먼저 비동기로 실행해야 합니다.
+      --
+      -- 2. Neovim 0.12 표준 비동기 API:
+      --    `vim.system`을 사용하여 에디터 UI 멈춤(블로킹) 없이 백그라운드에서 빌드 후 증분 빌드 워치독으로 체이닝합니다.
+      -- ===========================================================================================
       local function run_project_prebuild(on_done)
         ---@diagnostic disable-next-line: undefined-field
         local root = (_G.PROJECT_ROOT and vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p')) or vim.fn.getcwd()
@@ -409,7 +420,14 @@ return {
         end)
       end
 
-      -- run_next: 실제 실행을 넘겨받아 호출하는 콜백 (dap.run 래핑 순서와 무관하게 동작하도록 인자로 전달)
+      -- ===========================================================================================
+      -- [Java Launch 실행 래퍼: run_java_launch]
+      -- 1. .nvim.lua의 `MAIN_CLASS` 자동 주입:
+      --    사용자가 대시보드나 비-자바 파일에서 디버깅을 실행하더라도 `.nvim.lua`에 `MAIN_CLASS`가 있으면
+      --    별도의 수동 파일 열기 없이 해당 메인 클래스로 즉시 디버깅을 진행합니다.
+      -- 2. Spring Profile 대화형 입력 + 중복 인자 누적 방지:
+      --    마지막으로 입력한 프로필을 자동 기억하여 기본값으로 제안합니다.
+      -- ===========================================================================================
       local function run_java_launch(config, run_opts, run_next)
         -- .nvim.lua에 MAIN_CLASS가 정의되어 있고 config에 mainClass가 없으면 자동 주입
         ---@diagnostic disable-next-line: undefined-field

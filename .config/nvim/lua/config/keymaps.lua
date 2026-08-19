@@ -163,6 +163,11 @@ if ok then
   vim.keymap.set('n', '<leader>db', function()
     dap.toggle_breakpoint()
   end, { desc = '브레이크포인트 설정/해제 (Toggle Breakpoint)' })
+  -- [스마트 디버그 실행 (<leader>dd)]
+  -- 1. 활성 세션 존재 시: `dap.continue()` (다음 브레이크포인트까지 계속 실행)
+  -- 2. 대시보드/초기 화면이면서 Java 프로젝트(.nvim.lua의 MAIN_CLASS 또는 build.gradle/pom.xml 존재)인 경우:
+  --    자바 파일을 수동으로 열지 않아도 .nvim.lua의 MAIN_CLASS로 Spring Boot 디버깅을 즉시 런치합니다.
+  -- 3. 그 외 모든 경우(파이썬, JS/TS, 일반 파일): 표준 `dap.continue()`로 직행하여 각 언어별 DAP 실행
   vim.keymap.set('n', '<leader>dd', function()
     local dap = require('dap')
     if dap.session() then

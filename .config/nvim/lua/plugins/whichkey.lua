@@ -98,8 +98,8 @@ return {
         { '<leader>fg', desc = 'Git 파일 검색 (Find Files - git)' },
         { '<leader>fn', desc = '새 파일 생성 (New File)' },
         { '<leader>fp', desc = '프로젝트 목록 (Projects)' },
-        { '<leader>fr', desc = '최근 연 파일 - 루트 (Recent Files)' },
-        { '<leader>fR', desc = '최근 연 파일 - 현재 폴더 (Recent - cwd)' },
+        { '<leader>fr', desc = '최근 연 파일 - 현재 폴더 (Recent Files)' },
+        { '<leader>fR', desc = '최근 연 파일 - 전체 프로젝트 (Recent - Global)' },
         { '<leader>ft', desc = '터미널 - 루트 (Terminal - Root Dir)' },
         { '<leader>fT', desc = '터미널 - 현재 폴더 (Terminal - cwd)' },
 
