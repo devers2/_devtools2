@@ -3,7 +3,7 @@
 # DevTools2 전체 환경 자동 설치 마스터 스크립트 (setup-devtools2.sh)
 #
 # 목적:
-#   scripts/linux/dev-env/ 하위의 0~4번 스크립트를 GitHub main 브랜치에서
+#   scripts/linux/dev-env/ 하위의 0~5번 스크립트를 GitHub main 브랜치에서
 #   직접 스트리밍으로 순서대로 자동 실행하여 DevTools2 포터블 개발 환경을 구축합니다.
 #
 # ------------------------------------------------------------------------------
@@ -81,7 +81,7 @@ esac
 # ==============================================================================
 # [Step 0] Git 인증 설정 + 저장소 클론 + 그룹/권한 초기화
 # ==============================================================================
-print_step "▶ [0/4] DevTools2 초기화 (sudo 권한 필요)"
+print_step "▶ [0/5] DevTools2 초기화 (sudo 권한 필요)"
 
 run_remote_script_sudo "$RAW_BASE/0.init-devtools2.sh"
 print_done "[Step 0] 초기화 완료."
@@ -89,7 +89,7 @@ print_done "[Step 0] 초기화 완료."
 # ==============================================================================
 # [Step 1] 환경 변수 주입 (~/.bashrc)
 # ==============================================================================
-print_step "▶ [1/4] 환경 변수 설정 (~/.bashrc)"
+print_step "▶ [1/5] 환경 변수 설정 (~/.bashrc)"
 
 DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/1.setup-env.sh"
 print_done "[Step 1] 환경 변수 설정 완료."
@@ -105,9 +105,9 @@ set -euo pipefail
 print_done "환경 변수가 현재 세션에 적용되었습니다."
 
 # ==============================================================================
-# [Step 2] 핵심 포터블 도구 설치 (Java, Node.js, Python, Neovim, Zed, Ghostty 등)
+# [Step 2] 핵심 포터블 도구 설치 (Java, Node.js, Python, Neovim, Ghostty 등)
 # ==============================================================================
-print_step "▶ [2/4] 핵심 포터블 도구 설치"
+print_step "▶ [2/5] 핵심 포터블 도구 설치"
 
 DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/2.install-core-tools.sh"
 print_done "[Step 2] 핵심 도구 설치 완료."
@@ -115,7 +115,7 @@ print_done "[Step 2] 핵심 도구 설치 완료."
 # ==============================================================================
 # [Step 3] CLI 유틸리티 도구 설치 (fzf, lazygit, ripgrep, fd, ast-grep, hererocks 등)
 # ==============================================================================
-print_step "▶ [3/4] CLI 유틸리티 도구 설치"
+print_step "▶ [3/5] CLI 유틸리티 도구 설치"
 
 DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/3.install-cli-tools.sh"
 print_done "[Step 3] CLI 유틸리티 설치 완료."
@@ -123,7 +123,7 @@ print_done "[Step 3] CLI 유틸리티 설치 완료."
 # ==============================================================================
 # [Step 4] 키보드 리매핑 설정 (keyd — WSL 환경이면 자동 건너뜀, 비치명적)
 # ==============================================================================
-print_step "▶ [4/4] 키보드 리매핑 설정 (keyd)"
+print_step "▶ [4/5] 키보드 리매핑 설정 (keyd)"
 
 # set -e 를 일시 중단: Step 4는 실패해도 전체 설치를 중단하지 않음
 set +e
@@ -136,6 +136,22 @@ if [ "$_kb_exit" -ne 0 ]; then
 else
     print_done "[Step 4] 키보드 설정 완료."
 fi
+
+# ==============================================================================
+# [Step 5] 선택적 개발 에디터 및 오케스트레이션 도구 설치 (VS Code, Zed, Orca)
+# ==============================================================================
+print_step "▶ [5/5] 개발 에디터 및 오케스트레이션 도구 설정"
+
+# ── 5-1. VS Code ─────────────────────────────────────────────────────────────
+DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/5-1.setup-vscode.sh"
+
+# ── 5-2. Zed ─────────────────────────────────────────────────────────────────
+DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/5-2.setup-zed.sh"
+
+# ── 5-3. Orca ────────────────────────────────────────────────────────────────
+DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/5-3.setup-orca.sh"
+
+print_done "[Step 5] 개발 에디터 및 도구 설정 완료."
 
 # ==============================================================================
 # [정리] 설치 과정 편의를 위해 [Step 0]에서 부여했던 임시 passwordless sudo 권한 회수

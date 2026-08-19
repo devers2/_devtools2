@@ -463,36 +463,6 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ==============================================================================
-# [사전 질문 및 Windows 에디터 설치]
-# ==============================================================================
-Write-SubStep "▶ Windows 개발 에디터(VS Code / Zed / Orca) 설치 의사 확인"
-
-# 1. VSCode 설치 여부 사전 확인
-Write-Host ""
-Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-Write-Host "N" -ForegroundColor Green -NoNewline
-Write-Host "]: " -ForegroundColor Yellow -NoNewline
-$installVscodeInput = Read-Host
-$userChoseVscode = $installVscodeInput -match '^[Yy]'
-
-# 2. Zed 에디터 설치 여부 사전 확인
-Write-Host ""
-Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-Write-Host "N" -ForegroundColor Green -NoNewline
-Write-Host "]: " -ForegroundColor Yellow -NoNewline
-$installZedInput = Read-Host
-$userChoseZed = $installZedInput -match '^[Yy]'
-
-# 3. Orca 설치 여부 사전 확인 (Windows+WSL 조합에서는 WSL2에 orca serve 헤드리스로,
-#    Windows에는 거기 페어링만 하는 GUI 클라이언트를 설치 — 5.setup-orca.ps1 참고)
-Write-Host ""
-Write-Host "👉 Orca(멀티 에이전트 오케스트레이션 ADE)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-Write-Host "N" -ForegroundColor Green -NoNewline
-Write-Host "]: " -ForegroundColor Yellow -NoNewline
-$installOrcaInput = Read-Host
-$userChoseOrca = $installOrcaInput -match '^[Yy]'
-
-# ==============================================================================
 # [Step 3 사전] WSL Interop (Windows ↔ Linux 실행 파일 연동) 상태 확인
 # ==============================================================================
 #   WSL 신규 설치 직후 또는 wsl --shutdown 없이 재시작한 경우
@@ -533,13 +503,8 @@ $envExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_1.sh 2>$null
 if ($envExit -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
-Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim)"
-# VSCode/Zed/Orca 설치 여부는 위에서 이미 물어봤으므로(사전 질문 블록), WSL2 내부 스크립트가 같은 질문을
-# 다시 하지 않도록 환경 변수로 답을 그대로 전달합니다.
-$vscodeChoiceEnv = if ($userChoseVscode) { "Y" } else { "N" }
-$zedChoiceEnv    = if ($userChoseZed) { "Y" } else { "N" }
-$orcaChoiceEnv   = if ($userChoseOrca) { "Y" } else { "N" }
-wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_VSCODE_CHOICE=$vscodeChoiceEnv DT2_ZED_CHOICE=$zedChoiceEnv DT2_ORCA_CHOICE=$orcaChoiceEnv bash -l /tmp/_dt2_2.sh"
+Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, Ghostty)"
+wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh"
 $coreExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_2.sh 2>$null
 if ($coreExit -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
@@ -569,27 +534,15 @@ Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-windows-terminal.ps1" -Arguments @{
 
 # ── 4-3. VSCode (에디터 설치, 심볼릭 링크 및 확장 동기화) ────────────────────
 Write-SubStep "▶ (3/5) VSCode 에디터 설치 및 설정/확장 연동"
-if ($userChoseVscode) {
-    Invoke-RemotePsScript -Url "$RAW_WIN/3.setup-vscode.ps1" -Arguments @{ WslDistro = $wslDistro }
-} else {
-    Write-Skip "VS Code 설치를 건너뜁니다."
-}
+Invoke-RemotePsScript -Url "$RAW_WIN/3-1.setup-vscode.ps1" -Arguments @{ WslDistro = $wslDistro }
 
 # ── 4-4. Zed ─────────────────────────────────────────────────────────────────
 Write-SubStep "▶ (4/5) Zed 에디터 설치 및 설정 연동"
-if ($userChoseZed) {
-    Invoke-RemotePsScript -Url "$RAW_WIN/4.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
-} else {
-    Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
-}
+Invoke-RemotePsScript -Url "$RAW_WIN/3-2.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
 
 # ── 4-5. Orca (Windows GUI 클라이언트 — 에이전트 실행부는 WSL2의 orca serve) ──
 Write-SubStep "▶ (5/5) Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 안내"
-if ($userChoseOrca) {
-    Invoke-RemotePsScript -Url "$RAW_WIN/5.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
-} else {
-    Write-Skip "Orca 설치를 건너뜁니다."
-}
+Invoke-RemotePsScript -Url "$RAW_WIN/3-3.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
 
 # 🌟 [Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동]
 # - 보안 자격증명 정보(Git Token/Maven Auth) 손실 방지 및 이중 환경 호환성 확보

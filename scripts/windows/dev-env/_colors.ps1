@@ -9,8 +9,8 @@
 #
 # [배경]
 # Write-Step/Write-Success/Pause-Script/Wait-WithSpinner 등이 0.setup-wsl.ps1,
-# 1.setup-autohotkey.ps1, 2.setup-windows-terminal.ps1, 3.setup-vscode.ps1,
-# 4.setup-zed.ps1, 5.setup-orca.ps1 파일에 거의 동일하게 복붙되어 있었습니다. bash 쪽은
+# 1.setup-autohotkey.ps1, 2.setup-windows-terminal.ps1, 3-1.setup-vscode.ps1,
+# 3-2.setup-zed.ps1, 3-3.setup-orca.ps1 파일에 거의 동일하게 복붙되어 있었습니다. bash 쪽은
 # _colors.sh 라는 공용 라이브러리로 이미 이 문제를 해결했는데(온라인 source),
 # PowerShell 쪽엔 대응 파일이 없어서 한쪽에서 고친 버그(Pause-Script 문구 등)가
 # 다른 사본에는 전파되지 않는 드리프트가 실제로 발생했습니다(실측 확인).

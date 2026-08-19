@@ -1,12 +1,12 @@
 param(
-    # WSL2 배포판 이름 (기본값: 첫 번째로 찾은 기본 배포판 자동 감지)
     [string]$WslDistro = ""
 )
 
 # ==============================================================================
-# Zed 에디터 설치 및 WSL2 설정 파일 복사 스크립트 (4.setup-zed.ps1)
+# Zed 에디터 설치 및 WSL2 설정 파일 복사 스크립트 (3-2.setup-zed.ps1)
 #
 # 주요 기능:
+#   0. Zed 설치 의사 확인 ([y/N], 기본값 N) — 단독 실행/마스터 호출 모두 여기서 질문
 #   1. winget 을 통해 Zed 에디터를 자동 설치 (이미 설치되어 있으면 건너뜀)
 #   2. WSL2 의 _devtools2/.config/zed/ 내 설정 파일을 Windows Zed 설정 경로로 복사
 #      - settings.json  : 에디터 전역 설정  (%APPDATA%\Zed\settings.json)
@@ -26,16 +26,10 @@ param(
 # ------------------------------------------------------------------------------
 # ==============================================================================
 
-# --- 한글 깨짐 방지: 출력 인코딩을 UTF-8 로 설정
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-
-# --- 윈도우 PowerShell 기본 파란색 프로그레스바 팝업 끄기 (텍스트 깨짐 및 커서 겹침 방지)
 $ProgressPreference = 'SilentlyContinue'
 
-# ==============================================================================
-# 헬퍼 함수
-# ==============================================================================
 $_colorsHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
 $_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_colors.ps1" -Headers $_colorsHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_colorsContent))
@@ -46,12 +40,10 @@ $_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/deve
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator
 )
-
 if (-not $isAdmin) {
-    Write-Host "[경고] 심볼릭 링크 생성에는 관리자 권한이 필요합니다." -ForegroundColor Yellow
-    Write-Host "       관리자 권한으로 스크립트를 재실행합니다..." -ForegroundColor Yellow
+    Write-Host "[경고] 관리자 권한으로 스크립트를 재실행합니다..." -ForegroundColor Yellow
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/4.setup-zed.ps1 | iex`"" -Verb RunAs
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/3-2.setup-zed.ps1 | iex`"" -Verb RunAs
     } else {
         Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -WslDistro `"$WslDistro`"" -Verb RunAs
     }
@@ -60,16 +52,31 @@ if (-not $isAdmin) {
 
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
-Write-Host "🚀 Zed 에디터 설치 및 설정 파일 링크 생성 스크립트" -ForegroundColor DarkCyan
+Write-Host "🚀 Zed 에디터 설치 및 설정 파일 링크 생성 스크립트 (3-2.setup-zed.ps1)" -ForegroundColor DarkCyan
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
 # ==============================================================================
-# [Step 1] WSL2 배포판 이름 자동 감지
+# [Step 1] 설치 의사 확인 ([y/N])
 # ==============================================================================
-Write-Step "[Step 1] WSL2 배포판 감지"
+Write-Step "[Step 1] Zed 설치 의사 확인"
+
+Write-Host ""
+Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+Write-Host "N" -ForegroundColor Green -NoNewline
+Write-Host "]: " -ForegroundColor Yellow -NoNewline
+$installInput = Read-Host
+if (-not ($installInput -match '^[Yy]')) {
+    Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+    Write-Host ""
+    exit 0
+}
+
+# ==============================================================================
+# [Step 2] WSL2 배포판 이름 자동 감지
+# ==============================================================================
+Write-Step "[Step 2] WSL2 배포판 감지"
 
 if ($WslDistro -eq "") {
-    # 1순위: %USERPROFILE%\.devtools2 디렉터리 내 wsl_distro 또는 단일 .devtools2 파일에서 읽기
     $devtools2Dir  = Join-Path $env:USERPROFILE ".devtools2"
     $devtools2File = if (Test-Path $devtools2Dir -PathType Container) { Join-Path $devtools2Dir "wsl_distro" } else { $devtools2Dir }
     if (Test-Path $devtools2File) {
@@ -79,8 +86,6 @@ if ($WslDistro -eq "") {
             Write-Host "  .devtools2 에서 읽은 배포판: $WslDistro" -ForegroundColor White
         }
     }
-
-    # 2순위: wsl --list --quiet 로 첫 번째 배포판 자동 선택
     if ($WslDistro -eq "") {
         $distroList = (wsl --list --quiet 2>$null) | Where-Object { $_ -ne "" }
         if ($distroList.Count -eq 0) {
@@ -88,20 +93,14 @@ if ($WslDistro -eq "") {
             Read-Host "계속하려면 엔터를 누르세요"
             exit 1
         }
-        # NUL 문자 제거
         $WslDistro = $distroList[0] -replace "`0", "" | ForEach-Object { $_.Trim() }
         Write-Host "  자동 감지된 배포판: $WslDistro" -ForegroundColor White
     }
-}
-else {
+} else {
     Write-Host "  지정된 배포판: $WslDistro" -ForegroundColor White
 }
 
-# WSL2 UNC 경로 기본값 (\\wsl.localhost\<Distro>\...)
 $WslRoot = "\\wsl.localhost\$WslDistro"
-
-# WSL 심볼릭 링크는 Windows UNC 경로에서 따라가지 못하므로
-# _devtools2 경로를 참조합니다: %DEVTOOLS2% 환경 변수 또는 /var/opt/_devtools2
 $DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { "$WslRoot\var\opt\_devtools2" }
 
 if (-not (Test-Path $DevTools2Wsl)) {
@@ -113,11 +112,10 @@ if (-not (Test-Path $DevTools2Wsl)) {
 Write-Host "  _devtools2 경로: $DevTools2Wsl" -ForegroundColor White
 
 # ==============================================================================
-# [Step 2] Zed 에디터 설치
+# [Step 3] Zed 에디터 설치
 # ==============================================================================
-Write-Step "[Step 2] Zed 에디터 설치"
+Write-Step "[Step 3] Zed 에디터 설치"
 
-# winget 소스 업데이트 (최초 실행 시 동의 질문으로 인한 무한 대기 멈춤 방지)
 try {
     Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
     $pSrc = Start-Process winget -ArgumentList "source update" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_source_update.log" -RedirectStandardError "$env:TEMP\zed_source_error.log" -ErrorAction SilentlyContinue
@@ -125,10 +123,8 @@ try {
     Remove-Item "$env:TEMP\zed_source_update.log", "$env:TEMP\zed_source_error.log" -Force -ErrorAction SilentlyContinue
 } catch {}
 
-# Zed 윈도우 에디터 설치 (다양한 패키지 ID 시도)
 $zedInstalled = $false
 try {
-    # 1순위: 로컬 실행 파일 경로 및 Get-Command로 빠른 검사 (winget list 보다 빠르고 안 멈춤)
     $zedPaths = @(
         "$env:LOCALAPPDATA\Programs\Zed\Zed.exe",
         "$env:LOCALAPPDATA\Zed\bin\zed.exe",
@@ -137,12 +133,9 @@ try {
     foreach ($p in $zedPaths) {
         if (Test-Path $p) { $zedInstalled = $true; break }
     }
-    
     if (-not $zedInstalled -and (Get-Command zed -ErrorAction SilentlyContinue)) {
         $zedInstalled = $true
     }
-
-    # 2순위: 로컬에 파일이 없으면 winget 리스트 확인
     if (-not $zedInstalled) {
         $wgList = winget list --id ZedIndustries.Zed 2>$null
         if ($LASTEXITCODE -eq 0 -and ($wgList -join "") -match "Zed") { $zedInstalled = $true }
@@ -151,15 +144,13 @@ try {
 
 if ($zedInstalled) {
     Write-Skip "Zed 에디터가 이미 설치되어 있습니다."
-}
-else {
+} else {
     Write-Host "  Zed 에디터를 winget으로 설치합니다..." -ForegroundColor White
     $zedIds = @("ZedIndustries.Zed")
     $zedInstallSuccess = $false
     foreach ($zedId in $zedIds) {
         $p = Start-Process winget -ArgumentList "install --id $zedId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_install.log" -RedirectStandardError "$env:TEMP\zed_install_err.log"
         Wait-ProcessWithSpinner -Process $p -Message "Zed 에디터 설치 진행 중 ($zedId)"
-        # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
         if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
             Write-Success "Zed 에디터 설치/확인 완료 ($zedId)"
             $zedInstallSuccess = $true
@@ -175,12 +166,9 @@ else {
 }
 
 # ==============================================================================
-# [Step 3] Zed 설정 파일 복사
-#
-# WSL2 내의 settings.json 및 keymap.json 실물 파일을
-# Windows용 Zed 설정 경로인 %APPDATA%\Zed\ 하위로 안전하게 복사해줍니다.
+# [Step 4] Zed 설정 파일 복사
 # ==============================================================================
-Write-Step "[Step 3] Zed 설정 파일 복사"
+Write-Step "[Step 4] Zed 설정 파일 복사"
 
 $WslZedConfig = "$DevTools2Wsl\.config\zed"
 $WinZedDir    = "$env:APPDATA\Zed"
@@ -189,13 +177,10 @@ Write-Host "  소스 (WSL2): $WslZedConfig" -ForegroundColor DarkGray
 Write-Host "  대상 (Win) : $WinZedDir" -ForegroundColor DarkGray
 Write-Host ""
 
-# Zed 설정 폴더가 WSL2에 없으면 기본 폴더를 생성
 if (-not (Test-Path $WslZedConfig)) {
     Write-Warn "WSL2에 Zed 설정 폴더가 없습니다. 기본 폴더를 생성합니다..."
     wsl -d $WslDistro -- bash -c 'mkdir -p $DEVTOOLS2/.config/zed'
 }
-
-# settings.json과 keymap.json이 없으면 기본 뼈대 파일 생성
 if (-not (Test-Path "$WslZedConfig\settings.json")) {
     wsl -d $WslDistro -- bash -c 'echo "{}" > $DEVTOOLS2/.config/zed/settings.json'
 }
@@ -203,7 +188,6 @@ if (-not (Test-Path "$WslZedConfig\keymap.json")) {
     wsl -d $WslDistro -- bash -c 'echo "[]" > $DEVTOOLS2/.config/zed/keymap.json'
 }
 
-# 기존에 설정된 심볼릭 링크나 디렉터리 링크가 있을 경우 완전히 제거하고 물리 폴더 생성
 if (Test-Path $WinZedDir) {
     $item = Get-Item $WinZedDir -Force -ErrorAction SilentlyContinue
     if ($item -and $item.LinkType -eq "SymbolicLink") {
@@ -216,7 +200,6 @@ if (-not (Test-Path $WinZedDir)) {
     New-Item -ItemType Directory -Path $WinZedDir -Force | Out-Null
 }
 
-# settings.json 복사
 if (Test-Path "$WslZedConfig\settings.json") {
     $targetFile = "$WinZedDir\settings.json"
     if (Test-Path $targetFile) {
@@ -227,7 +210,6 @@ if (Test-Path "$WslZedConfig\settings.json") {
     Write-Success "settings.json 파일 복사 완료"
 }
 
-# keymap.json 복사
 if (Test-Path "$WslZedConfig\keymap.json") {
     $targetFile = "$WinZedDir\keymap.json"
     if (Test-Path $targetFile) {
@@ -238,9 +220,6 @@ if (Test-Path "$WslZedConfig\keymap.json") {
     Write-Success "keymap.json 파일 복사 완료"
 }
 
-# ==============================================================================
-# 완료
-# ==============================================================================
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🎉 Zed 설정 완료!" -ForegroundColor Green

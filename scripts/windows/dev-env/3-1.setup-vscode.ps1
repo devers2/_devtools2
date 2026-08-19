@@ -1,18 +1,15 @@
 param(
-    # WSL2 배포판 이름 (기본값: 첫 번째로 찾은 기본 배포판 자동 감지)
     [string]$WslDistro = ""
 )
 
 # ==============================================================================
-# VSCode 에디터 설치 및 WSL2 설정/확장 연동 스크립트 (3.setup-vscode.ps1)
+# VSCode 에디터 설치 및 WSL2 설정/확장 연동 스크립트 (3-1.setup-vscode.ps1)
 #
 # 주요 기능:
+#   0. VS Code 설치 의사 확인 ([y/N], 기본값 N) — 단독 실행/마스터 호출 모두 여기서 질문
 #   1. winget 을 통해 VS Code 에디터 자동 설치 (이미 설치되어 있으면 건너뜀)
 #   2. WSL Remote 필수 확장(ms-vscode-remote.remote-wsl) 설치
 #   3. WSL2 의 _devtools2/.config/vscode/ 내 설정 파일을 Windows VS Code 설정 경로로 심볼릭 링크
-#      - settings.json    : 에디터 전역 설정  (%APPDATA%\Code\User\settings.json)
-#      - keybindings.json : 키보드 단축키 설정 (%APPDATA%\Code\User\keybindings.json)
-#      - tasks.json       : 작업 설정       (%APPDATA%\Code\User\tasks.json)
 #   4. extensions.txt 에 정의된 개발 확장 프로그램을 Windows 로컬 및 WSL Remote 에 자동 동기화 설치
 #
 # ------------------------------------------------------------------------------
@@ -29,16 +26,10 @@ param(
 # ------------------------------------------------------------------------------
 # ==============================================================================
 
-# --- 한글 깨짐 방지: 출력 인코딩을 UTF-8 로 설정
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-
-# --- 윈도우 PowerShell 기본 파란색 프로그레스바 팝업 끄기 (텍스트 깨짐 및 커서 겹침 방지)
 $ProgressPreference = 'SilentlyContinue'
 
-# ==============================================================================
-# 헬퍼 함수
-# ==============================================================================
 $_colorsHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
 $_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_colors.ps1" -Headers $_colorsHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_colorsContent))
@@ -59,25 +50,15 @@ function Remove-FileOrSymlink {
     return $false
 }
 
-# 심볼릭 링크를 멱등성 있게 생성하는 헬퍼
 function New-SymlinkIdempotent {
-    param(
-        [string]$LinkPath,
-        [string]$TargetPath,
-        [string]$Description = ""
-    )
+    param([string]$LinkPath, [string]$TargetPath, [string]$Description = "")
     $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
-
     if (-not (Test-Path $TargetPath)) {
         Write-Warn "$label 대상 경로가 존재하지 않아 심볼릭 링크를 건너뜁니다: $TargetPath"
         return $false
     }
-
     $removed = Remove-FileOrSymlink -Path $LinkPath
-    if ($removed) {
-        Write-Info "$label 기존 항목 제거 완료: $LinkPath"
-    }
-
+    if ($removed) { Write-Info "$label 기존 항목 제거 완료: $LinkPath" }
     Write-Info "$label 심볼릭 링크 생성 중..."
     $result = cmd.exe /c "mklink `"$LinkPath`" `"$TargetPath`"" 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -88,15 +69,9 @@ function New-SymlinkIdempotent {
     return $true
 }
 
-# 기존 파일 위치를 심볼릭 링크로 교체하는 헬퍼 (백업 포함)
 function Backup-AndLink {
-    param(
-        [string]$LinkPath,
-        [string]$TargetPath,
-        [string]$Description = ""
-    )
+    param([string]$LinkPath, [string]$TargetPath, [string]$Description = "")
     $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
-
     $item = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
     if ($null -ne $item) {
         $isLink = $item.Attributes -band [System.IO.FileAttributes]::ReparsePoint
@@ -114,7 +89,6 @@ function Backup-AndLink {
     } else {
         Remove-FileOrSymlink -Path $LinkPath | Out-Null
     }
-
     return New-SymlinkIdempotent -LinkPath $LinkPath -TargetPath $TargetPath -Description $label
 }
 
@@ -124,12 +98,11 @@ function Backup-AndLink {
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator
 )
-
 if (-not $isAdmin) {
     Write-Host "[경고] 심볼릭 링크 생성에는 관리자 권한이 필요합니다." -ForegroundColor Yellow
     Write-Host "       관리자 권한으로 스크립트를 재실행합니다..." -ForegroundColor Yellow
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/3.setup-vscode.ps1 | iex`"" -Verb RunAs
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/3-1.setup-vscode.ps1 | iex`"" -Verb RunAs
     } else {
         Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -WslDistro `"$WslDistro`"" -Verb RunAs
     }
@@ -138,16 +111,31 @@ if (-not $isAdmin) {
 
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
-Write-Host "💻 VS Code 에디터 설치 및 설정/확장 연동 스크립트" -ForegroundColor DarkCyan
+Write-Host "💻 VS Code 에디터 설치 및 설정/확장 연동 스크립트 (3-1.setup-vscode.ps1)" -ForegroundColor DarkCyan
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
 # ==============================================================================
-# [Step 1] WSL2 배포판 이름 자동 감지
+# [Step 1] 설치 의사 확인 ([y/N])
 # ==============================================================================
-Write-Step "[Step 1] WSL2 배포판 감지"
+Write-Step "[Step 1] VS Code 설치 의사 확인"
+
+Write-Host ""
+Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+Write-Host "N" -ForegroundColor Green -NoNewline
+Write-Host "]: " -ForegroundColor Yellow -NoNewline
+$installInput = Read-Host
+if (-not ($installInput -match '^[Yy]')) {
+    Write-Skip "VS Code 설치를 건너뜁니다. 확장 설치도 건너뜁니다."
+    Write-Host ""
+    exit 0
+}
+
+# ==============================================================================
+# [Step 2] WSL2 배포판 이름 자동 감지
+# ==============================================================================
+Write-Step "[Step 2] WSL2 배포판 감지"
 
 if ($WslDistro -eq "") {
-    # 1순위: %USERPROFILE%\.devtools2 디렉터리 내 wsl_distro 또는 단일 .devtools2 파일에서 읽기
     $devtools2Dir  = Join-Path $env:USERPROFILE ".devtools2"
     $devtools2File = if (Test-Path $devtools2Dir -PathType Container) { Join-Path $devtools2Dir "wsl_distro" } else { $devtools2Dir }
     if (Test-Path $devtools2File) {
@@ -157,8 +145,6 @@ if ($WslDistro -eq "") {
             Write-Host "  .devtools2 에서 읽은 배포판: $WslDistro" -ForegroundColor White
         }
     }
-
-    # 2순위: wsl --list --quiet 로 첫 번째 배포판 자동 선택
     if ($WslDistro -eq "") {
         $distroList = (wsl --list --quiet 2>$null) | Where-Object { $_ -ne "" }
         if ($distroList.Count -eq 0) {
@@ -173,7 +159,6 @@ if ($WslDistro -eq "") {
     Write-Host "  지정된 배포판: $WslDistro" -ForegroundColor White
 }
 
-# WSL2 UNC 경로 기본값 (\\wsl.localhost\<Distro>\...)
 $WslRoot = "\\wsl.localhost\$WslDistro"
 $DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { "$WslRoot\var\opt\_devtools2" }
 
@@ -186,9 +171,9 @@ if (-not (Test-Path $DevTools2Wsl)) {
 Write-Host "  _devtools2 경로: $DevTools2Wsl" -ForegroundColor White
 
 # ==============================================================================
-# [Step 2] VSCode 설치 확인 및 설치
+# [Step 3] VSCode 설치 확인 및 설치
 # ==============================================================================
-Write-Step "[Step 2] VSCode 에디터 설치"
+Write-Step "[Step 3] VSCode 에디터 설치"
 
 $vscodeAlreadyInstalled = $false
 try {
@@ -211,39 +196,34 @@ if ($vscodeAlreadyInstalled) {
     if ($p.ExitCode -ne 0) {
         Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
     }
-    # PATH 갱신: winget 설치 후 code CLI를 현재 세션 및 WSL Interop에서 즉시 사용 가능하게 함
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 }
 
-# WSL 필수 연동 확장 (WSL Remote) 기본 설치
 if (Get-Command code -ErrorAction SilentlyContinue) {
     Write-Info "VSCode WSL Remote 필수 확장(ms-vscode-remote.remote-wsl) 설치/확인 중..."
     code --install-extension ms-vscode-remote.remote-wsl --force 2>&1 | Out-Null
 }
 
 # ==============================================================================
-# [Step 3] VSCode 설정 및 Gradle 자격증명 심볼릭 링크 연동
+# [Step 4] VSCode 설정 파일 심볼릭 링크 연동
 # ==============================================================================
-Write-Step "[Step 3] VSCode 설정 파일 심볼릭 링크 연동"
+Write-Step "[Step 4] VSCode 설정 파일 심볼릭 링크 연동"
 
 $vscodeUserDir = "$env:APPDATA\Code\User"
 if (-not (Test-Path $vscodeUserDir)) {
     New-Item -ItemType Directory -Path $vscodeUserDir -Force | Out-Null
 }
 
-# 윈도우 사용자 환경 변수에 %DEVTOOLS2% 자동 등록
 if (Test-Path $DevTools2Wsl) {
     [Environment]::SetEnvironmentVariable("DEVTOOLS2", $DevTools2Wsl, "User")
     $env:DEVTOOLS2 = $DevTools2Wsl
     Write-Success "Windows 사용자 환경 변수 %DEVTOOLS2% 연동 완료: $DevTools2Wsl"
 }
 
-# WSL2 내 대상 파일 경로
 $targetSettings    = "$DevTools2Wsl\.config\vscode\settings.json"
 $targetKeybindings = "$DevTools2Wsl\.config\vscode\keybindings.json"
 $targetTasks       = "$DevTools2Wsl\.config\vscode\tasks.json"
 
-# 심볼릭 링크 생성 (백업 포함)
 Backup-AndLink -LinkPath "$vscodeUserDir\settings.json"    -TargetPath $targetSettings    -Description "VSCode settings.json" | Out-Null
 Backup-AndLink -LinkPath "$vscodeUserDir\keybindings.json" -TargetPath $targetKeybindings -Description "VSCode keybindings.json" | Out-Null
 if (Test-Path $targetTasks) {
@@ -251,14 +231,13 @@ if (Test-Path $targetTasks) {
 }
 
 # ==============================================================================
-# [Step 4] VSCode 확장 프로그램 동기화 (Windows 로컬 및 WSL Remote)
+# [Step 5] VSCode 확장 프로그램 동기화 (Windows 로컬 및 WSL Remote)
 # ==============================================================================
-Write-Step "[Step 4] VSCode 확장 프로그램 동기화 (extensions.txt 기반)"
+Write-Step "[Step 5] VSCode 확장 프로그램 동기화 (extensions.txt 기반)"
 
 $targetExtensionsList = "$DevTools2Wsl\.config\vscode\extensions.txt"
 if (Test-Path $targetExtensionsList) {
     if (Get-Command code -ErrorAction SilentlyContinue) {
-        # [1] Windows 로컬 확장 설치
         Write-Info "Windows 로컬: 설치된 확장 목록 조회 중..."
         $installedExts = @()
         for ($i = 0; $i -lt 3; $i++) {
@@ -272,16 +251,13 @@ if (Test-Path $targetExtensionsList) {
         Get-Content $targetExtensionsList | ForEach-Object {
             $ext = $_.Trim()
             if ($ext -and -not $ext.StartsWith("#") -and ($ext -match '^[a-zA-Z0-9][a-zA-Z0-9_-]*\.[a-zA-Z0-9][a-zA-Z0-9_-]*$')) {
-                if (-not ($installedExts -contains $ext.ToLower())) {
-                    $toInstall += $ext
-                }
+                if (-not ($installedExts -contains $ext.ToLower())) { $toInstall += $ext }
             }
         }
 
         if ($toInstall.Count -gt 0) {
             Write-Info "Windows 로컬: 신규/미설치 확장 $($toInstall.Count)개 설치 중..."
-            $failedExts = @()
-            $idx = 0
+            $failedExts = @(); $idx = 0
             foreach ($ext in $toInstall) {
                 $idx++
                 $installed = $false
@@ -290,16 +266,13 @@ if (Test-Path $targetExtensionsList) {
                     $result = code --install-extension $ext --force 2>&1
                     if ($LASTEXITCODE -eq 0) {
                         Write-Host " ✓" -ForegroundColor Green
-                        $installed = $true
-                        break
+                        $installed = $true; break
                     } else {
                         Write-Host " 재시도..." -ForegroundColor Yellow
                         Start-Sleep -Seconds 2
                     }
                 }
-                if (-not $installed) {
-                    $failedExts += $ext
-                }
+                if (-not $installed) { $failedExts += $ext }
             }
             if ($failedExts.Count -gt 0) {
                 Write-Warn "아래 확장 $($failedExts.Count)개는 자동 설치에 실패했습니다 (수동으로 설치해주세요):"
@@ -311,7 +284,6 @@ if (Test-Path $targetExtensionsList) {
             Write-Skip "Windows 로컬: 모든 확장 프로그램이 이미 설치되어 있습니다."
         }
 
-        # [2] WSL Remote 확장 설치 (WSL Remote Server에 설치)
         Write-Info "WSL Remote: VSCode 확장 프로그램 설치 중 (WSL 내부 bash 실행)..."
         $wslExtScript = '[ -z "$DEVTOOLS2" ] && DEVTOOLS2="/var/opt/_devtools2"; VSCODE_BIN=""; command -v code >/dev/null 2>&1 && VSCODE_BIN="code"; [ -z "$VSCODE_BIN" ] && command -v code.cmd >/dev/null 2>&1 && VSCODE_BIN="code.cmd"; [ -z "$VSCODE_BIN" ] && { echo "[WSL-SKIP] code CLI not found"; exit 0; }; EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"; [ ! -f "$EXT_LIST" ] && { echo "[WSL-SKIP] extensions.txt not found"; exit 0; }; _INST=$("$VSCODE_BIN" --list-extensions 2>/dev/null </dev/null | tr [:upper:] [:lower:]); _cnt=0; _fail=0; while IFS= read -r line || [ -n "$line" ]; do ext=$(echo "$line" | tr -d \r | sed "s/#.*//" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"); [ -z "$ext" ] && continue; ext_lower=$(echo "$ext" | tr [:upper:] [:lower:]); if echo "$_INST" | grep -qF "$ext_lower"; then echo "[SKIP] $ext"; else echo "[Install] $ext"; ok=0; for i in 1 2 3; do "$VSCODE_BIN" --install-extension "$ext" --force </dev/null >/dev/null 2>&1 && ok=1 && break; sleep 2; done; if [ $ok -eq 1 ]; then echo "[OK] $ext"; _cnt=$((_cnt+1)); else echo "[FAIL] $ext"; _fail=$((_fail+1)); fi; fi; done < "$EXT_LIST"; echo "[WSL Done] New: ${_cnt}, Failed: ${_fail}"'
         try {
@@ -326,9 +298,6 @@ if (Test-Path $targetExtensionsList) {
     Write-Warn "확장 목록 파일(extensions.txt)을 찾을 수 없습니다: $targetExtensionsList"
 }
 
-# ==============================================================================
-# 완료
-# ==============================================================================
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🎉 VSCode 설치 및 설정 연동 완료!" -ForegroundColor Green
