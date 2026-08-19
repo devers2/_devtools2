@@ -845,8 +845,41 @@ else
 fi
 echo ""
 
+# ==============================================================================
+# 9. Neovim 플러그인 & 개발 환경 최종 동기화 (Lazy + Treesitter + Mason)
+#
+# 📌 [이 위치에 있어야 하는 이유 (설계 원칙)]
+#  Neovim 플러그인 생태계는 단순 에디터 바이너리 외에 여러 런타임/컴파일러 의존성을 갖습니다:
+#   1) Node.js, Python, Neovim 바이너리: 2.install-core-tools.sh 에서 설치 완료
+#   2) C 컴파일러(build-essential gcc): 3번 스크립트 6단계에서 설치 완료
+#      - nvim-treesitter 구문 강조 파서 및 C 확장 모듈(fzf-native 등) 컴파일에 필수
+#   3) SQLite3 라이브러리: 3번 스크립트 6단계에서 설치 완료
+#      - snacks.nvim (picker)의 최근/빈도 히스토리 DB 연동에 필수
+#   4) Lua/LuaRocks 환경: 3번 스크립트 7단계 hererocks 에서 구성 완료
+#   5) CLI 검색 유틸(ripgrep, fd, fzf): 3번 스크립트 1~3단계에서 설치 완료
+#
+#  따라서 이 모든 의존성이 100% 충족된 '3번 스크립트의 맨 마지막'에 한 번만 실행하여:
+#   - Lazy! restore : lazy-lock.json 기반 플러그인 무결성 복원
+#   - TSUpdateSync  : gcc를 활용한 언어별 Treesitter 파서 사전 컴파일
+#   - MasonUpdate   : LSP/DAP/포맷터 패키지 레지스트리 갱신
+#  을 완료하면, 사용자가 최초로 nvim을 실행할 때 다운로드 렉/오류 없는 Zero-Touch 환경이 완성됩니다.
+# ==============================================================================
+NVIM_BIN="$DEVTOOLS2/modules/neovim/nvim/bin/nvim"
+if [ -x "$NVIM_BIN" ] && [ -f "$DEVTOOLS2/.config/nvim/lazy-lock.json" ]; then
+    echo "---------------------------------------------------------------------------"
+    echo "💤 9. Neovim 플러그인 및 개발 환경 최종 동기화 (Zero-Touch 사전 빌드)"
+    echo ""
+    # Neovim, Node, Python, hererocks, cli 툴들을 모두 포함한 임시 PATH 주입
+    export PATH="$DEVTOOLS2/modules/neovim/nvim/bin:$DEVTOOLS2/modules/nodejs/node-v24/bin:$DEVTOOLS2/modules/python/python-314/bin:$DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin:$DEVTOOLS2/modules/ripgrep:$DEVTOOLS2/modules/fd:$DEVTOOLS2/modules/fzf:$PATH"
 
-
+    echo -n "   📦 Lazy 플러그인 복원, Treesitter 파서 컴파일 및 Mason 레지스트리 갱신 중..."
+    ("$NVIM_BIN" --headless "+Lazy! restore" "+TSUpdateSync" "+MasonUpdate" +qa >/tmp/_nvim_sync.log 2>&1) &
+    show_spinner $!
+    rm -f /tmp/_nvim_sync.log 2>/dev/null
+    echo " 완료"
+    print_done "Neovim 통합 환경 동기화 완료!"
+    echo ""
+fi
 
 print_sep
 print_step "🎉 모든 도구 설치가 완료되었습니다!"
