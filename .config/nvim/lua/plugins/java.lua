@@ -312,9 +312,20 @@ return {
           },
           -- [Eclipse 전역 환경설정 강제 주입: Spring Boot 3.2+ 호환성 유지용]
           -- 생성된 jdtls-global.epf 파일 안의 모든 규칙을 모든 프로젝트에 강제 적용합니다.
-          settings = {
-            url = vim.uri_from_fname(_G.DEVTOOLS2_DIR .. '/.config/nvim/jdtls-global.epf'),
-          },
+          settings = (function()
+            local epf_raw = _G.DEVTOOLS2_DIR .. '/.config/nvim/jdtls-global.epf'
+            local epf_path = vim.uv.fs_realpath(epf_raw) or epf_raw
+            if vim.uv.fs_stat(epf_path) then
+              local uri = vim.uri_from_fname(epf_path)
+              -- URI 포맷 보정: Java URI 파서는 Windows 드라이브 경로(C:/...) 앞의 슬래시 3개(file:///)를 엄격하게 요구합니다.
+              -- 슬래시 2개(file://C:/...)일 경우 "Expected authority at index 7" 에러를 발생시키므로 3개로 보정합니다.
+              if uri and uri:match('^file://[^/]') then
+                uri = uri:gsub('^file://', 'file:///')
+              end
+              return { url = uri }
+            end
+            return nil
+          end)(),
           -- [개발 편의성] 자동 완성 및 코드 컨벤션
           completion = {
             -- 정적(static) 메서드 자동 완성 즐겨찾기 (프로젝트에 라이브러리가 없어도 에러 없음)
