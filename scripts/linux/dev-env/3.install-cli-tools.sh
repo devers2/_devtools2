@@ -872,11 +872,30 @@ if [ -x "$NVIM_BIN" ] && [ -f "$DEVTOOLS2/.config/nvim/lazy-lock.json" ]; then
     # Neovim, Node, Python, hererocks, cli 툴들을 모두 포함한 임시 PATH 주입
     export PATH="$DEVTOOLS2/modules/neovim/nvim/bin:$DEVTOOLS2/modules/nodejs/node-v24/bin:$DEVTOOLS2/modules/python/python-314/bin:$DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin:$DEVTOOLS2/modules/ripgrep:$DEVTOOLS2/modules/fd:$DEVTOOLS2/modules/fzf:$PATH"
 
-    echo -n "   📦 Lazy 플러그인 복원, Treesitter 파서 컴파일 및 Mason 레지스트리 갱신 중..."
-    ("$NVIM_BIN" --headless "+Lazy! restore" "+TSUpdateSync" "+MasonUpdate" +qa >/tmp/_nvim_sync.log 2>&1) &
+    # 이전 실패로 인한 잔여 빌드 캐시 정리 (충돌 방지)
+    rm -rf "$HOME/.cache/nvim/tree-sitter-"* 2>/dev/null || true
+
+    # 1) Lazy 플러그인 일괄 복원 (플러그인 파일들이 완전히 준비될 때까지 대기)
+    echo -n "   📥 1/3 Lazy 플러그인 복원 중..."
+    ("$NVIM_BIN" --headless "+Lazy! restore" +qa >/tmp/_nvim_lazy.log 2>&1) &
     show_spinner $!
-    rm -f /tmp/_nvim_sync.log 2>/dev/null
+    rm -f /tmp/_nvim_lazy.log 2>/dev/null
     echo " 완료"
+
+    # 2) Treesitter 파서 사전 컴파일 (플러그인이 완전히 로드된 상태에서 안전하게 빌드)
+    echo -n "   ⚙️ 2/3 Treesitter 파서 컴파일 중..."
+    ("$NVIM_BIN" --headless "+TSUpdateSync" +qa >/tmp/_nvim_ts.log 2>&1) &
+    show_spinner $!
+    rm -f /tmp/_nvim_ts.log 2>/dev/null
+    echo " 완료"
+
+    # 3) Mason 패키지 레지스트리 갱신
+    echo -n "   📋 3/3 Mason 레지스트리 갱신 중..."
+    ("$NVIM_BIN" --headless "+MasonUpdate" +qa >/tmp/_nvim_mason.log 2>&1) &
+    show_spinner $!
+    rm -f /tmp/_nvim_mason.log 2>/dev/null
+    echo " 완료"
+
     print_done "Neovim 통합 환경 동기화 완료!"
     echo ""
 fi
