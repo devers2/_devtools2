@@ -34,10 +34,10 @@ gui:
       - '#E46876'
 
 git:
-  # 커밋 페이저 설정
-  paging:
-    colorArg: always
-    pager: delta --dark --paging=never 2>/dev/null || cat
+  # 커밋 페이저 설정 (Lazygit 최신 스키마)
+  pagers:
+    - colorArg: always
+      pager: delta --dark --paging=never 2>/dev/null || cat
 
 # 커스텀 명령어 메뉴
 customCommands: []
