@@ -48,20 +48,14 @@ return {
   {
     'mfussenegger/nvim-jdtls',
     opts = function(_, opts)
-      -- [지연 실행 가드]
-      -- Java 파일을 열었을 때 OR .nvim.lua에 MAIN_CLASS가 정의된 경우에만 초기화를 진행합니다.
-      -- 그 외(대시보드, 비-Java 프로젝트)에서는 사이드 이펙트(로그 삭제, 세션 기록) 없이 즉시 반환합니다.
-      ---@diagnostic disable-next-line: undefined-field
-      if vim.bo.filetype ~= 'java' and not _G.MAIN_CLASS then
-        return opts
-      end
-
-      -- 시작 시 기존 로그 즉시 삭제 (현재 세션만 유지)
-      local log_path = vim.lsp.log.get_filename()
-      if log_path then
-        local f = io.open(log_path, 'w')
-        if f then
-          f:close()
+      -- 시작 시 기존 로그 초기화 (자바 파일이 열렸거나 MAIN_CLASS가 있을 때만 수행)
+      if vim.bo.filetype == 'java' or _G.MAIN_CLASS then
+        local log_path = vim.lsp.log.get_filename()
+        if log_path then
+          local f = io.open(log_path, 'w')
+          if f then
+            f:close()
+          end
         end
       end
 
@@ -149,6 +143,8 @@ return {
               or content:match('JavaLanguageVersion%.of%((%d+)%)')
               or content:match('JavaVersion%.VERSION_1_(%d+)')
               or content:match('JavaVersion%.VERSION_(%d+)')
+              or content:match('["\']java["\']%s*:%s*([%d%.]+)')
+              or content:match('["\']java["\']%s*=%s*([%d%.]+)')
               or content:match('sourceCompatibility%s*=%s*[\'"]?([%d%.]+)[\'"]?')
               or content:match('targetCompatibility%s*=%s*[\'"]?([%d%.]+)[\'"]?')
               or content:match('<java%.version>([%d%.]+)</java%.version>')
@@ -432,12 +428,29 @@ return {
           local params = args[method_idx + 1]
 
           if method == 'workspace/executeCommand' and params and type(params.arguments) == 'table' then
+            -- [버그 픽스 1] resolveJavaExecutable / resolveClasspath: project 인자 누락 보정
             if
               params.command == 'vscode.java.resolveJavaExecutable'
               or params.command == 'vscode.java.resolveClasspath'
             then
               if params.arguments[1] ~= nil and params.arguments[2] == nil then
                 params.arguments[2] = vim.NIL
+              end
+            end
+
+            -- [버그 픽스 2] java.project.getSettings: 빈 버퍼 URI("file://") 예외 처리
+            -- 비-자바 프로젝트 또는 빈 버퍼 상태에서 LazyVim이 JDTLS를 로드할 때 "Expected authority at index 7: file://" 에러 방지
+            -- (nvim-jdtls는 settings[setting]의 반환값을 ipairs로 순회하므로 빈 테이블 { [setting_key] = {} }을 넘겨야 함)
+            if params.command == 'java.project.getSettings' then
+              local uri = params.arguments and params.arguments[1]
+              if not uri or uri == 'file://' or uri == '' then
+                local setting_key = (params.arguments and params.arguments[2] and params.arguments[2][1])
+                  or 'org.eclipse.jdt.ls.core.sourcePaths'
+                local callback = args[method_idx + 2]
+                if type(callback) == 'function' then
+                  callback(nil, { [setting_key] = {} })
+                end
+                return true, 1
               end
             end
           end
