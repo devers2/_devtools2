@@ -1,0 +1,43 @@
+gui:
+  # 한국어 UI 활성화 (Lazygit 내장 다국어 지원)
+  language: 'ko'
+  # Nerd Font v3 아이콘 사용
+  nerdFontsVersion: '3'
+  # 하단 단축키(키 바인딩) 표시
+  showBottomKeybinding: true
+  # 창 테두리 스타일
+  border: 'rounded'
+  # 테마 색상 설정 (Kanagawa 스타일 & 단축키 시인성 강조)
+  theme:
+    # 하단 단축키 및 옵션 텍스트 색상 (밝은 청록색으로 강조)
+    optionsTextColor:
+      - '#7AA89F'
+    # 활성 패널 테두리 (밝은 푸른색 + 굵게)
+    activeBorderColor:
+      - '#7E9CD8'
+      - 'bold'
+    # 비활성 패널 테두리 (차분한 회색)
+    inactiveBorderColor:
+      - '#727169'
+    # 선택된 라인 배경색
+    selectedLineBgColor:
+      - '#2D4F67'
+    # 기본 전경색
+    defaultFgColor:
+      - '#DCD7BA'
+    # 커밋/브랜치 관련 색상
+    cherryPickedCommitBgColor:
+      - '#49443C'
+    cherryPickedCommitFgColor:
+      - '#7E9CD8'
+    unstagedChangesColor:
+      - '#E46876'
+
+git:
+  # 커밋 페이저 설정
+  paging:
+    colorArg: always
+    pager: delta --dark --paging=never 2>/dev/null || cat
+
+# 커스텀 명령어 메뉴
+customCommands: []

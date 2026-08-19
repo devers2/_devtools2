@@ -257,6 +257,7 @@ fi
 # 필수 개발환경 디렉터리 사전 생성 (심볼릭 링크 대상 및 설정 보장)
 mkdir -p "$DEVTOOLS2/.config/nvim" \
          "$DEVTOOLS2/.config/zed" \
+         "$DEVTOOLS2/.config/lazygit" \
          "$DEVTOOLS2/.config/vscode" \
          "$DEVTOOLS2/data/nvim" \
          "$DEVTOOLS2/data/.gradle/caches" \

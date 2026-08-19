@@ -124,9 +124,10 @@ export NVIM_APPNAME="nvim"
 export ZED_HOME="$DEVTOOLS2/modules/zed"
 export RCLONE_CONFIG="$DEVTOOLS2/modules/rclone/.config/rclone.conf"
 
-# 한글 파일명 및 문자 깨짐 방지 (UTF-8 로케일)
+# 한글 파일명 및 문자 깨짐 방지 (UTF-8 로케일 & Git gettext 한국어 활성화)
 export LANG="ko_KR.UTF-8"
 export LC_ALL="ko_KR.UTF-8"
+export LANGUAGE="ko_KR:ko"
 
 EOF
 
@@ -284,6 +285,10 @@ _run_symlink "$DEVTOOLS2/.config/nvim" "$cfg_dir/nvim"
 mkdir -p "$DEVTOOLS2/.config/zed" 2>/dev/null || true
 # 1) 일반 패키지 / Native 설치 경로
 _run_symlink "$DEVTOOLS2/.config/zed" "$cfg_dir/zed"
+
+# --- Lazygit 설정 ---
+mkdir -p "$DEVTOOLS2/.config/lazygit" 2>/dev/null || true
+_run_symlink "$DEVTOOLS2/.config/lazygit" "$cfg_dir/lazygit"
 
 # 2) Flatpak 설치 경로 대응
 flatpak_zed_dir="$HOME/.var/app/dev.zed.Zed/config"
