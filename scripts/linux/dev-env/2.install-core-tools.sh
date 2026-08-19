@@ -519,96 +519,112 @@ echo "--------------------------------------------------------------------------
 echo "💻 6. VSCode 단계"
 echo ""
 
-# [6-1] VSCode 바이너리 설치 (Linux 네이티브 전용)
-#   WSL은 Windows 호스트에 VSCode가 이미 설치되어 있으므로 리눅스 내부 설치 건너뜀
+_vscode_proceed=false
+
+# [6-1] VSCode 바이너리 설치 및 의사 확인
 if [ "$IS_WSL2" = true ]; then
-    echo "   ⚠️  [WSL2 환경] VSCode는 Windows 호스트에 설치되므로 Linux 내부 설치를 건너뜁니다."
-elif command -v code >/dev/null 2>&1; then
-    echo "   ⏭️ [건너뜀] VSCode가 이미 설치되어 있습니다: $(command -v code)"
+    echo "   ⚠️  [WSL2 환경] VSCode 설치 및 확장 설정은 Windows 호스트(3.setup-vscode.ps1)에서 전담합니다."
+    _vscode_proceed=false
 else
-    echo ""
-    printf "   👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/\\033[1;32mN\\033[0m]: "
-    if [ -t 0 ]; then
-        read -r _vscode_choice
+    # Linux 네이티브 환경
+    if [ -n "${DT2_VSCODE_CHOICE:-}" ]; then
+        _vscode_choice="$DT2_VSCODE_CHOICE"
     else
-        _vscode_choice="N"
+        echo ""
+        printf "   👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/\\033[1;32mN\\033[0m]: "
+        if [ -t 0 ]; then
+            read -r _vscode_choice
+        else
+            _vscode_choice="N"
+        fi
+        echo ""
     fi
-    echo ""
+
     case "${_vscode_choice:-N}" in
         y|Y)
-            echo "   📦 VSCode .deb 패키지 다운로드 및 설치 중..."
-            _vscode_tmp="/tmp/vscode_install_$$.deb"
-            if curl -Ls "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" -o "$_vscode_tmp"; then
-                sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true
-                rm -f "$_vscode_tmp"
-                echo "   ✅ VSCode 설치 완료"
+            _vscode_proceed=true
+            if command -v code >/dev/null 2>&1; then
+                echo "   ⏭️ [건너뜀] VSCode(Visual Studio Code)가 이미 설치되어 있습니다: $(command -v code)"
             else
-                echo "   ⚠️  VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
-                rm -f "$_vscode_tmp"
+                echo "   📦 VSCode .deb 패키지 다운로드 및 설치 중..."
+                _vscode_tmp="/tmp/vscode_install_$$.deb"
+                if curl -Ls "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" -o "$_vscode_tmp"; then
+                    sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true
+                    rm -f "$_vscode_tmp"
+                    echo "   ✅ VSCode 설치 완료"
+                else
+                    echo "   ⚠️  VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
+                    rm -f "$_vscode_tmp"
+                fi
             fi
             ;;
         *)
+            _vscode_proceed=false
             echo "   ⏭️ VSCode 설치를 건너뜁니다. 기존 설정은 유지됩니다."
             ;;
     esac
 fi
 
 # [6-2] VSCode 확장 자동 설치 (extensions.txt 기반)
-#   WSL / Linux 네이티브 상관없이 code 명령이 존재하면 항상 실행
+#   WSL / Linux 네이티브 상관없이 사용자가 y를 선택하고 code 명령이 존재하면 실행
 #   WSL: Windows code CLI 가 interop으로 동작 / Linux 네이티브: /usr/bin/code
 VSCODE_EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"
-if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
-    echo ""
-    echo -n "   📋 VSCode 기존 확장 목록 조회 중..."
-    (code --list-extensions 2>/dev/null </dev/null > /tmp/_vscode_installed.tmp) &
-    _ext_list_pid=$!
-    show_spinner "$_ext_list_pid"
-    wait "$_ext_list_pid" 2>/dev/null || true
-    echo " 완료"
-    _INSTALLED_EXTS=$(tr '[:upper:]' '[:lower:]' < /tmp/_vscode_installed.tmp 2>/dev/null || echo "")
-    rm -f /tmp/_vscode_installed.tmp 2>/dev/null
+if [ "$_vscode_proceed" = true ]; then
+    if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
+        echo ""
+        echo -n "   📋 VSCode 기존 확장 목록 조회 중..."
+        (code --list-extensions 2>/dev/null </dev/null > /tmp/_vscode_installed.tmp) &
+        _ext_list_pid=$!
+        show_spinner "$_ext_list_pid"
+        wait "$_ext_list_pid" 2>/dev/null || true
+        echo " 완료"
+        _INSTALLED_EXTS=$(tr '[:upper:]' '[:lower:]' < /tmp/_vscode_installed.tmp 2>/dev/null || echo "")
+        rm -f /tmp/_vscode_installed.tmp 2>/dev/null
 
-    echo "   📋 VSCode 확장 프로그램 설치 중 (extensions.txt 기반)..."
-    _vscode_install_count=0
-    _vscode_skip_count=0
-    _vscode_fail_count=0
-    while IFS= read -r ext_line || [ -n "$ext_line" ]; do
-        ext=$(echo "$ext_line" | tr -d '\r' | sed 's/#.*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        [ -z "$ext" ] && continue
-        ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
-        if echo "$_INSTALLED_EXTS" | grep -qF "$ext_lower"; then
-            echo "   ⏭️  [건너뜀] $ext (이미 설치됨)"
-            _vscode_skip_count=$((_vscode_skip_count + 1))
-        else
-            echo -n "   📥 [설치] $ext ..."
-            _ok=0
-            for _retry in 1 2 3; do
-                (code --install-extension "$ext" --force </dev/null >/dev/null 2>&1) &
-                _ext_pid=$!
-                show_spinner "$_ext_pid"
-                _ext_ec=0
-                wait "$_ext_pid" 2>/dev/null || _ext_ec=$?
-                if [ "$_ext_ec" -eq 0 ]; then
-                    _ok=1
-                    break
-                fi
-                sleep 2
-            done
-            if [ "$_ok" -eq 1 ]; then
-                echo " ✅"
-                _vscode_install_count=$((_vscode_install_count + 1))
+        echo "   📋 VSCode 확장 프로그램 설치 중 (extensions.txt 기반)..."
+        _vscode_install_count=0
+        _vscode_skip_count=0
+        _vscode_fail_count=0
+        while IFS= read -r ext_line || [ -n "$ext_line" ]; do
+            ext=$(echo "$ext_line" | tr -d '\r' | sed 's/#.*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            [ -z "$ext" ] && continue
+            ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+            if echo "$_INSTALLED_EXTS" | grep -qF "$ext_lower"; then
+                echo "   ⏭️  [건너뜀] $ext (이미 설치됨)"
+                _vscode_skip_count=$((_vscode_skip_count + 1))
             else
-                echo " ⚠️  실패 (3회 시도)"
-                _vscode_fail_count=$((_vscode_fail_count + 1))
+                echo -n "   📥 [설치] $ext ..."
+                _ok=0
+                for _retry in 1 2 3; do
+                    (code --install-extension "$ext" --force </dev/null >/dev/null 2>&1) &
+                    _ext_pid=$!
+                    show_spinner "$_ext_pid"
+                    _ext_ec=0
+                    wait "$_ext_pid" 2>/dev/null || _ext_ec=$?
+                    if [ "$_ext_ec" -eq 0 ]; then
+                        _ok=1
+                        break
+                    fi
+                    sleep 2
+                done
+                if [ "$_ok" -eq 1 ]; then
+                    echo " ✅"
+                    _vscode_install_count=$((_vscode_install_count + 1))
+                else
+                    echo " ⚠️  실패 (3회 시도)"
+                    _vscode_fail_count=$((_vscode_fail_count + 1))
+                fi
             fi
-        fi
-    done < "$VSCODE_EXT_LIST"
-    echo ""
-    echo "   [요약] 신규 설치: ${_vscode_install_count}개 / 이미 설치: ${_vscode_skip_count}개 / 실패: ${_vscode_fail_count}개"
-elif ! command -v code >/dev/null 2>&1; then
-    echo "   ⚠️  code 명령을 찾을 수 없어 확장 설치를 건너뜁니다."
+        done < "$VSCODE_EXT_LIST"
+        echo ""
+        echo "   [요약] 신규 설치: ${_vscode_install_count}개 / 이미 설치: ${_vscode_skip_count}개 / 실패: ${_vscode_fail_count}개"
+    elif ! command -v code >/dev/null 2>&1; then
+        echo "   ⚠️  code 명령을 찾을 수 없어 확장 설치를 건너뜁니다."
+    else
+        echo "   ⚠️  extensions.txt 없음: $VSCODE_EXT_LIST"
+    fi
 else
-    echo "   ⚠️  extensions.txt 없음: $VSCODE_EXT_LIST"
+    echo "   ⏭️ VSCode 확장을 설치하지 않고 건너뜁니다."
 fi
 echo "✅ VSCode 단계 완료"
 echo ""
@@ -619,18 +635,22 @@ echo "⚡ 7. Zed 설치 단계"
 echo ""
 
 if [ "$IS_WSL2" = true ]; then
-    echo "   ⚠️  [WSL2 환경 감지] WSL2 환경에서는 Windows 호스트에 Zed를 설치하므로 리눅스 내부 Zed 설치는 건너뜁니다."
+    echo "   ⚠️  [WSL2 환경 감지] WSL2 환경에서는 Windows 호스트(4.setup-zed.ps1)에 Zed를 설치하므로 리눅스 내부 Zed 설치는 건너뜁니다."
 elif [ -d "$DEVTOOLS2/modules/zed" ]; then
     echo "   ⏭️ [건너뜀] zed 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/zed'"
 else
-    echo ""
-    printf "   👉 Zed 에디터를 설치하시겠습니까? [y/\033[1;32mN\033[0m]: "
-    if [ -t 0 ]; then
-        read -r _zed_choice
+    if [ -n "${DT2_ZED_CHOICE:-}" ]; then
+        _zed_choice="$DT2_ZED_CHOICE"
     else
-        _zed_choice="N"
+        echo ""
+        printf "   👉 Zed 에디터를 설치하시겠습니까? [y/\033[1;32mN\033[0m]: "
+        if [ -t 0 ]; then
+            read -r _zed_choice
+        else
+            _zed_choice="N"
+        fi
+        echo ""
     fi
-    echo ""
     case "${_zed_choice:-N}" in
         y|Y)
             echo "   📦 Zed stable 다운로드 및 압축 해제..."
@@ -730,7 +750,7 @@ echo "--------------------------------------------------------------------------
 #    있습니다. Orca를 Windows 네이티브로만 설치하면 WSL2 안의 그 바이너리를 실행할 방법이
 #    없습니다(공식 문서에 WSL 브릿지 기능 없음). 대신 Orca 공식 "Remote Orca Servers" 모드를
 #    사용합니다: 에이전트 실행부(orca serve)는 CLI가 실제로 있는 WSL2에 헤드리스로 두고,
-#    Windows에는 거기 페어링만 하는 가벼운 GUI 클라이언트를 설치합니다(4.setup-orca.ps1).
+#    Windows에는 거기 페어링만 하는 가벼운 GUI 클라이언트를 설치합니다(5.setup-orca.ps1).
 echo "🐋 9. Orca 설치 단계"
 echo ""
 
@@ -748,7 +768,7 @@ if [ -f "$ORCA_APPIMAGE" ]; then
     echo "   ⏭️ [건너뜀] orca AppImage가 이미 존재합니다. (재설치하려면 삭제: sudo rm -rf '$ORCA_DIR')"
     if [ "${DT2_ORCA_CHOICE:-}" = "N" ] || [ "${DT2_ORCA_CHOICE:-}" = "n" ]; then
         # Windows 쪽에서 이번 실행은 명시적으로 N을 선택한 경우 — systemd/페어링 재점검도
-        # 이번엔 건너뜁니다(4.setup-orca.ps1도 이번엔 안 돌기 때문에 재점검해봐야 그 결과를
+        # 이번엔 건너뜁니다(5.setup-orca.ps1도 이번엔 안 돌기 때문에 재점검해봐야 그 결과를
         # 받아줄 곳이 없어 불필요한 작업이 됨).
         echo "   ℹ️  이번 실행은 Windows 쪽에서 'N'을 선택하셔서 systemd/페어링 재점검도 건너뜁니다."
     else
@@ -925,7 +945,7 @@ EOF
                         if [ -n "$_orca_pair_link" ]; then
                             echo "$_orca_pair_link" > "$DEVTOOLS2/data/orca-pairing-link.txt"
                             echo "   🔗 페어링 링크 확보: $_orca_pair_link"
-                            echo "      (Windows 쪽 4.setup-orca.ps1 이 이 링크를 자동으로 읽어갑니다)"
+                            echo "      (Windows 쪽 5.setup-orca.ps1 이 이 링크를 자동으로 읽어갑니다)"
                         else
                             rm -f "$DEVTOOLS2/data/orca-pairing-link.txt"
                             echo "   ⚠️  페어링 링크를 자동으로 찾지 못했습니다(알려진 업스트림 버그일 수 있음:"
@@ -978,7 +998,7 @@ EOF
                     echo "   💬 지금 당장 쓰려면 수동으로도 실행 가능합니다: $ORCA_DIR/orca-serve-wrapper.sh &"
                 fi
                 echo ""
-                echo "   💬 Windows Orca 앱과의 페어링 안내는 4.setup-orca.ps1 완료 화면에서 보여드립니다."
+                echo "   💬 Windows Orca 앱과의 페어링 안내는 5.setup-orca.ps1 완료 화면에서 보여드립니다."
             else
                 echo "   💬 일반 데스크톱 GUI 앱으로 바로 실행할 수 있습니다: $ORCA_APPIMAGE"
             fi

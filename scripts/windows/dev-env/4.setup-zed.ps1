@@ -4,7 +4,7 @@ param(
 )
 
 # ==============================================================================
-# Zed 에디터 설치 및 WSL2 설정 파일 복사 스크립트 (3.setup-zed.ps1)
+# Zed 에디터 설치 및 WSL2 설정 파일 복사 스크립트 (4.setup-zed.ps1)
 #
 # 주요 기능:
 #   1. winget 을 통해 Zed 에디터를 자동 설치 (이미 설치되어 있으면 건너뜀)
@@ -36,9 +36,6 @@ $ProgressPreference = 'SilentlyContinue'
 # ==============================================================================
 # 헬퍼 함수
 # ==============================================================================
-# 여러 ps1 파일에 거의 동일하게 복붙되어 있던 Write-*/Wait-* 헬퍼를 _colors.ps1
-# 공용 파일로 통합했습니다(scripts/windows/dev-env/_colors.ps1, bash _colors.sh와
-# 동일한 패턴). 항상 온라인 최신본을 dot-source합니다.
 $_colorsHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
 $_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_colors.ps1" -Headers $_colorsHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_colorsContent))
@@ -54,7 +51,7 @@ if (-not $isAdmin) {
     Write-Host "[경고] 심볼릭 링크 생성에는 관리자 권한이 필요합니다." -ForegroundColor Yellow
     Write-Host "       관리자 권한으로 스크립트를 재실행합니다..." -ForegroundColor Yellow
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/3.setup-zed.ps1 | iex`"" -Verb RunAs
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/4.setup-zed.ps1 | iex`"" -Verb RunAs
     } else {
         Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -WslDistro `"$WslDistro`"" -Verb RunAs
     }
@@ -255,5 +252,3 @@ Write-Host ""
 Write-Host "  Zed 를 재시작하면 설정이 적용됩니다." -ForegroundColor Yellow
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
-
-

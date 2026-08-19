@@ -4,7 +4,7 @@ param(
 )
 
 # ==============================================================================
-# Orca GUI 클라이언트 설치 및 WSL2 헤드리스 서버 페어링 안내 스크립트 (4.setup-orca.ps1)
+# Orca GUI 클라이언트 설치 및 WSL2 헤드리스 서버 페어링 안내 스크립트 (5.setup-orca.ps1)
 #
 # 주요 기능:
 #   1. winget 을 통해 Orca 데스크톱 앱을 자동 설치 (이미 설치되어 있으면 건너뜀)
@@ -12,7 +12,7 @@ param(
 #   3. Windows Orca 앱 ↔ WSL2 orca serve 페어링 방법 안내
 #
 # ------------------------------------------------------------------------------
-# ⚠️ [Zed(3.setup-zed.ps1)와 구조가 다른 이유]
+# ⚠️ [Zed(4.setup-zed.ps1)와 구조가 다른 이유]
 # Zed는 순수 에디터라 Windows 네이티브 앱이 WSL2의 파일을 UNC 경로로 열기만 하면 됩니다.
 # 반면 Orca는 Claude Code/Codex/Gemini 같은 CLI 에이전트 "프로세스"를 직접 실행(spawn)해야
 # 하는 오케스트레이터입니다. 그 CLI들은 전부 WSL2 내부에 설치되어 있어(npm i -g 등),
@@ -47,9 +47,6 @@ $ProgressPreference = 'SilentlyContinue'
 # ==============================================================================
 # 헬퍼 함수
 # ==============================================================================
-# 여러 ps1 파일에 거의 동일하게 복붙되어 있던 Write-*/Wait-* 헬퍼를 _colors.ps1
-# 공용 파일로 통합했습니다(scripts/windows/dev-env/_colors.ps1, bash _colors.sh와
-# 동일한 패턴). 항상 온라인 최신본을 dot-source합니다.
 $_colorsHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
 $_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_colors.ps1" -Headers $_colorsHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_colorsContent))
@@ -58,7 +55,7 @@ $_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/deve
 # [Step 0] 관리자 권한 확인 및 재실행
 # ==============================================================================
 # Orca 자체 설치/페어링에는 관리자 권한이 꼭 필요하진 않지만, 이 저장소의 다른 Windows
-# 컴패니언 스크립트(3.setup-zed.ps1 등)와 동일하게 독립 실행 시에도 안전하도록 맞춥니다.
+# 컴패니언 스크립트(4.setup-zed.ps1 등)와 동일하게 독립 실행 시에도 안전하도록 맞춥니다.
 # (마스터 스크립트를 통해 호출될 때는 이미 상위 프로세스가 관리자 권한이라 이 블록은 그냥 통과됩니다.)
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator
@@ -67,7 +64,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $isAdmin) {
     Write-Host "[경고] 관리자 권한으로 스크립트를 재실행합니다..." -ForegroundColor Yellow
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/4.setup-orca.ps1 | iex`"" -Verb RunAs
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/5.setup-orca.ps1 | iex`"" -Verb RunAs
     } else {
         Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -WslDistro `"$WslDistro`"" -Verb RunAs
     }

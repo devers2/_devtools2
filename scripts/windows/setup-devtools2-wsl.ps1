@@ -5,7 +5,7 @@
 #   1. Windows WSL2 가상 머신 생성 및 활성화 (0.setup-wsl.ps1)
 #   2. WSL2 내부로 Linux 초기화 스크립트를 실행하여 깃 자격증명 설정 및 클론 진행
 #   3. WSL2 내부의 환경변수 설정, 핵심 개발 런타임 및 CLI 유틸리티 도구 일괄 자동 설치
-#   4. Windows 호스트용 AutoHotkey, Windows Terminal, Zed 에디터 자동 설치 및 WSL2 설정 연동
+#   4. Windows 호스트용 AutoHotkey, Windows Terminal, VS Code, Zed, Orca 자동 설치 및 설정 연동
 #
 # ------------------------------------------------------------------------------
 # ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
@@ -465,51 +465,15 @@ if ($LASTEXITCODE -ne 0) {
 # ==============================================================================
 # [사전 질문 및 Windows 에디터 설치]
 # ==============================================================================
-Write-SubStep "▶ Windows 개발 에디터(VS Code / Zed) 설치 의사 확인"
+Write-SubStep "▶ Windows 개발 에디터(VS Code / Zed / Orca) 설치 의사 확인"
 
-# 1. VSCode 설치 여부 사전 확인 및 설치
-$vscodeAlreadyInstalled = $false
-try {
-    if (Get-Command code -ErrorAction SilentlyContinue) {
-        $vscodeAlreadyInstalled = $true
-    } elseif (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") {
-        $vscodeAlreadyInstalled = $true
-    } elseif (Test-Path "$env:ProgramFiles\Microsoft VS Code\Code.exe") {
-        $vscodeAlreadyInstalled = $true
-    }
-} catch {}
-
-$userChoseVscode = $false
-if (-not $vscodeAlreadyInstalled) {
-    Write-Host ""
-    Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-    Write-Host "N" -ForegroundColor Green -NoNewline
-    Write-Host "]: " -ForegroundColor Yellow -NoNewline
-    $installVscodeInput = Read-Host
-    $userChoseVscode = $installVscodeInput -match '^[Yy]'
-
-    if ($userChoseVscode) {
-        Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
-        $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\vscode_install.log" -RedirectStandardError "$env:TEMP\vscode_install_err.log" -ErrorAction SilentlyContinue
-        Wait-WithSpinner -Message "VSCode 패키지 설치 진행" -Condition { $p.HasExited }
-        Remove-Item "$env:TEMP\vscode_install.log", "$env:TEMP\vscode_install_err.log" -Force -ErrorAction SilentlyContinue
-        if ($p.ExitCode -ne 0) {
-            Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
-        }
-        # PATH 갱신: winget 설치 후 code CLI를 현재 세션 및 WSL Interop에서 즉시 사용 가능하게 함
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-
-        # WSL 필수 연동 확장 (WSL Remote) 기본 설치
-        if (Get-Command code -ErrorAction SilentlyContinue) {
-            Write-Info "VSCode WSL Remote 필수 확장(ms-vscode-remote.remote-wsl) 기본 설치 중..."
-            code --install-extension ms-vscode-remote.remote-wsl --force 2>&1 | Out-Null
-        }
-    } else {
-        Write-Skip "VS Code 설치를 건너뜁니다."
-    }
-} else {
-    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
-}
+# 1. VSCode 설치 여부 사전 확인
+Write-Host ""
+Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
+Write-Host "N" -ForegroundColor Green -NoNewline
+Write-Host "]: " -ForegroundColor Yellow -NoNewline
+$installVscodeInput = Read-Host
+$userChoseVscode = $installVscodeInput -match '^[Yy]'
 
 # 2. Zed 에디터 설치 여부 사전 확인
 Write-Host ""
@@ -520,7 +484,7 @@ $installZedInput = Read-Host
 $userChoseZed = $installZedInput -match '^[Yy]'
 
 # 3. Orca 설치 여부 사전 확인 (Windows+WSL 조합에서는 WSL2에 orca serve 헤드리스로,
-#    Windows에는 거기 페어링만 하는 GUI 클라이언트를 설치 — 4.setup-orca.ps1 참고)
+#    Windows에는 거기 페어링만 하는 GUI 클라이언트를 설치 — 5.setup-orca.ps1 참고)
 Write-Host ""
 Write-Host "👉 Orca(멀티 에이전트 오케스트레이션 ADE)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
 Write-Host "N" -ForegroundColor Green -NoNewline
@@ -569,11 +533,13 @@ $envExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_1.sh 2>$null
 if ($envExit -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
-Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, VSCode 확장)"
-# Orca 설치 여부는 위에서 이미 물어봤으므로(사전 질문 블록), WSL2 내부 스크립트가 같은 질문을
+Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim)"
+# VSCode/Zed/Orca 설치 여부는 위에서 이미 물어봤으므로(사전 질문 블록), WSL2 내부 스크립트가 같은 질문을
 # 다시 하지 않도록 환경 변수로 답을 그대로 전달합니다.
-$orcaChoiceEnv = if ($userChoseOrca) { "Y" } else { "N" }
-wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_ORCA_CHOICE=$orcaChoiceEnv bash -l /tmp/_dt2_2.sh"
+$vscodeChoiceEnv = if ($userChoseVscode) { "Y" } else { "N" }
+$zedChoiceEnv    = if ($userChoseZed) { "Y" } else { "N" }
+$orcaChoiceEnv   = if ($userChoseOrca) { "Y" } else { "N" }
+wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_VSCODE_CHOICE=$vscodeChoiceEnv DT2_ZED_CHOICE=$zedChoiceEnv DT2_ORCA_CHOICE=$orcaChoiceEnv bash -l /tmp/_dt2_2.sh"
 $coreExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_2.sh 2>$null
 if ($coreExit -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
@@ -601,120 +567,18 @@ Invoke-RemotePsScript -Url "$RAW_WIN/1.setup-autohotkey.ps1" -Arguments @{ WslDi
 Write-SubStep "▶ (2/5) Windows Terminal 폰트/테마/단축키 설정"
 Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-windows-terminal.ps1" -Arguments @{ WslDistro = $wslDistro }
 
-# ── 4-3. VSCode 설정 및 Windows 로컬 확장 연동 ───────────────────────────────
-Write-SubStep "▶ (3/5) VSCode 설정 연동 및 Windows 로컬 확장 설치"
-
-$skipVsCodeLink = -not ($userChoseVscode -or $vscodeAlreadyInstalled)
-
-if ($skipVsCodeLink) {
-    Write-Skip "VS Code 미설치 상태로 설정 연동을 건너뜁니다."
+# ── 4-3. VSCode (에디터 설치, 심볼릭 링크 및 확장 동기화) ────────────────────
+Write-SubStep "▶ (3/5) VSCode 에디터 설치 및 설정/확장 연동"
+if ($userChoseVscode) {
+    Invoke-RemotePsScript -Url "$RAW_WIN/3.setup-vscode.ps1" -Arguments @{ WslDistro = $wslDistro }
 } else {
-    Write-Info "VSCode 설정, 확장 목록 및 Gradle 자격증명 연동 (심볼릭 링크)"
-    $vscodeUserDir = "$env:APPDATA\Code\User"
-    if (-not (Test-Path $vscodeUserDir)) {
-        New-Item -ItemType Directory -Path $vscodeUserDir -Force | Out-Null
-    }
-
-    # 윈도우 사용자 환경 변수에 %DEVTOOLS2% 자동 등록
-    $wslDevtools2Root = "\\wsl.localhost\$wslDistro\var\opt\_devtools2"
-    if (Test-Path $wslDevtools2Root) {
-        [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
-        $env:DEVTOOLS2 = $wslDevtools2Root
-        Write-Success "Windows 사용자 환경 변수 %DEVTOOLS2% 연동 완료: $wslDevtools2Root"
-    }
-
-    $devtools2Root = if ($env:DEVTOOLS2) { $env:DEVTOOLS2 } else { $wslDevtools2Root }
-
-    # WSL2 내 대상 파일 경로
-    $targetSettings    = "$devtools2Root\.config\vscode\settings.json"
-    $targetKeybindings = "$devtools2Root\.config\vscode\keybindings.json"
-    $targetTasks       = "$devtools2Root\.config\vscode\tasks.json"
-
-    # 기존 파일/dangling 심볼릭 링크 정리 후 새 심볼릭 링크 생성 (백업 포함, Backup-AndLink 공용 헬퍼)
-    Backup-AndLink -LinkPath "$vscodeUserDir\settings.json"    -TargetPath $targetSettings    -Description "VSCode settings.json" | Out-Null
-    Backup-AndLink -LinkPath "$vscodeUserDir\keybindings.json" -TargetPath $targetKeybindings -Description "VSCode keybindings.json" | Out-Null
-    if (Test-Path $targetTasks) {
-        Backup-AndLink -LinkPath "$vscodeUserDir\tasks.json" -TargetPath $targetTasks -Description "VSCode tasks.json" | Out-Null
-    }
-
-    # 🌟 VSCode 확장 목록(extensions.txt) 동기화 자동 설치 (Windows 로컬)
-    $targetExtensionsList = "$devtools2Root\.config\vscode\extensions.txt"
-    if (Test-Path $targetExtensionsList) {
-        if (Get-Command code -ErrorAction SilentlyContinue) {
-            # [1] Windows 로컬 확장 설치
-            Write-Info "Windows 로컬: 설치된 확장 목록 조회 중..."
-            # VSCode를 방금 설치했을 경우 첫 실행이 느릴 수 있으므로 최대 3회 재시도
-            $installedExts = @()
-            for ($i = 0; $i -lt 3; $i++) {
-                $installedExts = @((code --list-extensions 2>$null) | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ -ne "" })
-                if ($installedExts.Count -ge 0 -and $LASTEXITCODE -eq 0) { break }
-                Write-Info "VSCode CLI 초기화 대기 중... ($($i+1)/3)"
-                Start-Sleep -Seconds 3
-            }
-
-            $toInstall = @()
-            Get-Content $targetExtensionsList | ForEach-Object {
-                $ext = $_.Trim()
-                if ($ext -and -not $ext.StartsWith("#") -and ($ext -match '^[a-zA-Z0-9][a-zA-Z0-9_-]*\.[a-zA-Z0-9][a-zA-Z0-9_-]*$')) {
-                    if (-not ($installedExts -contains $ext.ToLower())) {
-                        $toInstall += $ext
-                    }
-                }
-            }
-
-            if ($toInstall.Count -gt 0) {
-                Write-Info "Windows 로컬: 신규/미설치 확장 $($toInstall.Count)개 설치 중..."
-                $failedExts = @()
-                $idx = 0
-                foreach ($ext in $toInstall) {
-                    $idx++
-                    $installed = $false
-                    for ($retry = 1; $retry -le 3; $retry++) {
-                        Write-Host "  [$idx/$($toInstall.Count)] $ext (시도 $retry/3)..." -ForegroundColor DarkGray -NoNewline
-                        $result = code --install-extension $ext --force 2>&1
-                        if ($LASTEXITCODE -eq 0) {
-                            Write-Host " ✓" -ForegroundColor Green
-                            $installed = $true
-                            break
-                        } else {
-                            Write-Host " 재시도..." -ForegroundColor Yellow
-                            Start-Sleep -Seconds 2
-                        }
-                    }
-                    if (-not $installed) {
-                        $failedExts += $ext
-                    }
-                }
-                if ($failedExts.Count -gt 0) {
-                    Write-Warn "아래 확장 $($failedExts.Count)개는 자동 설치에 실패했습니다 (수동으로 설치해주세요):"
-                    $failedExts | ForEach-Object { Write-Host "    - $_" -ForegroundColor Yellow }
-                } else {
-                    Write-Success "Windows 로컬 확장 $($toInstall.Count)개 설치 완료"
-                }
-            } else {
-                Write-Skip "Windows 로컬: 모든 확장 프로그램이 이미 설치되어 있습니다."
-            }
-
-            # [2] WSL Remote 확장 설치 (WSL Remote Server에 별도 설치 필요)
-            Write-Info "WSL Remote: VSCode 확장 프로그램 설치 중 (WSL 내부 bash 실행)..."
-            $wslExtScript = '[ -z "$DEVTOOLS2" ] && DEVTOOLS2="/var/opt/_devtools2"; VSCODE_BIN=""; command -v code >/dev/null 2>&1 && VSCODE_BIN="code"; [ -z "$VSCODE_BIN" ] && command -v code.cmd >/dev/null 2>&1 && VSCODE_BIN="code.cmd"; [ -z "$VSCODE_BIN" ] && { echo "[WSL-SKIP] code CLI not found"; exit 0; }; EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"; [ ! -f "$EXT_LIST" ] && { echo "[WSL-SKIP] extensions.txt not found"; exit 0; }; _INST=$("$VSCODE_BIN" --list-extensions 2>/dev/null </dev/null | tr [:upper:] [:lower:]); _cnt=0; _fail=0; while IFS= read -r line || [ -n "$line" ]; do ext=$(echo "$line" | tr -d \r | sed "s/#.*//" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"); [ -z "$ext" ] && continue; ext_lower=$(echo "$ext" | tr [:upper:] [:lower:]); if echo "$_INST" | grep -qF "$ext_lower"; then echo "[SKIP] $ext"; else echo "[Install] $ext"; ok=0; for i in 1 2 3; do "$VSCODE_BIN" --install-extension "$ext" --force </dev/null >/dev/null 2>&1 && ok=1 && break; sleep 2; done; if [ $ok -eq 1 ]; then echo "[OK] $ext"; _cnt=$((_cnt+1)); else echo "[FAIL] $ext"; _fail=$((_fail+1)); fi; fi; done < "$EXT_LIST"; echo "[WSL Done] New: ${_cnt}, Failed: ${_fail}"'
-            try {
-                wsl -d $wslDistro -- bash -c $wslExtScript 2>$null
-            } catch {
-                Write-Warn "WSL Remote 확장 설치 중 오류: $_"
-            }
-        } else {
-            Write-Warn "VSCode CLI('code')를 찾을 수 없어서 확장 프로그램 자동 설치를 건너뜁니다."
-        }
-    }
-
-    Write-Success "VSCode 설정 연동 완료"
+    Write-Skip "VS Code 설치를 건너뜁니다."
 }
 
 # ── 4-4. Zed ─────────────────────────────────────────────────────────────────
 Write-SubStep "▶ (4/5) Zed 에디터 설치 및 설정 연동"
 if ($userChoseZed) {
-    Invoke-RemotePsScript -Url "$RAW_WIN/3.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
+    Invoke-RemotePsScript -Url "$RAW_WIN/4.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
 } else {
     Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
 }
@@ -722,7 +586,7 @@ if ($userChoseZed) {
 # ── 4-5. Orca (Windows GUI 클라이언트 — 에이전트 실행부는 WSL2의 orca serve) ──
 Write-SubStep "▶ (5/5) Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 안내"
 if ($userChoseOrca) {
-    Invoke-RemotePsScript -Url "$RAW_WIN/4.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
+    Invoke-RemotePsScript -Url "$RAW_WIN/5.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
 } else {
     Write-Skip "Orca 설치를 건너뜁니다."
 }
