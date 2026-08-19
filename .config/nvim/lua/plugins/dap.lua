@@ -207,6 +207,10 @@ return {
         local clients = vim.lsp.get_clients({ bufnr = 0, name = 'jdtls' })
         local client = clients[1]
         if not client then
+          clients = vim.lsp.get_clients({ name = 'jdtls' })
+          client = clients[1]
+        end
+        if not client then
           vim.notify('jdtls 클라이언트를 찾을 수 없어 빌드 확인 없이 실행합니다.', vim.log.levels.WARN, { title = 'Java Launch' })
           on_done(true)
           return
@@ -257,7 +261,7 @@ return {
               on_done(choice ~= nil and choice:find('예', 1, true) ~= nil)
             end)
           end)
-        end, 0)
+        end)
       end
 
       -- 디버그 세션이 실제로 초기화될 때까지 dap.listeners.after.event_initialized로 기다립니다
@@ -348,8 +352,57 @@ return {
         run_next(config, run_opts)
       end
 
+      -- Gradle/Maven 프로젝트의 경우 디버그 실행 직전에 processResources(프로필/리소스 생성)를
+      -- Neovim 0.12의 비동기 vim.system으로 실행하여 @build-0_LOCAL.yml 등의 템플릿 변수가 누락되지 않도록 보장합니다.
+      local function run_project_prebuild(on_done)
+        ---@diagnostic disable-next-line: undefined-field
+        local root = (_G.PROJECT_ROOT and vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p')) or vim.fn.getcwd()
+        if not root:match('/$') then
+          root = root .. '/'
+        end
+
+        local gradlew = root .. 'gradlew'
+        local mvnw = root .. 'mvnw'
+        local has_gradlew = vim.fn.filereadable(gradlew) == 1
+        local has_mvnw = vim.fn.filereadable(mvnw) == 1
+
+        ---@diagnostic disable-next-line: undefined-field
+        local java_ver = tonumber(_G.JDK_VERSION) or 21
+        local java_home = (java_ver >= 21) and (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-' .. java_ver)
+          or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
+
+        if has_gradlew then
+          vim.notify('📦 리소스 및 빌드 프로필 처리 중 (gradlew processResources)...', vim.log.levels.INFO, { title = 'Java Launch' })
+          vim.system({ gradlew, 'processResources' }, {
+            cwd = root,
+            env = { JAVA_HOME = java_home },
+            text = true,
+          }, function(obj)
+            vim.schedule(function()
+              if obj.code ~= 0 then
+                vim.notify('⚠️ gradlew processResources 실패:\n' .. (obj.stderr or obj.stdout or ''), vim.log.levels.WARN, { title = 'Java Launch' })
+              end
+              build_workspace_with_watchdog(on_done)
+            end)
+          end)
+        elseif has_mvnw then
+          vim.notify('📦 리소스 및 빌드 프로필 처리 중 (mvnw process-resources)...', vim.log.levels.INFO, { title = 'Java Launch' })
+          vim.system({ mvnw, 'process-resources' }, {
+            cwd = root,
+            env = { JAVA_HOME = java_home },
+            text = true,
+          }, function(obj)
+            vim.schedule(function()
+              build_workspace_with_watchdog(on_done)
+            end)
+          end)
+        else
+          build_workspace_with_watchdog(on_done)
+        end
+      end
+
       local function launch_with_watchdogs(config, run_opts, run_next)
-        build_workspace_with_watchdog(function(should_launch)
+        run_project_prebuild(function(should_launch)
           if should_launch then
             run_with_init_watchdog(config, run_opts, run_next)
           end
@@ -358,6 +411,13 @@ return {
 
       -- run_next: 실제 실행을 넘겨받아 호출하는 콜백 (dap.run 래핑 순서와 무관하게 동작하도록 인자로 전달)
       local function run_java_launch(config, run_opts, run_next)
+        -- .nvim.lua에 MAIN_CLASS가 정의되어 있고 config에 mainClass가 없으면 자동 주입
+        ---@diagnostic disable-next-line: undefined-field
+        if not config.mainClass and _G.MAIN_CLASS then
+          ---@diagnostic disable-next-line: undefined-field
+          config.mainClass = _G.MAIN_CLASS
+        end
+
         if config.mainClass and TEST_RUNNER_CLASSES[config.mainClass] then
           launch_with_watchdogs(config, run_opts, run_next)
           return

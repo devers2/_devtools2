@@ -118,16 +118,42 @@ return {
       -- 최종적으로 문자열임을 보장 (타입 재할당으로 인한 LSP 경고 방지)
       local root_str = tostring(type(opts.root_dir) == 'function' and opts.root_dir(buf_name) or opts.root_dir)
 
-      -- [실행 정보 기록 시작] 모든 분석 로그보다 먼저 세션 헤더를 출력
-      local project_name = root_str:match('([^/\\]+)[/\\]?$') or root_str
-      _G.log_jdtls('================================================================================')
-      _G.log_jdtls(string.format('[SESSION] Project Name: %s', project_name:upper()))
-      _G.log_jdtls('================================================================================')
+      -- [자바 버전 탐색 헬퍼]
+      local function get_jdk_info(v_num)
+        if v_num <= 8 then
+          return 'JavaSE-1.8', _G.DEVTOOLS2_DIR .. '/modules/java/jdk-1.8'
+        elseif v_num <= 17 then
+          return 'JavaSE-17', _G.DEVTOOLS2_DIR .. '/modules/java/jdk-17'
+        elseif v_num <= 21 then
+          return 'JavaSE-21', _G.DEVTOOLS2_DIR .. '/modules/java/jdk-21'
+        else
+          return 'JavaSE-25', _G.DEVTOOLS2_DIR .. '/modules/java/jdk-25'
+        end
+      end
+
+      local function get_runtimes(target_name)
+        local rt_list = {
+          { name = 'JavaSE-25', path = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-25' },
+          { name = 'JavaSE-21', path = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-21' },
+          { name = 'JavaSE-17', path = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-17' },
+          { name = 'JavaSE-1.8', path = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-1.8' },
+        }
+        local final_rt = {}
+        for _, rt in ipairs(rt_list) do
+          if rt.name == target_name then
+            rt.default = true
+            table.insert(final_rt, 1, rt) -- default를 맨 앞으로
+          else
+            rt.default = false
+            table.insert(final_rt, rt)
+          end
+        end
+        return final_rt
+      end
 
       -- [자바 버전 탐색 및 JDK 결정]
       -- 프로젝트 설정 파일(build.gradle, build.gradle.kts, pom.xml 등)을 분석하여 최적의 JDK를 자동으로 선택합니다.
-      local function get_java_version()
-        local project_root_local = root_str
+      local function get_java_version(project_root_local)
         if not project_root_local or project_root_local == 'nil' then
           return nil, nil
         end
@@ -195,85 +221,79 @@ return {
           end
         end
 
-        _G.log_jdtls('No Java version found in build files or environment, using default (25)')
-        return nil, 'default'
+        _G.log_jdtls('No Java version found in build files or environment, using default (21 LTS)')
+        return nil, 'default (21 LTS)'
       end
 
-      local java_version, detect_source
-      ---@diagnostic disable-next-line: undefined-field
-      if _G.JDK_VERSION then
-        -- .nvim.lua에 명시된 버전 우선 사용
+      -- [JDTLS 실행 명령 런타임 동적 재구성]
+      -- 프로젝트 디렉토리 진입 시점(.nvim.lua 로딩 완료 후)에 JDK_VERSION 및 build.gradle을 동적으로 평가하여
+      -- Gradle 데몬 및 JDTLS 프로세스의 JAVA_HOME을 정확한 JDK 버전으로 고정합니다.
+      opts.full_cmd = function(o)
+        local current_path = vim.api.nvim_buf_get_name(0)
+        local root = (type(o.root_dir) == 'function' and o.root_dir(current_path)) or o.root_dir or vim.fn.getcwd()
+        local p_name = (type(o.project_name) == 'function' and o.project_name(root)) or (root and vim.fs.basename(root)) or '_default'
+
+        -- [실행 정보 기록 시작] 세션 헤더 출력
+        _G.log_jdtls('================================================================================')
+        _G.log_jdtls(string.format('[SESSION] Project Name: %s', p_name:upper()))
+        _G.log_jdtls('================================================================================')
+
+        local java_version, detect_source
         ---@diagnostic disable-next-line: undefined-field
-        java_version = tonumber(_G.JDK_VERSION)
-        detect_source = '.nvim.lua'
-        _G.log_jdtls(string.format('Using Java Version %s from .nvim.lua', java_version))
-      else
-        java_version, detect_source = get_java_version()
+        if _G.JDK_VERSION then
+          -- .nvim.lua에 명시된 버전 우선 사용
+          ---@diagnostic disable-next-line: undefined-field
+          java_version = tonumber(_G.JDK_VERSION)
+          detect_source = '.nvim.lua'
+          _G.log_jdtls(string.format('Using Java Version %s from .nvim.lua', java_version))
+        else
+          java_version, detect_source = get_java_version(root)
+        end
+
+        -- 안전한 기본값: JDK 21 LTS (Gradle 7/8 및 Spring Boot 2/3 호환성 보장)
+        java_version = java_version or 21
+        local target_java_name, target_java_home = get_jdk_info(java_version)
+        local effective_jdk_home = (java_version >= 21) and target_java_home
+          or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
+
+        -- [실행 정보 기록]
+        _G.log_jdtls(string.format('Project Root : %s', root or 'N/A'))
+        _G.log_jdtls(string.format('Java Version : %s (auto-detected from %s)', java_version, detect_source))
+        _G.log_jdtls(string.format('Java Home    : %s', target_java_home))
+
+        local jdtls_executable = vim.fn.exepath('jdtls')
+        if jdtls_executable == nil or jdtls_executable == '' or vim.fn.executable(jdtls_executable) == 0 then
+          _G.log_jdtls('JDTLS executable not found yet. It might be installing via Mason.')
+          jdtls_executable = 'jdtls'
+        end
+
+        local workspace_dir = _G.NVIM_CACHE_DIR .. '/jdtls/' .. p_name
+        local mason_lombok_path = _G.NVIM_DATA_DIR .. '/mason/packages/jdtls/lombok.jar'
+        local cmd = {
+          'env',
+          'JAVA_HOME=' .. effective_jdk_home,
+          jdtls_executable,
+          '--jvm-arg=-Xms4G',
+          '--jvm-arg=-Xmx12G',
+          '--jvm-arg=-XX:+UseG1GC',
+          '--jvm-arg=-XX:+UseStringDeduplication',
+          '--jvm-arg=-javaagent:' .. mason_lombok_path,
+          '-data',
+          workspace_dir,
+        }
+
+        -- Gradle 데몬 실행 JDK 및 runtimes 동적 동기화
+        if o.settings and o.settings.java then
+          if o.settings.java.import and o.settings.java.import.gradle and o.settings.java.import.gradle.java then
+            o.settings.java.import.gradle.java.home = effective_jdk_home
+          end
+          if o.settings.java.configuration then
+            o.settings.java.configuration.runtimes = get_runtimes(target_java_name)
+          end
+        end
+
+        return cmd
       end
-
-      java_version = java_version or 25
-      local target_java_name = 'JavaSE-25' -- 기본값
-      local target_java_home = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-25' -- 기본값
-
-      if java_version <= 8 then
-        target_java_name = 'JavaSE-1.8'
-        target_java_home = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-1.8'
-      elseif java_version <= 17 then
-        target_java_name = 'JavaSE-17'
-        target_java_home = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-17'
-      elseif java_version <= 21 then
-        target_java_name = 'JavaSE-21'
-        target_java_home = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-21'
-      end
-
-      -- [공통 JDK 결정]
-      -- JDTLS 실행 및 Gradle 데몬 모두 동일한 JDK를 사용해야 합니다.
-      -- JDTLS 1.17+ 최소 요구 사양이 JDK 21이므로, 프로젝트 JDK가 21 미만이면 JDK 21로 고정하고
-      -- 21 이상이면 프로젝트 JDK를 그대로 사용합니다.
-      local effective_jdk_home = (java_version >= 21) and target_java_home
-        or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
-
-      -- [실행 정보 기록] LSP 로그 파일에 상세 정보를 기록 (JdtShowLogs로 확인 가능)
-      _G.log_jdtls(string.format('Project Root : %s', root_str or 'N/A'))
-      _G.log_jdtls(string.format('Java Version : %s (auto-detected from %s)', java_version, detect_source))
-      _G.log_jdtls(string.format('Java Home    : %s', target_java_home))
-
-      -- LazyVim의 기본 cmd에 JVM 메모리 최적화 옵션만 추가합니다.
-      -- opts.cmd가 nil인 경우를 대비해 초기화
-      opts.cmd = opts.cmd or { vim.fn.exepath('jdtls') }
-
-      -- [JDTLS 실행 명령 재구성]
-      -- JDTLS가 Gradle/Maven을 호출할 때 시스템의 다른 Java 버전을 멋대로 선택하는 것을 방지하기 위해,
-      -- JDTLS 프로세스의 JAVA_HOME을 프로젝트 JDK로 강제 고정합니다.
-      local jdtls_executable = tostring(type(opts.cmd) == 'table' and opts.cmd[1] or opts.cmd)
-
-      -- Java 파일 진입 시점에 실행 파일이 실제로 존재하는지 확인 (없어도 첫 실행 시에는 조용히 넘어감)
-      if jdtls_executable == nil or jdtls_executable == '' or vim.fn.executable(jdtls_executable) == 0 then
-        -- 최초 실행 시(Mason이 설치 중인 경우) 알림을 생략하여 노이즈 제거
-        _G.log_jdtls('JDTLS executable not found yet. It might be installing via Mason.')
-        -- 폴백(fallback)으로 기본 명령어 설정
-        jdtls_executable = 'jdtls'
-      end
-
-      -- JDTLS 프로세스의 JAVA_HOME을 effective_jdk_home으로 강제 설정합니다.
-      local new_cmd = { 'env', 'JAVA_HOME=' .. effective_jdk_home, jdtls_executable }
-
-      -- JVM 인자 및 데이터 디렉토리 설정 (대형 Java 프로젝트 안정성의 핵심)
-      local workspace_dir = _G.NVIM_CACHE_DIR .. '/jdtls/' .. project_name
-
-      -- 필수 인자 주입
-      local mason_lombok_path = _G.NVIM_DATA_DIR .. '/mason/packages/jdtls/lombok.jar'
-      vim.list_extend(new_cmd, {
-        '--jvm-arg=-Xms4G',
-        '--jvm-arg=-Xmx12G',
-        '--jvm-arg=-XX:+UseG1GC',
-        '--jvm-arg=-XX:+UseStringDeduplication',
-        '--jvm-arg=-javaagent:' .. mason_lombok_path,
-        '-data',
-        workspace_dir,
-      })
-
-      opts.cmd = new_cmd
 
       opts.settings = {
         java = {

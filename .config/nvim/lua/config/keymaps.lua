@@ -164,6 +164,28 @@ if ok then
     dap.toggle_breakpoint()
   end, { desc = '브레이크포인트 설정/해제 (Toggle Breakpoint)' })
   vim.keymap.set('n', '<leader>dd', function()
+    local dap = require('dap')
+    if dap.session() then
+      dap.continue()
+      return
+    end
+
+    local ft = vim.bo.filetype
+    if ft == '' or ft == 'snacks_dashboard' or ft == 'alpha' or ft == 'dashboard' then
+      -- 대시보드 화면인 경우: .nvim.lua의 MAIN_CLASS 또는 Java 프로젝트인지 확인
+      ---@diagnostic disable-next-line: undefined-field
+      if _G.MAIN_CLASS or vim.fn.filereadable('build.gradle') == 1 or vim.fn.filereadable('pom.xml') == 1 then
+        dap.run({
+          type = 'java',
+          request = 'launch',
+          name = 'Java Launch (Spring Boot)',
+          ---@diagnostic disable-next-line: undefined-field
+          mainClass = _G.MAIN_CLASS,
+        })
+        return
+      end
+    end
+
     dap.continue()
   end, { desc = '디버그 실행 / 계속 (Run/Continue)' })
   vim.keymap.set('n', '<leader>dc', function()
