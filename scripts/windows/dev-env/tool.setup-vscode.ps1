@@ -143,9 +143,10 @@ if ($vscodeAlreadyInstalled) {
 } else {
     Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
     $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\vscode_install.log" -RedirectStandardError "$env:TEMP\vscode_install_err.log" -ErrorAction SilentlyContinue
-    Wait-WithSpinner -Message "VSCode 패키지 설치 진행" -Condition { $p.HasExited }
+    $null = Wait-WithSpinner -Message "VSCode 패키지 설치 진행" -Condition { $p.HasExited }
+    $p.WaitForExit()
     Remove-Item "$env:TEMP\vscode_install.log", "$env:TEMP\vscode_install_err.log" -Force -ErrorAction SilentlyContinue
-    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne -1978335189) {
+    if ($null -ne $p.ExitCode -and $p.ExitCode -ne 0 -and $p.ExitCode -ne -1978335189) {
         Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
     }
     # PATH 갱신: winget 설치 후 code CLI를 현재 세션에서 즉시 사용 가능하게 함
@@ -250,7 +251,9 @@ if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction Silent
 
     if ($toInstall.Count -gt 0) {
         Write-Info "Windows 로컬: 신규/미설치 확장 $($toInstall.Count)개 설치 중..."
-        $failedExts = @(); $idx = 0
+        $failedExts = @{}
+        $extErrFile = "$env:TEMP\vscode_ext_err.log"
+        $idx = 0
         foreach ($ext in $toInstall) {
             $idx++
             $installed = $false
@@ -259,7 +262,7 @@ if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction Silent
                 if ($retry -gt 1) {
                     Write-Host " (재시도 $retry/3)..." -ForegroundColor Yellow -NoNewline
                 }
-                code --install-extension $ext --force 2>&1 | Out-Null
+                $res = code --install-extension $ext --force 2>"$extErrFile"
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host " ✓" -ForegroundColor Green
                     $installed = $true; break
@@ -269,12 +272,21 @@ if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction Silent
             }
             if (-not $installed) {
                 Write-Host " ✗ (실패)" -ForegroundColor Red
-                $failedExts += $ext
+                $lastErr = if (Test-Path $extErrFile) { (Get-Content $extErrFile | Where-Object { $_.Trim() -ne "" } | Select-Object -First 1) } else { "" }
+                $failedExts[$ext] = $lastErr
             }
         }
+        Remove-Item "$extErrFile" -Force -ErrorAction SilentlyContinue
         if ($failedExts.Count -gt 0) {
-            Write-Warn "아래 확장 $($failedExts.Count)개는 자동 설치에 실패했습니다:"
-            $failedExts | ForEach-Object { Write-Host "    - $_" -ForegroundColor Yellow }
+            Write-Warn "아래 확장 $($failedExts.Count)개는 자동 설치에 실패했습니다 (사내 방화벽/프록시/인증서 정책 확인 필요):"
+            foreach ($extKey in $failedExts.Keys) {
+                $errMsg = $failedExts[$extKey]
+                if ($errMsg) {
+                    Write-Host "    - $extKey ($errMsg)" -ForegroundColor Yellow
+                } else {
+                    Write-Host "    - $extKey" -ForegroundColor Yellow
+                }
+            }
         } else {
             Write-Success "Windows 로컬 확장 $($toInstall.Count)개 설치 완료"
         }

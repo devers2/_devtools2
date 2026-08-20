@@ -126,11 +126,12 @@ case "${_vscode_choice:-N}" in
                 else
                     echo -n "   📥 [설치] $ext ..."
                     _ok=0
+                    _ext_err_file="/tmp/_vscode_ext_err_$$.log"
                     for _retry in 1 2 3; do
                         if [ "$_retry" -gt 1 ]; then
                             echo -n " (재시도 ${_retry}/3)..."
                         fi
-                        (code --install-extension "$ext" --force </dev/null >/dev/null 2>&1) &
+                        (code --install-extension "$ext" --force </dev/null >"$_ext_err_file" 2>&1) &
                         _ext_pid=$!
                         show_spinner "$_ext_pid"
                         _ext_ec=0
@@ -145,9 +146,15 @@ case "${_vscode_choice:-N}" in
                         echo " ✅"
                         _vscode_install_count=$((_vscode_install_count + 1))
                     else
-                        echo " ⚠️  실패 (3회 시도)"
+                        _err_line=$(head -n 1 "$_ext_err_file" 2>/dev/null | tr -d '\r\n' || echo "")
+                        if [ -n "$_err_line" ]; then
+                            echo " ⚠️  실패: $_err_line"
+                        else
+                            echo " ⚠️  실패 (3회 시도)"
+                        fi
                         _vscode_fail_count=$((_vscode_fail_count + 1))
                     fi
+                    rm -f "$_ext_err_file" 2>/dev/null
                 fi
             done < "$VSCODE_EXT_LIST"
             echo ""
