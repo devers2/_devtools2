@@ -22,69 +22,14 @@ if [ ! -f "$DEVTOOLS2/scripts/linux/dev-env/3.install-cli-tools.sh" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
 
-# 공통 색상/스피너 헬퍼 로드 (온라인 전용)
-_load_colors() {
-    [ -n "${_COLORS_LOADED:-}" ] && return 0
+# 공통 모듈 로드 - GitHub raw URL에서 스트리밍 source (캐시 우회 헤더 포함)
+_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
+# shellcheck disable=SC1090
+source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
 
-    # 캐시 우회 헤더 포함 (run_remote_script와 동일) — CDN이 방금 푸시 전 구버전을
-    # 서빙하면 "진입 스크립트는 최신인데 _colors.sh만 구버전"이 될 수 있으므로 필수.
-    # curl의 실제 실패 사유(stderr)를 버리지 않고 그대로 보여줘야 나중에 원인 진단이 가능하다.
-    # 고정된 /tmp/_colors_remote.sh 경로를 쓰면, 이 스크립트를 실행하는 사용자가 바뀔 때
-    # (예: 0.init은 root로, 1.setup-env는 일반 사용자로) /tmp의 sticky bit 때문에 이전
-    # 실행자가 만든 파일을 지금 사용자가 덮어쓰지 못해 curl이 쓰기 실패(exit 23)한다
-    # (실측으로 재현 확인). mktemp로 매번 고유한 파일을 만들어 이 충돌을 없앤다.
-    local _tmpfile _curl_err _curl_ec=0
-    _tmpfile=$(mktemp) || { echo "[오류] 임시 파일 생성에 실패했습니다." >&2; exit 1; }
-    _curl_err=$(curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_colors.sh" -o "$_tmpfile" 2>&1) || _curl_ec=$?
-    if [ "$_curl_ec" -eq 0 ]; then
-        # shellcheck disable=SC1090
-        if source "$_tmpfile" 2>/dev/null; then
-            rm -f "$_tmpfile"
-            _COLORS_LOADED=true
-            return 0
-        fi
-        rm -f "$_tmpfile"
-        echo "[오류] _colors.sh를 다운로드했지만 source 실행 중 오류가 발생했습니다." >&2
-        exit 1
-    fi
-
-    rm -f "$_tmpfile"
-    echo "[오류] _colors.sh를 온라인에서 불러오지 못했습니다 (curl 종료 코드: $_curl_ec)." >&2
-    [ -n "$_curl_err" ] && echo "  curl: $_curl_err" >&2
-    echo "  네트워크 연결을 확인하세요." >&2
-    exit 1
-}
-_load_colors
-
-# 공통 설치 유틸리티 로드 (ARCH/IS_ARM64/IS_WSL2 감지, _ensure_pkg, TOML 버전 관리,
-# _resolve_action, _fmts 등 — 2.install-core-tools.sh 와 공유)
-_load_install_utils() {
-    [ -n "${_INSTALL_UTILS_LOADED:-}" ] && return 0
-
-    # 온라인 전용, 캐시 우회 헤더 및 mktemp 이유는 _load_colors 주석 참고.
-    # TOOL_VERSIONS_TOML 등은 인라인 대체가 불가능해서 실패하면 바로 하드 실패한다.
-    local _tmpfile _curl_err _curl_ec=0
-    _tmpfile=$(mktemp) || { print_error "임시 파일 생성에 실패했습니다."; exit 1; }
-    _curl_err=$(curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_install-utils.sh" -o "$_tmpfile" 2>&1) || _curl_ec=$?
-    if [ "$_curl_ec" -eq 0 ]; then
-        # shellcheck disable=SC1090
-        if source "$_tmpfile" 2>/dev/null; then
-            rm -f "$_tmpfile"
-            _INSTALL_UTILS_LOADED=true
-            return 0
-        fi
-        rm -f "$_tmpfile"
-        print_error "_install-utils.sh를 다운로드했지만 source 실행 중 오류가 발생했습니다."
-        exit 1
-    fi
-
-    rm -f "$_tmpfile"
-    print_error "_install-utils.sh를 온라인에서 불러오지 못했습니다 (curl 종료 코드: $_curl_ec)."
-    [ -n "$_curl_err" ] && print_error "  curl: $_curl_err"
-    print_error "  네트워크 연결을 확인하세요."
-    exit 1
-}
-_load_install_utils
+# 공통 설치 유틸리티 로드
+# shellcheck disable=SC1090
+source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_install-utils.sh") || { print_error "_install-utils.sh 로드 실패 - 네트워크 연결을 확인하세요."; exit 1; }
 
 # DEVTOOLS2 기본 폴더 및 필수 서브 디렉토리 존재/권한 확보
 if [ ! -d "$DEVTOOLS2" ]; then
@@ -135,7 +80,7 @@ fetch_latest_bitwarden_cli() {
         | sed 's/^cli-v//' || true
 }
 
-# show_spinner 는 _colors.sh 에서 로드됨
+# show_spinner 는 _common.sh 에서 로드됨
 
 # ─────────────────────────────────────────────────────────────────
 # ⚙️  PRE-FLIGHT: 설치 방식 선택 (CLI 도구 8종)

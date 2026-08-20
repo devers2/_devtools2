@@ -5,7 +5,7 @@
 #
 # 전제 조건: 이 파일을 source 하기 전에 아래가 이미 준비되어 있어야 합니다.
 #   - $DEVTOOLS2 (설치 루트 경로)
-#   - _colors.sh 의 print_*, prompt_input, _C_* 색상 변수 (_load_colors 로 로드됨)
+#   - _common.sh 의 print_*, prompt_input, _C_* 색상 변수 (_load_common 로 로드됨)
 #
 # 사용법:
 #   source "$(dirname "$(readlink -f "$0")")/_install-utils.sh"

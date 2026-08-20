@@ -44,9 +44,9 @@ $ProgressPreference = 'SilentlyContinue'
 # ==============================================================================
 # 헬퍼 함수
 # ==============================================================================
-$_colorsHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-$_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_colors.ps1" -Headers $_colorsHeaders -ErrorAction Stop
-. ([scriptblock]::Create($_colorsContent))
+$_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
+$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
+. ([scriptblock]::Create($_commonContent))
 
 # ==============================================================================
 # [Step 0] 관리자 권한 확인 및 재실행

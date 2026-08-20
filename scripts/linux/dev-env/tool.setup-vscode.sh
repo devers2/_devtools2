@@ -26,57 +26,13 @@ if [ ! -d "$DEVTOOLS2" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
 
-# 공통 색상/스피너 헬퍼 로드 (온라인 전용)
-_load_colors() {
-    [ -n "${_COLORS_LOADED:-}" ] && return 0
-    local _tmpfile _curl_err _curl_ec=0
-    _tmpfile=$(mktemp) || { echo "[오류] 임시 파일 생성에 실패했습니다." >&2; exit 1; }
-    _curl_err=$(curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_colors.sh" -o "$_tmpfile" 2>&1) || _curl_ec=$?
-    if [ "$_curl_ec" -eq 0 ]; then
-        # shellcheck disable=SC1090
-        if source "$_tmpfile" 2>/dev/null; then
-            rm -f "$_tmpfile"
-            _COLORS_LOADED=true
-            return 0
-        fi
-        rm -f "$_tmpfile"
-        echo "[오류] _colors.sh를 다운로드했지만 source 실행 중 오류가 발생했습니다." >&2
-        exit 1
-    fi
-    rm -f "$_tmpfile"
-    echo "[오류] _colors.sh를 온라인에서 불러오지 못했습니다 (curl 종료 코드: $_curl_ec)." >&2
-    [ -n "$_curl_err" ] && echo "  curl: $_curl_err" >&2
-    exit 1
-}
-_load_colors
+# 공통 모듈 로드 - GitHub raw URL에서 스트리밍 source (캐시 우회 헤더 포함)
+_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
+# shellcheck disable=SC1090
+source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+# shellcheck disable=SC1090
+source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_install-utils.sh") || { print_error "_install-utils.sh 로드 실패 - 네트워크 연결을 확인하세요."; exit 1; }
 
-# 공통 설치 유틸리티 로드 (IS_WSL2, ARCH 등)
-_load_install_utils() {
-    [ -n "${_INSTALL_UTILS_LOADED:-}" ] && return 0
-    local _tmpfile _curl_err _curl_ec=0
-    _tmpfile=$(mktemp) || { print_error "임시 파일 생성에 실패했습니다."; exit 1; }
-    _curl_err=$(curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_install-utils.sh" -o "$_tmpfile" 2>&1) || _curl_ec=$?
-    if [ "$_curl_ec" -eq 0 ]; then
-        # shellcheck disable=SC1090
-        if source "$_tmpfile" 2>/dev/null; then
-            rm -f "$_tmpfile"
-            _INSTALL_UTILS_LOADED=true
-            return 0
-        fi
-        rm -f "$_tmpfile"
-        print_error "_install-utils.sh를 다운로드했지만 source 실행 중 오류가 발생했습니다."
-        exit 1
-    fi
-    rm -f "$_tmpfile"
-    print_error "_install-utils.sh를 온라인에서 불러오지 못했습니다 (curl 종료 코드: $_curl_ec)."
-    [ -n "$_curl_err" ] && print_error "  curl: $_curl_err"
-    exit 1
-}
-_load_install_utils
-
-if ! declare -F print_banner >/dev/null 2>&1; then
-    print_banner() { echo ""; print_sep; printf "  %s\n" "$*"; print_sep; echo ""; }
-fi
 print_banner "💻 VS Code 에디터 설치 및 확장 연동 (tool.setup-vscode.sh)"
 
 # [1] 설치 의사 확인
@@ -95,8 +51,22 @@ fi
 
 case "${_vscode_choice:-N}" in
     y|Y)
-        # [2] 바이너리 설치 (.deb) - Linux 네이티브 전용 (WSL2에서는 Windows 호스트에 이미 설치됨)
         if [ "${IS_WSL2:-false}" = true ]; then
+            _win_user="${WIN_USERPROFILE:-}"
+            if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
+                _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
+                [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=$(wslpath "$_raw_home" 2>/dev/null || true)
+            fi
+            for _p in \
+                "$_win_user/AppData/Local/Programs/Microsoft VS Code/bin" \
+                "/mnt/c/Users/${USER:-}/AppData/Local/Programs/Microsoft VS Code/bin" \
+                "/mnt/c/Program Files/Microsoft VS Code/bin"; do
+                if [ -d "$_p" ]; then
+                    ensure_path_in_bashrc "$_p"
+                    break
+                fi
+            done
+
             if command -v code >/dev/null 2>&1; then
                 print_info "[WSL2] Windows VS Code CLI가 감지되어 WSL Remote 확장 동기화를 진행합니다: $(command -v code)"
             else

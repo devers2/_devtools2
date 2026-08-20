@@ -1,20 +1,21 @@
 #!/bin/bash
 # ==============================================================================
-# _colors.sh — 공통 ANSI 색상/스피너 헬퍼 함수
-# PowerShell 스크립트와 동일한 색상 체계를 bash 스크립트에서 사용합니다.
+# _common.sh — 공통 ANSI 색상, 출력 헬퍼, 스피너, 다운로드 게이지 및 PATH 관리 모듈
+# PowerShell 스크립트(_common.ps1)와 동일한 체계를 bash 스크립트에서 사용합니다.
 #
 # 사용법:
-#   source "$(dirname "$(readlink -f "$0")")/_colors.sh"
+#   _load_common
+# ==============================================================================
 #
 # [로딩 순서: 온라인 전용, 폴백 없음]
 # 이 파일을 로드하는 스크립트들은 GitHub main 최신 버전을 curl로 시도하고, 실패하면 바로
-# 에러를 찍고 종료합니다. _colors.sh는 진입 스크립트 자체와 같은 GitHub raw 도메인에서
+# 에러를 찍고 종료합니다. _common.sh는 진입 스크립트 자체와 같은 GitHub raw 도메인에서
 # 몇 초 간격으로 다시 받아오는 것뿐이라, 이게 실패할 정도면 이미 진입 스크립트를 받아온
 # 상황과 모순됩니다 — 즉 네트워크는 정상이라는 뜻이라, 로컬 파일이든 인라인 하드코딩이든
 # 별도 폴백을 둘 이유가 없습니다(코드만 중복돼서 늘어남). 이 curl 호출에는 반드시
 # Cache-Control/Pragma 캐시 우회 헤더(setup-devtools2.sh의 run_remote_script와 동일)를
 # 포함해야 합니다 — 없으면 GitHub raw CDN이 방금 푸시하기 전 구버전을 서빙할 수 있어서,
-# "최신 진입 스크립트 + 캐시된 구버전 _colors.sh"라는 정확히 막으려던 문제가 재발합니다.
+# "최신 진입 스크립트 + 캐시된 구버전 _common.sh"라는 정확히 막으려던 문제가 재발합니다.
 # scripts/windows/*.ps1 에는 로컬 파일을 아예 읽으면 안 됩니다 — PowerShell 5.1이 NoBOM 파일을
 # 로컬에서 직접 읽으면 한글 등이 깨질 위험이 있어서, ps1은 온라인 실행만 지원합니다(각 ps1 헤더 4번 항목 참고).
 # ==============================================================================
@@ -39,6 +40,7 @@ fi
 print_info()    { printf "${_C_CYAN}[정보]${_C_RESET} %s\n"    "$*"; }
 print_success() { printf "${_C_GREEN}[성공]${_C_RESET} %s\n"   "$*"; }
 print_done()    { printf "${_C_GREEN}[완료]${_C_RESET} %s\n"   "$*"; }
+print_skip()    { printf "${_C_YELLOW}[건너뜀]${_C_RESET} %s\n" "$*"; }
 print_warn()    { printf "${_C_YELLOW}[경고]${_C_RESET} %s\n"  "$*"; }
 print_error()   { printf "${_C_RED}[오류]${_C_RESET} %s\n"     "$*" >&2; }
 print_step()    { printf "${_C_CYAN}%s${_C_RESET}\n"         "$*"; }
@@ -130,4 +132,30 @@ download_with_progress() {
         fi
     fi
 }
+
+# ── PATH 중복 방지 동적 추가 공통 함수 ──────────────────────────────
+# 도구 설치 시점에 필요한 PATH만 ~/.bashrc의 DEVTOOLS2 블록 내부에 동적으로 추가합니다.
+# 사용법: ensure_path_in_bashrc "/path/to/bin"
+ensure_path_in_bashrc() {
+    local target_path="$1"
+    [ -z "$target_path" ] && return 0
+    [ ! -d "$target_path" ] && return 0
+
+    # 1. 현재 쉘 메모리 상의 PATH에 즉시 반영 (중복 방지)
+    if [[ ":$PATH:" != *":$target_path:"* ]]; then
+        export PATH="$PATH:$target_path"
+    fi
+
+    # 2. ~/.bashrc 파일 내부에 중복 없이 안전하게 등록
+    if [ -f "$HOME/.bashrc" ]; then
+        if ! grep -qF "$target_path" "$HOME/.bashrc" 2>/dev/null; then
+            if grep -qF "# === DEVTOOLS2 환경 변수 끝 ===" "$HOME/.bashrc" 2>/dev/null; then
+                sed -i "/# === DEVTOOLS2 환경 변수 끝 ===/i export PATH=\"\$PATH:$target_path\"" "$HOME/.bashrc"
+            else
+                echo "export PATH=\"\$PATH:$target_path\"" >> "$HOME/.bashrc"
+            fi
+        fi
+    fi
+}
+
 

@@ -1,17 +1,17 @@
 # ==============================================================================
-# _colors.ps1 — Windows dev-env 스크립트 공용 콘솔 출력/대기 헬퍼
-# (scripts/linux/dev-env/_colors.sh 의 PowerShell 대응 버전)
+# _common.ps1 — Windows dev-env 스크립트 공용 콘솔 출력/대기 헬퍼
+# (scripts/linux/dev-env/_common.sh 의 PowerShell 대응 버전)
 #
 # [사용법 — 항상 온라인에서 받아 dot-source]
 #   $headers = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-#   $colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_colors.ps1" -Headers $headers -ErrorAction Stop
+#   $colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $headers -ErrorAction Stop
 #   . ([scriptblock]::Create($colorsContent))
 #
 # [배경]
 # Write-Step/Write-Success/Pause-Script/Wait-WithSpinner 등이 0.setup-wsl.ps1,
 # 1.setup-autohotkey.ps1, 2.setup-windows-terminal.ps1, 3-1.setup-vscode.ps1,
 # 3-2.setup-zed.ps1, 3-3.setup-orca.ps1 파일에 거의 동일하게 복붙되어 있었습니다. bash 쪽은
-# _colors.sh 라는 공용 라이브러리로 이미 이 문제를 해결했는데(온라인 source),
+# _common.sh 라는 공용 라이브러리로 이미 이 문제를 해결했는데(온라인 source),
 # PowerShell 쪽엔 대응 파일이 없어서 한쪽에서 고친 버그(Pause-Script 문구 등)가
 # 다른 사본에는 전파되지 않는 드리프트가 실제로 발생했습니다(실측 확인).
 # 이 파일이 그 공용 버전입니다 — ps1 원칙(항상 온라인 최신본, NoBOM, param()은

@@ -20,39 +20,10 @@ if [ ! -f "$DEVTOOLS2/scripts/linux/dev-env/1.setup-env.sh" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
 
-# 공통 색상/스피너 헬퍼 로드 (온라인 전용)
-_load_colors() {
-    [ -n "${_COLORS_LOADED:-}" ] && return 0
-
-    # 캐시 우회 헤더 포함 (run_remote_script와 동일) — CDN이 방금 푸시 전 구버전을
-    # 서빙하면 "진입 스크립트는 최신인데 _colors.sh만 구버전"이 될 수 있으므로 필수.
-    # curl의 실제 실패 사유(stderr)를 버리지 않고 그대로 보여줘야 나중에 원인 진단이 가능하다.
-    # 고정된 /tmp/_colors_remote.sh 경로를 쓰면, 이 스크립트를 실행하는 사용자가 바뀔 때
-    # (예: 0.init은 root로, 1.setup-env는 일반 사용자로) /tmp의 sticky bit 때문에 이전
-    # 실행자가 만든 파일을 지금 사용자가 덮어쓰지 못해 curl이 쓰기 실패(exit 23)한다
-    # (실측으로 재현 확인). mktemp로 매번 고유한 파일을 만들어 이 충돌을 없앤다.
-    local _tmpfile _curl_err _curl_ec=0
-    _tmpfile=$(mktemp) || { echo "[오류] 임시 파일 생성에 실패했습니다." >&2; exit 1; }
-    _curl_err=$(curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/_colors.sh" -o "$_tmpfile" 2>&1) || _curl_ec=$?
-    if [ "$_curl_ec" -eq 0 ]; then
-        # shellcheck disable=SC1090
-        if source "$_tmpfile" 2>/dev/null; then
-            rm -f "$_tmpfile"
-            _COLORS_LOADED=true
-            return 0
-        fi
-        rm -f "$_tmpfile"
-        echo "[오류] _colors.sh를 다운로드했지만 source 실행 중 오류가 발생했습니다." >&2
-        exit 1
-    fi
-
-    rm -f "$_tmpfile"
-    echo "[오류] _colors.sh를 온라인에서 불러오지 못했습니다 (curl 종료 코드: $_curl_ec)." >&2
-    [ -n "$_curl_err" ] && echo "  curl: $_curl_err" >&2
-    echo "  네트워크 연결을 확인하세요." >&2
-    exit 1
-}
-_load_colors
+# 공통 모듈 로드 - GitHub raw URL에서 스트리밍 source (캐시 우회 헤더 포함)
+_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
+# shellcheck disable=SC1090
+source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
 
 # WSL2 환경 감지: /proc/version에 'microsoft' 문자열이 포함되어 있으면 WSL2로 판단한다.
 IS_WSL2=false
@@ -121,7 +92,6 @@ export PIP_CACHE_DIR="$DEVTOOLS2/data/.cache/pip"
 
 export NEOVIM_HOME="$DEVTOOLS2/modules/neovim/nvim"
 export NVIM_APPNAME="nvim"
-export ZED_HOME="$DEVTOOLS2/modules/zed"
 export RCLONE_CONFIG="$DEVTOOLS2/modules/rclone/.config/rclone.conf"
 
 # 한글 파일명 및 문자 깨짐 방지 (UTF-8 로케일 & Git gettext 한국어 활성화)
@@ -129,24 +99,7 @@ export LANG="ko_KR.UTF-8"
 export LC_ALL="ko_KR.UTF-8"
 export LANGUAGE="ko_KR:ko"
 
-EOF
-
-# Ghostty 환경 변수는 WSL2가 아닌 네이티브 리눅스 환경에서만 등록한다.
-if [ "$IS_WSL2" = false ]; then
-    cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
-export GHOSTTY_HOME="$DEVTOOLS2/modules/ghostty"
-
-EOF
-else
-    print_warn "WSL2 환경 감지: GHOSTTY_HOME 환경 변수 등록을 건너뜁니다."
-fi
-
-# 시스템 PATH 최적화 및 중복 제거
-# 변수 우선순위를 위해 기존 $PATH의 앞부분에 새로운 경로들을 추가한다.
-# WSL2 여부에 따라 GHOSTTY_HOME 경로 포함 여부를 다르게 처리한다.
-if [ "$IS_WSL2" = false ]; then
-    print_info "네이티브 리눅스 환경: Ghostty PATH를 포함하여 등록합니다."
-    cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
+# 시스템 코어 PATH (기본 공통 도구)
 export PATH="\
 $NODE_HOME/bin:\
 $NPM_CONFIG_PREFIX/bin:\
@@ -155,11 +108,9 @@ $GRADLE_HOME/bin:\
 $PYTHON_HOME/bin:\
 $PYTHONUSERBASE/bin:\
 $NEOVIM_HOME/bin:\
-$ZED_HOME/bin:\
 $DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin:\
 $DEVTOOLS2/data/nvim/mason/bin:\
 $DEVTOOLS2/scripts/linux/cmd:\
-$GHOSTTY_HOME:\
 $DEVTOOLS2/modules/ripgrep:\
 $DEVTOOLS2/modules/fd:\
 $DEVTOOLS2/modules/fzf:\
@@ -171,7 +122,9 @@ $DEVTOOLS2/modules/orca:\
 $PATH"
 
 EOF
-else
+
+# WSL2 환경 추가 설정 (NTFS LS_COLORS 및 userprofile)
+if [ "$IS_WSL2" = true ]; then
     WIN_USERPROFILE=""
     if command -v cmd.exe >/dev/null 2>&1; then
         _raw_win_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
@@ -180,28 +133,6 @@ else
         fi
     fi
     cat <<EOF >>"$_DEVTOOLS2_ENV_TMP"
-export PATH="\
-\$NODE_HOME/bin:\
-\$NPM_CONFIG_PREFIX/bin:\
-\$JAVA_HOME/bin:\
-\$GRADLE_HOME/bin:\
-\$PYTHON_HOME/bin:\
-\$PYTHONUSERBASE/bin:\
-\$NEOVIM_HOME/bin:\
-\$DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin:\
-\$DEVTOOLS2/data/nvim/mason/bin:\
-\$DEVTOOLS2/scripts/linux/cmd:\
-\$DEVTOOLS2/modules/ripgrep:\
-\$DEVTOOLS2/modules/fd:\
-\$DEVTOOLS2/modules/fzf:\
-\$DEVTOOLS2/modules/lazygit:\
-\$DEVTOOLS2/modules/ast-grep:\
-\$DEVTOOLS2/modules/bitwarden:\
-\$DEVTOOLS2/modules/rclone:\
-\$DEVTOOLS2/modules/win32yank:\
-\$DEVTOOLS2/modules/orca:\
-\$PATH"
-
 # Windows-mounted NTFS 디렉터리 배경색 수정 (WSL2에서 터미널 Kanagawa 테마 가독성 확보)
 if [ -n "\${LS_COLORS:-}" ]; then
     LS_COLORS=\$(echo "\$LS_COLORS" | sed "s/ow=[^:]*:/ow=01;37;48;5;24:/g; s/tw=[^:]*:/tw=01;37;48;5;58:/g")
@@ -222,6 +153,19 @@ sed -i '/# === DEVTOOLS2 환경 변수 시작 ===/,/# === DEVTOOLS2 환경 변�
 cat "$_DEVTOOLS2_ENV_TMP" >>~/.bashrc
 rm -f "$_DEVTOOLS2_ENV_TMP"
 trap - EXIT
+
+# 환경별 도구 PATH 동적 등록 (ensure_path_in_bashrc 활용 - 멱등성 및 중복 방지)
+if [ "$IS_WSL2" = false ]; then
+    # 네이티브 리눅스: Ghostty 터미널 에뮬레이터
+    if [ -d "$DEVTOOLS2/modules/ghostty" ]; then
+        ensure_path_in_bashrc "$DEVTOOLS2/modules/ghostty"
+    fi
+else
+    # WSL2: Windows 클립보드 연동 도구 win32yank
+    if [ -d "$DEVTOOLS2/modules/win32yank" ]; then
+        ensure_path_in_bashrc "$DEVTOOLS2/modules/win32yank"
+    fi
+fi
 echo ""
 
 print_subsep

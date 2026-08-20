@@ -41,12 +41,12 @@ $ProgressPreference = 'SilentlyContinue'
 # ==============================================================================
 # 헬퍼 함수
 # ==============================================================================
-# 여러 ps1 파일에 거의 동일하게 복붙되어 있던 Write-*/Wait-* 헬퍼를 _colors.ps1
-# 공용 파일로 통합했습니다(scripts/windows/dev-env/_colors.ps1, bash _colors.sh와
+# 여러 ps1 파일에 거의 동일하게 복붙되어 있던 Write-*/Wait-* 헬퍼를 _common.ps1
+# 공용 파일로 통합했습니다(scripts/windows/dev-env/_common.ps1, bash _colors.sh와
 # 동일한 패턴). 항상 온라인 최신본을 dot-source합니다.
-$_colorsHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-$_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_colors.ps1" -Headers $_colorsHeaders -ErrorAction Stop
-. ([scriptblock]::Create($_colorsContent))
+$_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
+$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
+. ([scriptblock]::Create($_commonContent))
 
 # ==============================================================================
 # [Step 0] 관리자 권한 확인 및 재실행
