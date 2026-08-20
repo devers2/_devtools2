@@ -111,25 +111,51 @@ if (-not $isAdmin) {
     return
 }
 
-Write-Host ""
-Write-Host "===========================================================================" -ForegroundColor DarkCyan
-Write-Host "💻 VS Code 에디터 설치 및 설정/확장 연동 스크립트 (tool.setup-vscode.ps1)" -ForegroundColor DarkCyan
-Write-Host "===========================================================================" -ForegroundColor DarkCyan
-
 # ==============================================================================
-# [Step 1] 설치 의사 확인 ([y/N])
+# [Step 1] VS Code 설치 의사 확인 및 설치
 # ==============================================================================
-Write-Step "[Step 1] VS Code 설치 의사 확인"
+Write-Step "[Step 1] VS Code 설치 의사 확인 및 설치"
 
 Write-Host ""
 Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
 Write-Host "N" -ForegroundColor Green -NoNewline
 Write-Host "]: " -ForegroundColor Yellow -NoNewline
-$installInput = Read-Host
-if (-not ($installInput -match '^[Yy]')) {
-    Write-Skip "VS Code 설치를 건너뜁니다. 확장 설치도 건너뜁니다."
+$installVscodeInput = Read-Host
+if (-not ($installVscodeInput -match '^[Yy]')) {
+    Write-Skip "VS Code 설치를 건너뜁니다."
     Write-Host ""
     return
+}
+
+$vscodeAlreadyInstalled = $false
+try {
+    if (Get-Command code -ErrorAction SilentlyContinue) {
+        $vscodeAlreadyInstalled = $true
+    } elseif (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") {
+        $vscodeAlreadyInstalled = $true
+    } elseif (Test-Path "$env:ProgramFiles\Microsoft VS Code\Code.exe") {
+        $vscodeAlreadyInstalled = $true
+    }
+} catch {}
+
+if ($vscodeAlreadyInstalled) {
+    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
+} else {
+    Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
+    $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\vscode_install.log" -RedirectStandardError "$env:TEMP\vscode_install_err.log" -ErrorAction SilentlyContinue
+    Wait-WithSpinner -Message "VSCode 패키지 설치 진행" -Condition { $p.HasExited }
+    Remove-Item "$env:TEMP\vscode_install.log", "$env:TEMP\vscode_install_err.log" -Force -ErrorAction SilentlyContinue
+    if ($p.ExitCode -ne 0) {
+        Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
+    }
+    # PATH 갱신: winget 설치 후 code CLI를 현재 세션에서 즉시 사용 가능하게 함
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+}
+
+# WSL Remote 필수 확장 (ms-vscode-remote.remote-wsl) 기본 설치
+if (Get-Command code -ErrorAction SilentlyContinue) {
+    Write-Info "VSCode WSL Remote 필수 확장(ms-vscode-remote.remote-wsl) 기본 설치 중..."
+    code --install-extension ms-vscode-remote.remote-wsl --force 2>&1 | Out-Null
 }
 
 # ==============================================================================
@@ -173,43 +199,9 @@ if (-not (Test-Path $DevTools2Wsl)) {
 Write-Host "  _devtools2 경로: $DevTools2Wsl" -ForegroundColor White
 
 # ==============================================================================
-# [Step 3] VSCode 설치 확인 및 설치
+# [Step 3] VSCode 설정 파일 심볼릭 링크 연동
 # ==============================================================================
-Write-Step "[Step 3] VSCode 에디터 설치"
-
-$vscodeAlreadyInstalled = $false
-try {
-    if (Get-Command code -ErrorAction SilentlyContinue) {
-        $vscodeAlreadyInstalled = $true
-    } elseif (Test-Path "$env:LOCALAPPDATA\Programs\Microsoft VS Code\Code.exe") {
-        $vscodeAlreadyInstalled = $true
-    } elseif (Test-Path "$env:ProgramFiles\Microsoft VS Code\Code.exe") {
-        $vscodeAlreadyInstalled = $true
-    }
-} catch {}
-
-if ($vscodeAlreadyInstalled) {
-    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
-} else {
-    Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
-    $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\vscode_install.log" -RedirectStandardError "$env:TEMP\vscode_install_err.log" -ErrorAction SilentlyContinue
-    Wait-WithSpinner -Message "VSCode 패키지 설치 진행" -Condition { $p.HasExited }
-    Remove-Item "$env:TEMP\vscode_install.log", "$env:TEMP\vscode_install_err.log" -Force -ErrorAction SilentlyContinue
-    if ($p.ExitCode -ne 0) {
-        Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
-    }
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-}
-
-if (Get-Command code -ErrorAction SilentlyContinue) {
-    Write-Info "VSCode WSL Remote 필수 확장(ms-vscode-remote.remote-wsl) 설치/확인 중..."
-    code --install-extension ms-vscode-remote.remote-wsl --force 2>&1 | Out-Null
-}
-
-# ==============================================================================
-# [Step 4] VSCode 설정 파일 심볼릭 링크 연동
-# ==============================================================================
-Write-Step "[Step 4] VSCode 설정 파일 심볼릭 링크 연동"
+Write-Step "[Step 3] VSCode 설정 파일 심볼릭 링크 연동"
 
 $vscodeUserDir = "$env:APPDATA\Code\User"
 if (-not (Test-Path $vscodeUserDir)) {
@@ -233,71 +225,82 @@ if (Test-Path $targetTasks) {
 }
 
 # ==============================================================================
-# [Step 5] VSCode 확장 프로그램 동기화 (Windows 로컬 및 WSL Remote)
+# [Step 4] Windows 로컬 확장 동기화 (extensions.txt 기반)
 # ==============================================================================
-Write-Step "[Step 5] VSCode 확장 프로그램 동기화 (extensions.txt 기반)"
+Write-Step "[Step 4] Windows 로컬 확장 동기화 (extensions.txt 기반)"
 
 $targetExtensionsList = "$DevTools2Wsl\.config\vscode\extensions.txt"
-if (Test-Path $targetExtensionsList) {
-    if (Get-Command code -ErrorAction SilentlyContinue) {
-        Write-Info "Windows 로컬: 설치된 확장 목록 조회 중..."
-        $installedExts = @()
-        for ($i = 0; $i -lt 3; $i++) {
-            $installedExts = @((code --list-extensions 2>$null) | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ -ne "" })
-            if ($installedExts.Count -ge 0 -and $LASTEXITCODE -eq 0) { break }
-            Write-Info "VSCode CLI 초기화 대기 중... ($($i+1)/3)"
-            Start-Sleep -Seconds 3
-        }
+if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction SilentlyContinue)) {
+    Write-Info "Windows 로컬: 설치된 확장 목록 조회 중..."
+    $installedExts = @()
+    for ($i = 0; $i -lt 3; $i++) {
+        $installedExts = @((code --list-extensions 2>$null) | ForEach-Object { $_.Trim().ToLower() } | Where-Object { $_ -ne "" })
+        if ($LASTEXITCODE -eq 0) { break }
+        Write-Info "VSCode CLI 초기화 대기 중... ($($i+1)/3)"
+        Start-Sleep -Seconds 3
+    }
 
-        $toInstall = @()
-        Get-Content $targetExtensionsList | ForEach-Object {
-            $ext = $_.Trim()
-            if ($ext -and -not $ext.StartsWith("#") -and ($ext -match '^[a-zA-Z0-9][a-zA-Z0-9_-]*\.[a-zA-Z0-9][a-zA-Z0-9_-]*$')) {
-                if (-not ($installedExts -contains $ext.ToLower())) { $toInstall += $ext }
-            }
+    $toInstall = @()
+    Get-Content $targetExtensionsList | ForEach-Object {
+        $ext = $_.Trim()
+        if ($ext -and -not $ext.StartsWith("#") -and ($ext -match '^[a-zA-Z0-9][a-zA-Z0-9_-]*\.[a-zA-Z0-9][a-zA-Z0-9_-]*$')) {
+            if (-not ($installedExts -contains $ext.ToLower())) { $toInstall += $ext }
         }
+    }
 
-        if ($toInstall.Count -gt 0) {
-            Write-Info "Windows 로컬: 신규/미설치 확장 $($toInstall.Count)개 설치 중..."
-            $failedExts = @(); $idx = 0
-            foreach ($ext in $toInstall) {
-                $idx++
-                $installed = $false
-                for ($retry = 1; $retry -le 3; $retry++) {
-                    Write-Host "  [$idx/$($toInstall.Count)] $ext (시도 $retry/3)..." -ForegroundColor DarkGray -NoNewline
-                    $result = code --install-extension $ext --force 2>&1
-                    if ($LASTEXITCODE -eq 0) {
-                        Write-Host " ✓" -ForegroundColor Green
-                        $installed = $true; break
-                    } else {
-                        Write-Host " 재시도..." -ForegroundColor Yellow
-                        Start-Sleep -Seconds 2
-                    }
+    if ($toInstall.Count -gt 0) {
+        Write-Info "Windows 로컬: 신규/미설치 확장 $($toInstall.Count)개 설치 중..."
+        $failedExts = @(); $idx = 0
+        foreach ($ext in $toInstall) {
+            $idx++
+            $installed = $false
+            Write-Host "  [$idx/$($toInstall.Count)] $ext ..." -ForegroundColor DarkGray -NoNewline
+            for ($retry = 1; $retry -le 3; $retry++) {
+                if ($retry -gt 1) {
+                    Write-Host " (재시도 $retry/3)..." -ForegroundColor Yellow -NoNewline
                 }
-                if (-not $installed) { $failedExts += $ext }
+                code --install-extension $ext --force 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host " ✓" -ForegroundColor Green
+                    $installed = $true; break
+                } else {
+                    Start-Sleep -Seconds 2
+                }
             }
-            if ($failedExts.Count -gt 0) {
-                Write-Warn "아래 확장 $($failedExts.Count)개는 자동 설치에 실패했습니다 (수동으로 설치해주세요):"
-                $failedExts | ForEach-Object { Write-Host "    - $_" -ForegroundColor Yellow }
-            } else {
-                Write-Success "Windows 로컬 확장 $($toInstall.Count)개 설치 완료"
+            if (-not $installed) {
+                Write-Host " ✗ (실패)" -ForegroundColor Red
+                $failedExts += $ext
             }
-        } else {
-            Write-Skip "Windows 로컬: 모든 확장 프로그램이 이미 설치되어 있습니다."
         }
-
-        Write-Info "WSL Remote: VSCode 확장 프로그램 설치 중 (WSL 내부 bash 실행)..."
-        $wslExtScript = '[ -z "$DEVTOOLS2" ] && DEVTOOLS2="/var/opt/_devtools2"; VSCODE_BIN=""; command -v code >/dev/null 2>&1 && VSCODE_BIN="code"; [ -z "$VSCODE_BIN" ] && command -v code.cmd >/dev/null 2>&1 && VSCODE_BIN="code.cmd"; [ -z "$VSCODE_BIN" ] && { echo "[WSL-SKIP] code CLI not found"; exit 0; }; EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"; [ ! -f "$EXT_LIST" ] && { echo "[WSL-SKIP] extensions.txt not found"; exit 0; }; _INST=$("$VSCODE_BIN" --list-extensions 2>/dev/null </dev/null | tr [:upper:] [:lower:]); _cnt=0; _fail=0; while IFS= read -r line || [ -n "$line" ]; do ext=$(echo "$line" | tr -d \r | sed "s/#.*//" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"); [ -z "$ext" ] && continue; ext_lower=$(echo "$ext" | tr [:upper:] [:lower:]); if echo "$_INST" | grep -qF "$ext_lower"; then echo "[SKIP] $ext"; else echo "[Install] $ext"; ok=0; for i in 1 2 3; do "$VSCODE_BIN" --install-extension "$ext" --force </dev/null >/dev/null 2>&1 && ok=1 && break; sleep 2; done; if [ $ok -eq 1 ]; then echo "[OK] $ext"; _cnt=$((_cnt+1)); else echo "[FAIL] $ext"; _fail=$((_fail+1)); fi; fi; done < "$EXT_LIST"; echo "[WSL Done] New: ${_cnt}, Failed: ${_fail}"'
-        try {
-            wsl -d $WslDistro -- bash -c $wslExtScript 2>$null
-        } catch {
-            Write-Warn "WSL Remote 확장 설치 중 오류: $_"
+        if ($failedExts.Count -gt 0) {
+            Write-Warn "아래 확장 $($failedExts.Count)개는 자동 설치에 실패했습니다:"
+            $failedExts | ForEach-Object { Write-Host "    - $_" -ForegroundColor Yellow }
+        } else {
+            Write-Success "Windows 로컬 확장 $($toInstall.Count)개 설치 완료"
         }
     } else {
-        Write-Warn "VSCode CLI('code')를 찾을 수 없어서 확장 프로그램 자동 설치를 건너뜁니다."
+        Write-Skip "Windows 로컬: 모든 확장 프로그램이 이미 설치되어 있습니다."
     }
+} elseif (-not (Get-Command code -ErrorAction SilentlyContinue)) {
+    Write-Warn "VSCode CLI('code')를 찾을 수 없어서 Windows 로컬 확장 설치를 건너뜁니다."
 } else {
     Write-Warn "확장 목록 파일(extensions.txt)을 찾을 수 없습니다: $targetExtensionsList"
+}
+
+# ==============================================================================
+# [Step 5] WSL Remote 확장 동기화 (tool.setup-vscode.sh 위임 + 리턴 수신)
+# ==============================================================================
+Write-Step "[Step 5] WSL Remote ($WslDistro) 확장 동기화"
+
+Write-Info "WSL Remote ($WslDistro): VS Code 확장 프로그램 동기화 중..."
+$wslToolScript = "/var/opt/_devtools2/scripts/linux/dev-env/tool.setup-vscode.sh"
+if (Test-Path "$DevTools2Wsl\scripts\linux\dev-env\tool.setup-vscode.sh") {
+    wsl -d $WslDistro -- bash -c "DT2_VSCODE_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 bash '$wslToolScript'"
+} else {
+    wsl -d $WslDistro -- bash -c "DT2_VSCODE_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' 'https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool.setup-vscode.sh' | bash"
+}
+if ($LASTEXITCODE -ne 0) {
+    Write-Warn "WSL Remote 확장 동기화 중 오류가 발생했습니다 (종료 코드: $LASTEXITCODE)"
 }
 
 Write-Host ""

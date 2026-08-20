@@ -74,40 +74,50 @@ _load_install_utils() {
 }
 _load_install_utils
 
+if ! declare -F print_banner >/dev/null 2>&1; then
+    print_banner() { echo ""; print_sep; printf "  %s\n" "$*"; print_sep; echo ""; }
+fi
 print_banner "💻 VS Code 에디터 설치 및 확장 연동 (tool.setup-vscode.sh)"
 
-# WSL2 환경 감지 시: Windows 호스트 전담 안내
-if [ "$IS_WSL2" = true ]; then
-    print_warn "[WSL2 환경 감지] VSCode 설치 및 확장 설정은 Windows 호스트(tool.setup-vscode.ps1)에서 전담합니다."
-    print_info "  Windows 측 설치 스크립트를 통해 설치 및 WSL Remote 연동을 진행해주세요."
-    exit 0
-fi
-
 # [1] 설치 의사 확인
-echo ""
-printf "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/\033[1;32mN\033[0m]: "
-if [ -t 0 ]; then
-    read -r _vscode_choice
+if [ -n "${DT2_VSCODE_CHOICE:-}" ]; then
+    _vscode_choice="$DT2_VSCODE_CHOICE"
 else
-    _vscode_choice="N"
+    echo ""
+    printf "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/\033[1;32mN\033[0m]: "
+    if [ -t 0 ]; then
+        read -r _vscode_choice
+    else
+        _vscode_choice="N"
+    fi
+    echo ""
 fi
-echo ""
 
 case "${_vscode_choice:-N}" in
     y|Y)
-        # [2] 바이너리 설치 (.deb)
-        if command -v code >/dev/null 2>&1; then
-            print_skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다: $(command -v code)"
-        else
-            print_info "VSCode .deb 패키지 다운로드 및 설치 중..."
-            _vscode_tmp="/tmp/vscode_install_$$.deb"
-            if curl -Ls "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" -o "$_vscode_tmp"; then
-                sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true
-                rm -f "$_vscode_tmp"
-                print_done "VSCode 설치 완료"
+        # [2] 바이너리 설치 (.deb) - Linux 네이티브 전용 (WSL2에서는 Windows 호스트에 이미 설치됨)
+        if [ "${IS_WSL2:-false}" = true ]; then
+            if command -v code >/dev/null 2>&1; then
+                print_info "[WSL2] Windows VS Code CLI가 감지되어 WSL Remote 확장 동기화를 진행합니다: $(command -v code)"
             else
-                print_warn "VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
-                rm -f "$_vscode_tmp"
+                print_warn "[WSL2] Windows 호스트에 VS Code가 설치되어 있지 않아 확장 설치를 건너뜁니다."
+                print_skip "VSCode 설치 및 확장 연동 단계 건너뜀"
+                exit 0
+            fi
+        else
+            if command -v code >/dev/null 2>&1; then
+                print_skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다: $(command -v code)"
+            else
+                print_info "VSCode .deb 패키지 다운로드 및 설치 중..."
+                _vscode_tmp="/tmp/vscode_install_$$.deb"
+                if curl -Ls "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" -o "$_vscode_tmp"; then
+                    sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true
+                    rm -f "$_vscode_tmp"
+                    print_done "VSCode 설치 완료"
+                else
+                    print_warn "VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
+                    rm -f "$_vscode_tmp"
+                fi
             fi
         fi
 
@@ -141,6 +151,9 @@ case "${_vscode_choice:-N}" in
                     echo -n "   📥 [설치] $ext ..."
                     _ok=0
                     for _retry in 1 2 3; do
+                        if [ "$_retry" -gt 1 ]; then
+                            echo -n " (재시도 ${_retry}/3)..."
+                        fi
                         (code --install-extension "$ext" --force </dev/null >/dev/null 2>&1) &
                         _ext_pid=$!
                         show_spinner "$_ext_pid"

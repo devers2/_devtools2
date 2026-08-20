@@ -43,6 +43,7 @@ print_warn()    { printf "${_C_YELLOW}[경고]${_C_RESET} %s\n"  "$*"; }
 print_error()   { printf "${_C_RED}[오류]${_C_RESET} %s\n"     "$*" >&2; }
 print_step()    { printf "${_C_CYAN}%s${_C_RESET}\n"         "$*"; }
 print_sep()     { printf "${_C_CYAN}%s${_C_RESET}\n" "==========================================================================="; }
+print_banner()  { echo ""; print_sep; printf "  ${_C_CYAN}%s${_C_RESET}\n" "$*"; print_sep; echo ""; }
 print_subsep()  { printf "${_C_CYAN}%s${_C_RESET}\n" "---------------------------------------------------------------------------"; }
 
 # ── 프롬프트 / 질문 헬퍼 ──────────────────────────────────────────────
