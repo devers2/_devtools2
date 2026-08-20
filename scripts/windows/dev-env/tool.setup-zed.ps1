@@ -3,7 +3,7 @@ param(
 )
 
 # ==============================================================================
-# Zed 에디터 설치 및 WSL2 설정 파일 복사 스크립트 (3-2.setup-zed.ps1)
+# Zed 에디터 설치 및 WSL2 설정 파일 복사 스크립트 (tool.setup-zed.ps1)
 #
 # 주요 기능:
 #   0. Zed 설치 의사 확인 ([y/N], 기본값 N) — 단독 실행/마스터 호출 모두 여기서 질문
@@ -23,6 +23,8 @@ param(
 #    폴백을 뺀 것뿐입니다(순수 단순화). 반면 ps1은 로컬 NoBOM 파일을 PowerShell 5.1이 직접
 #    읽으면 한글 등이 깨질 위험이 있어 애초에 로컬을 볼 수조차 없습니다 — ps1은 위 1번 원칙대로
 #    항상 온라인에서 새로 가져와 실행해야 합니다.
+# 5. 서브스크립트 종료 처리: 마스터 스크립트 인라인 호출 시 전체 프로세스가 종료되는 것을 방지하기 위해
+#    조기 종료/건너뛰기 시에는 `exit` 대신 반드시 `return`을 사용해야 합니다.
 # ------------------------------------------------------------------------------
 # ==============================================================================
 
@@ -43,7 +45,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $isAdmin) {
     Write-Host "[경고] 관리자 권한으로 스크립트를 재실행합니다..." -ForegroundColor Yellow
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/3-2.setup-zed.ps1 | iex`"" -Verb RunAs
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/tool.setup-zed.ps1 | iex`"" -Verb RunAs
     } else {
         Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -WslDistro `"$WslDistro`"" -Verb RunAs
     }
@@ -52,7 +54,7 @@ if (-not $isAdmin) {
 
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
-Write-Host "🚀 Zed 에디터 설치 및 설정 파일 링크 생성 스크립트 (3-2.setup-zed.ps1)" -ForegroundColor DarkCyan
+Write-Host "🚀 Zed 에디터 설치 및 설정 파일 링크 생성 스크립트 (tool.setup-zed.ps1)" -ForegroundColor DarkCyan
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
 # ==============================================================================
@@ -68,7 +70,7 @@ $installInput = Read-Host
 if (-not ($installInput -match '^[Yy]')) {
     Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
     Write-Host ""
-    exit 0
+    return
 }
 
 # ==============================================================================
@@ -91,7 +93,7 @@ if ($WslDistro -eq "") {
         if ($distroList.Count -eq 0) {
             Write-Fail "WSL2 배포판을 찾을 수 없습니다. WSL2 를 먼저 설치해주세요."
             Read-Host "계속하려면 엔터를 누르세요"
-            exit 1
+            return
         }
         $WslDistro = $distroList[0] -replace "`0", "" | ForEach-Object { $_.Trim() }
         Write-Host "  자동 감지된 배포판: $WslDistro" -ForegroundColor White
@@ -107,7 +109,7 @@ if (-not (Test-Path $DevTools2Wsl)) {
     Write-Fail "WSL2 에서 '_devtools2' 폴더를 찾을 수 없습니다: $DevTools2Wsl"
     Write-Host "  마스터 설치 스크립트(setup-devtools2-wsl.ps1)를 먼저 실행해주세요." -ForegroundColor Yellow
     Read-Host "계속하려면 엔터를 누르세요"
-    exit 1
+    return
 }
 Write-Host "  _devtools2 경로: $DevTools2Wsl" -ForegroundColor White
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Linux용 VS Code 설치 및 확장 동기화 스크립트 (5-1.setup-vscode.sh)
+# Linux용 VS Code 설치 및 확장 동기화 스크립트 (tool.setup-vscode.sh)
 #
 # 주요 기능:
 #   1. VS Code 설치 의사 확인 ([y/N], 기본값 N)
@@ -74,11 +74,11 @@ _load_install_utils() {
 }
 _load_install_utils
 
-print_banner "💻 VS Code 에디터 설치 및 확장 연동 (5-1.setup-vscode.sh)"
+print_banner "💻 VS Code 에디터 설치 및 확장 연동 (tool.setup-vscode.sh)"
 
 # WSL2 환경 감지 시: Windows 호스트 전담 안내
 if [ "$IS_WSL2" = true ]; then
-    print_warn "[WSL2 환경 감지] VSCode 설치 및 확장 설정은 Windows 호스트(3-1.setup-vscode.ps1)에서 전담합니다."
+    print_warn "[WSL2 환경 감지] VSCode 설치 및 확장 설정은 Windows 호스트(tool.setup-vscode.ps1)에서 전담합니다."
     print_info "  Windows 측 설치 스크립트를 통해 설치 및 WSL Remote 연동을 진행해주세요."
     exit 0
 fi

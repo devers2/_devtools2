@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Linux용 Zed 에디터 설치 스크립트 (5-2.setup-zed.sh)
+# Linux용 Zed 에디터 설치 스크립트 (tool.setup-zed.sh)
 #
 # 주요 기능:
 #   1. Zed 에디터 설치 의사 확인 ([y/N], 기본값 N)
@@ -73,11 +73,11 @@ _load_install_utils() {
 }
 _load_install_utils
 
-print_banner "⚡ Zed 에디터 설치 (5-2.setup-zed.sh)"
+print_banner "⚡ Zed 에디터 설치 (tool.setup-zed.sh)"
 
 # WSL2 환경 감지 시: Windows 호스트 전담 안내
 if [ "$IS_WSL2" = true ]; then
-    print_warn "[WSL2 환경 감지] WSL2 환경에서는 Windows 호스트(3-2.setup-zed.ps1)에 Zed를 설치하므로 리눅스 내부 Zed 설치는 건너뜁니다."
+    print_warn "[WSL2 환경 감지] WSL2 환경에서는 Windows 호스트(tool.setup-zed.ps1)에 Zed를 설치하므로 리눅스 내부 Zed 설치는 건너뜁니다."
     exit 0
 fi
 

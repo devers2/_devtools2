@@ -4,7 +4,7 @@ param(
 )
 
 # ==============================================================================
-# Orca GUI 클라이언트 설치 및 WSL2 헤드리스 서버 페어링 안내 스크립트 (3-3.setup-orca.ps1)
+# Orca GUI 클라이언트 설치 및 WSL2 헤드리스 서버 페어링 안내 스크립트 (tool.setup-orca.ps1)
 #
 # 주요 기능:
 #   0. Orca 설치 의사 확인 ([y/N], 기본값 N) — 단독 실행/마스터 호출 모두 여기서 질문
@@ -13,14 +13,14 @@ param(
 #   3. Windows Orca 앱 ↔ WSL2 orca serve 페어링 방법 안내
 #
 # ------------------------------------------------------------------------------
-# ⚠️ [Zed(3-2.setup-zed.ps1)와 구조가 다른 이유]
+# ⚠️ [Zed(tool.setup-zed.ps1)와 구조가 다른 이유]
 # Zed는 순수 에디터라 Windows 네이티브 앱이 WSL2의 파일을 UNC 경로로 열기만 하면 됩니다.
 # 반면 Orca는 Claude Code/Codex/Gemini 같은 CLI 에이전트 "프로세스"를 직접 실행(spawn)해야
 # 하는 오케스트레이터입니다. 그 CLI들은 전부 WSL2 내부에 설치되어 있어(npm i -g 등),
 # Orca를 Windows 네이티브로만 설치하면 그 바이너리들을 실행할 방법이 없습니다(공식 문서에
 # WSL 브릿지 기능 없음). 그래서 Orca 공식 "Remote Orca Servers" 모드를 그대로 씁니다:
 #   - 에이전트 실행부(orca serve)는 CLI가 실제로 있는 WSL2에 헤드리스로 둡니다
-#     (5-3.setup-orca.sh 에서 설치/등록됨).
+#     (tool.setup-orca.sh 에서 설치/등록됨).
 #   - 이 스크립트는 Windows에 "페어링만 하는" 가벼운 GUI 클라이언트를 설치합니다.
 # 그래서 Zed처럼 settings.json을 WSL2 → Windows로 복사하는 단계가 없습니다 — 동기화할
 # "설정 파일"이 아니라 페어링 상태(계정/키)라서 애초에 복사 대상이 아닙니다.
@@ -29,6 +29,8 @@ param(
 # 1. 100% 온라인 전용: 스크립트는 항상 GitHub main 브랜치 최신 원격 raw URL에서 호출됩니다.
 # 2. 순수 UTF-8 NoBOM 보장: BOM(Byte Order Mark) 헤더를 절대 삽입하거나 조작하지 마십시오.
 # 3. PS5.1 & PS7 무구분 호환: param() 구문은 반드시 스크립트 맨 첫 줄(Line 1)에 위치해야 합니다.
+# 4. 서브스크립트 종료 처리: 마스터 스크립트 인라인 호출 시 전체 프로세스가 종료되는 것을 방지하기 위해
+#    조기 종료/건너뛰기 시에는 `exit` 대신 반드시 `return`을 사용해야 합니다.
 # ------------------------------------------------------------------------------
 # ==============================================================================
 
@@ -50,7 +52,7 @@ $_colorsContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/deve
 # [Step 0] 관리자 권한 확인 및 재실행
 # ==============================================================================
 # Orca 자체 설치/페어링에는 관리자 권한이 꼭 필요하진 않지만, 이 저장소의 다른 Windows
-# 컴패니언 스크립트(3-2.setup-zed.ps1 등)와 동일하게 독립 실행 시에도 안전하도록 맞춥니다.
+# 컴패니언 스크립트(tool.setup-zed.ps1 등)와 동일하게 독립 실행 시에도 안전하도록 맞춥니다.
 # (마스터 스크립트를 통해 호출될 때는 이미 상위 프로세스가 관리자 권한이라 이 블록은 그냥 통과됩니다.)
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator
@@ -59,7 +61,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $isAdmin) {
     Write-Host "[경고] 관리자 권한으로 스크립트를 재실행합니다..." -ForegroundColor Yellow
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
-        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/3-3.setup-orca.ps1 | iex`"" -Verb RunAs
+        Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/tool.setup-orca.ps1 | iex`"" -Verb RunAs
     } else {
         Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -WslDistro `"$WslDistro`"" -Verb RunAs
     }
@@ -68,7 +70,7 @@ if (-not $isAdmin) {
 
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
-Write-Host "🐋 Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 스크립트 (3-3.setup-orca.ps1)" -ForegroundColor DarkCyan
+Write-Host "🐋 Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 스크립트 (tool.setup-orca.ps1)" -ForegroundColor DarkCyan
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
 # ==============================================================================
@@ -84,7 +86,7 @@ $installInput = Read-Host
 if (-not ($installInput -match '^[Yy]')) {
     Write-Skip "Orca 설치를 건너뜁니다."
     Write-Host ""
-    exit 0
+    return
 }
 
 # ==============================================================================
@@ -108,7 +110,7 @@ if ($WslDistro -eq "") {
         if ($distroList.Count -eq 0) {
             Write-Fail "WSL2 배포판을 찾을 수 없습니다. WSL2 를 먼저 설치해주세요."
             Read-Host "계속하려면 엔터를 누르세요"
-            exit 1
+            return
         }
         $WslDistro = $distroList[0] -replace "`0", "" | ForEach-Object { $_.Trim() }
         Write-Host "  자동 감지된 배포판: $WslDistro" -ForegroundColor White
@@ -118,15 +120,15 @@ if ($WslDistro -eq "") {
 }
 
 # WSL2 쪽 Orca(orca serve 헤드리스)가 먼저 설치되어 있어야 이 스크립트의 나머지 단계가
-# 의미가 있습니다(5-3.setup-orca.sh). 없으면 뒤에서 "시작 시도 실패 → 존재하지도
+# 의미가 있습니다(tool.setup-orca.sh). 없으면 뒤에서 "시작 시도 실패 → 존재하지도
 # 않는 파일을 실행하라"는 혼란스러운 메시지로 이어지므로, 여기서 명확하게 먼저 안내합니다.
 [string]$orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f /var/opt/_devtools2/modules/orca/orca-linux.AppImage -o -f /var/opt/_devtools2/modules/orca/orca-linux-arm64.AppImage && echo FOUND")
 if ($orcaAppImageCheck.Trim() -ne "FOUND") {
     Write-Fail "WSL2 쪽에 Orca가 설치되어 있지 않습니다."
-    Write-Info "  먼저 WSL2에서 5-3.setup-orca.sh 를 실행해 Orca 설치 질문에 'y'로 답해주세요"
+    Write-Info "  먼저 WSL2에서 tool.setup-orca.sh 를 실행해 Orca 설치 질문에 'y'로 답해주세요"
     Write-Info "  (보통은 setup-devtools2-wsl.ps1 마스터 스크립트를 통해 자동으로 순서대로 진행됩니다)."
     Read-Host "계속하려면 엔터를 누르세요"
-    exit 1
+    return
 }
 
 # ==============================================================================
@@ -176,7 +178,7 @@ if ($orcaInstalled) {
 # ==============================================================================
 # [Step 4] WSL2 헤드리스 orca serve 상태 확인
 #
-# 실제 설치/자동 실행 등록은 5-3.setup-orca.sh(WSL2 분기)에서 이미
+# 실제 설치/자동 실행 등록은 tool.setup-orca.sh(WSL2 분기)에서 이미
 # 처리됩니다. 여기서는 그 결과가 살아있는지만 확인하고, 죽어 있으면 한 번 더 살립니다.
 # ==============================================================================
 Write-Step "[Step 4] WSL2 'orca serve' 헤드리스 서버 상태 확인"
@@ -205,7 +207,7 @@ if ($orcaServeStatus -eq "active") {
 # [Step 5] Windows Orca ↔ WSL2 orca serve 페어링
 #
 # ⚠️ Orca 공식 문서는 127.0.0.1을 "원격 클라이언트 페어링에 쓰지 말라"고 명시적으로
-# 경고합니다. 대신 5-3.setup-orca.sh가 WSL2 자체 IP로 만들어 둔 페어링 링크
+# 경고합니다. 대신 tool.setup-orca.sh가 WSL2 자체 IP로 만들어 둔 페어링 링크
 # (orca://pair?...)를 그대로 읽어와 시도합니다.
 #
 # ⚠️ 헤드리스 Linux orca serve는 페어링 코드가 아예 출력되지 않는 알려진 미해결

@@ -143,13 +143,13 @@ fi
 print_step "▶ [5/5] 개발 에디터 및 오케스트레이션 도구 설정"
 
 # ── 5-1. VS Code ─────────────────────────────────────────────────────────────
-DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/5-1.setup-vscode.sh"
+DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/tool.setup-vscode.sh"
 
 # ── 5-2. Zed ─────────────────────────────────────────────────────────────────
-DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/5-2.setup-zed.sh"
+DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/tool.setup-zed.sh"
 
 # ── 5-3. Orca ────────────────────────────────────────────────────────────────
-DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/5-3.setup-orca.sh"
+DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/tool.setup-orca.sh"
 
 print_done "[Step 5] 개발 에디터 및 도구 설정 완료."
 

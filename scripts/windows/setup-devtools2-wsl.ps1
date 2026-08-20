@@ -534,15 +534,15 @@ Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-windows-terminal.ps1" -Arguments @{
 
 # ── 4-3. VSCode (에디터 설치, 심볼릭 링크 및 확장 동기화) ────────────────────
 Write-SubStep "▶ (3/5) VSCode 에디터 설치 및 설정/확장 연동"
-Invoke-RemotePsScript -Url "$RAW_WIN/3-1.setup-vscode.ps1" -Arguments @{ WslDistro = $wslDistro }
+Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-vscode.ps1" -Arguments @{ WslDistro = $wslDistro }
 
 # ── 4-4. Zed ─────────────────────────────────────────────────────────────────
 Write-SubStep "▶ (4/5) Zed 에디터 설치 및 설정 연동"
-Invoke-RemotePsScript -Url "$RAW_WIN/3-2.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
+Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
 
 # ── 4-5. Orca (Windows GUI 클라이언트 — 에이전트 실행부는 WSL2의 orca serve) ──
 Write-SubStep "▶ (5/5) Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 안내"
-Invoke-RemotePsScript -Url "$RAW_WIN/3-3.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
+Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
 
 # 🌟 [Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동]
 # - 보안 자격증명 정보(Git Token/Maven Auth) 손실 방지 및 이중 환경 호환성 확보

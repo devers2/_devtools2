@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# Linux용 Orca(멀티 에이전트 오케스트레이션 ADE) 설치 스크립트 (5-3.setup-orca.sh)
+# Linux용 Orca(멀티 에이전트 오케스트레이션 ADE) 설치 스크립트 (tool.setup-orca.sh)
 #
 # ------------------------------------------------------------------------------
-# ⚠️ [Zed(5-2.setup-zed.sh)와 달리 WSL2에서도 "건너뛰지 않고" 여기(리눅스 내부)에 설치하는 이유]
+# ⚠️ [Zed(tool.setup-zed.sh)와 달리 WSL2에서도 "건너뛰지 않고" 여기(리눅스 내부)에 설치하는 이유]
 # Zed는 순수 에디터라 Windows 네이티브 앱이 WSL2의 파일을 UNC 경로로 열기만 하면 됩니다.
 # 반면 Orca는 Claude Code/Codex/Gemini 같은 CLI 에이전트 "프로세스"를 직접 실행(spawn)해야
 # 하는 오케스트레이터입니다. 그 CLI들은 (npm i -g @anthropic-ai/claude-code 등으로) 전부
@@ -11,7 +11,7 @@
 # 바이너리를 실행할 방법이 없습니다(공식 문서에 WSL 브릿지 기능 없음). 대신 Orca 공식
 # "Remote Orca Servers" 모드를 사용합니다:
 #   - 에이전트 실행부(orca serve)는 CLI가 실제로 있는 WSL2에 헤드리스로 두고,
-#   - Windows에는 거기 페어링만 하는 가벼운 GUI 클라이언트를 설치합니다(3-3.setup-orca.ps1).
+#   - Windows에는 거기 페어링만 하는 가벼운 GUI 클라이언트를 설치합니다(tool.setup-orca.ps1).
 # ------------------------------------------------------------------------------
 # ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
 # 100% 온라인 전용 스트리밍: 서브스크립트는 무조건 GitHub main 원격 raw URL에서
@@ -78,7 +78,7 @@ _load_install_utils() {
 }
 _load_install_utils
 
-print_banner "🐋 Orca 설치 (5-3.setup-orca.sh)"
+print_banner "🐋 Orca 설치 (tool.setup-orca.sh)"
 
 ORCA_DIR="$DEVTOOLS2/modules/orca"
 if [ "$IS_ARM64" = true ]; then
@@ -111,7 +111,7 @@ else
             if [ "$IS_WSL2" = true ]; then
                 echo "   ⚠️  [WSL2 환경 감지] Orca 실행부(orca serve)는 CLI 에이전트가 실제로 설치된"
                 echo "      이 WSL2 내부에 헤드리스로 설치합니다. Windows 쪽에는 여기 페어링만 하는"
-                echo "      GUI 클라이언트가 별도로 설치됩니다(3-3.setup-orca.ps1)."
+                echo "      GUI 클라이언트가 별도로 설치됩니다(tool.setup-orca.ps1)."
                 echo ""
             fi
 
@@ -257,7 +257,7 @@ EOF
                 if [ -n "$_orca_pair_link" ]; then
                     echo "$_orca_pair_link" > "$DEVTOOLS2/data/orca-pairing-link.txt"
                     echo "   🔗 페어링 링크 확보: $_orca_pair_link"
-                    echo "      (Windows 쪽 3-3.setup-orca.ps1 이 이 링크를 자동으로 읽어갑니다)"
+                    echo "      (Windows 쪽 tool.setup-orca.ps1 이 이 링크를 자동으로 읽어갑니다)"
                 else
                     rm -f "$DEVTOOLS2/data/orca-pairing-link.txt"
                     echo "   ⚠️  페어링 링크를 자동으로 찾지 못했습니다(알려진 업스트림 버그일 수 있음:"
@@ -310,7 +310,7 @@ EOF
             echo "   💬 지금 당장 쓰려면 수동으로도 실행 가능합니다: $ORCA_DIR/orca-serve-wrapper.sh &"
         fi
         echo ""
-        echo "   💬 Windows Orca 앱과의 페어링 안내는 3-3.setup-orca.ps1 완료 화면에서 보여드립니다."
+        echo "   💬 Windows Orca 앱과의 페어링 안내는 tool.setup-orca.ps1 완료 화면에서 보여드립니다."
     else
         echo "   💬 일반 데스크톱 GUI 앱으로 바로 실행할 수 있습니다: $ORCA_APPIMAGE"
     fi
