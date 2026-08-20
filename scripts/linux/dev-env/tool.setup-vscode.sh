@@ -52,6 +52,10 @@ fi
 case "${_vscode_choice:-N}" in
     y|Y)
         if [ "${IS_WSL2:-false}" = true ]; then
+            # binfmt_misc WSLInterop 복구 (Exec format error 예방)
+            if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ] && [ -w /proc/sys/fs/binfmt_misc/register ]; then
+                echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
+            fi
             _win_user="${WIN_USERPROFILE:-}"
             if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
                 _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)

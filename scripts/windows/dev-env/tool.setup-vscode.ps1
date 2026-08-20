@@ -142,9 +142,11 @@ if ($vscodeAlreadyInstalled) {
     Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
 } else {
     Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
-    winget install --id Microsoft.VisualStudioCode --accept-source-agreements --accept-package-agreements --disable-interactivity
-    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) {
-        Write-Warn "winget 설치 종료 코드: $LASTEXITCODE (이미 설치되었거나 다른 이유일 수 있습니다)"
+    $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\vscode_install.log" -RedirectStandardError "$env:TEMP\vscode_install_err.log" -ErrorAction SilentlyContinue
+    Wait-WithSpinner -Message "VSCode 패키지 설치 진행" -Condition { $p.HasExited }
+    Remove-Item "$env:TEMP\vscode_install.log", "$env:TEMP\vscode_install_err.log" -Force -ErrorAction SilentlyContinue
+    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne -1978335189) {
+        Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
     }
     # PATH 갱신: winget 설치 후 code CLI를 현재 세션에서 즉시 사용 가능하게 함
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")

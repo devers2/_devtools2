@@ -162,14 +162,16 @@ try {
 
 if ($orcaInstalled) {
     Write-Skip "Orca 데스크톱 앱이 이미 설치되어 있습니다."
-} else {
     Write-Host "  Orca 데스크톱 앱을 winget으로 설치합니다..." -ForegroundColor White
-    winget install --id StablyAI.Orca --accept-source-agreements --accept-package-agreements --disable-interactivity
-    if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) {
+    $p = Start-Process winget -ArgumentList "install --id StablyAI.Orca --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\orca_install.log" -RedirectStandardError "$env:TEMP\orca_install_err.log"
+    Wait-ProcessWithSpinner -Process $p -Message "Orca 데스크톱 앱 설치 진행 중"
+    # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
+    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
         Write-Success "Orca 데스크톱 앱 설치/확인 완료"
     } else {
-        Write-Warn "Orca winget 설치 실패(종료 코드: $LASTEXITCODE). 수동 설치: https://www.onorca.dev/"
+        Write-Warn "Orca winget 설치 실패(종료 코드: $($p.ExitCode)). 수동 설치: https://www.onorca.dev/"
     }
+    Remove-Item "$env:TEMP\orca_install.log", "$env:TEMP\orca_install_err.log" -Force -ErrorAction SilentlyContinue
 }
 
 # ==============================================================================

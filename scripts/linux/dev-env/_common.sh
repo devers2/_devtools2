@@ -107,8 +107,10 @@ show_spinner() {
     printf "     \b\b\b\b\b"
 }
 
-# ── 다운로드 게이지 프로그레스 바 (curl -# 기반) ─────────────────────────
+# ── 다운로드 게이지 프로그레스 바 (완료 시 자동 삭제) ─────────────────
 # 사용법: download_with_progress <URL> <출력파일경로> [설명라벨]
+# 동작: [====================    27.8%                                   ] 형태로
+#       실시간 진행률을 표시하고, 다운로드가 완료되면 해당 줄을 깨끗하게 지웁니다.
 download_with_progress() {
     local url="$1"
     local dest="$2"
@@ -116,20 +118,40 @@ download_with_progress() {
 
     printf "   ${_C_CYAN}📥 %s 다운로드 중...${_C_RESET}\n" "$label"
     if command -v curl >/dev/null 2>&1; then
-        if curl -# -fSL \
+        curl -# -fSL \
             -H 'Cache-Control: no-cache, no-store, must-revalidate' \
             -H 'Pragma: no-cache' \
-            "$url" -o "$dest"; then
-            return 0
-        else
-            return 1
-        fi
+            "$url" -o "$dest" 2>&1 | \
+        awk -v RS='[\r\n]' '
+        match($0, /([0-9]+(\.[0-9]+)?)%/, arr) {
+            pct = arr[1] + 0
+            bar_len = 50
+            filled = int(bar_len * (pct / 100))
+            pct_str = sprintf(" %5.1f%% ", pct)
+            left_len = int((bar_len - length(pct_str)) / 2)
+            bar = ""
+            for (i = 1; i <= bar_len; i++) {
+                if (i >= left_len + 1 && i <= left_len + length(pct_str)) {
+                    bar = bar substr(pct_str, i - left_len, 1)
+                } else if (i <= filled) {
+                    bar = bar "="
+                } else {
+                    bar = bar " "
+                }
+            }
+            printf("\r[%s]", bar)
+            fflush()
+        }
+        END {
+            printf("\r\033[K\033[1A\r\033[K")
+            fflush()
+        }'
+        local _ec=${PIPESTATUS[0]}
+        return $_ec
     elif command -v wget >/dev/null 2>&1; then
-        if wget --show-progress -q -O "$dest" "$url"; then
-            return 0
-        else
-            return 1
-        fi
+        wget -q "$url" -O "$dest" &
+        show_spinner $!
+        return $?
     fi
 }
 
