@@ -116,13 +116,14 @@ else
             fi
 
             mkdir -p "$ORCA_DIR"
-            echo -n "   📥 orca 다운로드 중..."
-            curl -Ls "https://github.com/stablyai/orca/releases/latest/download/${ORCA_APPIMAGE_NAME}" -o "$ORCA_APPIMAGE" &
-            show_spinner $!
-            echo " 완료"
-            chmod +x "$ORCA_APPIMAGE"
-            echo "   ✅ orca ($ARCH) 설치 완료 → $ORCA_APPIMAGE"
-            _orca_proceed=true
+            if download_with_progress "https://github.com/stablyai/orca/releases/latest/download/${ORCA_APPIMAGE_NAME}" "$ORCA_APPIMAGE" "Orca AppImage"; then
+                chmod +x "$ORCA_APPIMAGE"
+                echo "   ✅ orca ($ARCH) 설치 완료 → $ORCA_APPIMAGE"
+                _orca_proceed=true
+            else
+                print_error "Orca AppImage 다운로드 실패"
+                _orca_proceed=false
+            fi
             ;;
         *)
             echo "   ⏭️ Orca 설치를 건너뜁니다."

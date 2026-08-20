@@ -108,10 +108,12 @@ case "${_vscode_choice:-N}" in
             if command -v code >/dev/null 2>&1; then
                 print_skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다: $(command -v code)"
             else
-                print_info "VSCode .deb 패키지 다운로드 및 설치 중..."
                 _vscode_tmp="/tmp/vscode_install_$$.deb"
-                if curl -Ls "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" -o "$_vscode_tmp"; then
-                    sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true
+                if download_with_progress "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" "$_vscode_tmp" "VSCode .deb 패키지"; then
+                    echo -n "   📦 VSCode 패키지 설치 중..."
+                    (sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true) &
+                    show_spinner $!
+                    echo " 완료"
                     rm -f "$_vscode_tmp"
                     print_done "VSCode 설치 완료"
                 else

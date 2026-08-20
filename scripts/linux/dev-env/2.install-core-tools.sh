@@ -139,11 +139,7 @@ install_tool() {
     DOWNLOAD_URL="${URL_TEMPLATE//\{ARCH\}/$SELECTED_ARCH}"
     FILE_NAME=$(basename "$DOWNLOAD_URL")
 
-    # 다운로드 및 압축 해제에 스피너 적용
-    echo -n "   📥 $TARGET_DIR 다운로드 중..."
-    wget -q "$DOWNLOAD_URL" &
-    show_spinner $!
-    echo " 완료"
+    download_with_progress "$DOWNLOAD_URL" "$FILE_NAME" "$TARGET_DIR"
 
     echo -n "   📦 $TARGET_DIR 압축 해제 중..."
     tar -xf "$FILE_NAME" &

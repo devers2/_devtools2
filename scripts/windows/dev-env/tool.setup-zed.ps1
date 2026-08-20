@@ -151,15 +151,12 @@ if ($zedInstalled) {
     $zedIds = @("ZedIndustries.Zed")
     $zedInstallSuccess = $false
     foreach ($zedId in $zedIds) {
-        $p = Start-Process winget -ArgumentList "install --id $zedId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_install.log" -RedirectStandardError "$env:TEMP\zed_install_err.log"
-        Wait-ProcessWithSpinner -Process $p -Message "Zed 에디터 설치 진행 중 ($zedId)"
-        if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
+        winget install --id $zedId --accept-source-agreements --accept-package-agreements --disable-interactivity
+        if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq -1978335189) {
             Write-Success "Zed 에디터 설치/확인 완료 ($zedId)"
             $zedInstallSuccess = $true
-            Remove-Item "$env:TEMP\zed_install.log", "$env:TEMP\zed_install_err.log" -Force -ErrorAction SilentlyContinue
             break
         }
-        Remove-Item "$env:TEMP\zed_install.log", "$env:TEMP\zed_install_err.log" -Force -ErrorAction SilentlyContinue
     }
     if (-not $zedInstallSuccess) {
         Write-Warn "Zed winget 설치 실패. 수동 설치: https://zed.dev/download"

@@ -104,3 +104,30 @@ show_spinner() {
     done
     printf "     \b\b\b\b\b"
 }
+
+# ── 다운로드 게이지 프로그레스 바 (curl -# 기반) ─────────────────────────
+# 사용법: download_with_progress <URL> <출력파일경로> [설명라벨]
+download_with_progress() {
+    local url="$1"
+    local dest="$2"
+    local label="${3:-파일}"
+
+    printf "   ${_C_CYAN}📥 %s 다운로드 중...${_C_RESET}\n" "$label"
+    if command -v curl >/dev/null 2>&1; then
+        if curl -# -fSL \
+            -H 'Cache-Control: no-cache, no-store, must-revalidate' \
+            -H 'Pragma: no-cache' \
+            "$url" -o "$dest"; then
+            return 0
+        else
+            return 1
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if wget --show-progress -q -O "$dest" "$url"; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+}
+
