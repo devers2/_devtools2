@@ -293,12 +293,8 @@ if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction Silent
 Write-Step "[Step 5] WSL Remote ($WslDistro) 확장 동기화"
 
 Write-Info "WSL Remote ($WslDistro): VS Code 확장 프로그램 동기화 중..."
-$wslToolScript = "/var/opt/_devtools2/scripts/linux/dev-env/tool.setup-vscode.sh"
-if (Test-Path "$DevTools2Wsl\scripts\linux\dev-env\tool.setup-vscode.sh") {
-    wsl -d $WslDistro -- bash -c "DT2_VSCODE_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 bash '$wslToolScript'"
-} else {
-    wsl -d $WslDistro -- bash -c "DT2_VSCODE_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' 'https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool.setup-vscode.sh' | bash"
-}
+$rawLinuxVscode = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool.setup-vscode.sh"
+wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxVscode' -o /tmp/_dt2_vsc.sh && DT2_VSCODE_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 stdbuf -oL -eL bash /tmp/_dt2_vsc.sh; rm -f /tmp/_dt2_vsc.sh 2>/dev/null"
 if ($LASTEXITCODE -ne 0) {
     Write-Warn "WSL Remote 확장 동기화 중 오류가 발생했습니다 (종료 코드: $LASTEXITCODE)"
 }
