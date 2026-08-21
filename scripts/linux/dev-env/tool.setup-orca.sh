@@ -61,7 +61,7 @@ else
     _do_orca=false
     if [ -n "${DT2_ORCA_CHOICE:-}" ]; then
         [ "${DT2_ORCA_CHOICE,,}" = "y" ] && _do_orca=true
-    elif prompt_confirm "   👉 Orca를 설치하시겠습니까?" "N"; then
+    elif prompt_confirm "👉 Orca를 설치하시겠습니까?" "N"; then
         _do_orca=true
     fi
 

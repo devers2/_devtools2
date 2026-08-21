@@ -62,12 +62,7 @@ Write-Host "====================================================================
 # ==============================================================================
 Write-Step "[Step 1] Zed 설치 의사 확인"
 
-Write-Host ""
-Write-Host "👉 Zed 에디터를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-Write-Host "N" -ForegroundColor Green -NoNewline
-Write-Host "]: " -ForegroundColor Yellow -NoNewline
-$installInput = Read-Host
-if (-not ($installInput -match '^[Yy]')) {
+if (-not (Prompt-Confirm "👉 Zed 에디터를 설치하시겠습니까?" "N")) {
     Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
     Write-Host ""
     return

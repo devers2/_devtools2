@@ -68,6 +68,31 @@ function Pause-Script {
     [void][System.Console]::ReadLine()
 }
 
+# Yes/No 대화형 확인 프롬프트 공용 헬퍼 (bash _common.sh 의 prompt_confirm 대응)
+# 사용법: if (Prompt-Confirm "👉 AutoHotKey를 설치하시겠습니까?" "Y") { ... }
+function Prompt-Confirm {
+    param(
+        [string]$Message,
+        [string]$Default = "N"
+    )
+    Write-Host ""
+    if ($Default -eq "Y" -or $Default -eq "y") {
+        Write-Host "$Message [" -ForegroundColor Yellow -NoNewline
+        Write-Host "Y" -ForegroundColor Green -NoNewline
+        Write-Host "/n]: " -ForegroundColor Yellow -NoNewline
+        $ans = Read-Host
+        if ([string]::IsNullOrWhiteSpace($ans)) { return $true }
+        return ($ans -match '^[Yy]')
+    } else {
+        Write-Host "$Message [y/" -ForegroundColor Yellow -NoNewline
+        Write-Host "N" -ForegroundColor Green -NoNewline
+        Write-Host "]: " -ForegroundColor Yellow -NoNewline
+        $ans = Read-Host
+        if ([string]::IsNullOrWhiteSpace($ans)) { return $false }
+        return ($ans -match '^[Yy]')
+    }
+}
+
 # 프로세스 종료 시까지 스피너를 표시해 대기 (타임아웃 없음 — 프로세스가 끝날 때까지 무조건 대기)
 function Wait-ProcessWithSpinner {
     param(

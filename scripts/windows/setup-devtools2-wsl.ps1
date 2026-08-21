@@ -339,13 +339,7 @@ if (-not ($wslFeatEnabled -and $vmFeatEnabled) -and -not (Test-Path $_wslResumeF
     # 재개 플래그 파일 저장 (재시작 후 이어서 진행하기 위해)
     Set-Content -Path $_wslResumeFlagFile -Value (Get-Date).ToString() -Encoding UTF8
 
-    do {
-        Write-Host "👉 지금 바로 컴퓨터를 재시작하시겠습니까? [Y/n] (기본값: Y): " -ForegroundColor Yellow -NoNewline
-        $rebootInput = [System.Console]::ReadLine()
-        $rebootChoice = if ([string]::IsNullOrWhiteSpace($rebootInput)) { "y" } else { $rebootInput.Trim().ToLower() }
-    } while ($rebootChoice -ne "y" -and $rebootChoice -ne "n")
-
-    if ($rebootChoice -eq "y") {
+    if (Prompt-Confirm "👉 지금 바로 컴퓨터를 재시작하시겠습니까?" "Y") {
         Write-Info "컴퓨터를 재시작합니다..."
         Start-Sleep -Seconds 2
         Restart-Computer -Force

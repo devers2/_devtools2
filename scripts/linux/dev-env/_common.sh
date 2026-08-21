@@ -73,21 +73,17 @@ prompt_read() {
 # prompt_confirm <prompt_message> [default: N|Y]
 # 반환: 0(참) = 'y'/'Y', 1(거짓) = 그 외
 # 사용법:
-#   if prompt_confirm "Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요?" "N"; then ...
+#   if prompt_confirm "👉 Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요?" "N"; then ...
+#   if prompt_confirm "👉 AutoHotKey를 설치하시겠습니까?" "Y"; then ...
 prompt_confirm() {
     local _msg="$1"
     local _def="${2:-N}"
     local _ans=""
-    
-    # 1. 질문 본문은 먼저 정상 개행(\n)과 함께 출력 (이모지/한글 줄바꿈 및 커서 깨짐 방지)
-    print_question "$_msg"
-    
-    # 2. 입력 프롬프트는 간결한 단일 라인으로 출력 (ANSI 파싱 충돌 및 [yN] 슬래시 누락 방지)
     if [ "$_def" = "Y" ] || [ "$_def" = "y" ]; then
-        prompt_read _ans "   선택 [Y/n] (기본값: Y): "
+        prompt_read _ans "${_msg} [${_C_DEFAULT}Y${_C_YELLOW}${_C_BOLD}/n]:"
         _ans=$(echo "${_ans:-y}" | tr '[:upper:]' '[:lower:]')
     else
-        prompt_read _ans "   선택 [y/N] (기본값: N): "
+        prompt_read _ans "${_msg} [y/${_C_DEFAULT}N${_C_YELLOW}${_C_BOLD}]:"
         _ans=$(echo "${_ans:-n}" | tr '[:upper:]' '[:lower:]')
     fi
     [ "$_ans" = "y" ]

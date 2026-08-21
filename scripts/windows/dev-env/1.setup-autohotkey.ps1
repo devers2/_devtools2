@@ -113,13 +113,7 @@ else {
 Write-Step "[Step 2] AutoHotkey v2 포터블 배포 및 단축키 등록"
 
 # ── AutoHotkey 설치 여부 확인 ─────────────────────────────────────────────────
-Write-Host ""
-Write-Host "👉 AutoHotKey를 설치하시겠습니까? [" -ForegroundColor Yellow -NoNewline
-Write-Host "Y" -ForegroundColor Green -NoNewline
-Write-Host "/n]: " -ForegroundColor Yellow -NoNewline
-$installAhk = Read-Host
-
-if ($installAhk -match '^[Nn]') {
+if (-not (Prompt-Confirm "👉 AutoHotKey를 설치하시겠습니까?" "Y")) {
     # ── n 선택: devtools2 관련 AHK만 동적으로 감지하여 정리 ─────────────────────
     Write-Info "AutoHotKey 설치를 건너뜁니다. devtools2 관련 AHK 기능을 비활성화합니다..."
 

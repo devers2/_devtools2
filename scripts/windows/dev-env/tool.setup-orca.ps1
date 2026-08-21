@@ -78,12 +78,7 @@ Write-Host "====================================================================
 # ==============================================================================
 Write-Step "[Step 1] Orca 설치 의사 확인"
 
-Write-Host ""
-Write-Host "👉 Orca(멀티 에이전트 오케스트레이션 ADE)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-Write-Host "N" -ForegroundColor Green -NoNewline
-Write-Host "]: " -ForegroundColor Yellow -NoNewline
-$installInput = Read-Host
-if (-not ($installInput -match '^[Yy]')) {
+if (-not (Prompt-Confirm "👉 Orca(멀티 에이전트 오케스트레이션 ADE)를 설치하시겠습니까?" "N")) {
     Write-Skip "Orca 설치를 건너뜁니다."
     Write-Host ""
     return

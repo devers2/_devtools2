@@ -116,12 +116,7 @@ if (-not $isAdmin) {
 # ==============================================================================
 Write-Step "[Step 1] VS Code 설치 의사 확인 및 설치"
 
-Write-Host ""
-Write-Host "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/" -ForegroundColor Yellow -NoNewline
-Write-Host "N" -ForegroundColor Green -NoNewline
-Write-Host "]: " -ForegroundColor Yellow -NoNewline
-$installVscodeInput = Read-Host
-if (-not ($installVscodeInput -match '^[Yy]')) {
+if (-not (Prompt-Confirm "👉 VS Code (Visual Studio Code)를 설치하시겠습니까?" "N")) {
     Write-Skip "VS Code 설치를 건너뜁니다."
     Write-Host ""
     return
