@@ -40,53 +40,44 @@ if [ -d "$DEVTOOLS2/modules/zed" ]; then
     exit 0
 fi
 
+_do_zed=false
 if [ -n "${DT2_ZED_CHOICE:-}" ]; then
-    _zed_choice="$DT2_ZED_CHOICE"
-else
-    echo ""
-    printf "👉 Zed 에디터를 설치하시겠습니까? [y/\033[1;32mN\033[0m]: "
-    if [ -t 0 ]; then
-        read -r _zed_choice
-    else
-        _zed_choice="N"
-    fi
-    echo ""
+    [ "${DT2_ZED_CHOICE,,}" = "y" ] && _do_zed=true
+elif prompt_confirm "👉 Zed 에디터를 설치하시겠습니까?" "N"; then
+    _do_zed=true
 fi
 
-case "${_zed_choice:-N}" in
-    y|Y)
-        if [ "${IS_WSL2:-false}" = true ]; then
-            _win_user="${WIN_USERPROFILE:-}"
-            if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
-                _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
-                [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=$(wslpath "$_raw_home" 2>/dev/null || true)
-            fi
-            for _p in \
-                "$_win_user/AppData/Local/Programs/Zed/bin" \
-                "/mnt/c/Users/${USER:-}/AppData/Local/Programs/Zed/bin" \
-                "/mnt/c/Program Files/Zed/bin"; do
-                if [ -d "$_p" ]; then
-                    ensure_path_in_bashrc "$_p"
-                    break
-                fi
-            done
-            print_done "Zed Windows 연동 완료"
-        else
-            print_info "Zed stable 다운로드 및 압축 해제..."
-            mkdir -p "$DEVTOOLS2/modules"
-            cd "$DEVTOOLS2/modules"
-            install_tool \
-                'https://github.com/zed-industries/zed/releases/latest/download/zed-linux-{ARCH}.tar.gz' \
-                'x86_64' \
-                'aarch64' \
-                'zed'
-            ensure_path_in_bashrc "$DEVTOOLS2/modules/zed"
-            print_done "Zed 설치 완료"
+if [ "$_do_zed" = true ]; then
+    if [ "${IS_WSL2:-false}" = true ]; then
+        _win_user="${WIN_USERPROFILE:-}"
+        if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
+            _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
+            [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=$(wslpath "$_raw_home" 2>/dev/null || true)
         fi
-        ;;
-    *)
-        print_skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
-        ;;
-esac
+        for _p in \
+            "$_win_user/AppData/Local/Programs/Zed/bin" \
+            "/mnt/c/Users/${USER:-}/AppData/Local/Programs/Zed/bin" \
+            "/mnt/c/Program Files/Zed/bin"; do
+            if [ -d "$_p" ]; then
+                ensure_path_in_bashrc "$_p"
+                break
+            fi
+        done
+        print_done "Zed Windows 연동 완료"
+    else
+        print_info "Zed stable 다운로드 및 압축 해제..."
+        mkdir -p "$DEVTOOLS2/modules"
+        cd "$DEVTOOLS2/modules"
+        install_tool \
+            'https://github.com/zed-industries/zed/releases/latest/download/zed-linux-{ARCH}.tar.gz' \
+            'x86_64' \
+            'aarch64' \
+            'zed'
+        ensure_path_in_bashrc "$DEVTOOLS2/modules/zed"
+        print_done "Zed 설치 완료"
+    fi
+else
+    print_skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+fi
 
 echo ""

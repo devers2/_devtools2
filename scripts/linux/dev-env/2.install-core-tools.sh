@@ -382,13 +382,7 @@ if [ -f "package.json" ]; then
     if [ "$_has_npm_pkgs" = true ]; then
         echo ""
         print_warn "이미 글로벌 npm 패키지가 설치되어 있습니다."
-        _npm_choice="n"
-        if [ -t 0 ]; then
-            prompt_input "   글로벌 npm 패키지를 다시 복구(npm install)하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: "
-            read -r _npm_choice
-        fi
-        _npm_choice_lower=$(echo "${_npm_choice:-n}" | tr '[:upper:]' '[:lower:]')
-        if [ "$_npm_choice_lower" = "y" ]; then
+        if prompt_confirm "   글로벌 npm 패키지를 다시 복구(npm install)하시겠습니까?" "N"; then
             _do_npm_install=true
         else
             print_info "기존 글로벌 npm 패키지를 유지합니다 (건너뜀)."
@@ -427,10 +421,7 @@ cd "$DEVTOOLS2/modules/neovim"
 
 if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
     # 사용자에게 선택 입력 요청
-    prompt_read choice "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: "
-
-    case "$choice" in
-    y | Y)
+    if prompt_confirm "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까?" "N"; then
         echo "   🗑️  기존 디렉토리 삭제 중..."
         rm -rf "$DEVTOOLS2/modules/neovim/nvim"
         echo "   📦 Neovim stable 다운로드 및 압축 해제..."
@@ -439,11 +430,9 @@ if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
             'x86_64' \
             'arm64' \
             'nvim'
-        ;;
-    *)
+    else
         echo "   ⏭️ [건너뜀] neovim 디렉토리가 이미 존재합니다."
-        ;;
-    esac
+    fi
 else
     echo "   📦 Neovim stable 다운로드 및 압축 해제..."
     install_tool \

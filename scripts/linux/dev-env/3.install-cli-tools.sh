@@ -713,86 +713,11 @@ else
 fi
 echo ""
 
-echo "---------------------------------------------------------------------------"
-echo "🐛 8. Gradle DAP (디버거 Attach) 전역 설정"
-echo ""
-echo "   Gradle bootRun 실행 시 JDWP(Java Debug Wire Protocol)를 자동으로 활성화하여"
-echo "   DAP 클라이언트(Neovim DAP 등)를 포트 5005 로 Attach 할 수 있게 됩니다."
-echo ""
-echo "   대상 파일: ~/.gradle/init.d/debug.gradle"
-echo ""
-print_info "💡 Neovim 사용 안내:"
-echo "      - <leader> + d + a 단축키로 실행 중인 JVM에 attach 합니다."
-echo "      - (참고) Mason 에서 java-debug-adapter 가 설치되어 있어야 함."
-echo ""
-prompt_input "👉 Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [y/${_C_DEFAULT}N${_C_RESET}]: "
-read -r dap_answer
-echo ""
-
-# 기본값 n: 이 프로젝트의 기본 디버그 흐름은 launch 모드(dap.lua)라서, attach용 전역
-# JDWP 설정을 기본으로 깔 필요가 없습니다 — 필요한 사람만 명시적으로 y를 입력하세요.
-dap_answer_lower=$(echo "${dap_answer:-n}" | tr '[:upper:]' '[:lower:]')
-
-if [ "$dap_answer_lower" = "y" ]; then
-    GRADLE_INIT_DIR="$HOME/.gradle/init.d"
-    GRADLE_DEBUG_FILE="$GRADLE_INIT_DIR/debug.gradle"
-
-    mkdir -p "$GRADLE_INIT_DIR"
-
-    # 파일이 이미 존재하는 경우 교체 여부 확인 (기본값 n: 덮어쓰지 않음)
-    do_write=true
-    if [ -f "$GRADLE_DEBUG_FILE" ]; then
-        echo ""
-        print_warn "파일이 이미 존재합니다: $GRADLE_DEBUG_FILE"
-        prompt_input "   기존 파일을 새 설정으로 교체할까요? [y/${_C_DEFAULT}N${_C_RESET}]: "
-        read -r overwrite_answer
-        echo ""
-        overwrite_lower=$(echo "${overwrite_answer:-n}" | tr '[:upper:]' '[:lower:]')
-        if [ "$overwrite_lower" != "y" ]; then
-            do_write=false
-            print_info "기존 파일을 유지합니다."
-        fi
-    fi
-
-    if [ "$do_write" = "true" ]; then
-        cat > "$GRADLE_DEBUG_FILE" << 'EOF'
-allprojects {
-  tasks.withType(JavaExec).configureEach {
-    if (name == "bootRun") {
-      // jvmArgs 리스트에 "-agentlib:jdwp"로 시작하는 설정이 있는지 확인
-      def hasJDWP = jvmArgs.any { it.toString().contains("-agentlib:jdwp") }
-
-      if (hasJDWP) {
-        // 로컬(-I 옵션 등)에서 이미 설정했다면 전역 설정(5005)은 하지 않음
-        println ">>> [Global] Custom debug config detected. Prioritizing your custom port."
-      } else {
-        def javaVersion = org.gradle.api.JavaVersion.current()
-        def debugAddress = "127.0.0.1:5005"
-
-        // suspend=y 로 변경하면 디버거가 연결(Attach)되기 전까지 대기한다.
-        jvmArgs("-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=${debugAddress}")
-        println ">>> [Global] Default JDWP Address assigned: ${debugAddress} (Java Version: ${javaVersion})"
-      }
-    }
-  }
-}
-EOF
-
-        echo "   ✅ Gradle DAP Attach 전역 설정 완료"
-        echo "      파일: $GRADLE_DEBUG_FILE"
-        echo "      포트: 127.0.0.1:5005 (suspend=n, Attach 모드)"
-    fi
-else
-    GRADLE_DEBUG_FILE="$HOME/.gradle/init.d/debug.gradle"
-    if [ -f "$GRADLE_DEBUG_FILE" ]; then
-        rm -f "$GRADLE_DEBUG_FILE"
-        echo "   🗑️  이전에 설치된 Attach 모드 설정을 삭제했습니다: $GRADLE_DEBUG_FILE"
-    else
-        echo "   ⏭️  건너뜀: Gradle DAP Attach 전역 설정을 나중에 추가하려면"
-        echo "      $GRADLE_DEBUG_FILE 파일을 직접 생성하세요."
-    fi
-fi
-echo ""
+# ==============================================================================
+# 8. Gradle DAP (디버거 Attach) 전역 설정
+# (구현부: scripts/linux/dev-env/_install-utils.sh configure_gradle_dap)
+# ==============================================================================
+configure_gradle_dap
 
 # ==============================================================================
 # 9. Neovim 플러그인 & 개발 환경 최종 동기화 (Lazy + Treesitter + Mason)

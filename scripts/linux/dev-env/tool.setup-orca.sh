@@ -58,15 +58,14 @@ else
     echo "   ℹ️  Orca는 여러 코딩 에이전트를 Git worktree로 격리해 병렬로 실행/조율하는"
     echo "      에이전트 오케스트레이션 도구입니다 (Claude Code, Codex, Gemini 등 지원)."
     echo ""
-    printf "   👉 Orca를 설치하시겠습니까? [y/\033[1;32mN\033[0m]: "
-    if [ -t 0 ]; then
-        read -r _orca_choice
-    else
-        _orca_choice="N"
+    _do_orca=false
+    if [ -n "${DT2_ORCA_CHOICE:-}" ]; then
+        [ "${DT2_ORCA_CHOICE,,}" = "y" ] && _do_orca=true
+    elif prompt_confirm "   👉 Orca를 설치하시겠습니까?" "N"; then
+        _do_orca=true
     fi
-    echo ""
-    case "${_orca_choice:-N}" in
-        y|Y)
+
+    if [ "$_do_orca" = true ]; then
             if [ "$IS_WSL2" = true ]; then
                 echo "   ⚠️  [WSL2 환경 감지] Orca 실행부(orca serve)는 CLI 에이전트가 실제로 설치된"
                 echo "      이 WSL2 내부에 헤드리스로 설치합니다. Windows 쪽에는 여기 페어링만 하는"
@@ -83,11 +82,9 @@ else
                 print_error "Orca AppImage 다운로드 실패"
                 _orca_proceed=false
             fi
-            ;;
-        *)
-            echo "   ⏭️ Orca 설치를 건너뜁니다."
-            ;;
-    esac
+    else
+        echo "   ⏭️ Orca 설치를 건너뜁니다."
+    fi
 fi
 
 if [ "$_orca_proceed" = true ]; then

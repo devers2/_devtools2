@@ -35,22 +35,14 @@ source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-re
 
 print_banner "💻 VS Code 에디터 설치 및 확장 연동 (tool.setup-vscode.sh)"
 
-# [1] 설치 의사 확인
+_do_vscode=false
 if [ -n "${DT2_VSCODE_CHOICE:-}" ]; then
-    _vscode_choice="$DT2_VSCODE_CHOICE"
-else
-    echo ""
-    printf "👉 VS Code (Visual Studio Code)를 설치하시겠습니까? [y/\033[1;32mN\033[0m]: "
-    if [ -t 0 ]; then
-        read -r _vscode_choice
-    else
-        _vscode_choice="N"
-    fi
-    echo ""
+    [ "${DT2_VSCODE_CHOICE,,}" = "y" ] && _do_vscode=true
+elif prompt_confirm "👉 VS Code (Visual Studio Code)를 설치하시겠습니까?" "N"; then
+    _do_vscode=true
 fi
 
-case "${_vscode_choice:-N}" in
-    y|Y)
+if [ "$_do_vscode" = true ]; then
         if [ "${IS_WSL2:-false}" = true ]; then
             # binfmt_misc WSLInterop 복구 (Exec format error 예방)
             if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ] && [ -w /proc/sys/fs/binfmt_misc/register ]; then
@@ -164,11 +156,9 @@ case "${_vscode_choice:-N}" in
         else
             print_warn "extensions.txt 없음: $VSCODE_EXT_LIST"
         fi
-        ;;
-    *)
+    else
         print_skip "VSCode 설치를 건너뜁니다. 기존 설정은 유지됩니다."
-        ;;
-esac
+    fi
 
 print_done "VSCode 단계 완료"
 echo ""

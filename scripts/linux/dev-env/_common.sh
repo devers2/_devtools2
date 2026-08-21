@@ -69,6 +69,25 @@ prompt_read() {
     echo ""
 }
 
+# ── Yes/No 확인 프롬프트 헬퍼 ─────────────────────────────────────────
+# prompt_confirm <prompt_message> [default: N|Y]
+# 반환: 0(참) = 'y'/'Y', 1(거짓) = 그 외
+# 사용법:
+#   if prompt_confirm "Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요?" "N"; then ...
+prompt_confirm() {
+    local _msg="$1"
+    local _def="${2:-N}"
+    local _ans=""
+    if [ "$_def" = "Y" ] || [ "$_def" = "y" ]; then
+        prompt_read _ans "${_msg} [${_C_DEFAULT}Y${_C_RESET}/n]: "
+        _ans=$(echo "${_ans:-y}" | tr '[:upper:]' '[:lower:]')
+    else
+        prompt_read _ans "${_msg} [y/${_C_DEFAULT}N${_C_RESET}]: "
+        _ans=$(echo "${_ans:-n}" | tr '[:upper:]' '[:lower:]')
+    fi
+    [ "$_ans" = "y" ]
+}
+
 # ── 스피너 ─────────────────────────────────────────────────────────────────
 # 사용법: run_with_spinner <label> <pid>
 #         run_with_spinner_cmd <label> <command...>
