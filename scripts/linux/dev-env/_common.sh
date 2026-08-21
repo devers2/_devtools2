@@ -60,13 +60,16 @@ print_option() {
 }
 prompt_input() { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
 # prompt_read <varname> <prompt message>
-# prompt_input + read -r 를 하나의 함수로 처리하여 세미콜론 연결에 의한 줄 겹침 방지
+# prompt_input + read -r 를 하나의 함수로 처리하며, 터미널 TTY 커서/출력 상태를 완전 복구
 # 사용법: prompt_read my_var "선택하세요 [y/N]: "
 prompt_read() {
     local _pr_var="$1"; shift
+    stty sane 2>/dev/null || true
+    printf "\r"
     prompt_input "$@"
     IFS= read -r "$_pr_var" </dev/tty || true
-    echo ""
+    stty sane 2>/dev/null || true
+    printf "\r\n"
 }
 
 # ── Yes/No 확인 프롬프트 헬퍼 ─────────────────────────────────────────
@@ -80,10 +83,10 @@ prompt_confirm() {
     local _def="${2:-N}"
     local _ans=""
     if [ "$_def" = "Y" ] || [ "$_def" = "y" ]; then
-        prompt_read _ans "${_msg} [${_C_DEFAULT}Y${_C_YELLOW}${_C_BOLD}/n]:"
+        prompt_read _ans "${_msg} [${_C_DEFAULT}Y${_C_RESET}${_C_YELLOW}${_C_BOLD}/n]:"
         _ans=$(echo "${_ans:-y}" | tr '[:upper:]' '[:lower:]')
     else
-        prompt_read _ans "${_msg} [y/${_C_DEFAULT}N${_C_YELLOW}${_C_BOLD}]:"
+        prompt_read _ans "${_msg} [y/${_C_DEFAULT}N${_C_RESET}${_C_YELLOW}${_C_BOLD}]:"
         _ans=$(echo "${_ans:-n}" | tr '[:upper:]' '[:lower:]')
     fi
     [ "$_ans" = "y" ]
