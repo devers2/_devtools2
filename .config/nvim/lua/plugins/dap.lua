@@ -21,6 +21,21 @@ return {
       dap.defaults.fallback = dap.defaults.fallback or {}
       -- 하나의 스레드에서 브레이크 포인트에 걸렸을때 또 다른 스레드가 브레이크 포인트에서 걸렸을때 통과 여부(동시성 테스트가 아니라면 true 권장)
       dap.defaults.fallback.auto_continue_if_many_stopped = true
+
+      -- DAP 터미널 창 생성 시 포커스를 로그 창에 두고 커서를 맨 마지막 줄로 이동시켜 실시간 자동 스크롤 보장
+      dap.defaults.fallback.terminal_win_cmd = function()
+        vim.cmd('belowright new')
+        local term_win = vim.api.nvim_get_current_win()
+        local term_buf = vim.api.nvim_get_current_buf()
+        vim.schedule(function()
+          if vim.api.nvim_win_is_valid(term_win) and vim.api.nvim_buf_is_valid(term_buf) then
+            vim.api.nvim_set_current_win(term_win)
+            local line_count = vim.api.nvim_buf_line_count(term_buf)
+            pcall(vim.api.nvim_win_set_cursor, term_win, { line_count, 0 })
+          end
+        end)
+        return term_buf, term_win
+      end
       -- winfixbuf 관련 버퍼 스위칭 에러(E1513) 방지를 위한 커스텀 switchbuf 로직
       dap.defaults.fallback.switchbuf = function(bufnr, line, column)
         local api = vim.api
@@ -91,6 +106,31 @@ return {
       -- 대신 디버깅 시작 시 nvim-dap-view가 자동으로 열리도록 설정
       dap.listeners.after.event_initialized['dapview_config'] = function()
         require('dap-view').open()
+
+        -- 디버깅 실행 시 포커스를 로그/터미널 창에 두고, 커서를 맨 마지막 줄로 이동시켜 실시간 자동 스크롤(Auto-Scroll) 활성화
+        vim.schedule(function()
+          local log_win = nil
+          for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+            if vim.api.nvim_win_is_valid(win) then
+              local buf = vim.api.nvim_win_get_buf(win)
+              local bt = vim.bo[buf].buftype
+              local ft = vim.bo[buf].filetype
+
+              if bt == 'terminal' or ft == 'dap-view-term' or ft == 'dap-repl' then
+                log_win = win
+                local line_count = vim.api.nvim_buf_line_count(buf)
+                pcall(vim.api.nvim_win_set_cursor, win, { line_count, 0 })
+              end
+            end
+          end
+
+          if log_win and vim.api.nvim_win_is_valid(log_win) then
+            pcall(vim.api.nvim_set_current_win, log_win)
+            local buf = vim.api.nvim_win_get_buf(log_win)
+            local line_count = vim.api.nvim_buf_line_count(buf)
+            pcall(vim.api.nvim_win_set_cursor, log_win, { line_count, 0 })
+          end
+        end)
       end
       -- 디버깅 종료 시 nvim-dap-view가 자동으로 닫히도록 설정
       dap.listeners.before.event_terminated['dapview_config'] = function()
