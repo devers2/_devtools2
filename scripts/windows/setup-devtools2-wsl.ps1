@@ -386,7 +386,7 @@ Write-Info "대상 WSL2 배포판: $wslDistro"
 # ==============================================================================
 Write-Info "WSL2 배포판($wslDistro) 접근 가능 여부 확인 중..."
 $distroReady = Wait-WithSpinner -Message "WSL2 배포판($wslDistro) 준비 확인" -Condition {
-    $out = wsl -d $wslDistro -- echo ready 2>$null
+    $out = (wsl -d $wslDistro -- echo ready 2>$null) | Out-String
     ($out -replace "`0","").Trim() -eq "ready"
 } -MaxTimeoutSeconds 60
 if ($distroReady) {

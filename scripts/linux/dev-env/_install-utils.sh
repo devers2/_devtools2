@@ -122,7 +122,9 @@ _resolve_action() {
             # 화면에 안 보인 채 read만 기다리는 상태가 됩니다. stderr로 분리합니다.
             echo "" >&2
             echo "   ⚠️  ${tool_name}이(가) 이미 설치되어 있습니다." >&2
-            prompt_input "   삭제 후 재설치하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: " >&2; read -r _dup_sel
+            printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "   삭제 후 재설치하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: " >&2
+            IFS= read -r _dup_sel </dev/tty || true
+            echo "" >&2
             case "${_dup_sel:-N}" in
                 y|Y) echo "reinstall" ;;
                 *)   echo "skip" ;;
@@ -149,7 +151,7 @@ _select_version_mode() {
     print_option "2" "모든 도구 지정 버전으로 설치 (TOML 고정/최종 설치 버전)" "[기본값]"
     print_option "3" "도구별 개별 확인 (최신/지정 버전 선택)"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "; read -r _ver_choice
+    prompt_read _ver_choice "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "
     echo ""
     case "${_ver_choice:-2}" in
         1) VERSION_MODE="latest"     ; print_info "버전 선택: 모든 도구 최신 버전 선택됨" ;;

@@ -159,7 +159,7 @@ if [ "$_HAS_INSTALLED" = true ]; then
     print_option "2" "기존 도구 유지 (건너뛰기)" "[기본값]"
     print_option "3" "도구별 개별 확인 (재설치/건너뛰기 선택)"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "; read -r _dup_choice
+    prompt_read _dup_choice "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "
     echo ""
     case "${_dup_choice:-2}" in
         1) DUPLICATE_MODE="remove"     ; print_info "중복 처리: 묻지 않고 삭제 후 재설치 선택됨" ;;
@@ -269,7 +269,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_fzf_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $FZF_PINNED [기본값]"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "; read -r _fzf_vs
+    prompt_read _fzf_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
     case "${_fzf_vs:-2}" in
         1) [ -n "$_fzf_latest" ] && FZF_VERSION="$_fzf_latest" || FZF_VERSION="$FZF_PINNED" ;;
         *) FZF_VERSION="$FZF_PINNED" ;;
@@ -313,7 +313,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_lg_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $LAZYGIT_PINNED [기본값]"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "; read -r _lg_vs
+    prompt_read _lg_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
     case "${_lg_vs:-2}" in
         1) [ -n "$_lg_latest" ] && LAZYGIT_VERSION="$_lg_latest" || LAZYGIT_VERSION="$LAZYGIT_PINNED" ;;
         *) LAZYGIT_VERSION="$LAZYGIT_PINNED" ;;
@@ -357,7 +357,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_rg_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $RIPGREP_PINNED [기본값]"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "; read -r _rg_vs
+    prompt_read _rg_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
     case "${_rg_vs:-2}" in
         1) [ -n "$_rg_latest" ] && RIPGREP_VERSION="$_rg_latest" || RIPGREP_VERSION="$RIPGREP_PINNED" ;;
         *) RIPGREP_VERSION="$RIPGREP_PINNED" ;;
@@ -401,7 +401,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_fd_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $FD_PINNED [기본값]"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "; read -r _fd_vs
+    prompt_read _fd_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
     case "${_fd_vs:-2}" in
         1) [ -n "$_fd_latest" ] && FD_VERSION="$_fd_latest" || FD_VERSION="$FD_PINNED" ;;
         *) FD_VERSION="$FD_PINNED" ;;
@@ -445,7 +445,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_sg_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $ASTGREP_PINNED [기본값]"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "; read -r _sg_vs
+    prompt_read _sg_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
     case "${_sg_vs:-2}" in
         1) [ -n "$_sg_latest" ] && ASTGREP_VERSION="$_sg_latest" || ASTGREP_VERSION="$ASTGREP_PINNED" ;;
         *) ASTGREP_VERSION="$ASTGREP_PINNED" ;;
@@ -490,7 +490,7 @@ if [ "$VERSION_MODE" = "individual" ] && [ "$IS_ARM64" = true ]; then
     echo "   1) 최신 버전: ${_bw_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $BITWARDEN_ARM_PINNED [기본값]"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "; read -r _bw_vs
+    prompt_read _bw_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
     case "${_bw_vs:-2}" in
         1) [ -n "$_bw_latest" ] && BITWARDEN_ARM_VERSION="$_bw_latest" || BITWARDEN_ARM_VERSION="$BITWARDEN_ARM_PINNED" ;;
         *) BITWARDEN_ARM_VERSION="$BITWARDEN_ARM_PINNED" ;;
@@ -536,7 +536,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_rc_latest:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $RCLONE_PINNED [기본값]"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "; read -r _rc_vs
+    prompt_read _rc_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
     case "${_rc_vs:-2}" in
         1) [ -n "$_rc_latest" ] && RCLONE_VERSION="$_rc_latest" || RCLONE_VERSION="$RCLONE_PINNED" ;;
         *) RCLONE_VERSION="$RCLONE_PINNED" ;;
@@ -587,7 +587,7 @@ if [ "$IS_WSL2" = true ]; then
         echo "   1) 최신 버전: ${_wy_latest:-[조회 실패 - 선택 불가]}"
         echo "   2) 최종 설치 버전: $WIN32YANK_PINNED [기본값]"
         echo ""
-        prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "; read -r _wy_vs
+        prompt_read _wy_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
         case "${_wy_vs:-2}" in
             1) [ -n "$_wy_latest" ] && WIN32YANK_VERSION="$_wy_latest" || WIN32YANK_VERSION="$WIN32YANK_PINNED" ;;
             *) WIN32YANK_VERSION="$WIN32YANK_PINNED" ;;
@@ -723,9 +723,11 @@ echo "   대상 파일: ~/.gradle/init.d/debug.gradle"
 echo ""
 print_info "💡 Neovim 사용 안내:"
 echo "      - <leader> + d + a 단축키로 실행 중인 JVM에 attach 합니다."
-echo "      - ※ :Mason 에서 java-debug-adapter 가 설치되어 있어야 함."
+echo "      - (참고) Mason 에서 java-debug-adapter 가 설치되어 있어야 함."
 echo ""
-prompt_input "❓ Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [y/${_C_DEFAULT}N${_C_RESET}]: "; read -r dap_answer
+prompt_input "👉 Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요? [y/${_C_DEFAULT}N${_C_RESET}]: "
+read -r dap_answer
+echo ""
 
 # 기본값 n: 이 프로젝트의 기본 디버그 흐름은 launch 모드(dap.lua)라서, attach용 전역
 # JDWP 설정을 기본으로 깔 필요가 없습니다 — 필요한 사람만 명시적으로 y를 입력하세요.
@@ -742,7 +744,9 @@ if [ "$dap_answer_lower" = "y" ]; then
     if [ -f "$GRADLE_DEBUG_FILE" ]; then
         echo ""
         print_warn "파일이 이미 존재합니다: $GRADLE_DEBUG_FILE"
-        prompt_input "   기존 파일을 새 설정으로 교체할까요? [y/${_C_DEFAULT}N${_C_RESET}]: "; read -r overwrite_answer
+        prompt_input "   기존 파일을 새 설정으로 교체할까요? [y/${_C_DEFAULT}N${_C_RESET}]: "
+        read -r overwrite_answer
+        echo ""
         overwrite_lower=$(echo "${overwrite_answer:-n}" | tr '[:upper:]' '[:lower:]')
         if [ "$overwrite_lower" != "y" ]; then
             do_write=false

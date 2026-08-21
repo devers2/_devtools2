@@ -151,7 +151,7 @@ if [ "$_HAS_INSTALLED" = true ]; then
     print_option "2" "기존 도구 유지 (건너뛰기)" "[기본값]"
     print_option "3" "도구별 개별 확인 (재설치/건너뛰기 선택)"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "; read -r _dup_choice
+    prompt_read _dup_choice "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "
     echo ""
     case "${_dup_choice:-2}" in
         1) DUPLICATE_MODE="remove"     ; print_info "중복 처리: 묻지 않고 삭제 후 재설치 선택됨" ;;
@@ -334,7 +334,7 @@ if [ "$VERSION_MODE" = "individual" ]; then
     echo "   1) 최신 버전: ${_nl_ind:-[조회 실패 - 선택 불가]}"
     echo "   2) 최종 설치 버전: $NODEJS_PINNED [기본값]"
     echo ""
-    prompt_input "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "; read -r _nv_sel
+    prompt_read _nv_sel "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
     case "${_nv_sel:-2}" in
         1) [ -n "$_nl_ind" ] && NODEJS_VERSION="$_nl_ind" || NODEJS_VERSION="$NODEJS_PINNED" ;;
         *) NODEJS_VERSION="$NODEJS_PINNED" ;;
@@ -427,7 +427,7 @@ cd "$DEVTOOLS2/modules/neovim"
 
 if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
     # 사용자에게 선택 입력 요청
-    prompt_input "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: "; read -r choice
+    prompt_read choice "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: "
 
     case "$choice" in
     y | Y)
@@ -479,7 +479,7 @@ else
         echo "   1) 최신 버전: ${_gl_ind:-[조회 실패 - 선택 불가]}"
         echo "   2) 최종 설치 버전: $GHOSTTY_PINNED [기본값]"
         echo ""
-        read -rp "   선택 (1-2, 기본값: 2): " _gv_sel
+        prompt_read _gv_sel "   선택 (1-2, 기본값: 2): "
         case "${_gv_sel:-2}" in
             1) [ -n "$_gl_ind" ] && GHOSTTY_VERSION="$_gl_ind" || GHOSTTY_VERSION="$GHOSTTY_PINNED" ;;
             *) GHOSTTY_VERSION="$GHOSTTY_PINNED" ;;

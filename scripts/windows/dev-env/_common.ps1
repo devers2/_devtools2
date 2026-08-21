@@ -105,7 +105,7 @@ function Wait-WithSpinner {
             Write-Host "`r  [시간 초과] $Message (제한 시간 초과)   " -ForegroundColor Red
             return $false
         }
-        $done = & $Condition
+        $done = [bool](& $Condition)
         if ($done) {
             Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
             return $true

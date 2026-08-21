@@ -59,6 +59,15 @@ print_option() {
     fi
 }
 prompt_input() { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
+# prompt_read <varname> <prompt message>
+# prompt_input + read -r 를 하나의 함수로 처리하여 세미콜론 연결에 의한 줄 겹침 방지
+# 사용법: prompt_read my_var "선택하세요 [y/N]: "
+prompt_read() {
+    local _pr_var="$1"; shift
+    prompt_input "$@"
+    IFS= read -r "$_pr_var" </dev/tty || true
+    echo ""
+}
 
 # ── 스피너 ─────────────────────────────────────────────────────────────────
 # 사용법: run_with_spinner <label> <pid>
