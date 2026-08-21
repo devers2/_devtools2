@@ -22,6 +22,83 @@ return {
       -- 하나의 스레드에서 브레이크 포인트에 걸렸을때 또 다른 스레드가 브레이크 포인트에서 걸렸을때 통과 여부(동시성 테스트가 아니라면 true 권장)
       dap.defaults.fallback.auto_continue_if_many_stopped = true
 
+      -- [DAP 표준 프로세스 ID(PID) 추적 및 종료 관리자]
+      -- DAP 프로토콜 표준(event_process) 및 java-debug(event_processId) 이벤트를 통해
+      -- 디버거가 실행한 실제 OS 프로세스 PID(systemProcessId)를 실시간으로 추적합니다.
+      -- 특정 언어나 MAIN_CLASS 변수 유무와 무관하게, 세션 종료 시 정확한 PID를 직접 강제 종료합니다.
+      local active_debug_pids = {}
+
+      dap.listeners.before['event_process']['track_pid'] = function(session, body)
+        if body and (body.systemProcessId or body.processId) then
+          local pid = tonumber(body.systemProcessId or body.processId)
+          if pid and pid > 0 then
+            active_debug_pids[session.id] = pid
+          end
+        end
+      end
+
+      dap.listeners.before['event_processId']['track_pid'] = function(session, body)
+        if body and (body.systemProcessId or body.processId) then
+          local pid = tonumber(body.systemProcessId or body.processId)
+          if pid and pid > 0 then
+            active_debug_pids[session.id] = pid
+          end
+        end
+      end
+
+      local function kill_debuggee_process(session)
+        local session_id = session and session.id or (dap.session() and dap.session().id)
+        local pid = session_id and active_debug_pids[session_id]
+
+        -- 1) DAP 표준 이벤트로 추적된 정확한 OS PID 직접 종료
+        if pid and pid > 0 then
+          active_debug_pids[session_id] = nil
+          if _G.OS_TYPE == _G.OS.WINDOWS then
+            pcall(vim.system, { 'taskkill', '/F', '/T', '/PID', tostring(pid) }, {}, function() end)
+          else
+            pcall(vim.system, { 'kill', '-9', tostring(pid) }, {}, function() end)
+          end
+          return
+        end
+
+        -- 2) Fallback: .nvim.lua의 MAIN_CLASS가 존재하는 경우에만 보조 수단으로 활용
+        local main_class = _G.MAIN_CLASS
+        if main_class and main_class ~= "" then
+          if _G.OS_TYPE == _G.OS.WINDOWS then
+            pcall(vim.system, {
+              "powershell.exe",
+              "-NoProfile",
+              "-Command",
+              string.format(
+                "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*%s*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+                main_class
+              ),
+            })
+          else
+            pcall(vim.system, { "pkill", "-9", "-f", main_class }, {}, function() end)
+          end
+        end
+      end
+      _G.kill_debuggee_process = kill_debuggee_process
+
+      -- [Disconnect terminate=true 및 terminate 시 확실한 프로세스 종료 보장]
+      local orig_terminate = dap.terminate
+      dap.terminate = function(...)
+        kill_debuggee_process()
+        return orig_terminate(...)
+      end
+
+      local orig_disconnect = dap.disconnect
+      dap.disconnect = function(opts, cb)
+        opts = opts or {}
+        if opts.terminateDebuggee == true then
+          dap.terminate(nil, nil, cb)
+          kill_debuggee_process()
+          return
+        end
+        orig_disconnect(opts, cb)
+      end
+
       -- DAP 터미널 창 생성 시 포커스를 로그 창에 두고 커서를 맨 마지막 줄로 이동시켜 실시간 자동 스크롤 보장
       dap.defaults.fallback.terminal_win_cmd = function()
         vim.cmd('belowright new')
@@ -132,12 +209,14 @@ return {
           end
         end)
       end
-      -- 디버깅 종료 시 nvim-dap-view가 자동으로 닫히도록 설정
+      -- 디버깅 종료 시 nvim-dap-view가 자동으로 닫히고 프로세스를 정리하도록 설정
       dap.listeners.before.event_terminated['dapview_config'] = function()
         require('dap-view').close()
+        kill_debuggee_process()
       end
       dap.listeners.before.event_exited['dapview_config'] = function()
         require('dap-view').close()
+        kill_debuggee_process()
       end
 
       -- Console(dap-view-term) 창에서 포커스가 벗어나면 자동으로 맨 아래로 스크롤합니다.
@@ -469,6 +548,8 @@ return {
       --    마지막으로 입력한 프로필을 자동 기억하여 기본값으로 제안합니다.
       -- ===========================================================================================
       local function run_java_launch(config, run_opts, run_next)
+        -- 이전 실행에서 살아남은 포트/프로세스가 있으면 충돌 방지를 위해 선제적 정리
+        kill_debuggee_process()
         -- .nvim.lua에 MAIN_CLASS가 정의되어 있고 config에 mainClass가 없으면 자동 주입
         ---@diagnostic disable-next-line: undefined-field
         if not config.mainClass and _G.MAIN_CLASS then
