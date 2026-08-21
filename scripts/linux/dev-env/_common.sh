@@ -78,11 +78,16 @@ prompt_confirm() {
     local _msg="$1"
     local _def="${2:-N}"
     local _ans=""
+    
+    # 1. 질문 본문은 먼저 정상 개행(\n)과 함께 출력 (이모지/한글 줄바꿈 및 커서 깨짐 방지)
+    print_question "$_msg"
+    
+    # 2. 입력 프롬프트는 간결한 단일 라인으로 출력 (ANSI 파싱 충돌 및 [yN] 슬래시 누락 방지)
     if [ "$_def" = "Y" ] || [ "$_def" = "y" ]; then
-        prompt_read _ans "${_msg} [${_C_DEFAULT}Y${_C_RESET}/n]: "
+        prompt_read _ans "   선택 [Y/n] (기본값: Y): "
         _ans=$(echo "${_ans:-y}" | tr '[:upper:]' '[:lower:]')
     else
-        prompt_read _ans "${_msg} [y/${_C_DEFAULT}N${_C_RESET}]: "
+        prompt_read _ans "   선택 [y/N] (기본값: N): "
         _ans=$(echo "${_ans:-n}" | tr '[:upper:]' '[:lower:]')
     fi
     [ "$_ans" = "y" ]
