@@ -123,8 +123,13 @@ return {
       _G.close_debug_ui = close_debug_ui
 
       -- [Disconnect 및 terminate 시 UI 자동 닫기 + 프로세스 강제 종료 보장]
+      -- _dap_keep_process = true 이면 event_terminated/exited 리스너에서 kill을 생략합니다.
+      -- (2번: Disconnect (terminate = false) 선택 시 서버를 살려두기 위해 사용)
+      local _dap_keep_process = false
+
       local orig_terminate = dap.terminate
       dap.terminate = function(...)
+        _dap_keep_process = false
         close_debug_ui()
         kill_debuggee_process()
         return orig_terminate(...)
@@ -133,13 +138,19 @@ return {
       local orig_disconnect = dap.disconnect
       dap.disconnect = function(opts, cb)
         opts = opts or {}
-        close_debug_ui()
         if opts.terminateDebuggee == true then
+          -- 1번: 디버깅 UI + 프로세스 모두 종료
+          _dap_keep_process = false
+          close_debug_ui()
           dap.terminate(nil, nil, cb)
-          kill_debuggee_process()
           return
+        else
+          -- 2번: 디버거 연결만 끊기 (서버 프로세스는 유지)
+          -- event_terminated 이벤트가 와도 kill을 건너뛰도록 플래그를 세움
+          _dap_keep_process = true
+          close_debug_ui()
+          orig_disconnect(opts, cb)
         end
-        orig_disconnect(opts, cb)
       end
 
       -- DAP 터미널 창 생성 시 포커스를 로그 창에 두고 커서를 맨 마지막 줄로 이동시켜 실시간 자동 스크롤 보장
@@ -224,26 +235,53 @@ return {
 
 
       -- 대신 디버깅 시작 시 nvim-dap-view가 자동으로 열리도록 설정
-      dap.listeners.after.event_initialized['dapview_config'] = function()
+      dap.listeners.after.event_initialized['dapview_config'] = function(session)
         require('dap-view').open()
 
-        -- 디버깅 실행 시 포커스를 로그/터미널 창에 두고, 커서를 맨 마지막 줄로 이동시켜 실시간 자동 스크롤(Auto-Scroll) 활성화
+        -- 디버깅 실행 시 로그/터미널 창 열림 보장 및 자동 스크롤:
+        -- 1) 사용자가 이전에 로그 창을 :q로 닫았더라도 새 디버깅 시작 시 다시 열어줌
+        -- 2) 단, 이미 열려 있는 경우에는 중복으로 2개 열리지 않도록 기존 창을 재사용
+        -- 3) 커서를 맨 마지막 줄로 이동시켜 실시간 자동 스크롤(Auto-Scroll) 활성화
         vim.schedule(function()
-          local log_win = nil
-          for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-            if vim.api.nvim_win_is_valid(win) then
-              local buf = vim.api.nvim_win_get_buf(win)
-              local bt = vim.bo[buf].buftype
-              local ft = vim.bo[buf].filetype
+          local current_session = session or dap.session()
+          local term_buf = current_session and current_session.term_buf
 
-              if bt == 'terminal' or ft == 'dap-view-term' or ft == 'dap-repl' then
-                log_win = win
-                local line_count = vim.api.nvim_buf_line_count(buf)
-                pcall(vim.api.nvim_win_set_cursor, win, { line_count, 0 })
+          -- term_buf가 없으면 버퍼 목록에서 dap-terminal 버퍼 탐색
+          if not term_buf or not vim.api.nvim_buf_is_valid(term_buf) then
+            for _, b in ipairs(vim.api.nvim_list_bufs()) do
+              if vim.api.nvim_buf_is_valid(b) then
+                local bname = vim.api.nvim_buf_get_name(b)
+                if bname:find('%[dap%-terminal%]') or vim.b[b]['dap-type'] or vim.bo[b].buftype == 'terminal' then
+                  term_buf = b
+                  break
+                end
               end
             end
           end
 
+          local log_win = nil
+          if term_buf and vim.api.nvim_buf_is_valid(term_buf) then
+            -- 이미 열려있는 창이 있는지 확인
+            local wins = vim.fn.win_findbuf(term_buf)
+            if #wins > 0 then
+              log_win = wins[1]
+            else
+              -- 사용자가 :q로 닫아서 화면에 없는 경우: 메인 에디터/대시보드 아래에 분할 창 생성하여 복원
+              for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+                local buf = vim.api.nvim_win_get_buf(win)
+                local ft = vim.bo[buf].filetype
+                if ft ~= 'dap-view' and ft ~= 'dap-view-term' and ft ~= 'dap-repl' then
+                  vim.api.nvim_set_current_win(win)
+                  vim.cmd('belowright split')
+                  log_win = vim.api.nvim_get_current_win()
+                  vim.api.nvim_win_set_buf(log_win, term_buf)
+                  break
+                end
+              end
+            end
+          end
+
+          -- 로그 창이 확보되었으면 포커스를 두고 맨 아래로 스크롤
           if log_win and vim.api.nvim_win_is_valid(log_win) then
             pcall(vim.api.nvim_set_current_win, log_win)
             local buf = vim.api.nvim_win_get_buf(log_win)
@@ -253,13 +291,20 @@ return {
         end)
       end
       -- 디버깅 종료 시 모든 디버그 UI가 자동으로 닫히고 프로세스를 정리하도록 설정
+      -- _dap_keep_process == true 이면 2번(disconnect keep-alive) 선택이므로 프로세스는 종료하지 않음
       dap.listeners.before.event_terminated['dapview_config'] = function()
         close_debug_ui()
-        kill_debuggee_process()
+        if not _dap_keep_process then
+          kill_debuggee_process()
+        end
+        _dap_keep_process = false  -- 플래그 초기화
       end
       dap.listeners.before.event_exited['dapview_config'] = function()
         close_debug_ui()
-        kill_debuggee_process()
+        if not _dap_keep_process then
+          kill_debuggee_process()
+        end
+        _dap_keep_process = false  -- 플래그 초기화
       end
 
       -- Console(dap-view-term) 창에서 포커스가 벗어나면 자동으로 맨 아래로 스크롤합니다.
