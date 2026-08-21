@@ -81,9 +81,51 @@ return {
       end
       _G.kill_debuggee_process = kill_debuggee_process
 
-      -- [Disconnect terminate=true 및 terminate 시 확실한 프로세스 종료 보장]
+      -- [통합 디버그 UI 닫기 헬퍼 (nvim-dap-view, nvim-dap-ui, REPL 등 모든 UI 완벽 지원)]
+      local function close_debug_ui()
+        -- 1) nvim-dap-view 닫기
+        pcall(function()
+          local ok, dap_view = pcall(require, 'dap-view')
+          if ok and dap_view and dap_view.close then
+            dap_view.close()
+          end
+        end)
+
+        -- 2) nvim-dap-ui 닫기 (기본/순정 DAP UI가 켜져 있는 경우 대응)
+        pcall(function()
+          local ok, dapui = pcall(require, 'dapui')
+          if ok and dapui and dapui.close then
+            dapui.close()
+          end
+        end)
+
+        -- 3) REPL 창 닫기
+        pcall(function()
+          local ok, dap_mod = pcall(require, 'dap')
+          if ok and dap_mod and dap_mod.repl and dap_mod.repl.close then
+            dap_mod.repl.close()
+          end
+        end)
+
+        -- 4) 디버깅 관련 분할 창(dap-view, dapui 윈도우 등) 정리
+        vim.schedule(function()
+          for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+            if vim.api.nvim_win_is_valid(win) then
+              local buf = vim.api.nvim_win_get_buf(win)
+              local ft = vim.bo[buf].filetype
+              if ft == 'dap-view' or ft:find('dapui_') or ft == 'dap-repl' then
+                pcall(vim.api.nvim_win_close, win, true)
+              end
+            end
+          end
+        end)
+      end
+      _G.close_debug_ui = close_debug_ui
+
+      -- [Disconnect 및 terminate 시 UI 자동 닫기 + 프로세스 강제 종료 보장]
       local orig_terminate = dap.terminate
       dap.terminate = function(...)
+        close_debug_ui()
         kill_debuggee_process()
         return orig_terminate(...)
       end
@@ -91,6 +133,7 @@ return {
       local orig_disconnect = dap.disconnect
       dap.disconnect = function(opts, cb)
         opts = opts or {}
+        close_debug_ui()
         if opts.terminateDebuggee == true then
           dap.terminate(nil, nil, cb)
           kill_debuggee_process()
@@ -209,13 +252,13 @@ return {
           end
         end)
       end
-      -- 디버깅 종료 시 nvim-dap-view가 자동으로 닫히고 프로세스를 정리하도록 설정
+      -- 디버깅 종료 시 모든 디버그 UI가 자동으로 닫히고 프로세스를 정리하도록 설정
       dap.listeners.before.event_terminated['dapview_config'] = function()
-        require('dap-view').close()
+        close_debug_ui()
         kill_debuggee_process()
       end
       dap.listeners.before.event_exited['dapview_config'] = function()
-        require('dap-view').close()
+        close_debug_ui()
         kill_debuggee_process()
       end
 
