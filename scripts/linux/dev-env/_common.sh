@@ -36,12 +36,6 @@ else
     _C_RED='' _C_WHITE='' _C_GRAY='' _C_DEFAULT=''
 fi
 
-# WSL 환경 동적 감지 (Windows ConPTY / conhost 호환용)
-_IS_WSL=false
-if [ -n "${WSL_DISTRO_NAME:-}" ] || [ -n "${WSL_INTEROP:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
-    _IS_WSL=true
-fi
-
 # ── 출력 헬퍼 ──────────────────────────────────────────────────────────────
 print_info()    { printf "${_C_CYAN}[정보]${_C_RESET} %s\n"    "$*"; }
 print_success() { printf "${_C_GREEN}[성공]${_C_RESET} %s\n"   "$*"; }
