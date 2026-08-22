@@ -203,7 +203,7 @@ if (Test-Path $ahkExe) {
             Invoke-WebRequest -Uri $url -OutFile $dest -ErrorAction Stop
         } -ArgumentList $ahkZipUrl, $ahkZipTemp
 
-        Wait-WithSpinner -Message "AutoHotkey v2 패키지 다운로드 중" -Condition { $dlJob.State -ne 'Running' } -MaxTimeoutSeconds 120
+        $null = Wait-WithSpinner -Message "AutoHotkey v2 패키지 다운로드 중" -Condition { $dlJob.State -ne 'Running' } -MaxTimeoutSeconds 120
         Receive-Job -Job $dlJob -ErrorAction SilentlyContinue | Out-Null
         Remove-Job -Job $dlJob -Force -ErrorAction SilentlyContinue
 
@@ -216,7 +216,7 @@ if (Test-Path $ahkExe) {
                 Expand-Archive -Path $zip -DestinationPath $target -Force
             } -ArgumentList $ahkZipTemp, $ahkModuleDir
 
-            Wait-WithSpinner -Message "AutoHotkey v2 압축 해제 중" -Condition { $unzipJob.State -ne 'Running' } -MaxTimeoutSeconds 120
+            $null = Wait-WithSpinner -Message "AutoHotkey v2 압축 해제 중" -Condition { $unzipJob.State -ne 'Running' } -MaxTimeoutSeconds 120
             Receive-Job -Job $unzipJob -ErrorAction SilentlyContinue | Out-Null
             Remove-Job -Job $unzipJob -Force -ErrorAction SilentlyContinue
 
@@ -416,7 +416,7 @@ $ahkSetupJob = Start-Job -ScriptBlock {
 } -ArgumentList $WslDistro, $startupDir, $ahkModuleDir, $ahkExe
 
 # 스피너로 백그라운드 작업 대기
-Wait-WithSpinner -Message "AutoHotkey 기능 연동 및 자동 실행 구성 중" -Condition { $ahkSetupJob.State -ne 'Running' } -MaxTimeoutSeconds 60
+$null = Wait-WithSpinner -Message "AutoHotkey 기능 연동 및 자동 실행 구성 중" -Condition { $ahkSetupJob.State -ne 'Running' } -MaxTimeoutSeconds 60
 
 $jobRes = Receive-Job -Job $ahkSetupJob -ErrorAction SilentlyContinue
 Remove-Job -Job $ahkSetupJob -Force -ErrorAction SilentlyContinue
