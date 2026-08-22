@@ -108,7 +108,7 @@ function Wait-ProcessWithSpinner {
         $spinIdx = ($spinIdx + 1) % $spinner.Count
         Start-Sleep -Milliseconds 150
     }
-    Write-Host "`r  [완료] 완료!   " -ForegroundColor Green
+    Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
 }
 
 # 조건(scriptblock)이 참이 될 때까지 스피너를 표시해 대기 (타임아웃 지원, 초과 시 $false 반환)
@@ -129,12 +129,12 @@ function Wait-WithSpinner {
     while ($true) {
         $elapsed = (Get-Date) - $startTime
         if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
-            Write-Host "`r  [시간 초과]   " -ForegroundColor Red
+            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)   " -ForegroundColor Red
             return $false
         }
         $done = [bool](& $Condition)
         if ($done) {
-            Write-Host "`r  [완료] 완료!   " -ForegroundColor Green
+            Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
             return $true
         }
         $char = $spinner[$spinIdx % $spinner.Count]
