@@ -101,10 +101,9 @@ function Wait-ProcessWithSpinner {
     )
     $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
     $spinIdx = 0
-    Write-Host "  $Message" -ForegroundColor Cyan
     while (-not $Process.HasExited) {
         $char = $spinner[$spinIdx]
-        Write-Host -NoNewline "`r  [$char] 처리 중...   " -ForegroundColor Cyan
+        Write-Host -NoNewline "`r  [$char] $Message...   " -ForegroundColor Cyan
         $spinIdx = ($spinIdx + 1) % $spinner.Count
         Start-Sleep -Milliseconds 150
     }
@@ -124,7 +123,6 @@ function Wait-WithSpinner {
     )
     $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
     $spinIdx = 0
-    Write-Host "  $Message" -ForegroundColor Cyan
     $startTime = Get-Date
     while ($true) {
         $elapsed = (Get-Date) - $startTime
@@ -138,7 +136,7 @@ function Wait-WithSpinner {
             return $true
         }
         $char = $spinner[$spinIdx % $spinner.Count]
-        Write-Host -NoNewline "`r  [$char] 처리 중...   " -ForegroundColor Cyan
+        Write-Host -NoNewline "`r  [$char] $Message...   " -ForegroundColor Cyan
         Start-Sleep -Milliseconds 150
         $spinIdx++
     }
