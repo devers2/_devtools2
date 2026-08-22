@@ -135,13 +135,13 @@ show_spinner() {
     local spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local spin_len=${#spinner[@]}
     local i=0
+    printf "\n"
     while kill -0 "$pid" 2>/dev/null; do
-        printf " [%s] " "${spinner[i]}"
+        printf "\r  [%s] 처리 중...   " "${spinner[i]}"
         i=$(( (i + 1) % spin_len ))
         sleep $delay
-        printf "\b\b\b\b\b"
     done
-    printf "     \b\b\b\b\b"
+    printf "\r  [완료] 완료!       \n"
 }
 
 # ── 다운로드 게이지 프로그레스 바 (완료 시 자동 삭제) ─────────────────
