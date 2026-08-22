@@ -97,7 +97,7 @@ prompt_confirm() {
     [ "$_ans" = "y" ]
 }
 
-# ── 스피너 ─────────────────────────────────────────────────────────────────
+# ── 스크롤 안전 스피너 ─────────────────────────────────────────────────────
 # 사용법: run_with_spinner <label> <pid>
 #         run_with_spinner_cmd <label> <command...>
 _spinner_frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
@@ -106,12 +106,13 @@ run_with_spinner() {
     local label="$1"
     local pid="$2"
     local i=0 n=${#_spinner_frames[@]}
+    printf "\n"
     while kill -0 "$pid" 2>/dev/null; do
-        printf "\r${_C_CYAN}  [%s]${_C_RESET} %s" "${_spinner_frames[i]}" "$label"
+        printf "${_C_CYAN}  [%s]${_C_RESET} %s\n" "${_spinner_frames[i]}" "$label"
         i=$(( (i + 1) % n ))
         sleep 0.15
     done
-    printf "\r\033[K"
+    printf "${_C_GREEN}  [완료]${_C_RESET} %s\n" "$label"
 }
 
 # 명령을 백그라운드로 실행하고 스피너를 표시한 후 exit code를 반환
@@ -137,17 +138,16 @@ show_spinner() {
     local i=0
     printf "\n"
     while kill -0 "$pid" 2>/dev/null; do
-        printf "\r  [%s] 처리 중...   " "${spinner[i]}"
+        printf "  [%s] 처리 중...\n" "${spinner[i]}"
         i=$(( (i + 1) % spin_len ))
         sleep $delay
     done
-    printf "\r  [완료]             "
+    printf "\n"
 }
 
 # ── 다운로드 게이지 프로그레스 바 (완료 시 자동 삭제) ─────────────────
 # 사용법: download_with_progress <URL> <출력파일경로> [설명라벨]
-# 동작: [====================    27.8%                                   ] 형태로
-#       실시간 진행률을 표시하고, 다운로드가 완료되면 해당 줄을 깨끗하게 지웁니다.
+# 동작: 동적 스피너를 별도 줄에 표시해 터미널 스크롤 버퍼를 보존합니다.
 download_with_progress() {
     local url="$1"
     local dest="$2"
@@ -155,35 +155,14 @@ download_with_progress() {
 
     printf "   ${_C_CYAN}📥 %s 다운로드 중...${_C_RESET}\n" "$label"
     if command -v curl >/dev/null 2>&1; then
-        curl -# -fSL \
+        curl -sfL \
             -H 'Cache-Control: no-cache, no-store, must-revalidate' \
             -H 'Pragma: no-cache' \
-            "$url" -o "$dest" 2>&1 | \
-        awk -v RS='[\r\n]' '
-        match($0, /([0-9]+(\.[0-9]+)?)%/, arr) {
-            pct = arr[1] + 0
-            bar_len = 50
-            filled = int(bar_len * (pct / 100))
-            pct_str = sprintf(" %5.1f%% ", pct)
-            left_len = int((bar_len - length(pct_str)) / 2)
-            bar = ""
-            for (i = 1; i <= bar_len; i++) {
-                if (i >= left_len + 1 && i <= left_len + length(pct_str)) {
-                    bar = bar substr(pct_str, i - left_len, 1)
-                } else if (i <= filled) {
-                    bar = bar "="
-                } else {
-                    bar = bar " "
-                }
-            }
-            printf("\r[%s]", bar)
-            fflush()
-        }
-        END {
-            printf("\r\033[K\033[1A\r\033[K")
-            fflush()
-        }'
-        local _ec=${PIPESTATUS[0]}
+            "$url" -o "$dest" >/dev/null 2>&1 &
+        local _pid=$!
+        run_with_spinner "$label" "$_pid"
+        wait "$_pid"
+        local _ec=$?
         return $_ec
     elif command -v wget >/dev/null 2>&1; then
         wget -q "$url" -O "$dest" &
