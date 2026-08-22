@@ -172,18 +172,18 @@ _select_version_mode() {
 }
 
 # ─────────────────────────────────────────────────────────────────
-# 🐛 Gradle DAP (디버거 Attach) 전역 설정 공용 함수
+# Gradle DAP (디버거 Attach) 전역 설정 공용 함수
 # ─────────────────────────────────────────────────────────────────
 configure_gradle_dap() {
     echo "---------------------------------------------------------------------------"
-    print_step "🐛 8. Gradle DAP (디버거 Attach) 전역 설정"
+    print_step "8. Gradle DAP (디버거 Attach) 전역 설정"
     echo ""
     echo "   Gradle bootRun 실행 시 JDWP(Java Debug Wire Protocol)를 자동으로 활성화하여"
     echo "   DAP 클라이언트(Neovim DAP 등)를 포트 5005 로 Attach 할 수 있게 됩니다."
     echo ""
     echo "   대상 파일: ~/.gradle/init.d/debug.gradle"
     echo ""
-    print_info "💡 Neovim 사용 안내:"
+    print_info "Neovim 사용 안내:"
     echo "      - <leader> + d + a 단축키로 실행 중인 JVM에 attach 합니다."
     echo "      - (참고) Mason 에서 java-debug-adapter 가 설치되어 있어야 함."
     echo ""
@@ -193,14 +193,14 @@ configure_gradle_dap() {
 
     # 기본값 n: 이 프로젝트의 기본 디버그 흐름은 launch 모드(dap.lua)라서, attach용 전역
     # JDWP 설정을 기본으로 깔 필요가 없습니다 — 필요한 사람만 명시적으로 y를 입력하세요.
-    if prompt_confirm "👉 Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요?" "N"; then
+    if prompt_confirm "Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요?" "N"; then
         mkdir -p "$GRADLE_INIT_DIR"
 
         local do_write=true
         if [ -f "$GRADLE_DEBUG_FILE" ]; then
             echo ""
             print_warn "파일이 이미 존재합니다: $GRADLE_DEBUG_FILE"
-            if ! prompt_confirm "   기존 파일을 새 설정으로 교체할까요?" "N"; then
+            if ! prompt_confirm "기존 파일을 새 설정으로 교체할까요?" "N"; then
                 do_write=false
                 print_info "기존 파일을 유지합니다."
             fi

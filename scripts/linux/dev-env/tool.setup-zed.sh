@@ -43,7 +43,7 @@ fi
 _do_zed=false
 if [ -n "${DT2_ZED_CHOICE:-}" ]; then
     [ "${DT2_ZED_CHOICE,,}" = "y" ] && _do_zed=true
-elif prompt_confirm "👉 Zed 에디터를 설치하시겠습니까?" "N"; then
+elif prompt_confirm "Zed 에디터를 설치하시겠습니까?" "N"; then
     _do_zed=true
 fi
 
