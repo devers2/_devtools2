@@ -65,11 +65,10 @@ prompt_input() { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
 prompt_read() {
     local _pr_var="$1"; shift
     stty sane 2>/dev/null || true
-    printf "\r"
     prompt_input "$@"
     IFS= read -r "$_pr_var" </dev/tty || true
     stty sane 2>/dev/null || true
-    printf "\r\n"
+    echo ""
 }
 
 # ── Yes/No 확인 프롬프트 헬퍼 ─────────────────────────────────────────
