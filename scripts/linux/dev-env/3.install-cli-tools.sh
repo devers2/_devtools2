@@ -279,9 +279,9 @@ fi
 
 _fzf_action=$(_resolve_action "$FZF_INSTALLED" "fzf")
 
-echo -n "   - fzf $FZF_VERSION 설치 중..."
+echo -n "📦 fzf $FZF_VERSION 설치 중..."
 if [ "$_fzf_action" = "skip" ]; then
-    echo " [건너뜀] 이미 설치되어 있습니다."
+    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
 else
     if [ "$_fzf_action" = "reinstall" ]; then
         rm -f "$MODULES_DIR/fzf/fzf"
@@ -323,9 +323,9 @@ fi
 
 _lg_action=$(_resolve_action "$LAZYGIT_INSTALLED" "lazygit")
 
-echo -n "   - lazygit $LAZYGIT_VERSION 설치 중..."
+echo -n "📦 lazygit $LAZYGIT_VERSION 설치 중..."
 if [ "$_lg_action" = "skip" ]; then
-    echo " [건너뜀] 이미 설치되어 있습니다."
+    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
 else
     if [ "$_lg_action" = "reinstall" ]; then
         rm -f "$MODULES_DIR/lazygit/lazygit"
@@ -367,9 +367,9 @@ fi
 
 _rg_action=$(_resolve_action "$RIPGREP_INSTALLED" "ripgrep")
 
-echo -n "   - ripgrep $RIPGREP_VERSION 설치 중..."
+echo -n "📦 ripgrep $RIPGREP_VERSION 설치 중..."
 if [ "$_rg_action" = "skip" ]; then
-    echo " [건너뜀] 이미 설치되어 있습니다."
+    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
 else
     if [ "$_rg_action" = "reinstall" ]; then
         rm -f "$MODULES_DIR/ripgrep/rg"
@@ -411,9 +411,9 @@ fi
 
 _fd_action=$(_resolve_action "$FD_INSTALLED" "fd-find")
 
-echo -n "   - fd-find $FD_VERSION 설치 중..."
+echo -n "📦 fd-find $FD_VERSION 설치 중..."
 if [ "$_fd_action" = "skip" ]; then
-    echo " [건너뜀] 이미 설치되어 있습니다."
+    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
 else
     if [ "$_fd_action" = "reinstall" ]; then
         rm -f "$MODULES_DIR/fd/fd"
@@ -455,9 +455,9 @@ fi
 
 _sg_action=$(_resolve_action "$ASTGREP_INSTALLED" "ast-grep")
 
-echo -n "   - ast-grep $ASTGREP_VERSION 설치 중..."
+echo -n "📦 ast-grep $ASTGREP_VERSION 설치 중..."
 if [ "$_sg_action" = "skip" ]; then
-    echo " [건너뜀] 이미 설치되어 있습니다."
+    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
 else
     if [ "$_sg_action" = "reinstall" ]; then
         rm -f "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/ast-grep/ast-grep"
@@ -500,9 +500,9 @@ fi
 
 _bw_action=$(_resolve_action "$BITWARDEN_INSTALLED" "Bitwarden CLI")
 
-echo -n "   - Bitwarden CLI 설치 중..."
+echo -n "📦 Bitwarden CLI 설치 중..."
 if [ "$_bw_action" = "skip" ]; then
-    echo " [건너뜀] 이미 설치되어 있습니다."
+    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
 else
     if [ "$_bw_action" = "reinstall" ]; then
         rm -f "$MODULES_DIR/bitwarden/bw"
@@ -546,9 +546,9 @@ fi
 
 _rc_action=$(_resolve_action "$RCLONE_INSTALLED" "rclone")
 
-echo -n "   - rclone $RCLONE_VERSION 설치 중..."
+echo -n "📦 rclone $RCLONE_VERSION 설치 중..."
 if [ "$_rc_action" = "skip" ]; then
-    echo " [건너뜀] 이미 설치되어 있습니다."
+    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
 else
     if [ "$_rc_action" = "reinstall" ]; then
         rm -f "$MODULES_DIR/rclone/rclone"
@@ -597,9 +597,9 @@ if [ "$IS_WSL2" = true ]; then
 
     _wy_action=$(_resolve_action "$WIN32YANK_INSTALLED" "win32yank")
 
-    echo -n "   - (WSL2) win32yank $WIN32YANK_VERSION 설치 중..."
+    echo -n "📦 (WSL2) win32yank $WIN32YANK_VERSION 설치 중..."
     if [ "$_wy_action" = "skip" ]; then
-        echo " [건너뜀] 이미 설치되어 있습니다."
+        echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
     else
         if [ "$_wy_action" = "reinstall" ]; then
             rm -f "$MODULES_DIR/win32yank/win32yank.exe"
@@ -684,7 +684,7 @@ fi
 echo ""
 
 echo "---------------------------------------------------------------------------"
-print_step "7. hererocks 설치 및 Lua 환경 구성 중... (Neovim 플러그인 관리용)"
+echo "💎 7. hererocks 설치 및 Lua 환경 구성 중... (Neovim 플러그인 관리용)"
 echo ""
 pip install --user --break-system-packages hererocks 2>/dev/null || pip install --user hererocks
 
@@ -695,7 +695,7 @@ cd "$HEREROCKS_DIR"
 # 임시 PATH 추가 (pip로 설치된 hererocks 바이너리를 현재 셸 환경에 즉시 연동)
 export PATH="$HOME/.local/bin:$PATH"
 
-echo -n "   - hererocks 구성 중 (Lua 5.1 / Luarocks 최신)..."
+echo -n "   ⚙️ hererocks 구성 중 (Lua 5.1 / Luarocks 최신)..."
 (hererocks . -l 5.1 -r latest >/tmp/_hererocks_install.log 2>&1) &
 _hero_pid=$!
 show_spinner "$_hero_pid"
@@ -706,7 +706,7 @@ if [ "$_hero_ec" -eq 0 ]; then
     echo " 완료"
     print_done "hererocks / Lua 환경 구성 완료"
 else
-    echo " 실패"
+    echo " ⚠️  실패"
     print_error "hererocks 구성 중 오류가 발생했습니다. 상세 로그:"
     cat /tmp/_hererocks_install.log 2>/dev/null || true
     rm -f /tmp/_hererocks_install.log 2>/dev/null
@@ -741,7 +741,7 @@ configure_gradle_dap
 NVIM_BIN="$DEVTOOLS2/modules/neovim/nvim/bin/nvim"
 if [ -x "$NVIM_BIN" ] && [ -f "$DEVTOOLS2/.config/nvim/lazy-lock.json" ]; then
     echo "---------------------------------------------------------------------------"
-    print_step "9. Neovim 플러그인 및 개발 환경 최종 동기화 (Zero-Touch 사전 빌드)"
+    echo "💤 9. Neovim 플러그인 및 개발 환경 최종 동기화 (Zero-Touch 사전 빌드)"
     echo ""
     # Neovim, Node, Python, hererocks, cli 툴들을 모두 포함한 임시 PATH 주입
     export PATH="$DEVTOOLS2/modules/neovim/nvim/bin:$DEVTOOLS2/modules/nodejs/node-v24/bin:$DEVTOOLS2/modules/python/python-314/bin:$DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin:$DEVTOOLS2/modules/ripgrep:$DEVTOOLS2/modules/fd:$DEVTOOLS2/modules/fzf:$PATH"
@@ -750,21 +750,21 @@ if [ -x "$NVIM_BIN" ] && [ -f "$DEVTOOLS2/.config/nvim/lazy-lock.json" ]; then
     rm -rf "$HOME/.cache/nvim/tree-sitter-"* 2>/dev/null || true
 
     # 1) Lazy 플러그인 일괄 복원 (플러그인 파일들이 완전히 준비될 때까지 대기)
-    echo -n "   - 1/3 Lazy 플러그인 복원 중..."
+    echo -n "   📥 1/3 Lazy 플러그인 복원 중..."
     ("$NVIM_BIN" --headless "+Lazy! restore" +qa >/tmp/_nvim_lazy.log 2>&1) &
     show_spinner $!
     rm -f /tmp/_nvim_lazy.log 2>/dev/null
     echo " 완료"
 
     # 2) Treesitter 파서 사전 컴파일 (플러그인이 완전히 로드된 상태에서 안전하게 빌드)
-    echo -n "   - 2/3 Treesitter 파서 컴파일 중..."
+    echo -n "   ⚙️ 2/3 Treesitter 파서 컴파일 중..."
     ("$NVIM_BIN" --headless "+TSUpdateSync" +qa >/tmp/_nvim_ts.log 2>&1) &
     show_spinner $!
     rm -f /tmp/_nvim_ts.log 2>/dev/null
     echo " 완료"
 
     # 3) Mason 패키지 레지스트리 갱신
-    echo -n "   - 3/3 Mason 레지스트리 갱신 중..."
+    echo -n "   📋 3/3 Mason 레지스트리 갱신 중..."
     ("$NVIM_BIN" --headless "+MasonUpdate" +qa >/tmp/_nvim_mason.log 2>&1) &
     show_spinner $!
     rm -f /tmp/_nvim_mason.log 2>/dev/null
@@ -775,7 +775,7 @@ if [ -x "$NVIM_BIN" ] && [ -f "$DEVTOOLS2/.config/nvim/lazy-lock.json" ]; then
 fi
 
 print_sep
-print_step "모든 도구 설치가 완료되었습니다!"
+print_step "🎉 모든 도구 설치가 완료되었습니다!"
 echo ""
 echo "설정 확인 명령어:"
 echo "    hererocks --version"

@@ -38,7 +38,7 @@ print_banner "💻 VS Code 에디터 설치 및 확장 연동 (tool.setup-vscode
 _do_vscode=false
 if [ -n "${DT2_VSCODE_CHOICE:-}" ]; then
     [ "${DT2_VSCODE_CHOICE,,}" = "y" ] && _do_vscode=true
-elif prompt_confirm "VS Code (Visual Studio Code)를 설치하시겠습니까?" "N"; then
+elif prompt_confirm "👉 VS Code (Visual Studio Code)를 설치하시겠습니까?" "N"; then
     _do_vscode=true
 fi
 

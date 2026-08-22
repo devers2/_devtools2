@@ -36,6 +36,12 @@ else
     _C_RED='' _C_WHITE='' _C_GRAY='' _C_DEFAULT=''
 fi
 
+# WSL 환경 동적 감지 (Windows ConPTY / conhost 호환용)
+_IS_WSL=false
+if [ -n "${WSL_DISTRO_NAME:-}" ] || [ -n "${WSL_INTEROP:-}" ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    _IS_WSL=true
+fi
+
 # ── 출력 헬퍼 ──────────────────────────────────────────────────────────────
 print_info()    { printf "${_C_CYAN}[정보]${_C_RESET} %s\n"    "$*"; }
 print_success() { printf "${_C_GREEN}[성공]${_C_RESET} %s\n"   "$*"; }
@@ -60,13 +66,22 @@ print_option() {
 }
 prompt_input() { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
 # prompt_read <varname> <prompt message>
-# prompt_input + read -r 를 하나의 함수로 처리하여 세미콜론 연결에 의한 줄 겹침 방지
+# prompt_input + read -r 를 하나의 함수로 처리하며, WSL/리눅스 환경에 맞춰 동적으로 TTY 커서 정렬
 # 사용법: prompt_read my_var "선택하세요 [y/N]: "
 prompt_read() {
     local _pr_var="$1"; shift
+    stty sane 2>/dev/null || true
+    if [ "$_IS_WSL" = "true" ]; then
+        printf "\r"
+    fi
     prompt_input "$@"
     IFS= read -r "$_pr_var" </dev/tty || true
-    echo ""
+    stty sane 2>/dev/null || true
+    if [ "$_IS_WSL" = "true" ]; then
+        printf "\r\n"
+    else
+        echo ""
+    fi
 }
 
 # ── Yes/No 확인 프롬프트 헬퍼 ─────────────────────────────────────────
