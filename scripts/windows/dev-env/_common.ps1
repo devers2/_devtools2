@@ -93,24 +93,21 @@ function Prompt-Confirm {
     }
 }
 
-# 프로세스 종료 시까지 스피너를 표시해 대기 (타임아웃 없음 — 프로세스가 끝날 때까지 무조건 대기)
+# 프로세스 종료 시까지 안정적으로 대기 (타임아웃 없음)
+# 커서 이동을 사용하지 않아 줄바꿈/스크롤 재배치가 발생해도 기존 출력이 손상되지 않습니다.
 function Wait-ProcessWithSpinner {
     param(
         [System.Diagnostics.Process]$Process,
         [string]$Message
     )
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    $spinIdx = 0
+    Write-Host "  [진행] $Message..." -ForegroundColor Cyan
     while (-not $Process.HasExited) {
-        $char = $spinner[$spinIdx]
-        Write-Host -NoNewline "`r  [$char] $Message...   " -ForegroundColor Cyan
-        $spinIdx = ($spinIdx + 1) % $spinner.Count
         Start-Sleep -Milliseconds 150
     }
-    Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
+    Write-Host "  [완료] $Message 완료!" -ForegroundColor Green
 }
 
-# 조건(scriptblock)이 참이 될 때까지 스피너를 표시해 대기 (타임아웃 지원, 초과 시 $false 반환)
+# 조건(scriptblock)이 참이 될 때까지 안정적으로 대기 (타임아웃 지원, 초과 시 $false 반환)
 # ⚠️ 호출부는 반드시 반환값을 확인해야 합니다 — 확인하지 않으면 타임아웃 후에도 마치
 # 정상 완료된 것처럼 다음 단계로 조용히 넘어갈 수 있습니다(0.setup-wsl.ps1에서 실측 확인:
 # PowerShell은 아직 안 끝난 프로세스의 .ExitCode를 읽어도 예외 없이 빈 값만 반환하므로
@@ -121,23 +118,19 @@ function Wait-WithSpinner {
         [scriptblock]$Condition,
         [int]$MaxTimeoutSeconds = 300
     )
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
-    $spinIdx = 0
+    Write-Host "  [진행] $Message..." -ForegroundColor Cyan
     $startTime = Get-Date
     while ($true) {
         $elapsed = (Get-Date) - $startTime
         if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
-            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)   " -ForegroundColor Red
+            Write-Host "  [시간 초과] $Message (제한 시간 초과)" -ForegroundColor Red
             return $false
         }
         $done = [bool](& $Condition)
         if ($done) {
-            Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
+            Write-Host "  [완료] $Message 완료!" -ForegroundColor Green
             return $true
         }
-        $char = $spinner[$spinIdx % $spinner.Count]
-        Write-Host -NoNewline "`r  [$char] $Message...   " -ForegroundColor Cyan
         Start-Sleep -Milliseconds 150
-        $spinIdx++
     }
 }

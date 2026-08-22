@@ -104,21 +104,18 @@ prompt_confirm() {
     [ "$_ans" = "y" ]
 }
 
-# ── 스피너 ─────────────────────────────────────────────────────────────────
+# ── 안정적인 대기 출력 ─────────────────────────────────────────────────────
 # 사용법: run_with_spinner <label> <pid>
 #         run_with_spinner_cmd <label> <command...>
-_spinner_frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 run_with_spinner() {
     local label="$1"
     local pid="$2"
-    local i=0 n=${#_spinner_frames[@]}
+    printf "${_C_CYAN}  [진행]${_C_RESET} %s...\n" "$label"
     while kill -0 "$pid" 2>/dev/null; do
-        printf "\r${_C_CYAN}  [%s]${_C_RESET} %s" "${_spinner_frames[i]}" "$label"
-        i=$(( (i + 1) % n ))
         sleep 0.15
     done
-    printf "\r\033[K"
+    printf "${_C_GREEN}  [완료]${_C_RESET} %s\n" "$label"
 }
 
 # 명령을 백그라운드로 실행하고 스피너를 표시한 후 exit code를 반환
@@ -132,29 +129,20 @@ run_with_spinner_cmd() {
     wait "$pid"
 }
 
-# 라벨 없이 커서 자리에서 제자리 회전만 하는 미니 스피너 (백스페이스 방식)
+# 라벨 없이 출력 위치를 건드리지 않고 프로세스 종료까지 대기하는 헬퍼
 # echo -n "...진행 중" 뒤에 이어 붙여서 쓰는 용도. 2.install-core-tools.sh, 3.install-cli-tools.sh 등
 # 다운로드/압축 해제처럼 짧은 메시지 뒤에 바로 붙는 스피너에 사용합니다.
 # 사용법: cmd & show_spinner $!
 show_spinner() {
     local pid=$1
-    local delay=0.15
-    local spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-    local spin_len=${#spinner[@]}
-    local i=0
     while kill -0 "$pid" 2>/dev/null; do
-        printf " [%s] " "${spinner[i]}"
-        i=$(( (i + 1) % spin_len ))
-        sleep $delay
-        printf "\b\b\b\b\b"
+        sleep 0.15
     done
-    printf "     \b\b\b\b\b"
 }
 
-# ── 다운로드 게이지 프로그레스 바 (완료 시 자동 삭제) ─────────────────
+# ── 다운로드 상태 출력 ─────────────────────────────────────────────────────
 # 사용법: download_with_progress <URL> <출력파일경로> [설명라벨]
-# 동작: [====================    27.8%                                   ] 형태로
-#       실시간 진행률을 표시하고, 다운로드가 완료되면 해당 줄을 깨끗하게 지웁니다.
+# 진행률을 제자리 갱신하지 않고 시작/완료를 각각 새 줄에 출력합니다.
 download_with_progress() {
     local url="$1"
     local dest="$2"
@@ -162,35 +150,16 @@ download_with_progress() {
 
     printf "   ${_C_CYAN}📥 %s 다운로드 중...${_C_RESET}\n" "$label"
     if command -v curl >/dev/null 2>&1; then
-        curl -# -fSL \
+        curl -sfL \
             -H 'Cache-Control: no-cache, no-store, must-revalidate' \
             -H 'Pragma: no-cache' \
-            "$url" -o "$dest" 2>&1 | \
-        awk -v RS='[\r\n]' '
-        match($0, /([0-9]+(\.[0-9]+)?)%/, arr) {
-            pct = arr[1] + 0
-            bar_len = 50
-            filled = int(bar_len * (pct / 100))
-            pct_str = sprintf(" %5.1f%% ", pct)
-            left_len = int((bar_len - length(pct_str)) / 2)
-            bar = ""
-            for (i = 1; i <= bar_len; i++) {
-                if (i >= left_len + 1 && i <= left_len + length(pct_str)) {
-                    bar = bar substr(pct_str, i - left_len, 1)
-                } else if (i <= filled) {
-                    bar = bar "="
-                } else {
-                    bar = bar " "
-                }
-            }
-            printf("\r[%s]", bar)
-            fflush()
-        }
-        END {
-            printf("\r\033[K\033[1A\r\033[K")
-            fflush()
-        }'
-        local _ec=${PIPESTATUS[0]}
+            "$url" -o "$dest"
+        local _ec=$?
+        if [ "$_ec" -eq 0 ]; then
+            printf "   ${_C_GREEN}다운로드 완료${_C_RESET}: %s\n" "$label"
+        else
+            printf "   ${_C_RED}다운로드 실패${_C_RESET}: %s\n" "$label" >&2
+        fi
         return $_ec
     elif command -v wget >/dev/null 2>&1; then
         wget -q "$url" -O "$dest" &
