@@ -113,12 +113,14 @@ else {
 Write-Step "[Step 2] AutoHotkey v2 포터블 배포 및 단축키 등록"
 
 # ── AutoHotkey 설치 여부 확인 ─────────────────────────────────────────────────
-if (-not (Prompt-Confirm "👉 AutoHotKey를 설치하시겠습니까?" "Y")) {
+$installAhk = Prompt-Confirm "AutoHotKey를 설치하시겠습니까?" "Y"
+
+$ahkModuleDir = "$env:LOCALAPPDATA\_devtools2\modules\autohotkey"
+$startupDir   = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
+
+if (-not $installAhk) {
     # ── n 선택: devtools2 관련 AHK만 동적으로 감지하여 정리 ─────────────────────
     Write-Info "AutoHotKey 설치를 건너뜁니다. devtools2 관련 AHK 기능을 비활성화합니다..."
-
-    $ahkModuleDir = "$env:LOCALAPPDATA\_devtools2\modules\autohotkey"
-    $startupDir   = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 
     # devtools2 경로 식별 패턴 — 특정 ahk 파일명을 하드코딩하지 않고
     # 'wsl.localhost\<배포판명>' 또는 '_devtools2' 경로를 가리키는 대상만 동적으로 식별합니다.
@@ -160,7 +162,6 @@ if (-not (Prompt-Confirm "👉 AutoHotKey를 설치하시겠습니까?" "Y")) {
     Write-Info "Startup 폴더 devtools2 AHK 바로가기 정리 완료."
 
     # (3) modules/autohotkey 폴더의 *.ahk 삭제 (WSL 연동 실패 시 폴백으로 로컬에 복사된 물리 파일들)
-    #     ※ WSL 내부 원본(\\wsl.localhost\...\scripts\windows\autohotkey\*.ahk)은 건드리지 않음
     $localAhkFiles = Get-ChildItem -Path $ahkModuleDir -Filter "*.ahk" -ErrorAction SilentlyContinue
     if ($localAhkFiles) {
         $localAhkFiles | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -171,109 +172,64 @@ if (-not (Prompt-Confirm "👉 AutoHotKey를 설치하시겠습니까?" "Y")) {
     Write-Info "다른 용도의 AutoHotkey 프로세스는 영향을 받지 않습니다."
 } else {
 
-# ── (1) modules/autohotkey 포터블 설치 경로 결정 ─────────────────────────────
-$ahkModuleDir = "$env:LOCALAPPDATA\_devtools2\modules\autohotkey"
-$ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
-if (-not (Test-Path $ahkExe)) {
-    $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"
-}
+    # ── (1) modules/autohotkey 포터블 설치 경로 결정 ─────────────────────────────
+    $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
+    if (-not (Test-Path $ahkExe)) {
+        $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"
+    }
 
-Write-Info "AutoHotKey 기능 연동을 진행합니다..."
+    Write-Info "AutoHotKey 기능 연동을 진행합니다..."
 
-# ── (2) 포터블 AutoHotkey v2 다운로드 및 압축 해제 ───────────────────────────
-if (Test-Path $ahkExe) {
-    Write-Info "AutoHotkey v2 포터블 이미 존재: $ahkExe"
-    Write-Info "AHK 스크립트 배포 및 자동 실행 등록 중..."
-} else {
-    Write-Info "AutoHotkey v2 포터블 패키지 다운로드 및 압축 해제 중..."
-    Write-Info "  설치 경로: $ahkModuleDir"
+    # ── (2) 포터블 AutoHotkey v2 다운로드 및 압축 해제 ───────────────────────────
+    if (Test-Path $ahkExe) {
+        Write-Info "AutoHotkey v2 포터블 이미 존재: $ahkExe"
+        Write-Info "AHK 스크립트 배포 및 자동 실행 등록 중..."
+    } else {
+        Write-Info "AutoHotkey v2 포터블 패키지 다운로드 및 압축 해제 중..."
+        Write-Info "  설치 경로: $ahkModuleDir"
 
-    New-Item -ItemType Directory -Path $ahkModuleDir -Force | Out-Null
+        New-Item -ItemType Directory -Path $ahkModuleDir -Force | Out-Null
 
-    $ahkZipUrl  = "https://www.autohotkey.com/download/ahk-v2.zip"
-    $ahkZipTemp = Join-Path $env:TEMP "ahk-v2.zip"
+        $ahkZipUrl  = "https://www.autohotkey.com/download/ahk-v2.zip"
+        $ahkZipTemp = Join-Path $env:TEMP "ahk-v2.zip"
 
-    try {
-        # 비동기 백그라운드다운로드 및 스피너 대기
-        $prevProgress = $ProgressPreference
-        $ProgressPreference = 'SilentlyContinue'
+        try {
+            Invoke-WebRequest -Uri $ahkZipUrl -OutFile $ahkZipTemp -UseBasicParsing -ErrorAction Stop
 
-        $dlJob = Start-Job -ScriptBlock {
-            param($url, $dest)
-            Invoke-WebRequest -Uri $url -OutFile $dest -ErrorAction Stop
-        } -ArgumentList $ahkZipUrl, $ahkZipTemp
+            if (Test-Path $ahkZipTemp) {
+                Expand-Archive -Path $ahkZipTemp -DestinationPath $ahkModuleDir -Force
+                Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
+            }
 
-        $null = Wait-WithSpinner -Message "AutoHotkey v2 패키지 다운로드 중" -Condition { $dlJob.State -ne 'Running' } -MaxTimeoutSeconds 120
-        Receive-Job -Job $dlJob -ErrorAction SilentlyContinue | Out-Null
-        Remove-Job -Job $dlJob -Force -ErrorAction SilentlyContinue
+            $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
+            if (-not (Test-Path $ahkExe)) {
+                $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"
+            }
 
-        $ProgressPreference = $prevProgress
+            if (Test-Path $ahkExe) {
+                Write-Success "AutoHotkey v2 포터블 배포 완료: $ahkExe"
 
-        if (Test-Path $ahkZipTemp) {
-            # 백그라운드 압축 해제 및 스피너 대기
-            $unzipJob = Start-Job -ScriptBlock {
-                param($zip, $target)
-                Expand-Archive -Path $zip -DestinationPath $target -Force
-            } -ArgumentList $ahkZipTemp, $ahkModuleDir
+                # ── 사용자 레지스트리(HKCU)에 .ahk 확장자 자동 연결 등록 ──
+                try {
+                    $ahkClassKey = "HKCU:\Software\Classes\AutoHotkeyScript\shell\open\command"
+                    if (-not (Test-Path $ahkClassKey)) { New-Item -Path $ahkClassKey -Force | Out-Null }
+                    Set-ItemProperty -Path $ahkClassKey -Name "(default)" -Value "`"$ahkExe`" `"%1`" %*" -ErrorAction SilentlyContinue
 
-            $null = Wait-WithSpinner -Message "AutoHotkey v2 압축 해제 중" -Condition { $unzipJob.State -ne 'Running' } -MaxTimeoutSeconds 120
-            Receive-Job -Job $unzipJob -ErrorAction SilentlyContinue | Out-Null
-            Remove-Job -Job $unzipJob -Force -ErrorAction SilentlyContinue
-
+                    $ahkExtKey = "HKCU:\Software\Classes\.ahk"
+                    if (-not (Test-Path $ahkExtKey)) { New-Item -Path $ahkExtKey -Force | Out-Null }
+                    Set-ItemProperty -Path $ahkExtKey -Name "(default)" -Value "AutoHotkeyScript" -ErrorAction SilentlyContinue
+                    Write-Success ".ahk 파일 확장자가 포터블 AutoHotkey에 자동 연결되었습니다."
+                } catch {}
+            } else {
+                Write-Warn "압축 해제 후 AutoHotkey 실행 파일을 찾지 못했습니다: $ahkModuleDir"
+            }
+        } catch {
             Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
+            Write-Warn "AutoHotkey v2 포터블 다운로드 실패: $($_.Exception.Message)"
         }
-
-        $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
-        if (-not (Test-Path $ahkExe)) {
-            $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"
-        }
-
-        if (Test-Path $ahkExe) {
-            Write-Success "AutoHotkey v2 포터블 배포 완료: $ahkExe"
-
-            # ── 사용자 레지스트리(HKCU)에 .ahk 확장자 자동 연결 등록 (오프라인 환경/더블클릭 대비) ──
-            try {
-                $ahkClassKey = "HKCU:\Software\Classes\AutoHotkeyScript\shell\open\command"
-                if (-not (Test-Path $ahkClassKey)) { New-Item -Path $ahkClassKey -Force | Out-Null }
-                Set-ItemProperty -Path $ahkClassKey -Name "(default)" -Value "`"$ahkExe`" `"%1`" %*" -ErrorAction SilentlyContinue
-
-                $ahkExtKey = "HKCU:\Software\Classes\.ahk"
-                if (-not (Test-Path $ahkExtKey)) { New-Item -Path $ahkExtKey -Force | Out-Null }
-                Set-ItemProperty -Path $ahkExtKey -Name "(default)" -Value "AutoHotkeyScript" -ErrorAction SilentlyContinue
-                Write-Success ".ahk 파일 확장자가 포터블 AutoHotkey에 자동 연결되었습니다."
-            } catch {}
-        } else {
-            Write-Warn "압축 해제 후 AutoHotkey 실행 파일을 찾지 못했습니다: $ahkModuleDir"
-        }
-    } catch {
-        $ProgressPreference = $prevProgress
-        Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
-        Write-Warn "AutoHotkey v2 포터블 다운로드 실패: $($_.Exception.Message)"
-    }
-}
-
-# ── (3) AHK 스크립트 배포 및 자동 실행 연동 ───────────────────────────────────
-$startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-
-$ahkSetupJob = Start-Job -ScriptBlock {
-    param($WslDistro, $startupDir, $ahkModuleDir, $ahkExe)
-
-    # 헬퍼: WSL2 디렉터리 존재 여부를 UNC Test-Path 대신 wsl test -d 로 0.01초만에 빠르게 검사
-    # ⚠️ 호출부(아래)는 '$DEVTOOLS2'처럼 bash 변수 참조 리터럴을 넘겨 "WSL 안에서
-    # $DEVTOOLS2가 실제로 유효한 디렉터리를 가리키는지" 검사하려는 의도입니다.
-    # bash에서 작은따옴표는 변수 확장을 막으므로 test -d '$linuxPath'는 "$DEVTOOLS2"라는
-    # 리터럴 이름의 디렉터리를 찾게 되어 항상 실패합니다(직접 테스트로 확인됨). 큰따옴표로
-    # 바꾸면 변수 참조는 정상 확장되면서, 공백이 포함된 일반 경로도 여전히 안전합니다.
-    function Test-WslDirFast {
-        param($distro, $linuxPath)
-        $res = wsl -d $distro -- bash -c "test -d ""$linuxPath"" && echo 'OK'" 2>$null
-        return ($res -eq 'OK')
     }
 
-    # 🌟 통합 devtools2-hotkey.ahk 연동 및 자동 실행 등록
-    # 포터블 AHK 실행 파일(AutoHotkey64.exe)을 원본 파일명 그대로 유지하여
-    # 차후 독립적인 사용자 스크립트 실행 등 다목적 활용이 가능하도록 보장합니다.
-
+    # ── (3) AHK 스크립트 배포 및 자동 실행 연동 ───────────────────────────────────
     # 🌟 기존 AutoHotkey 관련 중복 항목 정리 (Startup 바로가기 & 레지스트리 Run 키 & 구형 Task Scheduler)
     Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -296,13 +252,11 @@ $ahkSetupJob = Start-Job -ScriptBlock {
         }
     }
 
-    # 구형 Task Scheduler 잔여 항목 정리 (이전 버전 호환)
+    # 구형 Task Scheduler 잔여 항목 정리
     try {
         $tsClean = New-Object -ComObject Schedule.Service
         $tsClean.Connect()
         $rootClean = $tsClean.GetFolder("\")
-        # DevTools2_Kanata: _devtools2와 무관한 kanata(키보드 리매퍼)를 실행하던 잔여 작업 —
-        # AutoHotkey와 저수준 키보드 후킹이 충돌해 로그온 시 AHK 실행 자체가 실패하므로 정리.
         @("DevTools2-Hotkey", "DevTools2-AutoHotkey", "DevTools2_Kanata") | ForEach-Object {
             try { $rootClean.DeleteTask($_, 0) } catch {}
         }
@@ -310,27 +264,17 @@ $ahkSetupJob = Start-Job -ScriptBlock {
 
     # %DEVTOOLS2% 환경 변수 연동
     $wslDevtools2Root = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { "\\wsl.localhost\$WslDistro\var\opt\_devtools2" }
-    if (Test-WslDirFast $WslDistro '$DEVTOOLS2') {
-        [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
-        $env:DEVTOOLS2 = $wslDevtools2Root
-    }
+    [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
+    $env:DEVTOOLS2 = $wslDevtools2Root
 
     # devtools2-hotkey.ahk 통합 스크립트 배포
-    # 재부팅 직후 WSL이 아직 기동하지 않은 상태에서도 AHK가 즉시 실행될 수 있도록
-    # 항상 Windows 로컬 경로에 복사해 둡니다.
-    # [온라인 전용] WSL 클론이 git pull 되지 않은 채 남아있으면 로컬(WSL) 복사가
-    # 구버전을 배포할 위험이 있으므로, 로컬/WSL 파일은 사용하지 않고 매번 GitHub main
-    # 최신 버전을 캐시 우회 헤더와 함께 직접 받아옵니다 (_colors.sh 등과 동일한 온라인
-    # 전용 원칙 — scripts/linux/dev-env/_install-utils.sh 헤더 참고).
     $ahkDest = Join-Path $ahkModuleDir "devtools2-hotkey.ahk"
     $ahkRaw  = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/devtools2-hotkey.ahk"
     $ahkNoCacheHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
     $ahkFetchError = $null
-    # 임시 파일로 먼저 받아서 성공했을 때만 $ahkDest로 교체 — 다운로드 도중 실패해도
-    # 기존에 정상 배포돼 있던 로컬 사본이 손상된 파일로 덮어써지지 않도록 보장합니다.
     $ahkTmp = "$ahkDest.download"
     try {
-        Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkTmp -Headers $ahkNoCacheHeaders -ErrorAction Stop
+        Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkTmp -Headers $ahkNoCacheHeaders -UseBasicParsing -ErrorAction Stop
         Move-Item -Path $ahkTmp -Destination $ahkDest -Force
     } catch {
         $ahkFetchError = $_.Exception.Message
@@ -338,19 +282,6 @@ $ahkSetupJob = Start-Job -ScriptBlock {
     }
 
     # 통합 AutoHotkey 자동 실행 등록 (Task Scheduler)
-    # Startup 폴더 바로가기는 로그온 후 수 분씩 지연 실행되는 문제가 있어서,
-    # 지연 없이(PT0S) 즉시 실행되는 로그온 트리거로 등록합니다.
-    #
-    # ⚠️ CapsLock이 안 먹히거나 이 작업이 실패하면(LastTaskResult 확인):
-    #   원인은 kanata(별도 키보드 리매퍼, _devtools2와 무관, 수동 설치됨)가 같이 떠 있어서
-    #   AutoHotkey와 저수준 키보드 후킹이 충돌하는 것이었음(실측 확인 — SAC 차단 아니었음).
-    #   위에서 "DevTools2_Kanata" 작업은 자동 정리하지만, kanata.exe 자체가 다른 방식으로
-    #   계속 실행 중이면 또 충돌할 수 있음 (Get-Process kanata로 확인).
-    #
-    # 💡 kanata 필요성: AHK의 CapsLock 파트(Part 1: 탭=ESC, 홀드=Ctrl, Shift+CapsLock
-    #   토글 등)가 kanata 설정보다 기능이 더 많아서, 이 프로젝트에서는 kanata가 필요 없음.
-    #   나중에 kanata를 다시 쓰고 싶다면 AHK의 CapsLock 파트를 빼거나 kanata를 꺼야 함
-    #   — 둘을 동시에 실행하면 안 됨.
     if (Test-Path $ahkExe) {
         $taskName = "DevTools2-Hotkey"
         $registered = $false
@@ -412,22 +343,13 @@ $ahkSetupJob = Start-Job -ScriptBlock {
         Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
     }
 
-    return @{ AhkDest = $ahkDest; AhkFetchError = $ahkFetchError }
-} -ArgumentList $WslDistro, $startupDir, $ahkModuleDir, $ahkExe
-
-# 스피너로 백그라운드 작업 대기
-$null = Wait-WithSpinner -Message "AutoHotkey 기능 연동 및 자동 실행 구성 중" -Condition { $ahkSetupJob.State -ne 'Running' } -MaxTimeoutSeconds 60
-
-$jobRes = Receive-Job -Job $ahkSetupJob -ErrorAction SilentlyContinue
-Remove-Job -Job $ahkSetupJob -Force -ErrorAction SilentlyContinue
-
-if ($jobRes -and $jobRes.AhkFetchError) {
-    Write-Warn "devtools2-hotkey.ahk 온라인 다운로드 실패 (네트워크 확인 필요): $($jobRes.AhkFetchError)"
-    Write-Warn "  기존에 배포된 로컬 사본이 있다면 그대로 사용됩니다. 없다면 단축키가 동작하지 않습니다."
-} else {
-    Write-Success "AutoHotkey 기능(Ctrl+Alt+T 단축키 및 CapsLock 리매핑)이 정상 연동되었습니다."
+    if ($ahkFetchError) {
+        Write-Warn "devtools2-hotkey.ahk 온라인 다운로드 실패 (네트워크 확인 필요): $ahkFetchError"
+        Write-Warn "  기존에 배포된 로컬 사본이 있다면 그대로 사용됩니다. 없다면 단축키가 동작하지 않습니다."
+    } else {
+        Write-Success "AutoHotkey 기능(Ctrl+Alt+T 단축키 및 CapsLock 리매핑)이 정상 연동되었습니다."
+    }
 }
-} # end if ($installAhk -notmatch '^[Nn]')
 
 # ==============================================================================
 # 완료
@@ -436,7 +358,7 @@ Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🎉 AutoHotkey 설정 완료!" -ForegroundColor Green
 Write-Host ""
-if (-not ($installAhk -match '^[Nn]')) {
+if ($installAhk) {
     Write-Host "  [AutoHotkey 연동 안내]" -ForegroundColor Cyan
     Write-Host "  · AHK 소스: GitHub main 최신 버전 (온라인 전용) -> Windows 로컬 동기화" -ForegroundColor DarkGray
     Write-Host "  · AHK 수정 후 GitHub에 푸시하고 설치 스크립트를 재실행하면 최신 스크립트가 로컬로 즉시 반영됩니다." -ForegroundColor DarkGray
