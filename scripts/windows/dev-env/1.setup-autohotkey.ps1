@@ -194,10 +194,25 @@ if (-not $installAhk) {
         $ahkZipTemp = Join-Path $env:TEMP "ahk-v2.zip"
 
         try {
-            Invoke-WebRequest -Uri $ahkZipUrl -OutFile $ahkZipTemp -UseBasicParsing -ErrorAction Stop
+            $dlJob = Start-Job -ScriptBlock {
+                param($url, $dest)
+                Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -ErrorAction Stop
+            } -ArgumentList $ahkZipUrl, $ahkZipTemp
+
+            $null = Wait-WithSpinner -Message "AutoHotkey v2 패키지 다운로드 중" -Condition { $dlJob.State -ne 'Running' } -MaxTimeoutSeconds 120
+            Receive-Job -Job $dlJob -ErrorAction SilentlyContinue | Out-Null
+            Remove-Job -Job $dlJob -Force -ErrorAction SilentlyContinue
 
             if (Test-Path $ahkZipTemp) {
-                Expand-Archive -Path $ahkZipTemp -DestinationPath $ahkModuleDir -Force
+                $unzipJob = Start-Job -ScriptBlock {
+                    param($zip, $target)
+                    Expand-Archive -Path $zip -DestinationPath $target -Force
+                } -ArgumentList $ahkZipTemp, $ahkModuleDir
+
+                $null = Wait-WithSpinner -Message "AutoHotkey v2 압축 해제 중" -Condition { $unzipJob.State -ne 'Running' } -MaxTimeoutSeconds 120
+                Receive-Job -Job $unzipJob -ErrorAction SilentlyContinue | Out-Null
+                Remove-Job -Job $unzipJob -Force -ErrorAction SilentlyContinue
+
                 Remove-Item $ahkZipTemp -Force -ErrorAction SilentlyContinue
             }
 
@@ -209,7 +224,7 @@ if (-not $installAhk) {
             if (Test-Path $ahkExe) {
                 Write-Success "AutoHotkey v2 포터블 배포 완료: $ahkExe"
 
-                # ── 사용자 레지스트리(HKCU)에 .ahk 확장자 자동 연결 등록 ──
+                # ── 사용자 레지스트리(HKCU)에 .ahk 확장자 자동 연결 등록 (오프라인 환경/더블클릭 대비) ──
                 try {
                     $ahkClassKey = "HKCU:\Software\Classes\AutoHotkeyScript\shell\open\command"
                     if (-not (Test-Path $ahkClassKey)) { New-Item -Path $ahkClassKey -Force | Out-Null }
@@ -230,126 +245,161 @@ if (-not $installAhk) {
     }
 
     # ── (3) AHK 스크립트 배포 및 자동 실행 연동 ───────────────────────────────────
-    # 🌟 기존 AutoHotkey 관련 중복 항목 정리 (Startup 바로가기 & 레지스트리 Run 키 & 구형 Task Scheduler)
-    Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path $startupDir -Filter "*WezTerm-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path $startupDir -Filter "*Keyboard-Remap*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path $startupDir -Filter "*DevTools2-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    $ahkSetupJob = Start-Job -ScriptBlock {
+        param($WslDistro, $startupDir, $ahkModuleDir, $ahkExe)
 
-    $runRegPaths = @(
-        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
-        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
-    )
-    foreach ($regPath in $runRegPaths) {
-        if (Test-Path $regPath) {
-            $props = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
-            if ($props) {
-                $props.psobject.Properties | Where-Object { $_.Name -like "*AutoHotkey*" } | ForEach-Object {
-                    Remove-ItemProperty -Path $regPath -Name $_.Name -ErrorAction SilentlyContinue
+        # 🌟 기존 AutoHotkey 관련 중복 항목 정리 (Startup 바로가기 & 레지스트리 Run 키 & 구형 Task Scheduler)
+        Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $startupDir -Filter "*WezTerm-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $startupDir -Filter "*Keyboard-Remap*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Path $startupDir -Filter "*DevTools2-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+
+        $runRegPaths = @(
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
+            "HKLM:\Software\Microsoft\Windows\CurrentVersion\Run"
+        )
+        foreach ($regPath in $runRegPaths) {
+            if (Test-Path $regPath) {
+                $props = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
+                if ($props) {
+                    $props.psobject.Properties | Where-Object { $_.Name -like "*AutoHotkey*" } | ForEach-Object {
+                        Remove-ItemProperty -Path $regPath -Name $_.Name -ErrorAction SilentlyContinue
+                    }
                 }
             }
         }
-    }
 
-    # 구형 Task Scheduler 잔여 항목 정리
-    try {
-        $tsClean = New-Object -ComObject Schedule.Service
-        $tsClean.Connect()
-        $rootClean = $tsClean.GetFolder("\")
-        @("DevTools2-Hotkey", "DevTools2-AutoHotkey", "DevTools2_Kanata") | ForEach-Object {
-            try { $rootClean.DeleteTask($_, 0) } catch {}
-        }
-    } catch {}
-
-    # %DEVTOOLS2% 환경 변수 연동
-    $wslDevtools2Root = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { "\\wsl.localhost\$WslDistro\var\opt\_devtools2" }
-    [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
-    $env:DEVTOOLS2 = $wslDevtools2Root
-
-    # devtools2-hotkey.ahk 통합 스크립트 배포
-    $ahkDest = Join-Path $ahkModuleDir "devtools2-hotkey.ahk"
-    $ahkRaw  = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/devtools2-hotkey.ahk"
-    $ahkNoCacheHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-    $ahkFetchError = $null
-    $ahkTmp = "$ahkDest.download"
-    try {
-        Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkTmp -Headers $ahkNoCacheHeaders -UseBasicParsing -ErrorAction Stop
-        Move-Item -Path $ahkTmp -Destination $ahkDest -Force
-    } catch {
-        $ahkFetchError = $_.Exception.Message
-        Remove-Item -Path $ahkTmp -Force -ErrorAction SilentlyContinue
-    }
-
-    # 통합 AutoHotkey 자동 실행 등록 (Task Scheduler)
-    if (Test-Path $ahkExe) {
-        $taskName = "DevTools2-Hotkey"
-        $registered = $false
+        # 구형 Task Scheduler 잔여 항목 정리 (이전 버전 호환)
         try {
-            $ts   = New-Object -ComObject Schedule.Service
-            $ts.Connect()
-            $root = $ts.GetFolder("\")
-
-            # 기존 동일 작업 삭제 후 재등록
-            try { $root.DeleteTask($taskName, 0) } catch {}
-
-            $task = $ts.NewTask(0)
-            $task.Settings.ExecutionTimeLimit         = "PT0S"  # 시간제한 없음
-            $task.Settings.MultipleInstances          = 3        # 이미 실행 중이면 무시
-            $task.Settings.StopIfGoingOnBatteries     = $false
-            $task.Settings.DisallowStartIfOnBatteries = $false
-
-            # 트리거: 현재 사용자 로그온 시 즉시 실행 (지연 없음)
-            $trigger         = $task.Triggers.Create(9)  # 9 = TASK_TRIGGER_LOGON
-            $trigger.UserId  = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-            $trigger.Delay   = "PT0S"  # 지연 없음
-
-            # 동작: AHK 실행 (Windows 로컬 경로 — WSL 불필요)
-            $action                   = $task.Actions.Create(0)  # 0 = TASK_ACTION_EXEC
-            $action.Path              = $ahkExe
-            $action.Arguments         = "`"$ahkDest`""
-            $action.WorkingDirectory  = $ahkModuleDir
-
-            # 현재 사용자 권한으로 실행 (관리자 권한 불필요)
-            $task.Principal.UserId    = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-            $task.Principal.LogonType = 3  # 3 = TASK_LOGON_INTERACTIVE_TOKEN
-            $task.Principal.RunLevel  = 0  # 0 = TASK_RUNLEVEL_LUA (일반 사용자 권한)
-
-            $root.RegisterTaskDefinition($taskName, $task, 6, $null, $null, 3) | Out-Null
-            $registered = $true
+            $tsClean = New-Object -ComObject Schedule.Service
+            $tsClean.Connect()
+            $rootClean = $tsClean.GetFolder("\")
+            # DevTools2_Kanata: _devtools2와 무관한 kanata(키보드 리매퍼)를 실행하던 잔여 작업 —
+            # AutoHotkey와 저수준 키보드 후킹이 충돌해 로그온 시 AHK 실행 자체가 실패하므로 정리.
+            @("DevTools2-Hotkey", "DevTools2-AutoHotkey", "DevTools2_Kanata") | ForEach-Object {
+                try { $rootClean.DeleteTask($_, 0) } catch {}
+            }
         } catch {}
 
-        # Task Scheduler 등록 실패 시 Startup 바로가기로 폴백
-        if (-not $registered) {
-            $shortcutPath = "$startupDir\DevTools2-Hotkey.lnk"
-            try {
-                $wshShell = New-Object -ComObject WScript.Shell
-                $shortcut = $wshShell.CreateShortcut($shortcutPath)
-                $shortcut.TargetPath       = $ahkExe
-                $shortcut.Arguments        = "`"$ahkDest`""
-                $shortcut.WorkingDirectory = $ahkModuleDir
-                $shortcut.WindowStyle      = 7
-                $shortcut.Description      = "DevTools2 AutoHotkey Service (Terminal Hotkey & Keyboard Remap)"
-                $shortcut.Save()
-            } catch {}
+        # %DEVTOOLS2% 환경 변수 연동
+        $wslDevtools2Root = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { "\\wsl.localhost\$WslDistro\var\opt\_devtools2" }
+        [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
+        $env:DEVTOOLS2 = $wslDevtools2Root
+
+        # devtools2-hotkey.ahk 통합 스크립트 배포
+        # 재부팅 직후 WSL이 아직 기동하지 않은 상태에서도 AHK가 즉시 실행될 수 있도록
+        # 항상 Windows 로컬 경로에 복사해 둡니다.
+        # [온라인 전용] WSL 클론이 git pull 되지 않은 채 남아있으면 로컬(WSL) 복사가
+        # 구버전을 배포할 위험이 있으므로, 로컬/WSL 파일은 사용하지 않고 매번 GitHub main
+        # 최신 버전을 캐시 우회 헤더와 함께 직접 받아옵니다.
+        $ahkDest = Join-Path $ahkModuleDir "devtools2-hotkey.ahk"
+        $ahkRaw  = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/devtools2-hotkey.ahk"
+        $ahkNoCacheHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
+        $ahkFetchError = $null
+        # 임시 파일로 먼저 받아서 성공했을 때만 $ahkDest로 교체 — 다운로드 도중 실패해도
+        # 기존에 정상 배포돼 있던 로컬 사본이 손상된 파일로 덮어써지지 않도록 보장합니다.
+        $ahkTmp = "$ahkDest.download"
+        try {
+            Invoke-WebRequest -Uri $ahkRaw -OutFile $ahkTmp -Headers $ahkNoCacheHeaders -UseBasicParsing -ErrorAction Stop
+            Move-Item -Path $ahkTmp -Destination $ahkDest -Force
+        } catch {
+            $ahkFetchError = $_.Exception.Message
+            Remove-Item -Path $ahkTmp -Force -ErrorAction SilentlyContinue
         }
-    }
 
-    # 기존 AutoHotkey 프로세스 전체 종료 후 통합 프로세스 단 1개만 실행
-    Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
-        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        # 통합 AutoHotkey 자동 실행 등록 (Task Scheduler)
+        # Startup 폴더 바로가기는 로그온 후 수 분씩 지연 실행되는 문제가 있어서,
+        # 지연 없이(PT0S) 즉시 실행되는 로그온 트리거로 등록합니다.
+        #
+        # ⚠️ CapsLock이 안 먹히거나 이 작업이 실패하면(LastTaskResult 확인):
+        #   원인은 kanata(별도 키보드 리매퍼, _devtools2와 무관, 수동 설치됨)가 같이 떠 있어서
+        #   AutoHotkey와 저수준 키보드 후킹이 충돌하는 것이었음(실측 확인 — SAC 차단 아니었음).
+        #   위에서 "DevTools2_Kanata" 작업은 자동 정리하지만, kanata.exe 자체가 다른 방식으로
+        #   계속 실행 중이면 또 충돌할 수 있음 (Get-Process kanata로 확인).
+        #
+        # 💡 kanata 필요성: AHK의 CapsLock 파트(Part 1: 탭=ESC, 홀드=Ctrl, Shift+CapsLock
+        #   토글 등)가 kanata 설정보다 기능이 더 많아서, 이 프로젝트에서는 kanata가 필요 없음.
+        #   나중에 kanata를 다시 쓰고 싶다면 AHK의 CapsLock 파트를 빼거나 kanata를 꺼야 함
+        #   — 둘을 동시에 실행하면 안 됨.
+        if (Test-Path $ahkExe) {
+            $taskName = "DevTools2-Hotkey"
+            $registered = $false
+            try {
+                $ts   = New-Object -ComObject Schedule.Service
+                $ts.Connect()
+                $root = $ts.GetFolder("\")
 
-    if ($ahkExe -and (Test-Path $ahkExe) -and $ahkDest -and (Test-Path $ahkDest)) {
-        Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
-    }
+                # 기존 동일 작업 삭제 후 재등록
+                try { $root.DeleteTask($taskName, 0) } catch {}
 
-    if ($ahkFetchError) {
-        Write-Warn "devtools2-hotkey.ahk 온라인 다운로드 실패 (네트워크 확인 필요): $ahkFetchError"
+                $task = $ts.NewTask(0)
+                $task.Settings.ExecutionTimeLimit         = "PT0S"  # 시간제한 없음
+                $task.Settings.MultipleInstances          = 3        # 이미 실행 중이면 무시
+                $task.Settings.StopIfGoingOnBatteries     = $false
+                $task.Settings.DisallowStartIfOnBatteries = $false
+
+                # 트리거: 현재 사용자 로그온 시 즉시 실행 (지연 없음)
+                $trigger         = $task.Triggers.Create(9)  # 9 = TASK_TRIGGER_LOGON
+                $trigger.UserId  = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+                $trigger.Delay   = "PT0S"  # 지연 없음
+
+                # 동작: AHK 실행 (Windows 로컬 경로 — WSL 불필요)
+                $action                   = $task.Actions.Create(0)  # 0 = TASK_ACTION_EXEC
+                $action.Path              = $ahkExe
+                $action.Arguments         = "`"$ahkDest`""
+                $action.WorkingDirectory  = $ahkModuleDir
+
+                # 현재 사용자 권한으로 실행 (관리자 권한 불필요)
+                $task.Principal.UserId    = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+                $task.Principal.LogonType = 3  # 3 = TASK_LOGON_INTERACTIVE_TOKEN
+                $task.Principal.RunLevel  = 0  # 0 = TASK_RUNLEVEL_LUA (일반 사용자 권한)
+
+                $root.RegisterTaskDefinition($taskName, $task, 6, $null, $null, 3) | Out-Null
+                $registered = $true
+            } catch {}
+
+            # Task Scheduler 등록 실패 시 Startup 바로가기로 폴백
+            if (-not $registered) {
+                $shortcutPath = "$startupDir\DevTools2-Hotkey.lnk"
+                try {
+                    $wshShell = New-Object -ComObject WScript.Shell
+                    $shortcut = $wshShell.CreateShortcut($shortcutPath)
+                    $shortcut.TargetPath       = $ahkExe
+                    $shortcut.Arguments        = "`"$ahkDest`""
+                    $shortcut.WorkingDirectory = $ahkModuleDir
+                    $shortcut.WindowStyle      = 7
+                    $shortcut.Description      = "DevTools2 AutoHotkey Service (Terminal Hotkey & Keyboard Remap)"
+                    $shortcut.Save()
+                } catch {}
+            }
+        }
+
+        # 기존 AutoHotkey 프로세스 전체 종료 후 통합 프로세스 단 1개만 실행
+        Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
+            ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+
+        if ($ahkExe -and (Test-Path $ahkExe) -and $ahkDest -and (Test-Path $ahkDest)) {
+            Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
+        }
+
+        return @{ AhkDest = $ahkDest; AhkFetchError = $ahkFetchError }
+    } -ArgumentList $WslDistro, $startupDir, $ahkModuleDir, $ahkExe
+
+    # 스피너로 백그라운드 작업 대기
+    $null = Wait-WithSpinner -Message "AutoHotkey 기능 연동 및 자동 실행 구성 중" -Condition { $ahkSetupJob.State -ne 'Running' } -MaxTimeoutSeconds 60
+
+    $jobRes = Receive-Job -Job $ahkSetupJob -ErrorAction SilentlyContinue
+    Remove-Job -Job $ahkSetupJob -Force -ErrorAction SilentlyContinue
+
+    if ($jobRes -and $jobRes.AhkFetchError) {
+        Write-Warn "devtools2-hotkey.ahk 온라인 다운로드 실패 (네트워크 확인 필요): $($jobRes.AhkFetchError)"
         Write-Warn "  기존에 배포된 로컬 사본이 있다면 그대로 사용됩니다. 없다면 단축키가 동작하지 않습니다."
     } else {
         Write-Success "AutoHotkey 기능(Ctrl+Alt+T 단축키 및 CapsLock 리매핑)이 정상 연동되었습니다."
     }
 }
+
 
 # ==============================================================================
 # 완료
