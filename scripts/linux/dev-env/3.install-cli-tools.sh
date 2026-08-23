@@ -616,6 +616,11 @@ if [ "$IS_WSL2" = true ]; then
             update_pinned_version "win32yank" "$WIN32YANK_VERSION"
         fi
     fi
+
+    # WSL2 클립보드 연동 도구 win32yank PATH 동적 등록
+    if [ -d "$MODULES_DIR/win32yank" ]; then
+        ensure_path_in_bashrc "$MODULES_DIR/win32yank"
+    fi
 fi
 
 # ─────────────────────────────────────────────────────────────────

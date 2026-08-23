@@ -510,6 +510,11 @@ else
         fi
     fi
 
+    # 네이티브 리눅스: Ghostty PATH 동적 등록
+    if [ -d "$DEVTOOLS2/modules/ghostty" ]; then
+        ensure_path_in_bashrc "$DEVTOOLS2/modules/ghostty"
+    fi
+
     echo "✅ Ghostty 설치 완료"
 fi
 echo ""
