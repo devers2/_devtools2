@@ -47,13 +47,16 @@
 
 set -euo pipefail
 
-# 0) 스크립트 위치 기준 상위의 상위의 상위 디렉토리를 DEVTOOLS2로 고정 설정
-# 리눅스에서 기본 전역 환경변수를 제외한 사용자 정의의 시스템 전역 환경 변수는 없음
-SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
-DEVTOOLS2=$(readlink -f "$SCRIPT_DIR/../../..")
+# 0) DEVTOOLS2 경로 결정:
+#   1순위: 외부에서 주입된 DEVTOOLS2 환경변수
+#   2순위: 현재 스크립트($0) 위치 기준 상대 경로 계산
+#   3순위: 표준 설치 경로 /var/opt/_devtools2 (fallback)
+if [ -z "${DEVTOOLS2:-}" ]; then
+    SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+    DEVTOOLS2=$(readlink -f "$SCRIPT_DIR/../../..")
+fi
 
-# 만약 스크립트가 리포지토리 외부(예: /tmp)에서 실행되었거나, 유효한 DEVTOOLS2 폴더가 아니면
-# 표준 경로인 /var/opt/_devtools2 를 기본값으로 사용합니다.
+# 만약 유효한 DEVTOOLS2 폴더가 아니면 표준 경로를 기본값으로 사용
 if [ ! -f "$DEVTOOLS2/scripts/linux/dev-env/0.init-devtools2.sh" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
