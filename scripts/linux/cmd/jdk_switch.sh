@@ -24,6 +24,7 @@ if [ -n "$BASH_SOURCE" ]; then
 else
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 fi
+DEVTOOLS2="${DEVTOOLS2:-$(cd "$SCRIPT_DIR/../../.." 2>/dev/null && pwd)}"
 
 # 3. 버전별 폴더명 설정 (8버전은 jdk-1.8 사용, 그 외는 jdk-버전 형식)
 FOLDER_NAME=""

@@ -32,16 +32,18 @@ if ($JavaVersion -eq "8") {
     $FOLDER_NAME = "jdk-$JavaVersion"
 }
 
-# 4. 상대 경로를 사용하여 최종 절대 경로 계산
-# 기존 구조를 유지하여 ..\..\..\modules\java\ 경로로 계산 (bin에서 modules로 변경된 이름 반영)
+# 4. DEVTOOLS2 환경 변수 또는 상대 경로를 사용하여 최종 절대 경로 계산
 try {
-    $RELATIVE_PATH = Join-Path $CURRENT_DIR "..\..\..\modules\java\$FOLDER_NAME"
-    if (-not (Test-Path $RELATIVE_PATH)) {
+    $DEVTOOLS2 = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { (Resolve-Path (Join-Path $CURRENT_DIR "..\..\..")).Path }
+    $TARGET_PATH = Join-Path $DEVTOOLS2 "modules\java\$FOLDER_NAME"
+    if (-not (Test-Path $TARGET_PATH)) {
         # 기존 bin 폴더 구조도 호환되도록 확인
-        $RELATIVE_PATH = Join-Path $CURRENT_DIR "..\..\..\bin\java\$FOLDER_NAME"
+        $TARGET_PATH = Join-Path $DEVTOOLS2 "bin\java\$FOLDER_NAME"
     }
 
-    $TARGET_PATH = (Resolve-Path $RELATIVE_PATH -ErrorAction Stop).Path
+    if (-not (Test-Path $TARGET_PATH)) {
+        throw "해당 경로가 존재하지 않습니다: $TARGET_PATH"
+    }
 }
 catch {
     Write-Host "[Error] 해당 JDK 경로를 찾을 수 없습니다." -ForegroundColor Red
