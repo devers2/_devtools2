@@ -11,11 +11,8 @@ param(
 #   2. devtools2-hotkey.ahk(CapsLock 리매핑 + Ctrl+Alt+T 로 WSL 터미널 열기)를 온라인에서
 #      받아와 로그온 시 자동 실행되도록 Task Scheduler에 등록
 #
-# ※ 예전에는 이 스크립트가 WezTerm 설치까지 겸했지만, WezTerm(Nightly는 Smart App
-#   Control 차단, Stable은 2년 반 넘게 미업데이트)을 걷어내고 Windows Terminal로
-#   전환하면서 AutoHotkey 배포와 터미널 앱 설정(2.setup-windows-terminal.ps1)을
-#   분리했습니다. Ctrl+Alt+T는 이제 devtools2-hotkey.ahk가 Windows Terminal을 통해
-#   WSL을 엽니다.
+# ※ Windows 환경의 기본 터미널로 Windows Terminal을 사용하며, Ctrl+Alt+T는 
+#   devtools2-hotkey.ahk가 Windows Terminal을 통해 WSL을 엽니다.
 #
 # ------------------------------------------------------------------------------
 # ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
@@ -242,7 +239,6 @@ if (-not $installAhk) {
     # 🌟 기존 AutoHotkey 관련 중복 항목 정리 (Startup 바로가기 & 레지스트리 Run 키 & 구형 Task Scheduler)
     Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path $startupDir -Filter "*WezTerm-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Get-ChildItem -Path $startupDir -Filter "*Keyboard-Remap*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
     Get-ChildItem -Path $startupDir -Filter "*DevTools2-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 

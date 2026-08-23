@@ -14,7 +14,40 @@
 ;
 ;   2. WSL 터미널 전역 단축키 (Ctrl + Alt + T)
 ;      - Windows Terminal을 통해 WSL(devtools2)을 새 창으로 열기
+;
+;   3. 개발툴 활성 시 IME 자동 영문 전환 (0ms 무지연)
+;      - Windows Terminal / VS Code / Zed 등이 활성 상태에서
+;        Esc, CapsLock(탭), Ctrl+[ 입력 시 Windows IME를 즉시 영문으로 전환
+;      - Linux 네이티브의 im-select.nvim + fcitx5 와 동일한 경험 제공
+;      - Normal 모드 진입 및 Insert 복귀 시 항상 영문 보장
 ; ==============================================================================
+
+; ------------------------------------------------------------------------------
+; [공통 헬퍼] Win32 IMM API를 통해 현재 활성 창의 IME를 즉시 영문으로 전환
+; WM_IME_CONTROL(0x0283) + IMC_GETCONVERSIONMODE(0x0001) / IMC_SETCONVERSIONMODE(0x0002)
+; convMode & 1 이 1이면 한글(CJK) 모드 → 0(영문 Alphanumeric)으로 전환
+; ------------------------------------------------------------------------------
+_SetImeToEnglish() {
+    try {
+        hwnd := WinExist("A")
+        if !hwnd
+            return
+        imeWnd := DllCall("imm32\ImmGetDefaultIMEWnd", "Ptr", hwnd, "Ptr")
+        if !imeWnd
+            return
+        convMode := DllCall("SendMessage", "Ptr", imeWnd, "UInt", 0x0283, "Ptr", 0x0001, "Ptr", 0, "Ptr")
+        if (convMode & 1)
+            DllCall("SendMessage", "Ptr", imeWnd, "UInt", 0x0283, "Ptr", 0x0002, "Ptr", 0, "Ptr")
+    }
+}
+
+; 개발툴(Windows Terminal / VS Code / Zed 등) 활성 여부 판별
+_IsDevWindow() {
+    return WinActive("ahk_exe WindowsTerminal.exe")
+        or WinActive("ahk_exe Code.exe")
+        or WinActive("ahk_exe zed.exe")
+        or WinActive("ahk_exe nvim-qt.exe")
+}
 
 ; ------------------------------------------------------------------------------
 ; Part 1. CapsLock 키보드 리매핑
@@ -72,8 +105,10 @@ _CleanupOnExit(reason, code) {
     _capsDown := false
     Send "{Blind}{LCtrl up}"
 
-    if !_capsUsedAsCtrl
+    if !_capsUsedAsCtrl {
         Send "{Esc}"
+        _SetImeToEnglish()  ; CapsLock 탭(→ Esc) 시 개발툴이면 즉시 영문 전환
+    }
 
     _capsUsedAsCtrl := false
 }
@@ -89,6 +124,17 @@ _CleanupOnExit(reason, code) {
 ~Esc:: {
     if GetKeyState("CapsLock", "T")
         SetCapsLockState "Off"
+    if _IsDevWindow()
+        _SetImeToEnglish()  ; Esc 시 개발툴이면 즉시 영문 전환 (일반 앱에는 미적용)
+}
+
+; ------------------------------------------------------------------------------
+; Part 3. 개발툴 활성 시 IME 자동 영문 전환 (Ctrl+[)
+; Vim 표준 Esc 대체키 Ctrl+[ 에도 동일하게 적용
+; ------------------------------------------------------------------------------
+~^[:: {
+    if _IsDevWindow()
+        _SetImeToEnglish()
 }
 
 ; ------------------------------------------------------------------------------
@@ -96,7 +142,7 @@ _CleanupOnExit(reason, code) {
 ; ------------------------------------------------------------------------------
 ; ⚠️ "새 창은 OS가 알아서 포그라운드를 준다"는 가정은 틀렸음(실측) — 다른 창(브라우저 등)에
 ;   포커스가 있을 때 Ctrl+Alt+T를 누르면 Windows Terminal이 뒤에서 열리고 포커스는 안 옮겨감.
-;   WezTerm 때와 동일한 HWND 스냅샷/활성화 로직을 WindowsTerminal.exe 대상으로 복원함.
+;   기존 창 스냅샷/활성화 로직을 WindowsTerminal.exe 대상으로 적용함.
 ; wt.exe는 실행 별칭(App Execution Alias)이라 PATH로 바로 실행 가능하지만,
 ; 별칭이 꺼져있는 예외 상황을 대비해 실제 설치 경로도 폴백으로 시도한다.
 ^!t::
