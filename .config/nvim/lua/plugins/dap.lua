@@ -46,40 +46,178 @@ return {
         end
       end
 
-      local function kill_debuggee_process(session)
-        local session_id = session and session.id or (dap.session() and dap.session().id)
-        local pid = session_id and active_debug_pids[session_id]
+      -- [프로젝트 종속 디버기 프로세스 판별 헬퍼]
+      -- IDE, LSP, Mason, 빌드 데몬(JDTLS, GradleDaemon)은 절대 건드리지 않고
+      -- 오직 현재 프로젝트(cwd/MAIN_CLASS)의 런타임 디버깅 인스턴스만 정확히 식별합니다.
+      local function is_project_debuggee(cmd, root, main_class)
+        if not cmd or cmd == '' then
+          return false
+        end
+        local cmd_lower = cmd:lower()
 
-        -- 1) DAP 표준 이벤트로 추적된 정확한 OS PID 직접 종료
-        if pid and pid > 0 then
-          active_debug_pids[session_id] = nil
-          if _G.OS_TYPE == _G.OS.WINDOWS then
-            pcall(vim.system, { 'taskkill', '/F', '/T', '/PID', tostring(pid) }, {}, function() end)
-          else
-            pcall(vim.system, { 'kill', '-9', tostring(pid) }, {}, function() end)
-          end
-          return
+        -- 1) 절대 종료 금지 필터: IDE, LSP 서버, Mason, 빌드 데몬, Neovim
+        if
+          cmd:find('org.eclipse.equinox.launcher', 1, true)
+          or cmd:find('jdtls', 1, true)
+          or cmd:find('GradleDaemon', 1, true)
+          or cmd:find('org.gradle', 1, true)
+          or cmd:find('nvim', 1, true)
+          or cmd:find('mason', 1, true)
+          or cmd:find('language-server', 1, true)
+          or cmd:find('vtsls', 1, true)
+          or cmd:find('typescript-language-server', 1, true)
+          or cmd:find('pyright', 1, true)
+          or cmd:find('basedpyright', 1, true)
+          or cmd:find('ruff', 1, true)
+          or cmd:find('eslint', 1, true)
+          or cmd:find('tailwindcss', 1, true)
+        then
+          return false
         end
 
-        -- 2) Fallback: .nvim.lua의 MAIN_CLASS가 존재하는 경우에만 보조 수단으로 활용
+        -- 2) Java / Spring Boot: MAIN_CLASS 일치 또는 프로젝트 경로 포함 java 런타임
+        if main_class and main_class ~= '' and cmd:find(main_class, 1, true) then
+          return true
+        end
+        if (cmd:find('java', 1, true) or cmd:find('javaw', 1, true)) and root ~= '' and cmd:find(root, 1, true) then
+          return true
+        end
+
+        -- 3) Python: 현재 프로젝트 경로에서 실행 중인 python / uvicorn / gunicorn / debugpy
+        if
+          (
+            cmd_lower:find('python', 1, true)
+            or cmd_lower:find('uvicorn', 1, true)
+            or cmd_lower:find('debugpy', 1, true)
+            or cmd_lower:find('gunicorn', 1, true)
+          )
+          and root ~= ''
+          and cmd:find(root, 1, true)
+        then
+          return true
+        end
+
+        -- 4) Node.js / TypeScript: 현재 프로젝트 경로에서 실행 중인 node / tsx / next / vite
+        if
+          (
+            cmd_lower:find('node', 1, true)
+            or cmd_lower:find('tsx', 1, true)
+            or cmd_lower:find('ts-node', 1, true)
+            or cmd_lower:find('vite', 1, true)
+            or cmd_lower:find('next', 1, true)
+          )
+          and root ~= ''
+          and cmd:find(root, 1, true)
+        then
+          return true
+        end
+
+        return false
+      end
+
+      local function kill_debuggee_process(session, on_done)
+        local cb = on_done or function() end
+        local session_id = session and session.id or (dap.session() and dap.session().id)
+        local direct_pid = session_id and active_debug_pids[session_id]
+
+        local my_pid = vim.uv.os_getpid()
+        ---@diagnostic disable-next-line: undefined-field
+        local root = (_G.PROJECT_ROOT and vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p')) or vim.fn.getcwd()
+        root = root:gsub('\\', '/'):gsub('/+$', '')
+        ---@diagnostic disable-next-line: undefined-field
         local main_class = _G.MAIN_CLASS
-        if main_class and main_class ~= "" then
-          if _G.OS_TYPE == _G.OS.WINDOWS then
-            pcall(vim.system, {
-              "powershell.exe",
-              "-NoProfile",
-              "-Command",
-              string.format(
-                "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*%s*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
-                main_class
-              ),
-            })
-          else
-            pcall(vim.system, { "pkill", "-9", "-f", main_class }, {}, function() end)
-          end
+
+        if _G.OS_TYPE == _G.OS.WINDOWS then
+          -- Windows: Get-CimInstance Win32_Process 비동기 스캔 및 타겟 프로세스 종료
+          local pwsh_cmd = string.format([=[
+            $pids = @()
+            Get-CimInstance Win32_Process | ForEach-Object {
+              $cmd = $_.CommandLine
+              $pid = $_.ProcessId
+              if ($pid -ne %d -and $cmd) {
+                $match = $false
+                if ('%s' -ne '' -and $cmd -like '*%s*') { $match = $true }
+                if ('%s' -ne '' -and ($cmd -like '*%s*') -and ($cmd -match 'java|python|node|uvicorn|debugpy')) { $match = $true }
+                if ($match -and ($cmd -notmatch 'jdtls|GradleDaemon|nvim|code|pwsh|language-server|vtsls|pyright|eslint')) {
+                  $pids += $pid
+                }
+              }
+            }
+            if (%s -gt 0) { $pids += %s }
+            $pids = $pids | Select-Object -Unique
+            foreach ($p in $pids) {
+              Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
+            }
+            $pids -join ','
+          ]=], my_pid, main_class or '', main_class or '', root, root, tostring(direct_pid or 0), tostring(direct_pid or 0))
+
+          pcall(vim.system, { 'powershell.exe', '-NoProfile', '-Command', pwsh_cmd }, { text = true }, function(obj)
+            vim.schedule(function()
+              if direct_pid and session_id then
+                active_debug_pids[session_id] = nil
+              end
+              local killed = (obj.stdout or ''):gsub('%s+', '')
+              if killed ~= '' then
+                vim.notify(
+                  string.format('기존 디버깅 프로세스(PID: %s)를 정리했습니다.', killed),
+                  vim.log.levels.INFO,
+                  { title = 'DAP 프로세스 정리' }
+                )
+              end
+              cb()
+            end)
+          end)
+        else
+          -- Linux / WSL / macOS: ps -eo pid,args 기반 비동기 스캔 및 kill -9
+          pcall(vim.system, { 'ps', '-eo', 'pid,args' }, { text = true }, function(obj)
+            vim.schedule(function()
+              local to_kill = {}
+              if direct_pid and direct_pid > 0 and direct_pid ~= my_pid then
+                to_kill[direct_pid] = true
+              end
+
+              local out = obj.stdout or ''
+              for line in out:gmatch('[^\r\n]+') do
+                local pid_str, cmd = line:match('^%s*(%d+)%s+(.*)$')
+                local pid = tonumber(pid_str)
+                if pid and pid ~= my_pid and is_project_debuggee(cmd, root, main_class) then
+                  to_kill[pid] = true
+                end
+              end
+
+              local pids_list = {}
+              for pid in pairs(to_kill) do
+                table.insert(pids_list, tostring(pid))
+              end
+
+              if #pids_list > 0 then
+                local kill_args = { 'kill', '-9' }
+                vim.list_extend(kill_args, pids_list)
+                pcall(vim.system, kill_args, {}, function()
+                  vim.schedule(function()
+                    if direct_pid and session_id then
+                      active_debug_pids[session_id] = nil
+                    end
+                    vim.notify(
+                      string.format('기존 디버깅 프로세스(PID: %s)를 정리했습니다.', table.concat(pids_list, ', ')),
+                      vim.log.levels.INFO,
+                      { title = 'DAP 프로세스 정리' }
+                    )
+                    cb()
+                  end)
+                end)
+              else
+                if direct_pid and session_id then
+                  active_debug_pids[session_id] = nil
+                end
+                cb()
+              end
+            end)
+          end)
         end
       end
       _G.kill_debuggee_process = kill_debuggee_process
+
 
       -- [통합 디버그 UI 닫기 헬퍼 (nvim-dap-view, nvim-dap-ui, REPL 등 모든 UI 완벽 지원)]
       local function close_debug_ui()
@@ -636,8 +774,6 @@ return {
       --    마지막으로 입력한 프로필을 자동 기억하여 기본값으로 제안합니다.
       -- ===========================================================================================
       local function run_java_launch(config, run_opts, run_next)
-        -- 이전 실행에서 살아남은 포트/프로세스가 있으면 충돌 방지를 위해 선제적 정리
-        kill_debuggee_process()
         -- .nvim.lua에 MAIN_CLASS가 정의되어 있고 config에 mainClass가 없으면 자동 주입
         ---@diagnostic disable-next-line: undefined-field
         if not config.mainClass and _G.MAIN_CLASS then
@@ -688,8 +824,8 @@ return {
         end)
       end
 
-      -- [스마트 포트 자동 킬러 + Java Launch 프로필 주입] dap.run 핵심 함수 래핑
-      -- 디버깅이 가동되기 직전(어댑터 작동 전)에 포트를 스캔하여 선점 프로세스를 사전에 제거합니다.
+      -- [스마트 프로세스 선제 정리 + Java Launch 프로필 주입] dap.run 핵심 함수 래핑
+      -- 디버깅이 가동되기 직전(어댑터 작동 전)에 동일 프로젝트의 잔여 런타임 프로세스를 사전에 정리합니다.
       local orig_run = dap.run
       local wrapped_java_adapters = {}
 
@@ -713,138 +849,32 @@ return {
         },
       })
 
-
       ---@diagnostic disable-next-line: duplicate-set-field
       dap.run = function(config, run_opts)
-        if config and config.type == 'java' and config.request == 'launch' then
-          local current_adapter = dap.adapters.java
-          if type(current_adapter) == 'function' and not wrapped_java_adapters[current_adapter] then
-            local orig_adapter = current_adapter
-            local wrapped = function(cb, conf)
-              orig_adapter(function(adapter_result)
-                if adapter_result then
-                  adapter_result.options = adapter_result.options or {}
-                  -- nvim-dap의 "Debug adapter didn't respond" 경고는 순수 정보성 알림이라
-                  -- 세션을 끊지 않으며(session.lua Session:initialize), 실제 성공/실패 판단은
-                  -- 위쪽 run_with_init_watchdog의 60초 워치독이 전담합니다.
-                  -- 이 값은 그 워치독보다 항상 먼저 뜨면 안 되므로 60초보다 낮게,
-                  -- 그러나 대형 프로젝트에서 흔한 5~15초대 초기화 지연에는 안 뜨도록 55초로 둡니다.
-                  adapter_result.options.initialize_timeout_sec = 55
-                end
-                cb(adapter_result)
-              end, conf)
-            end
-            wrapped_java_adapters[wrapped] = true
-            dap.adapters.java = wrapped
-          end
-          run_java_launch(config, run_opts, orig_run)
-          return
-        end
-
-        if config and config.request == 'launch' then
-          local port = nil
-          -- 1) config 자체에 port가 있는 경우
-          if config.port then
-            port = tonumber(config.port)
-          end
-          -- 2) FastAPI 런치 설정처럼 args 테이블에 '--port' '8095'가 있는 경우
-          if not port and config.args and type(config.args) == 'table' then
-            for i, arg in ipairs(config.args) do
-              if arg == '--port' and config.args[i + 1] then
-                port = tonumber(config.args[i + 1])
-                break
+        -- 디버깅 실행 직전 기존 잔여 프로젝트 디버기 프로세스를 선제적으로 비동기 정리
+        kill_debuggee_process(nil, function()
+          if config and config.type == 'java' and config.request == 'launch' then
+            local current_adapter = dap.adapters.java
+            if type(current_adapter) == 'function' and not wrapped_java_adapters[current_adapter] then
+              local orig_adapter = current_adapter
+              local wrapped = function(cb, conf)
+                orig_adapter(function(adapter_result)
+                  if adapter_result then
+                    adapter_result.options = adapter_result.options or {}
+                    adapter_result.options.initialize_timeout_sec = 55
+                  end
+                  cb(adapter_result)
+                end, conf)
               end
+              wrapped_java_adapters[wrapped] = true
+              dap.adapters.java = wrapped
             end
+            run_java_launch(config, run_opts, orig_run)
+            return
           end
 
-          if port then
-            -- [비동기 포트 킬러] vim.system으로 UI 블록 없이 포트 점유 프로세스를 제거한 뒤
-            -- 100ms 후 원래 dap.run을 실행합니다 (vim.cmd('sleep') 대신 타이머 사용).
-            local function do_run_after_delay()
-              local t = vim.uv.new_timer()
-              t:start(100, 0, vim.schedule_wrap(function()
-                t:stop(); t:close()
-                orig_run(config, run_opts)
-              end))
-            end
-
-            if _G.OS_TYPE == _G.OS.WINDOWS then
-              -- Windows: netstat -ano → PID 추출 → taskkill (비동기)
-              vim.system({ 'netstat', '-ano' }, { text = true }, function(netstat_out)
-                vim.schedule(function()
-                  local pids = {}
-                  local result = (netstat_out.stdout or '')
-                  for line in result:gmatch('[^\r\n]+') do
-                    local tokens = {}
-                    for token in line:gmatch('%S+') do
-                      table.insert(tokens, token)
-                    end
-                    if #tokens >= 5 then
-                      local local_addr = tokens[2]
-                      local state      = tokens[4]
-                      local pid        = tokens[5]
-                      if local_addr:match(':' .. port .. '$') and state == 'LISTENING' and tonumber(pid) then
-                        pids[pid] = true
-                      end
-                    end
-                  end
-
-                  local any = false
-                  for pid in pairs(pids) do
-                    any = true
-                    vim.system({ 'taskkill', '/F', '/PID', pid }, {}, function()
-                      vim.schedule(function()
-                        vim.notify(
-                          string.format('기존 포트 %d의 Windows 프로세스(%s)를 종료했습니다.', port, pid),
-                          vim.log.levels.INFO
-                        )
-                      end)
-                    end)
-                  end
-
-                  if any then
-                    do_run_after_delay()
-                  else
-                    orig_run(config, run_opts)
-                  end
-                end)
-              end)
-              return -- orig_run은 콜백 내에서 실행
-            else
-              -- macOS & Linux: lsof -t → kill -9 (비동기)
-              vim.system({ 'lsof', '-t', string.format('-i:%d', port) }, { text = true }, function(lsof_out)
-                vim.schedule(function()
-                  local valid_pids = {}
-                  for pid in (lsof_out.stdout or ''):gmatch('%d+') do
-                    table.insert(valid_pids, pid)
-                  end
-
-                  if #valid_pids > 0 then
-                    local kill_args = { 'kill', '-9' }
-                    vim.list_extend(kill_args, valid_pids)
-                    vim.system(kill_args, {}, function()
-                      vim.schedule(function()
-                        vim.notify(
-                          string.format(
-                            '기존 포트 %d의 프로세스(%s)를 종료하고 디버깅을 시작합니다.',
-                            port,
-                            table.concat(valid_pids, ' ')
-                          ),
-                          vim.log.levels.INFO
-                        )
-                      end)
-                    end)
-                    do_run_after_delay()
-                  else
-                    orig_run(config, run_opts)
-                  end
-                end)
-              end)
-              return -- orig_run은 콜백 내에서 실행
-            end
-          end
-        end
-        orig_run(config, run_opts)
+          orig_run(config, run_opts)
+        end)
       end
 
 
