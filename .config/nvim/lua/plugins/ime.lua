@@ -10,15 +10,15 @@ return {
 
     -- 플러그인 로드 조건: 각 OS에서 필요한 IME 제어 바이너리가 있을 때만 활성화
     cond = function()
-      if _G.OS_TYPE == _G.OS.WINDOWS then
-        -- Windows / WSL: AutoHotkey 가 IME 전환을 전담하므로 플러그인 비활성화
+      if _G.OS_TYPE == _G.OS.WINDOWS or vim.fn.has('wsl') == 1 then
+        -- Windows / WSL: Windows 호스트의 AutoHotkey 가 0ms 무지연으로 IME 전환을 전담하므로 비활성화
         return false
       elseif _G.OS_TYPE == _G.OS.MACOS then
-        -- macOS: macism 설치 여부 확인
+        -- macOS: macism 또는 im-select 도구가 있을 때 활성화
         return vim.fn.executable('macism') == 1
           or vim.fn.executable('im-select') == 1
       else
-        -- Linux 네이티브: fcitx5, ibus 등 지원되는 입력기 도구가 있는지 확인
+        -- Linux 네이티브 (Ubuntu/Fedora/Arch 등): fcitx5, ibus 입력기 도구가 있을 때 활성화
         return vim.fn.executable('fcitx5-remote') == 1
           or vim.fn.executable('ibus') == 1
       end

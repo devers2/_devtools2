@@ -41,12 +41,17 @@ _SetImeToEnglish() {
     }
 }
 
-; 개발툴(Windows Terminal / VS Code / Zed 등) 활성 여부 판별
+; 개발툴(Windows Terminal / VS Code / Cursor / Zed / Neovim GUI 등) 활성 여부 판별
 _IsDevWindow() {
     return WinActive("ahk_exe WindowsTerminal.exe")
+        or WinActive("ahk_exe WindowsTerminalPreview.exe")
         or WinActive("ahk_exe Code.exe")
+        or WinActive("ahk_exe Code - Insiders.exe")
+        or WinActive("ahk_exe Cursor.exe")
         or WinActive("ahk_exe zed.exe")
+        or WinActive("ahk_exe neovide.exe")
         or WinActive("ahk_exe nvim-qt.exe")
+        or WinActive("ahk_exe ghostty.exe")
 }
 
 ; ------------------------------------------------------------------------------
