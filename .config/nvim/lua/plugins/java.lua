@@ -275,9 +275,41 @@ return {
         _G.log_jdtls(string.format('Java Home    : %s', target_java_home))
 
         local jdtls_executable = vim.fn.exepath('jdtls')
-        if jdtls_executable == nil or jdtls_executable == '' or vim.fn.executable(jdtls_executable) == 0 then
-          _G.log_jdtls('JDTLS executable not found yet. It might be installing via Mason.')
-          jdtls_executable = 'jdtls'
+        local mason_bin_jdtls = _G.NVIM_DATA_DIR .. '/mason/bin/jdtls'
+        local real_bin = _G.NVIM_DATA_DIR .. '/mason/packages/jdtls/bin/jdtls'
+
+        if (jdtls_executable == nil or jdtls_executable == '' or vim.fn.executable(jdtls_executable) == 0)
+          and vim.fn.executable(mason_bin_jdtls) == 1
+        then
+          jdtls_executable = mason_bin_jdtls
+        end
+
+        if jdtls_executable and jdtls_executable ~= '' and vim.fn.executable(jdtls_executable) == 1 then
+          -- [jdtls 래퍼 자동 교정]
+          -- Mason이 jdtls 래퍼 파일을 생성할 때 사용자 홈 디렉터리(~/.local/share/nvim)를
+          -- 하드코딩하는데, 이 프로젝트는 NVIM_DATA_DIR=/var/opt/_devtools2/data/nvim에
+          -- 데이터를 저장하므로 경로가 맞지 않아 exit code 127(파일 없음)이 발생할 수 있습니다.
+          -- 래퍼 파일을 검사하여 실제 경로로 자동 교정합니다.
+          local correct_line = 'exec python3 "' .. real_bin .. '" "$@"'
+          local f = io.open(jdtls_executable, 'r')
+          if f then
+            local content = f:read('*a')
+            f:close()
+            if not content:find(real_bin, 1, true) then
+              _G.log_jdtls('jdtls 래퍼 경로 불일치 감지 → 자동 교정: ' .. jdtls_executable)
+              local fw = io.open(jdtls_executable, 'w')
+              if fw then
+                fw:write('#!/usr/bin/env bash\n\n' .. correct_line .. '\n')
+                fw:close()
+                _G.log_jdtls('jdtls 래퍼 경로 교정 완료')
+              end
+            end
+          end
+        else
+          -- Mason이 백그라운드에서 아직 jdtls를 다운로드 중인 최초 실행 시점에는
+          -- exit code 127 오류 대신 안전한 no-op 반환
+          _G.log_jdtls('JDTLS 실행 파일을 아직 찾을 수 없습니다 (Mason 설치 중). 완료 후 Neovim을 재시작하세요.')
+          return { 'true' }
         end
 
         local workspace_dir = _G.NVIM_CACHE_DIR .. '/jdtls/' .. p_name

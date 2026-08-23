@@ -547,7 +547,7 @@ if (-not (Test-Path $winGradleDir)) {
 }
 
 $wslUser = (wsl -d $wslDistro -- bash -c "whoami" 2>$null).Trim()
-if ([string]::IsNullOrEmpty($wslUser)) { $wslUser = "eseungsu" }
+if ([string]::IsNullOrEmpty($wslUser)) { $wslUser = $env:USERNAME.ToLower() }
 $wslGradleProps = "\\wsl.localhost\$wslDistro\home\$wslUser\.gradle\gradle.properties"
 $winGradleProps = "$winGradleDir\gradle.properties"
 
