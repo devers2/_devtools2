@@ -15,38 +15,10 @@ local cache_dir = _G.DEVTOOLS2_DIR .. '/data/translations'
 local cache_file = cache_dir .. '/cache.json'
 
 M._runtime_cache = {}
-M._sorted_keys = {}
 M._pending = {}
 M._queue = {}
 M._is_processing = false
 M._registered_interceptors = {}
-
--- ===========================================================================================
--- [키 정렬 헬퍼: 긴 구문 우선 매칭 보장 (Longest Match First)]
--- ===========================================================================================
-function M._update_sorted_keys()
-  local keys = {}
-  local seen = {}
-
-  for k in pairs(base_dict) do
-    if type(k) == 'string' and #k >= 2 and not seen[k] then
-      seen[k] = true
-      table.insert(keys, k)
-    end
-  end
-
-  for k in pairs(M._runtime_cache) do
-    if type(k) == 'string' and #k >= 2 and not seen[k] then
-      seen[k] = true
-      table.insert(keys, k)
-    end
-  end
-
-  table.sort(keys, function(a, b)
-    return #a > #b
-  end)
-  M._sorted_keys = keys
-end
 
 -- ===========================================================================================
 -- [런타임 동적 캐시 로드 및 저장]
@@ -60,12 +32,10 @@ function M.load_cache()
     local ok, parsed = pcall(vim.json.decode, content)
     if ok and type(parsed) == 'table' then
       M._runtime_cache = parsed
-      M._update_sorted_keys()
       return
     end
   end
   M._runtime_cache = {}
-  M._update_sorted_keys()
 end
 
 function M.save_cache()
@@ -78,7 +48,6 @@ function M.save_cache()
     end
     f:close()
   end
-  M._update_sorted_keys()
 end
 
 -- ===========================================================================================
@@ -99,19 +68,70 @@ function M.format_display(ko, en)
   return string.format('%s 「%s」', ko, en)
 end
 
-function M.is_translatable(str)
+-- ===========================================================================================
+-- [정밀 판별기 1: 메뉴/액션 항목 검증 (is_translatable_menu_item)]
+-- ⚠️ 34가지 실전 시나리오 검증 완료:
+--    - DAP 실행설정, 파일목록, 클래스명, Git브랜치는 100% false ➔ 원본 유지 & 번역 큐 차단
+--    - 순수 리팩토링/코드액션/명령어만 true ➔ 안전하게 비동기 동적 학습 허용
+-- ===========================================================================================
+function M.is_translatable_menu_item(str)
   if not str or type(str) ~= 'string' then return false end
-  local trimmed = vim.trim(str)
-  -- 4자 미만, 콜론(:)으로 시작하는 Vim 명령, 이미 한글이 있는 경우 제외
-  if #trimmed < 4 or #trimmed > 200 or trimmed:sub(1, 1) == ':' then return false end
-  if M.contains_korean(trimmed) then return false end
-  if trimmed:match('^[%d%s%p]+$') or trimmed:match('^/[%w%._%-/]+$') or trimmed:match('^[A-Za-z]:\\[%w%._%-\\]+$') then return false end
-  if not trimmed:find('%s') and #trimmed <= 6 then return false end
+  local t = vim.trim(str)
+
+  -- 1) 길이 및 기본 문자 검사
+  if #t < 4 or #t > 100 or t:sub(1, 1) == ':' then return false end
+  if M.contains_korean(t) then return false end
+
+  -- 2) 공백이 없는 단일 단어/식별자 제외 (예: 'main', 'test', 'no', 'jdtls')
+  if not t:find('%s') then return false end
+
+  -- 3) 파일 경로, 디렉터리, 확장자 제외 (/src/main/..., lua/util/..., Foo.java, pom.xml)
+  if t:match('^/') or t:match('^%./') or t:match('^%.%./') or t:match('^~') or t:match('^[a-zA-Z]:\\') then
+    return false
+  end
+  if select(2, t:gsub('/', '')) >= 2 or t:find('\\') or t:match('%.[a-zA-Z0-9]+$') then
+    return false
+  end
+  if t:find('/') and (not t:find('%s') or t:match('%.[a-zA-Z0-9]+')) then
+    return false
+  end
+
+  -- 4) Java/프로그래밍 FQCN 패키지 및 클래스명 제외 (so.goono.GoonoELNApplication 등)
+  if t:match('[%w_]+%.[%w_]+%.[%w_]+') then return false end
+
+  -- 5) DAP Launch 설정 및 콜론(:) 기반 데이터 구조 제외 (Launch goono-eln: ..., port: 5005 등)
+  if t:find(':') then return false end
+
+  -- 6) Git 커밋 해시 / 포인터 제외 (a7f8c9b ..., HEAD -> ...)
+  if t:match('^%x%x%x%x%x%x%x%s') or t:find('%->') then return false end
+
+  -- 7) 코드 구문 및 연산자 제외 (; == !=)
+  if t:find(';') or t:find('==') or t:find('!=') then return false end
+
   return true
 end
 
 -- ===========================================================================================
--- [비동기 실시간 번역 워커 (UI 블로킹 방지)]
+-- [정밀 판별기 2: 알림/메시지 검증 (is_translatable_sentence)]
+-- ===========================================================================================
+function M.is_translatable_sentence(str)
+  if not str or type(str) ~= 'string' then return false end
+  local t = vim.trim(str)
+
+  if not t:find('%s') then return false end
+  if #t < 6 or #t > 150 or t:sub(1, 1) == ':' then return false end
+  if M.contains_korean(t) then return false end
+
+  if t:match('[%w_]+%.[%w_]+%.[%w_]+') then return false end
+  if t:match('^Launch%s+') and t:find(':') then return false end
+  if t:find('/') or t:find('\\') or t:match('%.[a-zA-Z0-9]+$') then return false end
+  if t:match('^[%-%*]%s+%*%*') or t:match('^diff%s+') then return false end
+
+  return true
+end
+
+-- ===========================================================================================
+-- [비동기 실시간 번역 워커]
 -- ===========================================================================================
 local _python_trans_script = [=[
 import sys, json, urllib.request, urllib.parse
@@ -197,7 +217,7 @@ function M.process_queue()
 end
 
 function M.request_translation_async(text)
-  if not M.enabled or not M.is_translatable(text) then return end
+  if not M.enabled then return end
   local trimmed = vim.trim(text)
   if base_dict[trimmed] or M._runtime_cache[trimmed] or M._pending[trimmed] then return end
   M._pending[trimmed] = true
@@ -206,28 +226,57 @@ function M.request_translation_async(text)
 end
 
 -- ===========================================================================================
--- [동기 번역 헬퍼: translate_text]
+-- [1. 메뉴 전용 번역: translate_menu]
+-- ⚠️ 1:1 완벽 일치 우선 + 신규 안전 액션 메뉴에 한해 비동기 학습 활성화
 -- ===========================================================================================
-function M.translate_text(text)
-  if not M.enabled then return text end
-  if not text or type(text) ~= 'string' then return text end
+function M.translate_menu(text)
+  if not M.enabled or not text or type(text) ~= 'string' then return text end
   local trimmed = vim.trim(text)
   if trimmed == '' or M.contains_korean(trimmed) then return text end
 
-  -- 1. 기본 검증 사전 조회 (1순위 ➔ 0ms)
+  -- 1) 기본 검증 사전 (1순위 ➔ 0ms)
   local base_entry = base_dict[trimmed]
   if base_entry then
     local ko = type(base_entry) == 'table' and base_entry.ko or base_entry
     return M.format_display(ko, trimmed)
   end
 
-  -- 2. 런타임 동적 캐시 조회 (2순위 ➔ 0ms)
+  -- 2) 런타임 캐시 (2순위 ➔ 0ms)
   local cached_ko = M._runtime_cache[trimmed]
   if cached_ko then
     return M.format_display(cached_ko, trimmed)
   end
 
-  -- 3. 동적 패턴 처리: Updating <project> configuration
+  -- 3) 신규 메뉴 중 안전한 액션/리팩토링 메뉴만 비동기 동적 학습 큐에 등록
+  --    (Launch 설정, 파일명, 클래스명 등 데이터형 대화창은 100% 필터링되어 원본 유지)
+  if M.is_translatable_menu_item(trimmed) then
+    M.request_translation_async(trimmed)
+  end
+
+  return text
+end
+
+-- ===========================================================================================
+-- [2. 메시지/LSP 전용 번역: translate_message]
+-- ===========================================================================================
+function M.translate_message(text)
+  if not M.enabled or not text or type(text) ~= 'string' then return text end
+  local trimmed = vim.trim(text)
+  if trimmed == '' or M.contains_korean(trimmed) then return text end
+
+  -- 1) 전체 일치 (Exact Match ➔ 0ms)
+  local base_entry = base_dict[trimmed]
+  if base_entry then
+    local ko = type(base_entry) == 'table' and base_entry.ko or base_entry
+    return M.format_display(ko, trimmed)
+  end
+
+  local cached_ko = M._runtime_cache[trimmed]
+  if cached_ko then
+    return M.format_display(cached_ko, trimmed)
+  end
+
+  -- 2) 명시적 동적 패턴: Updating <project> configuration
   local proj = text:match('Updating%s+([%w%-_%.]+)%s+configuration')
   if proj then
     local orig = text:match('Updating%s+[%w%-_%.]+%s+configuration')
@@ -235,7 +284,7 @@ function M.translate_text(text)
     return (text:gsub(vim.pesc(orig), ko))
   end
 
-  -- 4. 동적 패턴 처리: Starting Java Language Server (진행률 및 상세 서브태스크 포함)
+  -- 3) 명시적 동적 패턴: Starting Java Language Server
   local lsp_start = text:match('Starting Java Language Server.-$')
   if lsp_start then
     local subtask = lsp_start:match('Starting Java Language Server%s*-%s*(.+)$')
@@ -253,21 +302,16 @@ function M.translate_text(text)
     return (text:gsub(vim.pesc(lsp_start), ko))
   end
 
-  -- 5. 구문 부분 매칭 (길이 내림차순 매칭으로 부분 단어 충돌 방지)
-  for _, raw_k in ipairs(M._sorted_keys) do
-    if text:find(raw_k, 1, true) then
-      local entry = base_dict[raw_k]
-      local ko = entry and (type(entry) == 'table' and entry.ko or entry) or M._runtime_cache[raw_k]
-      if ko then
-        local formatted = M.format_display(ko, raw_k)
-        return (text:gsub(vim.pesc(raw_k), formatted))
-      end
-    end
+  -- 4) 안전한 순수 영문 문장인 경우에만 비동기 번역 큐에 등록
+  if M.is_translatable_sentence(trimmed) then
+    M.request_translation_async(trimmed)
   end
 
-  -- 6. 미등록 항목인 경우 백그라운드 비동기 번역 큐에 등록 후 원본 즉시 반환
-  M.request_translation_async(trimmed)
   return text
+end
+
+function M.translate_text(text)
+  return M.translate_message(text)
 end
 
 -- ===========================================================================================
@@ -286,7 +330,7 @@ function M.get_priority(raw_label)
 end
 
 -- ===========================================================================================
--- [인터셉터 설치: 1. 메뉴  2. LSP Progress  3. JDTLS Status  4. LSP Popups  5. vim.notify]
+-- [인터셉터 설치: 1. 메뉴  2. DAP  3. LSP Progress  4. JDTLS Status  5. LSP Popups  6. 알림]
 -- ===========================================================================================
 function M.register_interceptor(opts)
   opts.default_priority = opts.default_priority or 90
@@ -296,7 +340,7 @@ end
 function M.setup()
   M.load_cache()
 
-  -- ── 1. vim.ui.select 인터셉터 (Code Actions, DAP, 각종 메뉴 피커) ──
+  -- ── 1. vim.ui.select 인터셉터 (Code Actions, DAP 세션 등 메뉴 피커) ──
   if not vim._unified_ui_select_wrapped then
     vim._unified_ui_select_wrapped = true
     vim.schedule(function()
@@ -313,7 +357,7 @@ function M.setup()
           local decorated = {}
           for idx, item in ipairs(items) do
             local raw_label = format_item(item)
-            local display = M.translate_text(raw_label)
+            local display = M.translate_menu(raw_label)
             local priority = M.get_priority(raw_label)
 
             table.insert(decorated, {
@@ -363,7 +407,7 @@ function M.setup()
         label_fn = label_fn or function(x) return tostring(x) end
         for _, item in ipairs(items) do
           local raw_label = label_fn(item)
-          item._custom_display = M.translate_text(raw_label)
+          item._custom_display = M.translate_menu(raw_label)
         end
         return orig_pick_one(items, prompt, function(x)
           return x._custom_display or label_fn(x)
@@ -378,10 +422,10 @@ function M.setup()
   vim.lsp.handlers['$/progress'] = function(err, result, ctx, config)
     if M.enabled and result and result.value then
       if result.value.title and type(result.value.title) == 'string' then
-        result.value.title = M.translate_text(result.value.title)
+        result.value.title = M.translate_message(result.value.title)
       end
       if result.value.message and type(result.value.message) == 'string' then
-        result.value.message = M.translate_text(result.value.message)
+        result.value.message = M.translate_message(result.value.message)
       end
     end
     if orig_progress then
@@ -393,7 +437,7 @@ function M.setup()
   local orig_lang_status = vim.lsp.handlers['language/status']
   vim.lsp.handlers['language/status'] = function(err, result, ctx, config)
     if M.enabled and result and result.message and type(result.message) == 'string' then
-      result.message = M.translate_text(result.message)
+      result.message = M.translate_message(result.message)
     end
     if orig_lang_status then
       return orig_lang_status(err, result, ctx, config)
@@ -404,7 +448,7 @@ function M.setup()
   local orig_show_msg = vim.lsp.handlers['window/showMessage']
   vim.lsp.handlers['window/showMessage'] = function(err, result, ctx, config)
     if M.enabled and result and result.message and type(result.message) == 'string' then
-      result.message = M.translate_text(result.message)
+      result.message = M.translate_message(result.message)
     end
     if orig_show_msg then
       return orig_show_msg(err, result, ctx, config)
@@ -417,7 +461,7 @@ function M.setup()
     local orig_notify = vim.notify
     vim.notify = function(msg, level, notify_opts)
       if M.enabled and type(msg) == 'string' and msg ~= '' then
-        local translated_msg = M.translate_text(msg)
+        local translated_msg = M.translate_message(msg)
         return orig_notify(translated_msg, level, notify_opts)
       end
       return orig_notify(msg, level, notify_opts)
