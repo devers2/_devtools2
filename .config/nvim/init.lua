@@ -45,6 +45,11 @@ _G.NVIM_STATE_DIR = vim.fn.stdpath('state'):gsub('\\', '/')
 -- bootstrap lazy.nvim, LazyVim and your plugins
 require('config.lazy')
 
+-- [통합 번역기 초기화: 메뉴(Code Action, DAP), LSP Progress, 알림 연동]
+pcall(function()
+  require('util.translator').setup()
+end)
+
 -- [최초 실행 감지 및 안내 메시지]
 -- 최초 실행 시 Mason/Treesitter 설치 중 발생하는 경합 오류는 LazyVim 내부 한계로 완전히 막을 수 없습니다.
 -- 따라서 최초 실행임을 감지하여, 오류 대신 명확한 재시작 안내를 사용자에게 표시합니다.

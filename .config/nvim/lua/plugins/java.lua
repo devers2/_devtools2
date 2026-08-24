@@ -473,6 +473,19 @@ return {
         extendedClientCapabilities = extendedClientCapabilities,
       }
 
+      -- [Java LSP 상태 메시지 한글화 핸들러 등록]
+      -- JDTLS가 보내는 language/status (Init..., Starting Java..., ServiceReady 등)를 echo하기 전에 번역
+      -- LazyVim은 opts.jdtls를 JDTLS config로 병합하므로 반드시 opts.jdtls.handlers에 등록해야 합니다.
+      opts.jdtls.handlers = opts.jdtls.handlers or {}
+      opts.jdtls.handlers['language/status'] = function(err, result)
+        if result and result.message and type(result.message) == 'string' then
+          result.message = require('util.translator').translate_text(result.message)
+        end
+        vim.api.nvim_command(string.format(':echohl Function | echo "%s" | echohl None',
+          string.sub(result.message, 1, vim.v.echospace)))
+      end
+
+
       -- LazyVim의 LspAttach 이벤트가 발생하기 전에, jdtls 초기화 시점에 가장 먼저 개입하기 위해
       -- opts.on_attach가 아닌 opts.jdtls.on_attach 를 사용합니다.
       -- LazyVim은 백그라운드에서 LspAttach 이벤트 발생 시 자동(비동기)으로 setup_dap_main_class_configs를 호출하는데,
