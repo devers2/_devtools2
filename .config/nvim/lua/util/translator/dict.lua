@@ -1,9 +1,34 @@
+-- ===========================================================================================
 -- [기본 검증 번역 사전: Base Translation Dictionary]
--- 이 파일은 Git 형상관리 대상(커밋 대상)이며, 신규 환경에서도 기본 탑재되어 즉시 동작합니다.
--- 사용자가 자주 사용하는 메뉴, 리팩토링 기능, 주요 알림을 직접 추가/수정할 수 있습니다.
+-- ===========================================================================================
+--
+-- 📌 [역할 및 특징]
+-- 1. Git 형상관리 대상:
+--    - 이 파일은 Git에 커밋되어 팀원과 공유되거나 신규 환경에서도 기본 탑재되어 즉시 동작합니다.
+--
+-- 2. 1순위 최우선 번역 (0ms 즉시 반환):
+--    - 런타임 동적 캐시나 온라인 번역기보다 항상 최우선으로 적용됩니다.
+--    - 오번역 방지 필터에 의해 '자동 동적 번역에서 제외된 항목'(예: 콜론, 특수문자, 포트번호,
+--      짧은 단어, 특정 DAP Launch 설정 등)도 여기에 명시적으로 등록하면 100% 한글화됩니다.
+--
+-- 3. 등록 형식 가이드:
+--    - 기본 형식: ['영문 원본'] = { ko = '한글 설명', priority = 10 }
+--    - 축약 형식: ['영문 원본'] = { ko = '한글 설명' }
+--    - priority (선택): 숫자가 작을수록 메뉴 상단에 우선 배치됩니다 (기본값: 90).
+--
+-- 4. 🚫 [절대 번역 금지 / 영문 원본 고정 (Ignore List)]:
+--    - 특정 고유 명칭이나 플러그인 기능명을 영문 그대로 유지하고 싶을 때는 값을 `false`로 지정합니다.
+--    - 온라인 번역 큐 전송 및 캐시 조회가 모두 완벽히 차단되어 100% 영문 원본으로 고정됩니다.
+--    - 예시:
+--        ['Toggle Copilot'] = false,       -- ➔ 무조건 영문 원본 고정 (번역 완전 제외)
+--        ['Git blame line'] = false,       -- ➔ 무조건 영문 원본 고정
+--
+-- ===========================================================================================
 
 local M = {
-  -- ── 1. DAP 디버그 세션 및 스레드 메뉴 ──
+  -- ── 1. DAP 디버그 활성 세션 및 스레드 메뉴 (<leader>ds 등) ──
+  -- priority가 낮은 순서(0, 1, 2...)대로 메뉴 상단에 우선 정렬됩니다.
+  ['Resume stopped thread'] = { ko = '멈춰있는 스레드 재개', priority = 0 },
   ['Disconnect (terminate = true)'] = { ko = '디버깅 및 서버 프로세스 강제 종료', priority = 1 },
   ['Disconnect (terminate = false)'] = { ko = '디버거 연결만 끊기 - 서버 계속 실행', priority = 2 },
   ['Restart session'] = { ko = '디버그 세션 재시작', priority = 3 },
@@ -11,9 +36,8 @@ local M = {
   ['Pause a thread'] = { ko = '스레드 일시 정지', priority = 5 },
   ['Start additional session'] = { ko = '추가 디버그 세션 시작', priority = 6 },
   ['Do nothing'] = { ko = '아무 작업도 하지 않음 (취소)', priority = 7 },
-  ['Resume stopped thread'] = { ko = '멈춰있는 스레드 재개', priority = 0 },
 
-  -- ── 2. LSP 코드 액션 (Code Actions) 및 리팩토링 메뉴 ──
+  -- ── 2. LSP 코드 액션 (Code Actions) 및 리팩토링 메뉴 (<leader>ca 등) ──
   ['Organize imports'] = { ko = 'Import 구문 정리', priority = 10 },
   ['Extract method'] = { ko = '메서드 추출', priority = 11 },
   ['Extract local variable'] = { ko = '로컬 변수 추출', priority = 12 },
@@ -31,7 +55,7 @@ local M = {
   ['Change type of'] = { ko = '타입 변경', priority = 24 },
   ['Create getter and setter for'] = { ko = 'Getter / Setter 생성', priority = 25 },
 
-  -- ── 3. Java / Gradle LSP 진행 상태 및 알림 ──
+  -- ── 3. Java / Gradle LSP 진행 상태 및 핵심 알림 ──
   ['Starting Java Language Server'] = { ko = 'Java 언어 서버 시작 중' },
   ['Synchronize Gradle project goono-eln with workspace project'] = { ko = 'Gradle 프로젝트와 워크스페이스 동기화' },
   ['Synchronize Gradle project'] = { ko = 'Gradle 프로젝트 동기화' },

@@ -70,15 +70,12 @@ end
 
 -- ===========================================================================================
 -- [정밀 판별기 1: 메뉴/액션 항목 검증 (is_translatable_menu_item)]
--- ⚠️ 34가지 실전 시나리오 검증 완료:
---    - DAP 실행설정, 파일목록, 클래스명, Git브랜치는 100% false ➔ 원본 유지 & 번역 큐 차단
---    - 순수 리팩토링/코드액션/명령어만 true ➔ 안전하게 비동기 동적 학습 허용
 -- ===========================================================================================
 function M.is_translatable_menu_item(str)
   if not str or type(str) ~= 'string' then return false end
   local t = vim.trim(str)
 
-  -- 1) 길이 및 기본 문자 검사
+  -- 1) 기본 길이 및 문자 검사
   if #t < 4 or #t > 100 or t:sub(1, 1) == ':' then return false end
   if M.contains_korean(t) then return false end
 
@@ -180,7 +177,7 @@ function M.process_queue()
   local batch = {}
   for _ = 1, math.min(10, #M._queue) do
     local item = table.remove(M._queue, 1)
-    if item and not base_dict[item] and not M._runtime_cache[item] then
+    if item and base_dict[item] == nil and not M._runtime_cache[item] then
       table.insert(batch, item)
     end
   end
@@ -202,7 +199,7 @@ function M.process_queue()
         if ok and type(parsed) == 'table' then
           local has_new = false
           for k, v in pairs(parsed) do
-            if v and v ~= '' and v ~= k and not base_dict[k] then
+            if v and v ~= '' and v ~= k and base_dict[k] == nil then
               M._runtime_cache[k] = v
               has_new = true
             end
@@ -219,7 +216,10 @@ end
 function M.request_translation_async(text)
   if not M.enabled then return end
   local trimmed = vim.trim(text)
-  if base_dict[trimmed] or M._runtime_cache[trimmed] or M._pending[trimmed] then return end
+  -- Ignore List 등록 항목(false)이거나 이미 사전/캐시에 있는 경우 번역 요청 스킵
+  if base_dict[trimmed] == false or base_dict[trimmed] or M._runtime_cache[trimmed] or M._pending[trimmed] then
+    return
+  end
   M._pending[trimmed] = true
   table.insert(M._queue, trimmed)
   vim.defer_fn(function() M.process_queue() end, 200)
@@ -227,28 +227,31 @@ end
 
 -- ===========================================================================================
 -- [1. 메뉴 전용 번역: translate_menu]
--- ⚠️ 1:1 완벽 일치 우선 + 신규 안전 액션 메뉴에 한해 비동기 학습 활성화
 -- ===========================================================================================
 function M.translate_menu(text)
   if not M.enabled or not text or type(text) ~= 'string' then return text end
   local trimmed = vim.trim(text)
   if trimmed == '' or M.contains_korean(trimmed) then return text end
 
-  -- 1) 기본 검증 사전 (1순위 ➔ 0ms)
+  -- 1) Ignore List 검사: base_dict 값이 false인 경우 무조건 원본 영문 고정 (0ms)
   local base_entry = base_dict[trimmed]
+  if base_entry == false then
+    return text
+  end
+
+  -- 2) 기본 검증 사전 (1순위 ➔ 0ms)
   if base_entry then
     local ko = type(base_entry) == 'table' and base_entry.ko or base_entry
     return M.format_display(ko, trimmed)
   end
 
-  -- 2) 런타임 캐시 (2순위 ➔ 0ms)
+  -- 3) 런타임 캐시 (2순위 ➔ 0ms)
   local cached_ko = M._runtime_cache[trimmed]
   if cached_ko then
     return M.format_display(cached_ko, trimmed)
   end
 
-  -- 3) 신규 메뉴 중 안전한 액션/리팩토링 메뉴만 비동기 동적 학습 큐에 등록
-  --    (Launch 설정, 파일명, 클래스명 등 데이터형 대화창은 100% 필터링되어 원본 유지)
+  -- 4) 신규 메뉴 중 안전한 액션/리팩토링 메뉴만 비동기 동적 학습 큐에 등록
   if M.is_translatable_menu_item(trimmed) then
     M.request_translation_async(trimmed)
   end
@@ -264,8 +267,13 @@ function M.translate_message(text)
   local trimmed = vim.trim(text)
   if trimmed == '' or M.contains_korean(trimmed) then return text end
 
-  -- 1) 전체 일치 (Exact Match ➔ 0ms)
+  -- 1) Ignore List 검사: base_dict 값이 false인 경우 무조건 원본 영문 고정 (0ms)
   local base_entry = base_dict[trimmed]
+  if base_entry == false then
+    return text
+  end
+
+  -- 2) 전체 일치 (Exact Match ➔ 0ms)
   if base_entry then
     local ko = type(base_entry) == 'table' and base_entry.ko or base_entry
     return M.format_display(ko, trimmed)
@@ -276,7 +284,7 @@ function M.translate_message(text)
     return M.format_display(cached_ko, trimmed)
   end
 
-  -- 2) 명시적 동적 패턴: Updating <project> configuration
+  -- 3) 명시적 동적 패턴: Updating <project> configuration
   local proj = text:match('Updating%s+([%w%-_%.]+)%s+configuration')
   if proj then
     local orig = text:match('Updating%s+[%w%-_%.]+%s+configuration')
@@ -284,14 +292,18 @@ function M.translate_message(text)
     return (text:gsub(vim.pesc(orig), ko))
   end
 
-  -- 3) 명시적 동적 패턴: Starting Java Language Server
+  -- 4) 명시적 동적 패턴: Starting Java Language Server
   local lsp_start = text:match('Starting Java Language Server.-$')
   if lsp_start then
     local subtask = lsp_start:match('Starting Java Language Server%s*-%s*(.+)$')
     local ko_sub = nil
     if subtask then
       local b = base_dict[subtask]
-      ko_sub = b and (type(b) == 'table' and b.ko or b) or M._runtime_cache[subtask] or subtask
+      if b == false then
+        ko_sub = subtask
+      else
+        ko_sub = b and (type(b) == 'table' and b.ko or b) or M._runtime_cache[subtask] or subtask
+      end
     end
     local ko
     if ko_sub then
@@ -302,7 +314,7 @@ function M.translate_message(text)
     return (text:gsub(vim.pesc(lsp_start), ko))
   end
 
-  -- 4) 안전한 순수 영문 문장인 경우에만 비동기 번역 큐에 등록
+  -- 5) 안전한 순수 영문 문장인 경우에만 비동기 번역 큐에 등록
   if M.is_translatable_sentence(trimmed) then
     M.request_translation_async(trimmed)
   end
