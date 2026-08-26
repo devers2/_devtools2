@@ -390,3 +390,40 @@ vim.keymap.set('n', '<leader>\\A', function()
     vim.notify('유니코드 인코딩이 완료되었습니다.', vim.log.levels.INFO, { title = '유니코드 변환' })
   end
 end, { desc = 'Unicode: Encode char → \\uXXXX (전체 버퍼)' })
+
+-- =========================================================================
+-- [스마트 Home 키: VS Code 스타일 토글 이동]
+-- Home 키를 누를 때마다:
+--   1) 코드 시작 지점(들여쓰기 끝, 첫 비공백 문자 ^)으로 이동
+--   2) 이미 코드 시작 지점에 있으면 줄 맨 앞(0)으로 이동
+--   3) 다시 누르면 코드 시작 지점으로 토글 반복
+-- 노멀(n), 비주얼(v), 인서트(i) 모드 모두 지원
+-- =========================================================================
+local function smart_home()
+  local col = vim.fn.col('.')
+  local line = vim.api.nvim_get_current_line()
+  local first_non_blank = line:find('%S')
+  if not first_non_blank or col == first_non_blank then
+    return '0'
+  else
+    return '^'
+  end
+end
+
+-- 노멀, 비주얼 모드
+vim.keymap.set({ 'n', 'v' }, '<Home>', smart_home, { expr = true, silent = true, desc = '스마트 Home (코드 시작 ↔ 줄 맨 앞 토글)' })
+
+-- 인서트 모드
+vim.keymap.set('i', '<Home>', function()
+  local pos = vim.api.nvim_win_get_cursor(0)
+  local line = vim.api.nvim_get_current_line()
+  local first_non_blank = line:find('%S')
+  local target_col = 0
+  if first_non_blank and pos[2] ~= (first_non_blank - 1) then
+    target_col = first_non_blank - 1
+  else
+    target_col = 0
+  end
+  vim.api.nvim_win_set_cursor(0, { pos[1], target_col })
+end, { silent = true, desc = '스마트 Home (코드 시작 ↔ 줄 맨 앞 토글)' })
+
