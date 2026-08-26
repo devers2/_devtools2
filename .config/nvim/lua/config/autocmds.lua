@@ -451,3 +451,136 @@ do
     capslock_warned = false
   end, vim.api.nvim_create_namespace('capslock_detect'))
 end
+
+-- =========================================================================
+-- [Visual 선택 텍스트 동일 문자열 하이라이트 (VS Code 스타일, Viewport 최적화)]
+-- Visual 모드에서 텍스트를 선택하면 현재 화면에 보이는 줄에서만 동일 문자열을 강조합니다.
+--   - 전체 버퍼 스캔 없이 보이는 영역(w0~w$)만 처리 → 대용량 파일에서도 성능 안정적
+--   - 정규식 엔진 대신 Lua string.find(plain) 사용 → 오버헤드 최소화
+--   - namespace extmark 기반으로 하이라이트 관리 → matchadd보다 깔끔한 제거
+--   - 스크롤 시에도 WinScrolled 이벤트로 자동 갱신
+--   - 2글자 미만 선택은 노이즈 방지를 위해 무시
+-- =========================================================================
+do
+  -- 하이라이트 전용 namespace (다른 하이라이트와 충돌 없이 일괄 제거 가능)
+  local ns = vim.api.nvim_create_namespace('user_visual_hl')
+  local last_selected = nil -- 직전 선택 텍스트 캐시 (불필요한 갱신 방지)
+
+  -- namespace에 속한 하이라이트 전체 제거
+  local function clear_highlights()
+    vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+    last_selected = nil
+  end
+
+  -- Visual 모드에서 선택된 텍스트 가져오기 (단일 라인만 지원)
+  local function get_visual_selection()
+    local _, ls, cs = unpack(vim.fn.getpos('v'))
+    local _, le, ce = unpack(vim.fn.getpos('.'))
+
+    -- 줄/열이 역순인 경우 정렬
+    if ls > le or (ls == le and cs > ce) then
+      ls, le = le, ls
+      cs, ce = ce, cs
+    end
+
+    -- 멀티라인 선택은 무시
+    if ls ~= le then
+      return nil
+    end
+
+    local lines = vim.api.nvim_buf_get_lines(0, ls - 1, le, false)
+    if #lines == 0 then
+      return nil
+    end
+
+    local line = lines[1]
+    cs = math.min(cs, #line)
+    ce = math.min(ce, #line)
+
+    if cs > ce or cs < 1 then
+      return nil
+    end
+
+    return line:sub(cs, ce)
+  end
+
+  -- 현재 viewport에서만 selected 문자열을 찾아 하이라이트 적용
+  local function apply_highlights(selected)
+    -- 이전 하이라이트 제거
+    vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
+
+    -- 화면에 보이는 줄 범위만 가져옴 (0-indexed)
+    local top = vim.fn.line('w0') - 1
+    local bot = vim.fn.line('w$')       -- nvim_buf_get_lines의 end는 exclusive
+    local lines = vim.api.nvim_buf_get_lines(0, top, bot, false)
+    local sel_len = #selected
+
+    for i, line in ipairs(lines) do
+      local row = top + i - 1
+      local col = 1
+      while true do
+        -- plain=true: 정규식 없이 리터럴 문자열 검색 (특수문자 이스케이프 불필요)
+        local s, e = line:find(selected, col, true)
+        if not s then
+          break
+        end
+        -- nvim_buf_add_highlight: 0-indexed, byte 단위, end는 exclusive
+        vim.api.nvim_buf_add_highlight(0, ns, 'Search', row, s - 1, s - 1 + sel_len)
+        col = e + 1
+      end
+    end
+  end
+
+  -- Visual 모드 커서 이동 시 하이라이트 갱신
+  local function on_cursor_moved()
+    local mode = vim.fn.mode()
+
+    if mode ~= 'v' then
+      if last_selected then
+        clear_highlights()
+      end
+      return
+    end
+
+    local selected = get_visual_selection()
+
+    if not selected or #selected < 2 then
+      if last_selected then
+        clear_highlights()
+      end
+      return
+    end
+
+    -- 선택 텍스트가 바뀐 경우에만 재계산 (커서만 움직인 경우 스킵)
+    if selected == last_selected then
+      return
+    end
+
+    last_selected = selected
+    apply_highlights(selected)
+  end
+
+  vim.api.nvim_create_autocmd('CursorMoved', {
+    group = vim.api.nvim_create_augroup('user_visual_highlight', { clear = true }),
+    callback = on_cursor_moved,
+  })
+
+  -- 스크롤 시 viewport가 바뀌므로 보이는 영역 기준으로 재적용
+  vim.api.nvim_create_autocmd('WinScrolled', {
+    group = vim.api.nvim_create_augroup('user_visual_highlight_scroll', { clear = true }),
+    callback = function()
+      if vim.fn.mode() == 'v' and last_selected then
+        apply_highlights(last_selected)
+      end
+    end,
+  })
+
+  -- Visual 모드 벗어날 때 확실하게 제거
+  vim.api.nvim_create_autocmd('ModeChanged', {
+    group = vim.api.nvim_create_augroup('user_visual_highlight_mode', { clear = true }),
+    pattern = '[vV\22]*:*',
+    callback = function()
+      clear_highlights()
+    end,
+  })
+end
