@@ -19,27 +19,42 @@ vim.api.nvim_create_autocmd('FileType', {
   end,
 })
 
--- HTML, JS, TS, CSS 등 특정 파일에서만 들여쓰기를 2칸으로 설정
+-- =========================================================================
+-- [언어별 들여쓰기 예외 설정]
+-- 기본 들여쓰기는 2칸 공백(options.lua)이며, 아래 특정 언어들만 예외적으로 4칸 또는 실제 탭을 적용합니다.
+-- =========================================================================
+
+-- 1. 4칸 공백 예외 (Java, Kotlin, Groovy, Python, C, C++)
 vim.api.nvim_create_autocmd('FileType', {
-  group = vim.api.nvim_create_augroup('user_indent_2', { clear = true }),
+  group = vim.api.nvim_create_augroup('user_indent_4', { clear = true }),
   pattern = {
-    'html',
-    'javascript',
-    'typescript',
-    'css',
-    'scss',
-    'xml',
-    'json',
-    'jsonc',
-    'yaml',
-    'lua',
-    'markdown',
+    'java',
+    'kotlin',
+    'groovy',
+    'python',
+    'c',
+    'cpp',
   },
   callback = function()
-    vim.opt_local.shiftwidth = 2 -- >> 또는 << 시 이동 간격
-    vim.opt_local.tabstop = 2 -- 탭 문자의 너비
-    vim.opt_local.softtabstop = 2 -- 탭 키 입력 시 삽입되는 공백
+    vim.opt_local.shiftwidth = 4 -- >> 또는 << 시 이동 간격
+    vim.opt_local.tabstop = 4 -- 탭 문자의 너비
+    vim.opt_local.softtabstop = 4 -- 탭 키 입력 시 삽입되는 공백
     vim.opt_local.expandtab = true -- 탭을 공백으로 변환
+  end,
+})
+
+-- 2. 실제 탭(\t) 예외 (Go 표준, Makefile 등)
+vim.api.nvim_create_autocmd('FileType', {
+  group = vim.api.nvim_create_augroup('user_indent_tab', { clear = true }),
+  pattern = {
+    'go',
+    'make',
+  },
+  callback = function()
+    vim.opt_local.shiftwidth = 4
+    vim.opt_local.tabstop = 4
+    vim.opt_local.softtabstop = 4
+    vim.opt_local.expandtab = false -- 실제 탭(\t) 문자 유지
   end,
 })
 

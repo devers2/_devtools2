@@ -141,9 +141,11 @@ vim.lsp.log.set_level(vim.log.levels.WARN)
 -- 마우스 지원 활성화 (IDE와 유사한 경험 제공)
 vim.opt.mouse = 'a'
 
--- 탭 설정 (Java 표준 4칸 설정)
-vim.opt.shiftwidth = 4
-vim.opt.tabstop = 4
+-- 기본 들여쓰기 설정 (현대 개발 표준 2칸 공백: JSON, HTML, JS/TS, CSS, YAML, Lua 등)
+-- (Java, Python 등 4칸이나 Go/Makefile의 실제 탭 등 언어별 예외는 autocmds.lua에서 처리)
+vim.opt.shiftwidth = 2
+vim.opt.tabstop = 2
+vim.opt.softtabstop = 2
 vim.opt.expandtab = true
 
 --[[
