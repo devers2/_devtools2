@@ -1,12 +1,12 @@
--- [대용량 파일 트리시터 → 정규식(syntax) 폴백]
+-- [대용량 파일 및 쿼리 누락 시 트리시터 → 정규식(syntax) 자동 폴백 및 상태 메시지]
 -- nvim-treesitter가 "main" 브랜치(lazy-lock.json 참고)로 고정되어 있고,
 -- LazyVim의 lazyvim/plugins/treesitter.lua는 highlight.disable을
 -- "언어 이름 문자열 배열"로만 처리한다 (type(f.disable) == "table" 체크).
 -- 함수를 넘기는 구버전(master 브랜치) 방식은 무시되어 크기와 무관하게
--- 트리시터가 항상 켜지므로, FileType 시점에 직접 크기를 검사해
--- vim.treesitter.stop()으로 꺼서 기존 Vim 정규식 syntax 강조로 폴백시킨다.
+-- 트리시터가 항상 켜지므로, FileType 시점에 직접 크기 및 쿼리 유효성을 검사해
+-- 비정상/대용량 파일은 vim.treesitter.stop()으로 꺼서 기존 Vim 정규식 syntax 강조로 폴백시킨다.
 vim.api.nvim_create_autocmd('FileType', {
-  group = vim.api.nvim_create_augroup('devtools2_treesitter_large_file_fallback', { clear = true }),
+  group = vim.api.nvim_create_augroup('devtools2_treesitter_fallback_guard', { clear = true }),
   callback = function(ev)
     local buf = ev.buf
     -- LazyVim의 lazyvim_treesitter FileType 콜백(vim.treesitter.start)이
@@ -15,18 +15,58 @@ vim.api.nvim_create_autocmd('FileType', {
       if not vim.api.nvim_buf_is_valid(buf) then
         return
       end
-      local fname = vim.api.nvim_buf_get_name(buf)
-      local ok, stat = pcall(vim.uv.fs_stat, fname)
-      local oversized = ok and stat and stat.size > _G.get_max_file_size(buf)
-      -- 파일 전체 크기는 정상이어도, HTML 등 복합 문법 파일에 <script>/<style> 인라인
-      -- 콘텐츠가 유독 많으면(options.lua의 has_oversized_inline_block 참고) 별도로 더
-      -- 보수적으로 처리 — 크기 검사를 이미 통과 못했으면 이 추가 검사는 건너뜀(불필요한 비용 방지).
-      if not oversized then
-        local ok2, is_script_heavy = pcall(_G.has_oversized_inline_block, buf)
-        oversized = ok2 and is_script_heavy
+
+      -- 특수 UI/플로팅 버퍼(도움말, 알림, 대시보드 등)는 검사 및 메시지 출력에서 제외
+      local buftype = vim.bo[buf].buftype or ''
+      if buftype ~= '' or not vim.bo[buf].buflisted then
+        return
       end
-      if oversized then
+
+      local ft = vim.bo[buf].filetype or ''
+      if ft == '' or ft:match('^snacks_') or ft == 'noice' or ft == 'lazy' or ft == 'mason' or ft == 'help' or ft == 'qf' or ft == 'trouble' then
+        return
+      end
+
+      local fname = vim.api.nvim_buf_get_name(buf)
+      if fname == '' then
+        return
+      end
+
+      local ok_stat, stat = pcall(vim.uv.fs_stat, fname)
+      local filesize = (ok_stat and stat) and stat.size or 0
+      local max_size = _G.get_max_file_size(buf)
+
+      local lang = vim.treesitter.language.get_lang(ft) or ft
+      local ok_parser, parser = pcall(vim.treesitter.get_parser, buf, lang)
+      local has_query = vim.treesitter.query.get(lang, 'highlights') ~= nil
+
+      local fallback_reason = nil
+
+      -- 1. 파일 전체 크기 검사
+      if filesize > max_size then
+        local fmt_cur = (filesize > 1024 * 1024) and string.format('%.1fMB', filesize / (1024 * 1024)) or string.format('%dKB', math.floor(filesize / 1024))
+        local fmt_max = (max_size > 1024 * 1024) and string.format('%.1fMB', max_size / (1024 * 1024)) or string.format('%dKB', math.floor(max_size / 1024))
+        fallback_reason = string.format('대용량 파일 (%s > %s)', fmt_cur, fmt_max)
+      -- 2. HTML 등 복합 문법 파일에 <script>/<style> 인라인 콘텐츠가 유독 많으면(options.lua의 has_oversized_inline_block 참고)
+      --    별도로 더 보수적으로 처리 — 크기 검사를 이미 통과 못했으면 elseif로 건너뜀(불필요한 비용 방지)
+      elseif _G.has_oversized_inline_block and _G.has_oversized_inline_block(buf) then
+        fallback_reason = '인라인 script/style 크기 초과'
+      -- 3. 파서 미설치 검사
+      elseif not ok_parser or not parser then
+        fallback_reason = string.format('파서 미설치 (%s)', lang)
+      -- 4. 하이라이트 쿼리(highlights.scm) 누락 검사
+      elseif not has_query then
+        fallback_reason = string.format('하이라이트 쿼리 누락 (%s)', lang)
+      end
+
+      if fallback_reason then
         pcall(vim.treesitter.stop, buf)
+        vim.bo[buf].syntax = ft -- Vim 전통 정규식 syntax 강조로 안전 폴백
+        -- 한 줄 메시지 기록 (:NoiceAll 또는 :messages 로 언제든 확인 가능)
+        vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (%s)', fallback_reason), 'DiagnosticWarn' } }, true, {})
+      else
+        -- 정상 적용 시 한 줄 메시지 기록
+        vim.api.nvim_echo({ { 'Treesitter: 적용', 'DiagnosticOk' } }, true, {})
       end
     end)
   end,
@@ -87,7 +127,7 @@ return {
         end
       end
 
-      -- 하이라이팅 활성화 (크기 기반 on/off는 위쪽 devtools2_treesitter_large_file_fallback autocmd가 담당)
+      -- 하이라이팅 활성화 (크기 기반 on/off는 위쪽 devtools2_treesitter_fallback_guard autocmd가 담당)
       opts.highlight = opts.highlight or {}
       opts.highlight.enable = true
       return opts
