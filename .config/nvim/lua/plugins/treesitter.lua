@@ -5,6 +5,8 @@
 -- 함수를 넘기는 구버전(master 브랜치) 방식은 무시되어 크기와 무관하게
 -- 트리시터가 항상 켜지므로, FileType 시점에 직접 크기 및 쿼리 유효성을 검사해
 -- 비정상/대용량 파일은 vim.treesitter.stop()으로 꺼서 기존 Vim 정규식 syntax 강조로 폴백시킨다.
+-- 파일 열 때 상태 메시지를 기록하며 (:NoiceAll / :messages 로 확인 가능),
+-- 동일 파일을 다시 열어도 트리시터 상태는 바뀌지 않으므로 최초 기록으로 충분하다.
 vim.api.nvim_create_autocmd('FileType', {
   group = vim.api.nvim_create_augroup('devtools2_treesitter_fallback_guard', { clear = true }),
   callback = function(ev)
@@ -59,14 +61,14 @@ vim.api.nvim_create_autocmd('FileType', {
         fallback_reason = string.format('하이라이트 쿼리 누락 (%s)', lang)
       end
 
+      local basename = vim.fn.fnamemodify(fname, ':t')
       if fallback_reason then
         pcall(vim.treesitter.stop, buf)
         vim.bo[buf].syntax = ft -- Vim 전통 정규식 syntax 강조로 안전 폴백
-        -- 한 줄 메시지 기록 (:NoiceAll 또는 :messages 로 언제든 확인 가능)
-        vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (%s)', fallback_reason), 'DiagnosticWarn' } }, true, {})
+        -- 파일명이 포함되어 자연히 고유한 메시지 → :NoiceAll / :messages 로 언제든 확인 가능
+        vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (%s) [%s]', fallback_reason, basename), 'DiagnosticWarn' } }, true, {})
       else
-        -- 정상 적용 시 한 줄 메시지 기록
-        vim.api.nvim_echo({ { 'Treesitter: 적용', 'DiagnosticOk' } }, true, {})
+        vim.api.nvim_echo({ { string.format('Treesitter: 적용 [%s]', basename), 'DiagnosticOk' } }, true, {})
       end
     end)
   end,
