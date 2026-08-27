@@ -159,7 +159,12 @@ if ok then
   _G.attach_debug = attach_debug
 
   -- 사용자 지정 DAP 단축키 (한글 설명 + 영문 원본 명칭)
-  vim.keymap.set('n', '<leader>da', attach_debug, { desc = '포트 지정 디버그 연결 (Attach/Launch Debug)' })
+  vim.keymap.set(
+    'n',
+    '<leader>da',
+    attach_debug,
+    { desc = '포트 지정 디버그 연결 (Attach/Launch Debug)' }
+  )
   vim.keymap.set('n', '<leader>db', function()
     dap.toggle_breakpoint()
   end, { desc = '브레이크포인트 설정/해제 (Toggle Breakpoint)' })
@@ -179,7 +184,11 @@ if ok then
     if ft == '' or ft == 'snacks_dashboard' or ft == 'alpha' or ft == 'dashboard' then
       -- 대시보드 화면인 경우: .nvim.lua의 MAIN_CLASS 또는 Java 프로젝트인지 확인
       ---@diagnostic disable-next-line: undefined-field
-      if _G.MAIN_CLASS or vim.fn.filereadable('build.gradle') == 1 or vim.fn.filereadable('pom.xml') == 1 then
+      if
+        _G.MAIN_CLASS
+        or vim.fn.filereadable('build.gradle') == 1
+        or vim.fn.filereadable('pom.xml') == 1
+      then
         dap.run({
           type = 'java',
           request = 'launch',
@@ -236,7 +245,8 @@ local function run_manual_eslint()
     and ft ~= 'vue'
   then
     vim.notify(
-      'ESLint를 지원하지 않는 파일 형식입니다. (JS, TS, HTML, Vue 지원)\n현재 파일 형식: ' .. ft,
+      'ESLint를 지원하지 않는 파일 형식입니다. (JS, TS, HTML, Vue 지원)\n현재 파일 형식: '
+        .. ft,
       vim.log.levels.WARN,
       { title = '수동 ESLint 린터' }
     )
@@ -258,9 +268,14 @@ local function run_manual_eslint()
     return
   end
 
-  local eslint_cmd = { eslint_bin, '--config', config_file, '--format', 'json', '--stdin', '--stdin-filename', file }
+  local eslint_cmd =
+    { eslint_bin, '--config', config_file, '--format', 'json', '--stdin', '--stdin-filename', file }
 
-  vim.notify('⚡ ESLint 코드 분석 중...', vim.log.levels.INFO, { title = '수동 ESLint 린터', timeout = 2000 })
+  vim.notify(
+    '⚡ ESLint 코드 분석 중...',
+    vim.log.levels.INFO,
+    { title = '수동 ESLint 린터', timeout = 2000 }
+  )
 
   -- 현재 버퍼의 전체 텍스트 가져오기
   local buffer_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -279,9 +294,17 @@ local function run_manual_eslint()
 
       if not ok_json or type(parsed) ~= 'table' then
         if #stderr_str > 0 then
-          vim.notify(stderr_str, vim.log.levels.ERROR, { title = 'ESLint 엔진 오류', timeout = 10000 })
+          vim.notify(
+            stderr_str,
+            vim.log.levels.ERROR,
+            { title = 'ESLint 엔진 오류', timeout = 10000 }
+          )
         else
-          vim.notify('ESLint 결과를 파싱할 수 없습니다:\n' .. stdout_str, vim.log.levels.ERROR, { title = 'ESLint 파싱 오류' })
+          vim.notify(
+            'ESLint 결과를 파싱할 수 없습니다:\n' .. stdout_str,
+            vim.log.levels.ERROR,
+            { title = 'ESLint 파싱 오류' }
+          )
         end
         return
       end
@@ -324,7 +347,11 @@ local function run_manual_eslint()
                 end_lnum = end_line_idx,
                 end_col = end_col_idx,
                 severity = d_severity,
-                message = string.format('[ESLint] %s (%s)', msg.message or '', msg.ruleId or 'unknown'),
+                message = string.format(
+                  '[ESLint] %s (%s)',
+                  msg.message or '',
+                  msg.ruleId or 'unknown'
+                ),
                 source = 'Manual ESLint',
               })
             end
@@ -335,7 +362,11 @@ local function run_manual_eslint()
       if #qf_items == 0 then
         vim.fn.setqflist({}, 'r')
         vim.cmd.cclose()
-        vim.notify('🎉 완벽합니다! JS 문법 오류나 스타일 위반이 없습니다.', vim.log.levels.INFO, { title = 'ESLint 분석 완료' })
+        vim.notify(
+          '🎉 완벽합니다! JS 문법 오류나 스타일 위반이 없습니다.',
+          vim.log.levels.INFO,
+          { title = 'ESLint 분석 완료' }
+        )
         -- 확실하게 진단 마킹을 0개로 덮어쓰기하여 화면에 남은 에러를 지웁니다.
         vim.diagnostic.set(eslint_ns, bufnr, {})
         return
@@ -352,7 +383,10 @@ local function run_manual_eslint()
       vim.cmd.copen()
 
       vim.notify(
-        string.format('⚠️  %d개의 JS 오류가 발견되었습니다. (목록에서 Enter로 해당 줄 이동)', #qf_items),
+        string.format(
+          '⚠️  %d개의 JS 오류가 발견되었습니다. (목록에서 Enter로 해당 줄 이동)',
+          #qf_items
+        ),
         vim.log.levels.WARN,
         { title = 'ESLint 분석 완료' }
       )
@@ -379,7 +413,11 @@ vim.keymap.set('n', '<leader>\\a', function()
   -- \uXXXX 형식의 유니코드 이스케이프 시퀀스를 실제 유니코드 문자로 변환
   local ok, _ = pcall(vim.cmd, [[%s/\\u\([0-9a-fA-F]\{4\}\)/\=nr2char(str2nr(submatch(1), 16))/ge]])
   if ok then
-    vim.notify('유니코드 디코딩이 완료되었습니다.', vim.log.levels.INFO, { title = '유니코드 변환' })
+    vim.notify(
+      '유니코드 디코딩이 완료되었습니다.',
+      vim.log.levels.INFO,
+      { title = '유니코드 변환' }
+    )
   end
 end, { desc = 'Unicode: Decode \\uXXXX → char (전체 버퍼)' })
 
@@ -387,7 +425,11 @@ vim.keymap.set('n', '<leader>\\A', function()
   -- ASCII 범위를 벗어난 문자(한글, 특수문자 등)를 \uXXXX 이스케이프 시퀀스로 변환
   local ok, _ = pcall(vim.cmd, [[%s/[^\x00-\x7F]/\=printf('\\u%04X', char2nr(submatch(0)))/ge]])
   if ok then
-    vim.notify('유니코드 인코딩이 완료되었습니다.', vim.log.levels.INFO, { title = '유니코드 변환' })
+    vim.notify(
+      '유니코드 인코딩이 완료되었습니다.',
+      vim.log.levels.INFO,
+      { title = '유니코드 변환' }
+    )
   end
 end, { desc = 'Unicode: Encode char → \\uXXXX (전체 버퍼)' })
 
@@ -411,7 +453,12 @@ local function smart_home()
 end
 
 -- 노멀, 비주얼 모드
-vim.keymap.set({ 'n', 'v' }, '<Home>', smart_home, { expr = true, silent = true, desc = '스마트 Home (코드 시작 ↔ 줄 맨 앞 토글)' })
+vim.keymap.set(
+  { 'n', 'v' },
+  '<Home>',
+  smart_home,
+  { expr = true, silent = true, desc = '스마트 Home (코드 시작 ↔ 줄 맨 앞 토글)' }
+)
 
 -- 인서트 모드
 vim.keymap.set('i', '<Home>', function()
@@ -426,4 +473,3 @@ vim.keymap.set('i', '<Home>', function()
   end
   vim.api.nvim_win_set_cursor(0, { pos[1], target_col })
 end, { silent = true, desc = '스마트 Home (코드 시작 ↔ 줄 맨 앞 토글)' })
-

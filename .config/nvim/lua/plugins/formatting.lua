@@ -1,6 +1,42 @@
 return {
   {
     'stevearc/conform.nvim',
+    -- [프로젝트별 conform 로그 파일 분리]
+    -- conform.nvim의 기본값(~/.local/state/nvim/conform.log)은 모든 프로젝트의 로그가 하나의 파일에 누적되어,
+    -- 다른 프로젝트에서 :ConformInfo 를 열었을 때 이전 프로젝트의 오류/로그가 뒤섞여 보이는 문제가 있습니다.
+    -- 이를 해결하기 위해 현재 열려있는 파일의 프로젝트 루트(Git 또는 프로젝트 디렉터리명)를 기준으로
+    -- ~/.local/state/nvim/conform/<프로젝트명>.log 에 프로젝트별로 독립 저장합니다.
+    -- pcall 안전 가드로 감싸 플러그인 버전 변경 시에도 100% 안전하게 기본 로거로 폴백됩니다.
+    init = function()
+      local ok, log = pcall(require, 'conform.log')
+      if ok and type(log.get_logfile) == 'function' and type(log.set_handler) == 'function' then
+        -- 1. 현재 버퍼의 프로젝트 루트 디렉터리명을 기준으로 로그 파일 경로 계산
+        log.get_logfile = function()
+          local buf = vim.api.nvim_get_current_buf()
+          local fname = vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_name(buf) or ''
+          local root = (fname ~= '' and vim.fs.root(fname, { '.git', 'mvnw', 'gradlew', 'package.json', 'pyproject.toml' }))
+            or vim.fs.root(0, { '.git' })
+            or vim.fn.getcwd()
+          local proj_name = vim.fs.basename(root)
+          local log_dir = vim.fn.stdpath('state') .. '/conform'
+          pcall(vim.fn.mkdir, log_dir, 'p')
+          return string.format('%s/%s.log', log_dir, proj_name)
+        end
+
+        -- 2. 로그가 발생할 때마다 해당 프로젝트의 로그 파일로 실시간 기록
+        log.set_handler(function(line)
+          local filepath = log.get_logfile()
+          local parent = vim.fs.dirname(filepath)
+          pcall(vim.fn.mkdir, parent, 'p')
+          local f = io.open(filepath, 'a+')
+          if f then
+            f:write(line .. '\n')
+            f:close()
+          end
+        end)
+      end
+    end,
+
     opts = {
       notify_on_error = true,
 
