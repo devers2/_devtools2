@@ -1,16 +1,34 @@
 return {
   {
     'stevearc/conform.nvim',
-    -- [프로젝트별 conform 로그 파일 분리]
-    -- conform.nvim의 기본값(~/.local/state/nvim/conform.log)은 모든 프로젝트의 로그가 하나의 파일에 누적되어,
-    -- 다른 프로젝트에서 :ConformInfo 를 열었을 때 이전 프로젝트의 오류/로그가 뒤섞여 보이는 문제가 있습니다.
-    -- 이를 해결하기 위해 현재 열려있는 파일의 프로젝트 루트(Git 또는 프로젝트 디렉터리명)를 기준으로
-    -- ~/.local/state/nvim/conform/<프로젝트명>.log 에 프로젝트별로 독립 저장합니다.
-    -- pcall 안전 가드로 감싸 플러그인 버전 변경 시에도 100% 안전하게 기본 로거로 폴백됩니다.
     init = function()
+      -- 1. LazyVim의 기본 conform 포맷터 자동 등록 (저장 시 자동 포맷팅 엔진)
+      LazyVim.on_very_lazy(function()
+        LazyVim.format.register({
+          name = 'conform.nvim',
+          priority = 100,
+          primary = true,
+          format = function(buf)
+            require('conform').format({ bufnr = buf })
+          end,
+          sources = function(buf)
+            local ret = require('conform').list_formatters(buf)
+            return vim.tbl_map(function(v)
+              return v.name
+            end, ret)
+          end,
+        })
+      end)
+
+      -- 2. [프로젝트별 conform 로그 파일 분리]
+      -- conform.nvim의 기본값(~/.local/state/nvim/conform.log)은 모든 프로젝트의 로그가 하나의 파일에 누적되어,
+      -- 다른 프로젝트에서 :ConformInfo 를 열었을 때 이전 프로젝트의 오류/로그가 뒤섞여 보이는 문제가 있습니다.
+      -- 이를 해결하기 위해 현재 열려있는 파일의 프로젝트 루트(Git 또는 프로젝트 디렉터리명)를 기준으로
+      -- ~/.local/state/nvim/conform/<프로젝트명>.log 에 프로젝트별로 독립 저장합니다.
+      -- pcall 안전 가드로 감싸 플러그인 버전 변경 시에도 100% 안전하게 기본 로거로 폴백됩니다.
       local ok, log = pcall(require, 'conform.log')
       if ok and type(log.get_logfile) == 'function' and type(log.set_handler) == 'function' then
-        -- 1. 현재 버퍼의 프로젝트 루트 디렉터리명을 기준으로 로그 파일 경로 계산
+        -- 현재 버퍼의 프로젝트 루트 디렉터리명을 기준으로 로그 파일 경로 계산
         log.get_logfile = function()
           local buf = vim.api.nvim_get_current_buf()
           local fname = vim.api.nvim_buf_is_valid(buf) and vim.api.nvim_buf_get_name(buf) or ''
@@ -23,7 +41,7 @@ return {
           return string.format('%s/%s.log', log_dir, proj_name)
         end
 
-        -- 2. 로그가 발생할 때마다 해당 프로젝트의 로그 파일로 실시간 기록
+        -- 로그가 발생할 때마다 해당 프로젝트의 로그 파일로 실시간 기록
         log.set_handler(function(line)
           local filepath = log.get_logfile()
           local parent = vim.fs.dirname(filepath)
@@ -48,6 +66,11 @@ return {
         -- JS/TS 설정
         javascript = { 'prettier' },
         typescript = { 'prettier' },
+        -- JSON / YAML / Markdown 설정
+        json = { 'prettier' },
+        jsonc = { 'prettier' },
+        yaml = { 'prettier' },
+        markdown = { 'prettier' },
         -- Style 설정
         css = { 'prettier' },
         scss = { 'prettier' },
@@ -55,9 +78,14 @@ return {
         python = { 'ruff_format' },
       },
       formatters = {
-        -- 기존 prettier: 글로벌 설정 강제 적용 (JS/TS/CSS 등)
+        -- 기존 prettier: 글로벌 설정 강제 적용 (JS/TS/JSON/CSS 등)
         prettier = {
-          prepend_args = { '--config', _G.DEVTOOLS2_DIR .. '/.config/prettier/.prettierrc.cjs' },
+          prepend_args = {
+            '--config',
+            _G.DEVTOOLS2_DIR .. '/.config/prettier/.prettierrc.cjs',
+            '--ignore-path',
+            '', -- .gitignore의 '*' 와일드카드로 인해 Prettier가 파일을 무시하는 현상 방지
+          },
         },
         -- HTML 전용: --config 없이 프로젝트 로컬 .prettierrc 자동 탐색
         -- → 프로젝트에 prettier-plugin-jinja-template 설치 시 {% %} 블록을 깨지 않음
