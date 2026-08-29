@@ -554,12 +554,18 @@ else
         rm -f "$MODULES_DIR/rclone/rclone"
     fi
     mkdir -p "$MODULES_DIR/rclone"
+    # ⚠️ [다운로드 경로 설계 원칙: GitHub Releases 사용]
+    # - rclone 공식 다운로드 서버(downloads.rclone.org)는 국내 ISP 및 특정 네트워크 환경에서
+    #   패킷 드랍, 접속 차단 또는 응답 지연(Hang)이 빈번하게 발생합니다.
+    # - 공식 저장소(rclone/rclone)의 GitHub Releases는 rclone 팀의 CI/CD에서 동일하게 배포되는 공식 파일이며,
+    #   글로벌 CDN(Fastly/Azure)을 통해 전 세계 어디서나 빠르고 안정적으로 다운로드됩니다.
+    # - 무한 멈춤 방지를 위해 -f(HTTP 오류 감지) 및 --connect-timeout 15 옵션을 적용합니다.
     if [ "$IS_ARM64" = true ]; then
-        _rc_url="https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-arm64.zip"
+        _rc_url="https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-arm64.zip"
     else
-        _rc_url="https://downloads.rclone.org/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+        _rc_url="https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
     fi
-    (curl -sL "$_rc_url" -o /tmp/rclone.zip && \
+    (curl -sLf --connect-timeout 15 "$_rc_url" -o /tmp/rclone.zip && \
      unzip -qo /tmp/rclone.zip -d /tmp/rclone_tmp && \
      mv -f /tmp/rclone_tmp/rclone-*/rclone "$MODULES_DIR/rclone/rclone" && \
      rm -rf /tmp/rclone.zip /tmp/rclone_tmp) &
