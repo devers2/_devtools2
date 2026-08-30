@@ -89,49 +89,18 @@ return {
       vim.treesitter.language.register('properties', 'jproperties')
     end,
     opts = function(_, opts)
-      -- 기존 설정이 있으면 유지하면서 필요한 파서들 추가
-      opts.ensure_installed = opts.ensure_installed or {}
-      local parsers = {
-        'html',
-        'htmldjango',
-        'javascript',
-        'typescript',
-        'tsx',
-        'jsx',
-        'vue',
-        'css',
-        'c',
-        'cpp',
-        'java',
-        'kotlin',
-        'groovy',
-        'lua',
-        'markdown',
-        'markdown_inline',
-        'bash',
-        'python',
-        'json',
-        'yaml',
-        'vim',
-        'query',
-        'regex',
-        'xml', -- Java 설정 파일(pom.xml 등)을 위해 추가
-        'properties', -- gradle.properties, application.properties, gradle-wrapper.properties 등을 위해 추가
-      }
-      local existing = {}
-      for _, p in ipairs(opts.ensure_installed) do
-        existing[p] = true
-      end
-      for _, p in ipairs(parsers) do
-        if not existing[p] then
-          table.insert(opts.ensure_installed, p)
-          existing[p] = true
-        end
-      end
+      -- ⚠️ [ensure_installed 제거 이유]
+      -- nvim-treesitter main 브랜치는 첫 실행 시 ensure_installed 목록의 파서를
+      -- C 컴파일러로 동시에 빌드하여 CPU/RAM 고갈 및 UI 프리징을 유발합니다.
+      -- auto_install = true로 변경하여 파일을 열 때 해당 언어 파서만
+      -- 필요한 시점에 1개씩 안전하게 자동 설치되도록 위임합니다.
+      opts.ensure_installed = {}
 
       -- 하이라이팅 활성화 (크기 기반 on/off는 위쪽 devtools2_treesitter_fallback_guard autocmd가 담당)
       opts.highlight = opts.highlight or {}
       opts.highlight.enable = true
+      -- 파일을 열 때 해당 언어 파서가 없으면 자동으로 1개씩 설치
+      opts.auto_install = true
       return opts
     end,
   },

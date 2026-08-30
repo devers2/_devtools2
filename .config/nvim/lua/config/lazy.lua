@@ -33,7 +33,7 @@ require('lazy').setup({
   install = { colorscheme = { 'kanagawa', 'tokyonight', 'habamax' } },
   checker = {
     enabled = true, -- check for plugin updates periodically
-    notify = false, -- notify on update
+    notify = false, -- 순정 영문 단순 알림 대신 아래 커스텀 한글 안내 알림 사용
   }, -- automatically check for plugin updates
   performance = {
     rtp = {
@@ -50,4 +50,37 @@ require('lazy').setup({
       },
     },
   },
+})
+
+-- =============================================================================
+-- [플러그인 업데이트 감지 알림]
+-- 백그라운드에서 새 버전이 감지되면 알림창을 띄우고,
+-- :Lazy update 와 :Lazy sync 의 역할을 설명하여 사용자가 선택할 수 있도록 안내합니다.
+-- =============================================================================
+vim.api.nvim_create_autocmd('User', {
+  pattern = 'LazyCheck',
+  callback = function()
+    local ok, checker = pcall(require, 'lazy.manage.checker')
+    if ok and checker.updated and #checker.updated > 0 then
+      local count = #checker.updated
+      vim.schedule(function()
+        vim.notify(
+          table.concat({
+            string.format('🔔 %d개의 플러그인 업데이트가 있습니다!', count),
+            '',
+            '• :Lazy update  (또는 Lazy 창에서 U)',
+            '  ➜ 기존 플러그인을 최신 버전으로 안전하게 갱신 (권장)',
+            '',
+            '• :Lazy sync    (또는 Lazy 창에서 S)',
+            '  ➜ 플러그인 갱신 + 새 플러그인 설치 및 미사용 정리',
+          }, '\n'),
+          vim.log.levels.INFO,
+          {
+            title = '📦 Neovim 플러그인 업데이트 안내',
+            timeout = 10000,
+          }
+        )
+      end)
+    end
+  end,
 })

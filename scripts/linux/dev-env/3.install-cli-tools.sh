@@ -731,59 +731,13 @@ echo ""
 configure_gradle_dap
 
 # ==============================================================================
-# 9. Neovim 플러그인 & 개발 환경 최종 동기화 (Lazy + Treesitter + Mason)
-#
-# 📌 [이 위치에 있어야 하는 이유 (설계 원칙)]
-#  Neovim 플러그인 생태계는 단순 에디터 바이너리 외에 여러 런타임/컴파일러 의존성을 갖습니다:
-#   1) Node.js, Python, Neovim 바이너리: 2.install-core-tools.sh 에서 설치 완료
-#   2) C 컴파일러(build-essential gcc): 3번 스크립트 6단계에서 설치 완료
-#      - nvim-treesitter 구문 강조 파서 및 C 확장 모듈(fzf-native 등) 컴파일에 필수
-#   3) SQLite3 라이브러리: 3번 스크립트 6단계에서 설치 완료
-#      - snacks.nvim (picker)의 최근/빈도 히스토리 DB 연동에 필수
-#   4) Lua/LuaRocks 환경: 3번 스크립트 7단계 hererocks 에서 구성 완료
-#   5) CLI 검색 유틸(ripgrep, fd, fzf): 3번 스크립트 1~3단계에서 설치 완료
-#
-#  따라서 이 모든 의존성이 100% 충족된 '3번 스크립트의 맨 마지막'에 한 번만 실행하여:
-#   - Lazy! restore : lazy-lock.json 기반 플러그인 무결성 복원
-#   - TSUpdateSync  : gcc를 활용한 언어별 Treesitter 파서 사전 컴파일
-#   - MasonUpdate   : LSP/DAP/포맷터 패키지 레지스트리 갱신
-#  을 완료하면, 사용자가 최초로 nvim을 실행할 때 다운로드 렉/오류 없는 Zero-Touch 환경이 완성됩니다.
+# 9. Neovim 플러그인 동기화 안내
+# 
+# 📌 [설계 원칙]
+#  Neovim 플러그인은 lazy-lock.json을 기준으로 사용자가 nvim을 처음 실행할 때
+#  TUI 화면에서 100% 안전하게 자동 복원/설치됩니다.
+#  설치 스크립트 단계에서 헤드리스로 무리하게 사전 빌드하지 않고, Neovim 런타임에 위임합니다.
 # ==============================================================================
-NVIM_BIN="$DEVTOOLS2/modules/neovim/nvim/bin/nvim"
-if [ -x "$NVIM_BIN" ] && [ -f "$DEVTOOLS2/.config/nvim/lazy-lock.json" ]; then
-    echo "---------------------------------------------------------------------------"
-    echo "💤 9. Neovim 플러그인 및 개발 환경 최종 동기화 (Zero-Touch 사전 빌드)"
-    echo ""
-    # Neovim, Node, Python, hererocks, cli 툴들을 모두 포함한 임시 PATH 주입
-    export PATH="$DEVTOOLS2/modules/neovim/nvim/bin:$DEVTOOLS2/modules/nodejs/node-v24/bin:$DEVTOOLS2/modules/python/python-314/bin:$DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin:$DEVTOOLS2/modules/ripgrep:$DEVTOOLS2/modules/fd:$DEVTOOLS2/modules/fzf:$PATH"
-
-    # 이전 실패로 인한 잔여 빌드 캐시 정리 (충돌 방지)
-    rm -rf "$HOME/.cache/nvim/tree-sitter-"* 2>/dev/null || true
-
-    # 1) Lazy 플러그인 일괄 복원 (플러그인 파일들이 완전히 준비될 때까지 대기)
-    echo -n "   📥 1/3 Lazy 플러그인 복원 중..."
-    ("$NVIM_BIN" --headless "+Lazy! restore" +qa >/tmp/_nvim_lazy.log 2>&1) &
-    show_spinner $!
-    rm -f /tmp/_nvim_lazy.log 2>/dev/null
-    echo " 완료"
-
-    # 2) Treesitter 파서 사전 컴파일 (플러그인이 완전히 로드된 상태에서 안전하게 빌드)
-    echo -n "   ⚙️ 2/3 Treesitter 파서 컴파일 중..."
-    ("$NVIM_BIN" --headless "+TSUpdateSync" +qa >/tmp/_nvim_ts.log 2>&1) &
-    show_spinner $!
-    rm -f /tmp/_nvim_ts.log 2>/dev/null
-    echo " 완료"
-
-    # 3) Mason 패키지 레지스트리 갱신
-    echo -n "   📋 3/3 Mason 레지스트리 갱신 중..."
-    ("$NVIM_BIN" --headless "+MasonUpdate" +qa >/tmp/_nvim_mason.log 2>&1) &
-    show_spinner $!
-    rm -f /tmp/_nvim_mason.log 2>/dev/null
-    echo " 완료"
-
-    print_done "Neovim 통합 환경 동기화 완료!"
-    echo ""
-fi
 
 print_sep
 print_step "🎉 모든 도구 설치가 완료되었습니다!"
