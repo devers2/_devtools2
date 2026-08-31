@@ -7,6 +7,72 @@
 -- 비정상/대용량 파일은 vim.treesitter.stop()으로 꺼서 기존 Vim 정규식 syntax 강조로 폴백시킨다.
 -- 파일 열 때 상태 메시지를 기록하며 (:NoiceAll / :messages 로 확인 가능),
 -- 동일 파일을 다시 열어도 트리시터 상태는 바뀌지 않으므로 최초 기록으로 충분하다.
+
+local installing_parsers = {}
+
+---파서 미설치 시 백그라운드 비동기 자동 설치 함수
+---@param lang string 언어 파서 이름
+---@param orig_buf integer 요청한 버퍼 번호
+local function try_auto_install_parser(lang, orig_buf)
+  if installing_parsers[lang] then
+    return
+  end
+
+  local ok_ts, ts = pcall(require, 'nvim-treesitter')
+  if not ok_ts or not ts.install then
+    return
+  end
+
+  -- nvim-treesitter가 지원하는 언어인지 확인
+  local ok_avail, available = pcall(ts.get_available)
+  if ok_avail and type(available) == 'table' and not vim.tbl_contains(available, lang) then
+    return
+  end
+
+  installing_parsers[lang] = true
+  vim.notify(string.format("Treesitter: '%s' 파서를 백그라운드에서 자동 설치합니다...", lang), vim.log.levels.INFO, { title = 'Treesitter' })
+
+  local function do_install()
+    ts.install({ lang }, { summary = false }):await(function()
+      installing_parsers[lang] = nil
+      if pcall(require, 'lazyvim.util') and LazyVim and LazyVim.treesitter then
+        LazyVim.treesitter.get_installed(true) -- LazyVim 파서 캐시 갱신
+      end
+
+      vim.schedule(function()
+        -- 현재 열려 있는 버퍼들 중 해당 언어를 사용하는 버퍼에 트리시터 즉시 적용
+        local bufs = vim.api.nvim_list_bufs()
+        for _, buf in ipairs(bufs) do
+          if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buflisted then
+            local ft = vim.bo[buf].filetype or ''
+            local buf_lang = vim.treesitter.language.get_lang(ft) or ft
+            if buf_lang == lang then
+              local fname = vim.api.nvim_buf_get_name(buf)
+              local ok_stat, stat = pcall(vim.uv.fs_stat, fname)
+              local filesize = (ok_stat and stat) and stat.size or 0
+              local max_size = _G.get_max_file_size and _G.get_max_file_size(buf) or (1024 * 1024)
+
+              if filesize <= max_size then
+                local ok_start = pcall(vim.treesitter.start, buf, lang)
+                if ok_start then
+                  local basename = vim.fn.fnamemodify(fname, ':t')
+                  vim.api.nvim_echo({ { string.format('Treesitter: 적용 (파서 자동 설치 완료) [%s]', basename), 'DiagnosticOk' } }, true, {})
+                end
+              end
+            end
+          end
+        end
+      end)
+    end)
+  end
+
+  if pcall(require, 'lazyvim.util') and LazyVim and LazyVim.treesitter and LazyVim.treesitter.build then
+    LazyVim.treesitter.build(do_install)
+  else
+    do_install()
+  end
+end
+
 vim.api.nvim_create_autocmd('FileType', {
   group = vim.api.nvim_create_augroup('devtools2_treesitter_fallback_guard', { clear = true }),
   callback = function(ev)
@@ -36,13 +102,14 @@ vim.api.nvim_create_autocmd('FileType', {
 
       local ok_stat, stat = pcall(vim.uv.fs_stat, fname)
       local filesize = (ok_stat and stat) and stat.size or 0
-      local max_size = _G.get_max_file_size(buf)
+      local max_size = _G.get_max_file_size and _G.get_max_file_size(buf) or (1024 * 1024)
 
       local lang = vim.treesitter.language.get_lang(ft) or ft
       local ok_parser, parser = pcall(vim.treesitter.get_parser, buf, lang)
       local has_query = vim.treesitter.query.get(lang, 'highlights') ~= nil
 
       local fallback_reason = nil
+      local is_missing_parser = false
 
       -- 1. 파일 전체 크기 검사
       if filesize > max_size then
@@ -56,6 +123,7 @@ vim.api.nvim_create_autocmd('FileType', {
       -- 3. 파서 미설치 검사
       elseif not ok_parser or not parser then
         fallback_reason = string.format('파서 미설치 (%s)', lang)
+        is_missing_parser = true
       -- 4. 하이라이트 쿼리(highlights.scm) 누락 검사
       elseif not has_query then
         fallback_reason = string.format('하이라이트 쿼리 누락 (%s)', lang)
@@ -67,6 +135,11 @@ vim.api.nvim_create_autocmd('FileType', {
         vim.bo[buf].syntax = ft -- Vim 전통 정규식 syntax 강조로 안전 폴백
         -- 파일명이 포함되어 자연히 고유한 메시지 → :NoiceAll / :messages 로 언제든 확인 가능
         vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (%s) [%s]', fallback_reason, basename), 'DiagnosticWarn' } }, true, {})
+
+        -- 파서 미설치로 인한 미적용인 경우, 백그라운드 비동기 자동 설치 트리거
+        if is_missing_parser and lang and lang ~= '' then
+          try_auto_install_parser(lang, buf)
+        end
       else
         vim.api.nvim_echo({ { string.format('Treesitter: 적용 [%s]', basename), 'DiagnosticOk' } }, true, {})
       end
@@ -89,18 +162,35 @@ return {
       vim.treesitter.language.register('properties', 'jproperties')
     end,
     opts = function(_, opts)
-      -- ⚠️ [ensure_installed 제거 이유]
-      -- nvim-treesitter main 브랜치는 첫 실행 시 ensure_installed 목록의 파서를
-      -- C 컴파일러로 동시에 빌드하여 CPU/RAM 고갈 및 UI 프리징을 유발합니다.
-      -- auto_install = true로 변경하여 파일을 열 때 해당 언어 파서만
-      -- 필요한 시점에 1개씩 안전하게 자동 설치되도록 위임합니다.
+      -- 🚀 [사전 설치 목록 완전 제거 및 순수 동적(On-demand) 자동 설치]
+      -- 에디터 시작 시 수십 개 언어 파서를 일괄 빌드하는 CPU/RAM 부하와 초기 지연을 방지하기 위해
+      -- 기본적으로 ensure_installed 목록을 비워둡니다 (opts.ensure_installed = {}).
+      -- 파일타입(FileType) 감지 시 Neovim의 언어 매핑 규칙을 통해 동적으로 파서 이름을 찾아내며,
+      -- 위쪽 devtools2_treesitter_fallback_guard의 try_auto_install_parser가
+      -- 실제로 열람/편집하는 파일의 파서만 1개씩 안전하게 백그라운드에서 동적으로 자동 설치합니다.
+      --
+      -- 💡 [추후 필요 시 특정 언어를 사전 설치(Pre-install)하고 싶을 때]
+      -- 첫 파일 오픈 시점의 다운로드/컴파일 딜레이 없이 항상 즉시 켜져야 하는 핵심 언어가 있다면
+      -- 아래 테이블에 언어 이름을 추가해 주시면 됩니다. (이미 설치된 파서는 건너뛰므로 오버헤드가 없습니다)
+      --
+      -- 예시 (주요 34개 언어 파서 목록):
+      -- opts.ensure_installed = {
+      --   -- 백엔드 / 시스템 / 스크립트
+      --   'java', 'c', 'python', 'bash', 'sql',
+      --   -- 프론트엔드 / 웹
+      --   'html', 'javascript', 'typescript', 'tsx', 'css', 'scss', 'jsdoc',
+      --   -- 데이터 포맷 / 설정 파일
+      --   'xml', 'dtd', 'json', 'yaml', 'toml', 'properties',
+      --   -- 문서 / 마크다운 / 주석 / 빌드
+      --   'markdown', 'markdown_inline', 'rst', 'ninja', 'printf', 'regex', 'query', 'diff',
+      --   -- Neovim 설정 / Lua
+      --   'lua', 'luadoc', 'luap', 'vim', 'vimdoc',
+      -- }
       opts.ensure_installed = {}
 
-      -- 하이라이팅 활성화 (크기 기반 on/off는 위쪽 devtools2_treesitter_fallback_guard autocmd가 담당)
+      -- 하이라이팅 활성화
       opts.highlight = opts.highlight or {}
       opts.highlight.enable = true
-      -- 파일을 열 때 해당 언어 파서가 없으면 자동으로 1개씩 설치
-      opts.auto_install = true
       return opts
     end,
   },
