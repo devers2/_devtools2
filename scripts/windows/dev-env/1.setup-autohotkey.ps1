@@ -200,7 +200,8 @@ if (-not $installAhk) {
         $ahkZipTemp = Join-Path $env:TEMP "ahk-v2.zip"
 
         try {
-            Invoke-WebRequest -Uri $ahkZipUrl -OutFile $ahkZipTemp -UseBasicParsing -ErrorAction Stop
+            $dlOk = Download-WithProgress -Url $ahkZipUrl -DestinationPath $ahkZipTemp -Description "AutoHotkey v2"
+            if (-not $dlOk) { throw "AutoHotkey 다운로드 실패" }
 
             if (Test-Path $ahkZipTemp) {
                 Expand-Archive -Path $ahkZipTemp -DestinationPath $ahkModuleDir -Force

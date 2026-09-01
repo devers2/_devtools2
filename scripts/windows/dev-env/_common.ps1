@@ -21,8 +21,9 @@
 function Write-Step {
     param([string]$Message)
     Write-Host ""
-    Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host $Message -ForegroundColor Cyan
+    Write-Host "===========================================================================" -ForegroundColor DarkGray
+    Write-Host " $Message" -ForegroundColor Cyan
+    Write-Host "===========================================================================" -ForegroundColor DarkGray
 }
 
 function Write-SubStep {
@@ -282,3 +283,235 @@ function Wait-WithSpinner {
         $spinIdx++
     }
 }
+
+# ==============================================================================
+# 다운로드 게이지 프로그레스 바 공용 헬퍼 (스트림 기반 실시간 프로그레스 바)
+# ==============================================================================
+# Bash 환경(_common.sh 의 download_with_progress)과 100% 동일한 게이지 바로 렌더링합니다.
+# 사용법:
+#   # 단일 URL:
+#   $ok = Download-WithProgress -Url "https://example.com/file.zip" -DestinationPath "$env:TEMP\file.zip" -Description "AutoHotkey v2"
+#   # 다중 URL 폴백:
+#   $ok = Download-WithProgress -Urls @("http://mirror1/f.zip", "http://mirror2/f.zip") -DestinationPath "$env:TEMP\file.zip"
+function Download-WithProgress {
+    param(
+        [string]  $Url,
+        [string[]]$Urls,
+        [string]  $DestinationPath,
+        [string]  $Description = "파일"
+    )
+
+    $targetUrls = @()
+    if ($Urls -and $Urls.Count -gt 0) {
+        $targetUrls = $Urls
+    } elseif ($Url) {
+        $targetUrls = @($Url)
+    }
+
+    if ($targetUrls.Count -eq 0) {
+        return $false
+    }
+
+    $destDir = Split-Path $DestinationPath -Parent
+    if (-not [string]::IsNullOrEmpty($destDir) -and -not (Test-Path $destDir)) {
+        New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    }
+
+    $finalSuccess = $false
+
+    for ($i = 0; $i -lt $targetUrls.Count; $i++) {
+        $currentUrl = $targetUrls[$i]
+        $domain = $currentUrl
+        try {
+            $domain = ([System.Uri]$currentUrl).Host
+        } catch {}
+
+        if ($targetUrls.Count -gt 1) {
+            Write-Host "   📥 $Description 다운로드 시도 [$($i + 1)/$($targetUrls.Count)] ($domain)..." -ForegroundColor Cyan
+        } else {
+            Write-Host "   📥 $Description 다운로드 중..." -ForegroundColor Cyan
+        }
+
+        Remove-Item $DestinationPath -Force -ErrorAction SilentlyContinue
+
+        $downloadSuccess = $false
+        $getResp = $null
+        $inStream = $null
+        $outStream = $null
+
+        try {
+            $getReq = [System.Net.HttpWebRequest]::Create($currentUrl)
+            $getReq.Timeout = 10000
+            $getReq.ReadWriteTimeout = 60000
+            $getReq.AllowAutoRedirect = $true
+            $getReq.Headers.Add('Cache-Control', 'no-cache, no-store, must-revalidate')
+            $getReq.Headers.Add('Pragma', 'no-cache')
+
+            $getResp = $getReq.GetResponse()
+            $totalBytes = $getResp.ContentLength
+            $inStream = $getResp.GetResponseStream()
+
+            $outStream = [System.IO.File]::Create($DestinationPath)
+            $buffer = New-Object byte[] 65536
+            $downloadedBytes = 0
+            $barLen = 50
+            $lastUpdate = [DateTime]::MinValue
+
+            while (($bytesRead = $inStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                $outStream.Write($buffer, 0, $bytesRead)
+                $downloadedBytes += $bytesRead
+
+                $now = [DateTime]::UtcNow
+                if (($now - $lastUpdate).TotalMilliseconds -ge 80 -or ($totalBytes -gt 0 -and $downloadedBytes -eq $totalBytes)) {
+                    $lastUpdate = $now
+                    if ($totalBytes -gt 0) {
+                        $pct = ($downloadedBytes / $totalBytes) * 100
+                        $filled = [int]($barLen * ($pct / 100))
+                        $pctStr = (" {0:N1}% " -f $pct)
+                        $leftLen = [int](($barLen - $pctStr.Length) / 2)
+
+                        $barChars = New-Object char[] $barLen
+                        for ($k = 0; $k -lt $barLen; $k++) {
+                            if ($k -ge $leftLen -and $k -lt ($leftLen + $pctStr.Length)) {
+                                $barChars[$k] = $pctStr[$k - $leftLen]
+                            } elseif ($k -lt $filled) {
+                                $barChars[$k] = '='
+                            } else {
+                                $barChars[$k] = ' '
+                            }
+                        }
+                        $bar = -join $barChars
+                        Write-Host -NoNewline "`r   [$bar]"
+                    } else {
+                        $mb = [math]::Round($downloadedBytes / 1MB, 1)
+                        Write-Host -NoNewline "`r   [ 다운로드 중... ${mb} MB ]"
+                    }
+                }
+            }
+
+            # 다운로드 완료 후 게이지 바 라인 지우기
+            Write-Host -NoNewline ("`r   " + (" " * ($barLen + 4)) + "`r")
+            $downloadSuccess = $true
+        } catch {
+            $downloadSuccess = $false
+        } finally {
+            if ($outStream) { try { $outStream.Close() } catch {} }
+            if ($inStream) { try { $inStream.Close() } catch {} }
+            if ($getResp) { try { $getResp.Close() } catch {} }
+        }
+
+        if ($downloadSuccess -and (Test-Path $DestinationPath) -and (Get-Item $DestinationPath).Length -gt 0) {
+            $finalSuccess = $true
+            break
+        } else {
+            if ($targetUrls.Count -gt 1) {
+                Write-Warn "   → 미러 [$($i + 1)] ($domain) 다운로드 실패. 다음 미러로 전환합니다..."
+            }
+            Remove-Item $DestinationPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    return $finalSuccess
+}
+
+# ==============================================================================
+# 콘솔 빠른 편집(QuickEdit) 모드 세션 한정 안전 제어 헬퍼
+# ==============================================================================
+# Windows 터미널에서 마우스 클릭 시 콘솔 출력이 일시 중단(프리징)되는 현상을 방지합니다.
+# - Windows 전체/레지스트리 설정을 건드리지 않고 '현재 PowerShell 세션 핸들'에만 메모리 상에서 적용
+# - 스크립트 정상 종료, 예외 발생, Ctrl+C 중단(Console.CancelKeyPress) 시 원래 모드로 100% 자동 복원
+# ==============================================================================
+if (-not ([System.Management.Automation.PSTypeName]'DevTools2.ConsoleHelper').Type) {
+    try {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+namespace DevTools2 {
+    public static class ConsoleHelper {
+        private const int STD_INPUT_HANDLE = -10;
+        private const uint ENABLE_QUICK_EDIT_MODE = 0x0040;
+        private const uint ENABLE_EXTENDED_FLAGS = 0x0080;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr GetStdHandle(int nStdHandle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+
+        private static uint originalMode = 0;
+        private static bool isModified = false;
+        private static ConsoleCancelEventHandler cancelHandler = null;
+
+        public static bool DisableQuickEdit() {
+            try {
+                IntPtr hStdin = GetStdHandle(STD_INPUT_HANDLE);
+                if (hStdin == IntPtr.Zero || hStdin == (IntPtr)(-1)) return false;
+
+                if (!GetConsoleMode(hStdin, out originalMode)) return false;
+
+                // 이미 수정된 상태라면 중복 등록 방지
+                if (!isModified) {
+                    // Ctrl+C 이벤트 발생 시 안전 복원 핸들러 등록
+                    cancelHandler = new ConsoleCancelEventHandler((sender, args) => {
+                        RestoreQuickEdit();
+                    });
+                    Console.CancelKeyPress += cancelHandler;
+                }
+
+                uint newMode = (originalMode & ~ENABLE_QUICK_EDIT_MODE) | ENABLE_EXTENDED_FLAGS;
+                bool result = SetConsoleMode(hStdin, newMode);
+                if (result) isModified = true;
+                return result;
+            } catch {
+                return false;
+            }
+        }
+
+        public static bool RestoreQuickEdit() {
+            try {
+                if (!isModified) return true;
+
+                IntPtr hStdin = GetStdHandle(STD_INPUT_HANDLE);
+                if (hStdin == IntPtr.Zero || hStdin == (IntPtr)(-1)) return false;
+
+                bool result = SetConsoleMode(hStdin, originalMode | ENABLE_EXTENDED_FLAGS);
+                if (result) {
+                    isModified = false;
+                    if (cancelHandler != null) {
+                        try { Console.CancelKeyPress -= cancelHandler; } catch {}
+                        cancelHandler = null;
+                    }
+                }
+                return result;
+            } catch {
+                return false;
+            }
+        }
+    }
+}
+"@ -ErrorAction SilentlyContinue
+    } catch {}
+}
+
+function Disable-ConsoleQuickEdit {
+    try {
+        if ([System.Management.Automation.PSTypeName]'DevTools2.ConsoleHelper'.Type) {
+            return [DevTools2.ConsoleHelper]::DisableQuickEdit()
+        }
+    } catch {}
+    return $false
+}
+
+function Restore-ConsoleQuickEdit {
+    try {
+        if ([System.Management.Automation.PSTypeName]'DevTools2.ConsoleHelper'.Type) {
+            return [DevTools2.ConsoleHelper]::RestoreQuickEdit()
+        }
+    } catch {}
+    return $false
+}
+

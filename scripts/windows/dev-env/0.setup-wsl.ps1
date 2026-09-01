@@ -34,6 +34,9 @@ $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'P
 $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_commonContent))
 
+# 세션 한정 마우스 클릭 멈춤(프리징) 방지: QuickEdit 모드 안전 비활성화 (스크립트 종료/Ctrl+C 시 자동 복원)
+Disable-ConsoleQuickEdit | Out-Null
+
 function Show-BiosVirtualizationHelp {
     Write-Host ""
     Write-Host "===========================================================================" -ForegroundColor Red
@@ -347,7 +350,14 @@ if (-not $isBaseRegistered) {
     Write-Warn "설치 중 또는 완료 후 새 창이 열리며 Ubuntu 초기 사용자 설정(Username/Password)이 진행됩니다."
     Write-Host ""
 
-    # 설치를 백그라운드 프로세스로 실행하여 메인 터미널이 대기 루프로 진입할 수 있도록 함
+    # =========================================================================
+    # ⚠️ [설계 원칙 - 절대 수정 금지] Canonical/Microsoft 공식 새 창 설치 방식 유지
+    # -------------------------------------------------------------------------
+    # wsl --install 은 Microsoft가 새 창을 띄워 공식 계정 설정 마법사를 진행합니다.
+    # wsl --import 등 외부 다운로드를 쓰면 새 창 계정 생성 마법사가 뜨지 않고
+    # root 계정으로 잘못 진입하는 심각한 사이드 이펙트가 발생하므로,
+    # 반드시 아래의 공식 Start-Process 방식을 유지해야 합니다.
+    # =========================================================================
     Start-Process wsl.exe -ArgumentList "--install -d $distroId --web-download"
     # 프로세스 시작을 위해 1초 대기
     Start-Sleep -Seconds 1
@@ -606,6 +616,10 @@ Write-Host "====================================================================
 Write-Host ""
 }
 
+# 세션 한정 빠른 편집 모드(QuickEdit) 원래대로 복원
+Restore-ConsoleQuickEdit | Out-Null
+
 # 스크립트 정상 종료 (부모 스크립트의 $LASTEXITCODE 오판 방지)
 $global:LASTEXITCODE = 0
 return 0
+

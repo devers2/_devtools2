@@ -46,6 +46,9 @@ $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'P
 $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_commonContent))
 
+# 세션 한정 마우스 클릭 멈춤(프리징) 방지: QuickEdit 모드 안전 비활성화 (스크립트 종료/Ctrl+C 시 자동 복원)
+Disable-ConsoleQuickEdit | Out-Null
+
 # ⚠️ Show-BiosVirtualizationHelp는 예전에 여기 정의되어 있었으나, 실제 WSL 설치는
 # 항상 0.setup-wsl.ps1(Invoke-RemotePsScript로 스트리밍 실행)에 위임되어 있어 이
 # 마스터 스크립트에서는 절대 호출되지 않는 도달 불가능한 중복 코드였습니다. 실제
@@ -593,4 +596,8 @@ Write-Info "  -> PowerShell에서 'wsl --shutdown' 실행 후 WSL 터미널을 �
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
 
+# 세션 한정 빠른 편집 모드(QuickEdit) 원래대로 복원
+Restore-ConsoleQuickEdit | Out-Null
+
 Pause-Script "엔터(Enter) 키를 누르시면 설치를 마치고 종료합니다"
+

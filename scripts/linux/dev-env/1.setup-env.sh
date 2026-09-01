@@ -93,6 +93,7 @@ export PIP_CACHE_DIR="$DEVTOOLS2/data/.cache/pip"
 export NEOVIM_HOME="$DEVTOOLS2/modules/neovim/nvim"
 export NVIM_APPNAME="nvim"
 export RCLONE_CONFIG="$DEVTOOLS2/modules/rclone/.config/rclone.conf"
+export PIP_CONFIG_FILE="$HOME/.pip/pip.conf"
 
 # 한글 파일명 및 문자 깨짐 방지 (UTF-8 로케일 & Git gettext 한국어 활성화)
 export LANG="ko_KR.UTF-8"
@@ -381,6 +382,13 @@ touch "$GRADLE_PROPS"
 inject_gradle_property "org.gradle.java.installations.paths" "$GRADLE_INSTALLS_VAL" "$GRADLE_PROPS"
 
 echo "[완료] Gradle 사용자 전역 설정 적용 완료!"
+echo ""
+
+print_subsep
+echo "🌐 8. 패키지 매니저(pip, npm) 고속 미러 서버 연동 중..."
+setup_pip_mirror
+setup_npm_mirror
+echo "[완료] pip 및 npm 미러 서버 설정 완료!"
 echo ""
 
 print_subsep

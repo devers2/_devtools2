@@ -253,4 +253,92 @@ ensure_path_in_bashrc() {
     fi
 }
 
+# ─────────────────────────────────────────────────────────────────
+# 🌐 미러 서버 공용 헬퍼 (국내 초고속 미러 서버 자동 감지 및 3단 폴백)
+# ─────────────────────────────────────────────────────────────────
+
+# 미러 서버 연결 가용성 테스트 (타임아웃 2초)
+check_mirror_available() {
+    local host="$1"
+    local port="${2:-80}"
+    if command -v nc >/dev/null 2>&1; then
+        nc -z -w 2 "$host" "$port" >/dev/null 2>&1
+        return $?
+    elif command -v curl >/dev/null 2>&1; then
+        curl -s -m 2 -o /dev/null "http://${host}" >/dev/null 2>&1
+        return $?
+    elif command -v ping >/dev/null 2>&1; then
+        ping -c 1 -W 2 "$host" >/dev/null 2>&1
+        return $?
+    fi
+    return 0
+}
+
+# Ubuntu apt 미러 3단 폴백 설정: 1순위 카카오 -> 2순위 카이스트 -> 3순위 공식 archive.ubuntu.com
+setup_apt_mirror() {
+    [ ! -f /etc/apt/sources.list ] && [ ! -d /etc/apt/sources.list.d ] && return 0
+
+    local selected_mirror=""
+    if check_mirror_available "mirror.kakao.com"; then
+        selected_mirror="mirror.kakao.com"
+        print_info "한국 카카오 고속 미러 서버(mirror.kakao.com)를 apt 저장소로 적용합니다..."
+    elif check_mirror_available "ftp.kaist.ac.kr"; then
+        selected_mirror="ftp.kaist.ac.kr"
+        print_info "한국 KAIST 고속 미러 서버(ftp.kaist.ac.kr)를 apt 저장소로 적용합니다..."
+    fi
+
+    if [ -n "$selected_mirror" ]; then
+        if [ -f /etc/apt/sources.list ]; then
+            [ ! -f /etc/apt/sources.list.bak_dt2 ] && cp /etc/apt/sources.list /etc/apt/sources.list.bak_dt2 2>/dev/null || true
+            sed -i -E "s#(archive|security|kr\.archive)\.ubuntu\.com#${selected_mirror}#g" /etc/apt/sources.list 2>/dev/null || true
+        fi
+        if [ -d /etc/apt/sources.list.d ]; then
+            find /etc/apt/sources.list.d/ -type f -name "*.sources" -o -name "*.list" 2>/dev/null | while read -r src_file; do
+                [ ! -f "${src_file}.bak_dt2" ] && cp "$src_file" "${src_file}.bak_dt2" 2>/dev/null || true
+                sed -i -E "s#(archive|security|kr\.archive)\.ubuntu\.com#${selected_mirror}#g" "$src_file" 2>/dev/null || true
+            done
+        fi
+    fi
+}
+
+# apt 미러 원복 헬퍼 (미러 서버 실패 시 공식 서버로 복구)
+restore_apt_mirror() {
+    if [ -f /etc/apt/sources.list.bak_dt2 ]; then
+        cp -f /etc/apt/sources.list.bak_dt2 /etc/apt/sources.list 2>/dev/null || true
+    fi
+    if [ -d /etc/apt/sources.list.d ]; then
+        find /etc/apt/sources.list.d/ -type f -name "*.bak_dt2" 2>/dev/null | while read -r bak_file; do
+            local orig_file="${bak_file%.bak_dt2}"
+            cp -f "$bak_file" "$orig_file" 2>/dev/null || true
+        done
+    fi
+}
+
+# Python pip 카카오 고속 미러 설정 (1순위 카카오 -> 2순위 공식 pypi.org)
+setup_pip_mirror() {
+    if check_mirror_available "mirror.kakao.com"; then
+        mkdir -p "$HOME/.pip" "$HOME/.config/pip"
+        cat << 'EOF' > "$HOME/.pip/pip.conf"
+[global]
+index-url = http://mirror.kakao.com/pypi/simple
+trusted-host = mirror.kakao.com
+EOF
+        cp -f "$HOME/.pip/pip.conf" "$HOME/.config/pip/pip.conf" 2>/dev/null || true
+        print_info "한국 카카오 PyPI 고속 미러 서버를 pip 저장소로 적용했습니다."
+    fi
+}
+
+# Node.js npm 고속 미러 설정 (1순위 npmmirror -> 2순위 공식 npmjs)
+setup_npm_mirror() {
+    if command -v npm >/dev/null 2>&1; then
+        if check_mirror_available "registry.npmmirror.com" 443; then
+            npm config set registry https://registry.npmmirror.com/ 2>/dev/null || true
+            print_info "npmmirror 고속 미러 서버를 npm registry로 적용했습니다."
+        else
+            npm config set registry https://registry.npmjs.org/ 2>/dev/null || true
+        fi
+    fi
+}
+
+
 

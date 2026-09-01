@@ -93,26 +93,8 @@ for _lockfile in /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lis
 done
 dpkg --configure -a 2>/dev/null
 
-# 한국 카카오 미러 서버 연결 가능 여부 확인 (스피너 표시, 최대 3초)
-_use_kakao=false
-curl -sf --max-time 3 http://mirror.kakao.com/ubuntu/ -o /dev/null 2>/dev/null &
-_kakao_pid=$!
-run_with_spinner "카카오 미러 서버 연결 확인 중..." "$_kakao_pid"
-wait "$_kakao_pid" 2>/dev/null && _use_kakao=true || _use_kakao=false
-
-_switch_mirror() {
-    local from="$1" to="$2"
-    [ -f /etc/apt/sources.list.d/ubuntu.sources ] && sed -i "s|$from|$to|g" /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null
-    [ -f /etc/apt/sources.list ] && sed -i "s|$from|$to|g" /etc/apt/sources.list 2>/dev/null
-}
-
-if [ "$_use_kakao" = "true" ]; then
-    print_info "카카오 고속 미러 서버 연결 확인 → mirror.kakao.com 으로 전환합니다."
-    _switch_mirror "http://archive.ubuntu.com/ubuntu/"  "http://mirror.kakao.com/ubuntu/"
-    _switch_mirror "http://security.ubuntu.com/ubuntu/" "http://mirror.kakao.com/ubuntu/"
-else
-    print_warn "카카오 미러 서버 연결 불가 → 기본 Ubuntu 서버(archive.ubuntu.com)를 사용합니다."
-fi
+# 공용 미러 설정 함수 호출 (한국 카카오/KAIST 고속 미러 서버 3단 폴백 적용)
+setup_apt_mirror
 
 print_info "apt 패키지 다운로드 및 설치 중 (locales, language-pack-ko 포함)..."
 (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko) > /tmp/_apt_install.log 2>&1 &
@@ -121,10 +103,10 @@ run_with_spinner "apt 설치/다운로드 진행 중..." "$_apt_pid"
 APT_DIRECT_EXIT=0
 wait "$_apt_pid" || APT_DIRECT_EXIT=$?
 
-# apt가 카카오 미러 서버로 실패한 경우 → 원래 서버로 자동 복구 후 재시도
-if [ "$APT_DIRECT_EXIT" -ne 0 ] && [ "$_use_kakao" = "true" ]; then
-    print_warn "카카오 미러 서버 실패. 기본 Ubuntu 서버로 폴백 후 재시도합니다..."
-    _switch_mirror "http://mirror.kakao.com/ubuntu/" "http://archive.ubuntu.com/ubuntu/"
+# apt가 미러 서버로 실패한 경우 → 원래 서버로 자동 복구 후 재시도
+if [ "$APT_DIRECT_EXIT" -ne 0 ]; then
+    print_warn "미러 서버 apt 설치 실패. 기본 Ubuntu 서버로 폴백 후 재시도합니다..."
+    restore_apt_mirror
     if command -v fuser &>/dev/null; then
         fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || rm -f /var/lib/apt/lists/lock 2>/dev/null
     else

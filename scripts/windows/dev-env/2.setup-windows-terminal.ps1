@@ -178,9 +178,12 @@ if ($hasWslFonts) {
         }
         $tempFile = Join-Path $tempDownloadDir $f
         try {
-            Write-Host "  다운로드 중: $f..." -ForegroundColor White
-            Invoke-WebRequest -Uri "$gitHubFontBaseUrl/$f" -OutFile $tempFile -ErrorAction Stop
-            Install-DevtoolsFont -FontFileName $f -SourcePath $tempFile
+            $dlOk = Download-WithProgress -Url "$gitHubFontBaseUrl/$f" -DestinationPath $tempFile -Description "$f"
+            if ($dlOk) {
+                Install-DevtoolsFont -FontFileName $f -SourcePath $tempFile
+            } else {
+                Write-Warn "원격 폰트 다운로드 실패: $f"
+            }
         } catch {
             Write-Warn "원격 폰트 다운로드 실패: $f - $($_.Exception.Message)"
         }
