@@ -414,8 +414,7 @@ $wslTmpForPw = "\\wsl.localhost\$wslDistro\tmp\.wsl_pw_tmp"
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 while ($true) {
-    Write-Host "👉 비밀번호(password) 입력: " -ForegroundColor Yellow -NoNewline
-    $wslPassword = Read-Host -AsSecureString
+    $wslPassword = Prompt-Password "👉 비밀번호(password) 입력: "
     $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($wslPassword)
     $plainPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
     [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)

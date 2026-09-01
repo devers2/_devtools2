@@ -61,14 +61,37 @@ fi
 
 # ── bw vault 잠금 해제 수행 ───────────────────────────────────────────────────
 _bw_do_unlock() {
-    local _MASTER_PASS
-    echo ""
-    read -rsp "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒 " _MASTER_PASS
-    echo ""
+    local _MASTER_PASS=""
 
-    if [ -z "$_MASTER_PASS" ]; then
-        echo "❌ 비밀번호가 입력되지 않았습니다."
-        return 1
+    # 공용 prompt_password 함수가 로드되어 있으면 사용, 없으면 자체 한글 감지 입력 루프 실행
+    if command -v prompt_password &>/dev/null; then
+        prompt_password _MASTER_PASS "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒"
+    else
+        while true; do
+            echo ""
+            read -rsp "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒 " _MASTER_PASS
+            echo ""
+
+            if [ -z "$_MASTER_PASS" ]; then
+                echo "❌ 비밀번호가 입력되지 않았습니다."
+                return 1
+            fi
+
+            # 한글 포함 여부 검사 (UTF-8 한글 범위: 가-힣 및 자음/모음)
+            local _has_hangul=false
+            if echo "$_MASTER_PASS" | grep -Pq '[\x{AC00}-\x{D7AF}\x{1100}-\x{11FF}\x{3130}-\x{318F}]' 2>/dev/null; then
+                _has_hangul=true
+            elif python3 -c "import sys, re; sys.exit(0 if re.search(r'[가-힣ㄱ-ㅎㅏ-ㅣ]', sys.argv[1]) else 1)" "$_MASTER_PASS" 2>/dev/null; then
+                _has_hangul=true
+            fi
+
+            if [ "$_has_hangul" = true ]; then
+                echo "❌ 입력된 마스터 비밀번호에 '한글' 문자가 감지되었습니다!"
+                echo "   키보드의 [한/영] 키를 눌러 영문 모드로 전환한 뒤 다시 입력해 주세요."
+                continue
+            fi
+            break
+        done
     fi
 
     echo "🔓 Bitwarden vault 잠금 해제 중..."

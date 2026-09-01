@@ -93,6 +93,147 @@ function Prompt-Confirm {
     }
 }
 
+# 번호 선택 대화형 프롬프트 공용 헬퍼 (Prompt-Confirm 의 숫자형 버전)
+# - 기본값 번호는 Green, 나머지 번호와 구분자는 Yellow (Prompt-Confirm [Y/n] 패턴과 동일)
+# - 유효하지 않은 번호 입력 시 재입력 요구 (빈 입력은 Default 로 처리)
+# - 반환값: 선택된 1-based 인덱스 (int)
+#
+# 사용법:
+#   $idx = Prompt-Choice "👉 버전을 선택하세요" @("Ubuntu (최신 LTS)", "Ubuntu-24.04", "Ubuntu-22.04") 1
+#   switch ($idx) {
+#       1 { $distroId = "Ubuntu" }
+#       2 { $distroId = "Ubuntu-24.04" }
+#       3 { $distroId = "Ubuntu-22.04" }
+#   }
+function Prompt-Choice {
+    param(
+        [string]  $Message,
+        [string[]]$Options,
+        [int]     $Default = 1   # 1-based 기본 선택 번호
+    )
+    $result = 0
+    do {
+        Write-Host ""
+        Write-Host "$Message [" -ForegroundColor Yellow -NoNewline
+        for ($i = 0; $i -lt $Options.Count; $i++) {
+            $num = $i + 1
+            if ($num -eq $Default) {
+                Write-Host "$num" -ForegroundColor Green -NoNewline
+            } else {
+                Write-Host "$num" -ForegroundColor Yellow -NoNewline
+            }
+            if ($i -lt $Options.Count - 1) {
+                Write-Host "/" -ForegroundColor Yellow -NoNewline
+            }
+        }
+        Write-Host "]: " -ForegroundColor Yellow -NoNewline
+        $ans = Read-Host
+        $ans = $ans.Trim()
+        if ($ans -eq "") { $ans = "$Default" }
+        [int]::TryParse($ans, [ref]$result) | Out-Null
+    } while ($result -lt 1 -or $result -gt $Options.Count)
+    return $result
+}
+
+# ==============================================================================
+# 한글 키보드(IME) 감지 및 비밀번호 입력 공용 헬퍼
+# ==============================================================================
+# Windows Win32 IME API (ImmGetDefaultIMEWnd / IMC_GETCONVERSIONMODE) 를 통해
+# 현재 포그라운드 콘솔 창의 키보드가 한글 입력 모드인지 실시간으로 검사합니다.
+if (-not ([System.Management.Automation.PSTypeName]'DevTools2.ImeHelper').Type) {
+    try {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+namespace DevTools2 {
+    public class ImeHelper {
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
+        [DllImport("imm32.dll")]
+        public static extern IntPtr ImmGetDefaultIMEWnd(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        private const uint WM_IME_CONTROL = 0x0283;
+        private const uint IMC_GETCONVERSIONMODE = 0x0001;
+        private const int IME_CMODE_HANGUL = 0x0001;
+
+        public static bool IsHangulMode() {
+            try {
+                IntPtr hwnd = GetForegroundWindow();
+                if (hwnd == IntPtr.Zero) return false;
+                IntPtr imeWnd = ImmGetDefaultIMEWnd(hwnd);
+                if (imeWnd == IntPtr.Zero) return false;
+                IntPtr mode = SendMessage(imeWnd, WM_IME_CONTROL, (IntPtr)IMC_GETCONVERSIONMODE, IntPtr.Zero);
+                return ((mode.ToInt32() & IME_CMODE_HANGUL) != 0);
+            } catch {
+                return false;
+            }
+        }
+    }
+}
+"@ -ErrorAction SilentlyContinue
+    } catch {}
+}
+
+# 현재 활성 창의 키보드가 한글 입력 상태인지 여부 반환 ($true / $false)
+function Test-IsHangulIme {
+    try {
+        if ([System.Management.Automation.PSTypeName]'DevTools2.ImeHelper'.Type) {
+            return [DevTools2.ImeHelper]::IsHangulMode()
+        }
+    } catch {}
+    return $false
+}
+
+# 비밀번호 입력 대화형 프롬프트 공용 헬퍼 (한글 IME 상태 감지 + 한글 포함 입력 시 경고 및 재입력 유도)
+# - 입력 전: 키보드가 한글 모드이면 주황색 경고 메시지 출력
+# - 입력 후: 마스킹으로 인해 한글이 들어간 경우(가-힣, 자음/모음) 에러 경고 후 재입력
+# - 반환값: SecureString
+#
+# 사용법:
+#   $securePw = Prompt-Password "👉 비밀번호(password) 입력: "
+function Prompt-Password {
+    param(
+        [string]$Message = "👉 비밀번호(password) 입력: "
+    )
+    while ($true) {
+        # 1. 입력 직전 실시간 한글 IME 상태 확인 및 경고
+        if (Test-IsHangulIme) {
+            Write-Host ""
+            Write-Host "  ⚠️  [주의] 현재 키보드가 '한글' 입력 모드입니다! [한/영] 키를 눌러 영문으로 전환해 주세요." -ForegroundColor Yellow
+        }
+
+        Write-Host $Message -ForegroundColor Yellow -NoNewline
+        $securePw = Read-Host -AsSecureString
+
+        # 평문으로 변환하여 유효성 및 한글 포함 여부 검증
+        $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePw)
+        $plain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+
+        if ([string]::IsNullOrEmpty($plain)) {
+            Write-Warn "비밀번호가 입력되지 않았습니다. 다시 입력해 주세요."
+            Write-Host ""
+            continue
+        }
+
+        # 한글(가-힣: AC00-D7AF, 초성/종성: 1100-11FF, 호환자모: 3130-318F) 포함 여부 검사
+        if ($plain -match '[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]') {
+            Write-Host ""
+            Write-Host "  ❌ [오류] 입력된 비밀번호에 '한글' 문자가 포함되어 있습니다." -ForegroundColor Red
+            Write-Host "      키보드의 [한/영] 키를 눌러 영문 상태로 전환한 뒤 다시 입력해 주세요." -ForegroundColor Yellow
+            Write-Host ""
+            continue
+        }
+
+        return $securePw
+    }
+}
+
 # 프로세스 종료 시까지 스피너를 표시해 대기 (타임아웃 없음 — 프로세스가 끝날 때까지 무조건 대기)
 function Wait-ProcessWithSpinner {
     param(

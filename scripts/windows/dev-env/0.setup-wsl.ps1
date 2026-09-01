@@ -335,19 +335,12 @@ if (-not $isBaseRegistered) {
     Write-Host "    1) Ubuntu        (최신 LTS - 권장)" -ForegroundColor White
     Write-Host "    2) Ubuntu-24.04  (24.04 LTS)" -ForegroundColor White
     Write-Host "    3) Ubuntu-22.04  (22.04 LTS)" -ForegroundColor White
-    Write-Host ""
 
-    do {
-        Write-Host "👉 번호를 입력하세요 [1/2/3] (기본값: 1): " -ForegroundColor Yellow -NoNewline
-        $versionChoice = Read-Host
-        $versionChoice = $versionChoice.Trim()
-        if ($versionChoice -eq "") { $versionChoice = "1" }
-    } while ($versionChoice -notmatch "^[123]$")
-
-    switch ($versionChoice) {
-        "1" { $distroId = "Ubuntu" }
-        "2" { $distroId = "Ubuntu-24.04" }
-        "3" { $distroId = "Ubuntu-22.04" }
+    $versionIdx = Prompt-Choice "👉 번호를 입력하세요" @("Ubuntu (최신 LTS - 권장)", "Ubuntu-24.04 (24.04 LTS)", "Ubuntu-22.04 (22.04 LTS)") 1
+    switch ($versionIdx) {
+        1 { $distroId = "Ubuntu" }
+        2 { $distroId = "Ubuntu-24.04" }
+        3 { $distroId = "Ubuntu-22.04" }
     }
 
     Write-Info "선택된 배포판: $distroId"
@@ -431,24 +424,75 @@ if (-not $isUserConfigured) {
 # --------------------------------------------------------------------------
 Write-Step "[Step 3] devtools2 인스턴스 마이그레이션 및 설정"
 
-# 설치 경로 결정
-# Z: 드라이브는 같은 PC의 여러 Windows 사용자가 공유할 수 있으므로,
+# ==============================================================================
+# 설치 경로 결정 - 개발자 드라이브(Dev Drive / ReFS) 자동 감지 및 사용자 선택
+# ------------------------------------------------------------------------------
+# 같은 PC의 여러 Windows 사용자가 드라이브를 공유할 수 있으므로,
 # 파일 충돌 방지를 위해 경로에 Windows 계정명($env:USERNAME)을 포함합니다.
 # (배포판 이름 'devtools2'는 고정 유지 - WSL 등록은 사용자별로 독립적)
+# ==============================================================================
 $windowsUser = $env:USERNAME.ToLower()
-$hasDevDrive = Test-Path "Z:\"
-if ($hasDevDrive) {
-    Write-Success "Z: 개발자 드라이브(ReFS)가 감지되었습니다."
-    # 경로에 Windows 사용자명을 포함하여 다른 계정과 파일 충돌 방지
-    $wslInstallPath = "Z:\wsl\devtools2\$windowsUser"
-    Write-Info "WSL 가상 머신은 Z: 드라이브에 설치됩니다. (경로: $wslInstallPath)"
-    Write-Info "(다른 Windows 계정과 Z: 드라이브를 공유하더라도 파일 경로가 분리됩니다.)"
-} else {
-    Write-Warn "Z: 개발자 드라이브를 찾을 수 없습니다. C: 드라이브 사용자 폴더로 설치를 계속 진행합니다."
-    $wslInstallPath = Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName"
+
+# 모든 드라이브를 순회하여 개발자 드라이브(ReFS 포맷) 자동 감지
+# Win32_Volume WMI 쿼리: FileSystem=ReFS 이면서 실제 접근 가능한 드라이브만 수집
+$devDrives = @()
+try {
+    $volumes = Get-CimInstance -ClassName Win32_Volume -Filter "DriveType=3" -ErrorAction SilentlyContinue |
+        Where-Object { $_.FileSystem -eq 'ReFS' -and -not [string]::IsNullOrEmpty($_.DriveLetter) } |
+        Sort-Object DriveLetter
+    foreach ($vol in $volumes) {
+        $letter = $vol.DriveLetter.TrimEnd('\')   # "Z:" 형태로 정규화
+        if (Test-Path "$letter\") {
+            $devDrives += $letter
+        }
+    }
+} catch {
+    # WMI 조회 실패 시 빈 목록으로 폴백 (설치에는 영향 없음)
+    $devDrives = @()
 }
 
-Write-Info "설치 경로: $wslInstallPath"
+$cDriveDefault = Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName"
+
+# 안내 배너
+Write-Host ""
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
+Write-Host "  📂 WSL2 가상 머신 설치 드라이브 선택" -ForegroundColor DarkCyan
+Write-Host "===========================================================================" -ForegroundColor DarkCyan
+Write-Host ""
+Write-Host "  💡 개발자 드라이브(Dev Drive / ReFS)에 설치하면 WSL2 파일 I/O 성능이" -ForegroundColor Yellow
+Write-Host "     크게 향상됩니다. 가능하다면 개발자 드라이브를 선택하는 것을 권장합니다." -ForegroundColor Yellow
+Write-Host ""
+
+# 선택 목록 구성
+$choices = @()   # 각 항목: @{ Label=; Path= }
+
+if ($devDrives.Count -gt 0) {
+    Write-Host "  ✅ 감지된 개발자 드라이브 (권장):" -ForegroundColor Green
+    foreach ($drv in $devDrives) {
+        $installPath = "$drv\wsl\devtools2\$windowsUser"
+        $idx = $choices.Count + 1
+        Write-Host ("  {0}) ★ {1}  →  {2}" -f $idx, $drv, $installPath) -ForegroundColor Cyan
+        $choices += @{ Label = "$drv (개발자 드라이브)"; Path = $installPath }
+    }
+    Write-Host ""
+}
+
+# C: 폴백 옵션 (항상 마지막 번호로 추가)
+$cIdx = $choices.Count + 1
+Write-Host ("  {0}) C: (일반 드라이브)  →  {1}" -f $cIdx, $cDriveDefault) -ForegroundColor Gray
+$choices += @{ Label = "C: (일반 드라이브)"; Path = $cDriveDefault }
+
+Write-Host ""
+Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
+
+$driveIdx = Prompt-Choice "👉 설치할 드라이브 번호를 입력하세요" ($choices | ForEach-Object { $_.Label }) 1
+$wslInstallPath = $choices[$driveIdx - 1].Path
+$selectedLabel  = $choices[$driveIdx - 1].Label
+
+Write-Host ""
+Write-Success "선택 완료: $selectedLabel"
+Write-Info    "WSL2 가상 머신 설치 경로: $wslInstallPath"
+Write-Host ""
 Write-Info "Ubuntu($distroId)를 '$wslName'으로 마이그레이션(Export/Import)합니다..."
 
 # 1. 사용자 계정명 확인
