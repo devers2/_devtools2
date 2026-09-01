@@ -269,7 +269,22 @@ return {
       --   -- Neovim 설정 / Lua
       --   'lua', 'luadoc', 'luap', 'vim', 'vimdoc',
       -- }
-      opts.ensure_installed = {}
+      -- ⚠️ [Treesitter Injection 필수 파서 사전 설치]
+      -- css, javascript 등 HTML/템플릿 파일 내부에 <style>, <script> 태그로 주입되는 언어 파서는
+      -- FileType 이벤트가 발생하지 않아 on-demand 자동 설치 로직이 절대 트리거되지 않습니다.
+      -- 따라서 이 파서들은 반드시 여기에 명시하여 사전 설치해야 <style>, <script> 내부 구문 강조가 동작합니다.
+      opts.ensure_installed = {
+        -- ── Injection-only: 자체 FileType 없음 → on-demand 자동 설치 절대 불가 ──
+        'css',            -- <style> 내부 (HTML/htmldjango/vue/svelte 등)
+        'javascript',     -- <script> 내부 (HTML/htmldjango/vue/svelte 등)
+        'jsdoc',          -- JS/TS 파일의 /** */ 주석 내부 타입·파라미터 강조
+        'regex',          -- JS/TS 파일의 /pattern/ 정규식 리터럴 내부 강조
+        'markdown_inline', -- markdown 파서가 인라인 요소를 위임
+        'luadoc',         -- .lua 파일의 --- 문서 주석 내부 강조 (Neovim 설정용)
+        'luap',           -- .lua 파일의 string.find 등 패턴 문자열 강조 (Neovim 설정용)
+        'printf',         -- C/Python 등 포맷 문자열(%d, %s 등) 강조
+        'comment',        -- 거의 모든 언어 주석의 TODO/FIXME/NOTE/HACK 강조
+      }
 
       -- 하이라이팅 활성화
       opts.highlight = opts.highlight or {}
