@@ -91,10 +91,10 @@ prompt_confirm() {
     [ "$_ans" = "y" ]
 }
 
-# ── 비밀번호 입력 프롬프트 헬퍼 (한글 입력 방지 및 재입력 유도) ─────────
+# ── 비밀번호 입력 프롬프트 헬퍼 (비영문/다국어 입력 방지 및 재입력 유도) ──
 # prompt_password <varname> [prompt_message]
 # - 비밀번호 입력 시 터미널 에코를 끄고(-s) 안전하게 입력받습니다.
-# - 입력된 비밀번호에 '한글'(완성형/조합형/자음/모음)이 포함되어 있으면 즉시 경고하고 재입력을 요구합니다.
+# - 입력된 비밀번호에 '비영문'(한글, 일어, 중문, 전각문자 등 ASCII 32~126 이외)이 포함되어 있으면 즉시 경고하고 재입력을 요구합니다.
 # 사용법:
 #   prompt_password my_pass "🔐 비밀번호 입력 (보안 마스킹): "
 prompt_password() {
@@ -112,18 +112,18 @@ prompt_password() {
             continue
         fi
 
-        # 한글 포함 여부 검사 (UTF-8 한글 범위: 가-힣 및 자음/모음)
-        local _has_hangul=false
-        if echo "$_input" | grep -Pq '[\x{AC00}-\x{D7AF}\x{1100}-\x{11FF}\x{3130}-\x{318F}]' 2>/dev/null; then
-            _has_hangul=true
-        elif python3 -c "import sys, re; sys.exit(0 if re.search(r'[가-힣ㄱ-ㅎㅏ-ㅣ]', sys.argv[1]) else 1)" "$_input" 2>/dev/null; then
-            _has_hangul=true
+        # 비영문/비ASCII 문자(한글, 일어, 중문, 전각문자 등: ASCII 32~126 범위를 벗어나는 모든 유니코드) 검사
+        local _has_non_ascii=false
+        if echo "$_input" | grep -Pq '[^\x20-\x7E]' 2>/dev/null; then
+            _has_non_ascii=true
+        elif python3 -c "import sys, re; sys.exit(0 if re.search(r'[^\x20-\x7E]', sys.argv[1]) else 1)" "$_input" 2>/dev/null; then
+            _has_non_ascii=true
         fi
 
-        if [ "$_has_hangul" = true ]; then
+        if [ "$_has_non_ascii" = true ]; then
             echo ""
-            print_error "입력된 비밀번호에 '한글' 문자가 포함되어 있습니다!"
-            print_warn "키보드의 [한/영] 키를 눌러 영문 모드로 전환한 뒤 다시 입력해 주세요."
+            print_error "입력된 비밀번호에 '비영문(한글/다국어/전각)' 문자가 포함되어 있습니다!"
+            print_warn "키보드를 영문 입력 상태로 전환한 뒤 다시 입력해 주세요."
             echo ""
             continue
         fi

@@ -189,9 +189,9 @@ function Test-IsHangulIme {
     return $false
 }
 
-# 비밀번호 입력 대화형 프롬프트 공용 헬퍼 (한글 IME 상태 감지 + 한글 포함 입력 시 경고 및 재입력 유도)
-# - 입력 전: 키보드가 한글 모드이면 주황색 경고 메시지 출력
-# - 입력 후: 마스킹으로 인해 한글이 들어간 경우(가-힣, 자음/모음) 에러 경고 후 재입력
+# 비밀번호 입력 대화형 프롬프트 공용 헬퍼 (한글/다국어 IME 상태 감지 + 비영문 문자 입력 시 경고 및 재입력 유도)
+# - 입력 전: 키보드가 한글/다국어 모드이면 주황색 경고 메시지 출력
+# - 입력 후: 마스킹으로 인해 비영문(한글, 일어, 중문, 전각문자 등)이 들어간 경우 에러 경고 후 재입력
 # - 반환값: SecureString
 #
 # 사용법:
@@ -204,13 +204,13 @@ function Prompt-Password {
         # 1. 입력 직전 실시간 한글 IME 상태 확인 및 경고
         if (Test-IsHangulIme) {
             Write-Host ""
-            Write-Host "  ⚠️  [주의] 현재 키보드가 '한글' 입력 모드입니다! [한/영] 키를 눌러 영문으로 전환해 주세요." -ForegroundColor Yellow
+            Write-Host "  ⚠️  [주의] 현재 키보드가 '한글/다국어' 입력 모드입니다! [한/영] 키를 눌러 영문으로 전환해 주세요." -ForegroundColor Yellow
         }
 
         Write-Host $Message -ForegroundColor Yellow -NoNewline
         $securePw = Read-Host -AsSecureString
 
-        # 평문으로 변환하여 유효성 및 한글 포함 여부 검증
+        # 평문으로 변환하여 유효성 및 비영문(Non-ASCII) 포함 여부 검증
         $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePw)
         $plain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
         [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
@@ -221,11 +221,11 @@ function Prompt-Password {
             continue
         }
 
-        # 한글(가-힣: AC00-D7AF, 초성/종성: 1100-11FF, 호환자모: 3130-318F) 포함 여부 검사
-        if ($plain -match '[\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F]') {
+        # 비영문/비ASCII 문자(한글, 일어, 중문, 전각 기호 등: ASCII 32~126 범위를 벗어나는 모든 유니코드) 검사
+        if ($plain -match '[^\u0020-\u007E]') {
             Write-Host ""
-            Write-Host "  ❌ [오류] 입력된 비밀번호에 '한글' 문자가 포함되어 있습니다." -ForegroundColor Red
-            Write-Host "      키보드의 [한/영] 키를 눌러 영문 상태로 전환한 뒤 다시 입력해 주세요." -ForegroundColor Yellow
+            Write-Host "  ❌ [오류] 입력된 비밀번호에 '비영문(한글/다국어/전각)' 문자가 포함되어 있습니다." -ForegroundColor Red
+            Write-Host "      키보드를 영문 입력 상태로 전환한 뒤 다시 입력해 주세요." -ForegroundColor Yellow
             Write-Host ""
             continue
         }
