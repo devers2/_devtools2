@@ -23,6 +23,21 @@ local function is_parser_installed(lang)
   return ok
 end
 
+---버퍼 성능 티어 설정 함수 (경량 모드 시 무거운 Folds/Indent/Context를 선별 차단하여 타이핑 렉 완벽 방지)
+---@param buf integer 버퍼 번호
+---@param is_light boolean 경량 모드 여부
+local function configure_buffer_tier(buf, is_light)
+  if is_light then
+    -- 1. 코드 접기(Folds) 연산을 manual로 전환하여 타이핑/스크롤 렉 차단
+    vim.opt_local.foldmethod = 'manual'
+    vim.opt_local.foldexpr = '0'
+    -- 2. 자동 들여쓰기(Indent) Treesitter 연산 차단 (기본 내장 들여쓰기로 폴백하여 엔터 렉 차단)
+    vim.opt_local.indentexpr = ''
+    -- 3. treesitter-context 상단 고정창 비활성화
+    vim.b[buf].treesitter_context = false
+  end
+end
+
 ---파서 미설치 시 백그라운드 비동기 자동 설치 함수 (파일 오픈을 절대 블로킹하지 않음, 중복 요청 방지)
 ---@param lang string 언어 파서 이름
 ---@param orig_buf integer 요청한 버퍼 번호
@@ -74,17 +89,22 @@ local function try_auto_install_parser(lang, orig_buf)
               local fname = vim.api.nvim_buf_get_name(buf)
               local ok_stat, stat = pcall(vim.uv.fs_stat, fname)
               local filesize = (ok_stat and stat) and stat.size or 0
-              local max_size = _G.get_max_file_size and _G.get_max_file_size(buf) or (1024 * 1024)
+              local max_size = _G.get_max_file_size and _G.get_max_file_size(buf) or (1500 * 1024)
 
               -- 대용량 파일이나 복합 인라인 크기 초과 파일이 아닐 때만 안전하게 전환
               local is_oversized = filesize > max_size
               local is_inline_oversized = _G.has_oversized_inline_block and _G.has_oversized_inline_block(buf)
 
               if not is_oversized and not is_inline_oversized then
+                local is_light = (filesize > (_G.get_light_file_size and _G.get_light_file_size(buf) or 500 * 1024))
+                  or (_G.has_light_inline_block and _G.has_light_inline_block(buf))
+                configure_buffer_tier(buf, is_light)
                 local ok_start = pcall(vim.treesitter.start, buf, lang)
                 if ok_start then
                   local basename = vim.fn.fnamemodify(fname, ':t')
-                  vim.api.nvim_echo({ { string.format('Treesitter: 적용 (파서 자동 설치 완료) [%s]', basename), 'DiagnosticOk' } }, true, {})
+                  local msg = is_light and string.format('Treesitter: 경량 적용 (파서 자동 설치 완료, 부가기능 최적화) [%s]', basename)
+                    or string.format('Treesitter: 적용 (파서 자동 설치 완료) [%s]', basename)
+                  vim.api.nvim_echo({ { msg, 'DiagnosticOk' } }, true, {})
                 end
               end
             end
@@ -131,11 +151,11 @@ vim.api.nvim_create_autocmd('FileType', {
       local basename = vim.fn.fnamemodify(fname, ':t')
       local ok_stat, stat = pcall(vim.uv.fs_stat, fname)
       local filesize = (ok_stat and stat) and stat.size or 0
-      local max_size = _G.get_max_file_size and _G.get_max_file_size(buf) or (1024 * 1024)
+      local max_size = _G.get_max_file_size and _G.get_max_file_size(buf) or (1500 * 1024)
 
       -- =========================================================================
-      -- 🛡️ [0순위 절대 가드 (Bail-out Guard)]
-      -- 파일이 대용량이거나 복합 문법 내 인라인 콘텐츠가 비정상적으로 크면
+      -- 🛡️ [0순위 절대 가드 (3단계: 완전 폴백)]
+      -- 파일이 초대용량이거나 복합 문법 내 인라인 콘텐츠가 비정상적으로 크면
       -- 파서 유무 검사, 쿼리 확인, 백그라운드 다운로드 시도 등 모든 트리시터 연산을 100% 즉시 중단합니다.
       -- =========================================================================
       if filesize > max_size then
@@ -150,7 +170,10 @@ vim.api.nvim_create_autocmd('FileType', {
       if _G.has_oversized_inline_block and _G.has_oversized_inline_block(buf) then
         pcall(vim.treesitter.stop, buf)
         vim.bo[buf].syntax = ft
-        vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (인라인 script/style 크기 초과) [%s]', basename), 'DiagnosticWarn' } }, true, {})
+        local inline_size = _G.get_inline_block_size and _G.get_inline_block_size(buf) or 0
+        local fmt_inline = string.format('%dKB', math.floor(inline_size / 1024))
+        local fmt_limit = string.format('%dKB', math.floor((_G.INLINE_BLOCK_LIMIT or (150 * 1024)) / 1024))
+        vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (인라인 script/style 크기 초과 (%s > %s)) [%s]', fmt_inline, fmt_limit, basename), 'DiagnosticWarn' } }, true, {})
         return
       end
 
@@ -186,9 +209,23 @@ vim.api.nvim_create_autocmd('FileType', {
       end
 
       -- =========================================================================
-      -- ✅ [3순위: 정상 적용]
+      -- 🌟 [3순위: 3단계 성능 티어 판별 및 적용 (풀 모드 vs 경량 모드)]
       -- =========================================================================
-      vim.api.nvim_echo({ { string.format('Treesitter: 적용 [%s]', basename), 'DiagnosticOk' } }, true, {})
+      local light_threshold = _G.get_light_file_size and _G.get_light_file_size(buf) or (500 * 1024)
+      local is_file_light = filesize > light_threshold
+      local is_inline_light = _G.has_light_inline_block and _G.has_light_inline_block(buf)
+      local is_light_tier = is_file_light or is_inline_light
+
+      -- 경량화 대상인 경우 무거운 부가기능(Folds/Indent/Context) 선별 차단
+      configure_buffer_tier(buf, is_light_tier)
+      pcall(vim.treesitter.start, buf, lang)
+
+      if is_light_tier then
+        local reason_detail = is_inline_light and '인라인 script/style 최적화' or '중대형 파일 최적화'
+        vim.api.nvim_echo({ { string.format('Treesitter: 경량 적용 (%s) [%s]', reason_detail, basename), 'DiagnosticOk' } }, true, {})
+      else
+        vim.api.nvim_echo({ { string.format('Treesitter: 적용 [%s]', basename), 'DiagnosticOk' } }, true, {})
+      end
     end)
   end,
 })
