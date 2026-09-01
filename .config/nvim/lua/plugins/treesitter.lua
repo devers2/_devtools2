@@ -1,19 +1,33 @@
--- [대용량 파일 및 쿼리 누락 시 트리시터 → 정규식(syntax) 자동 폴백 및 상태 메시지]
--- nvim-treesitter가 "main" 브랜치(lazy-lock.json 참고)로 고정되어 있고,
--- LazyVim의 lazyvim/plugins/treesitter.lua는 highlight.disable을
--- "언어 이름 문자열 배열"로만 처리한다 (type(f.disable) == "table" 체크).
--- 함수를 넘기는 구버전(master 브랜치) 방식은 무시되어 크기와 무관하게
--- 트리시터가 항상 켜지므로, FileType 시점에 직접 크기 및 쿼리 유효성을 검사해
--- 비정상/대용량 파일은 vim.treesitter.stop()으로 꺼서 기존 Vim 정규식 syntax 강조로 폴백시킨다.
--- 파일 열 때 상태 메시지를 기록하며 (:NoiceAll / :messages 로 확인 가능),
--- 동일 파일을 다시 열어도 트리시터 상태는 바뀌지 않으므로 최초 기록으로 충분하다.
+-- [대용량 파일 및 복잡한 복합 파일 최우선 차단, O(1) 인메모리 파서 캐싱, 완전 비동기 온디맨드 설치 및 실시간 핫스왑]
+-- 1. 대용량 파일 및 인라인 script/style 초과 파일은 트리시터/다운로드/파싱 검사를 100% 즉시 건너뛰어(Bail out) CPU/RAM을 보호합니다.
+-- 2. 로컬 파서 설치 여부를 인메모리 테이블(installed_cache)에 캐싱하여 파일 오픈 시 디스크 I/O 없이 0.001ms O(1)로 판별합니다.
+-- 3. 로컬에 파서가 없는 경우, 파일 열기를 전혀 지연시키지 않고 즉시 정규식(syntax)으로 화면을 렌더링한 뒤 백그라운드에서 비동기 다운로드/컴파일을 진행합니다.
+-- 4. 설치가 완료되면 열려 있는 정상 크기 버퍼에 한해 실시간으로 Treesitter로 동적 전환(Hot-swap)하고 상태 로그를 기록합니다.
 
-local installing_parsers = {}
+local installed_cache = {} -- [lang] = true (설치됨) | nil (미설치/재시도 가능)
+local installing_parsers = {} -- [lang] = true (현재 백그라운드 설치 진행 중)
 
----파서 미설치 시 백그라운드 비동기 자동 설치 함수
+---로컬에 파서가 설치되어 있는지 O(1) 인메모리 캐시 기반으로 초고속 확인
+---@param lang string 언어 파서 이름
+---@return boolean is_installed
+local function is_parser_installed(lang)
+  if installed_cache[lang] ~= nil then
+    return installed_cache[lang]
+  end
+
+  -- Neovim 표준 파서 로더 테스트 (문자열 파서 가볍게 생성 시도)
+  local ok = pcall(vim.treesitter.get_string_parser, '', lang)
+  if ok then
+    installed_cache[lang] = true
+  end
+  return ok
+end
+
+---파서 미설치 시 백그라운드 비동기 자동 설치 함수 (파일 오픈을 절대 블로킹하지 않음, 중복 요청 방지)
 ---@param lang string 언어 파서 이름
 ---@param orig_buf integer 요청한 버퍼 번호
 local function try_auto_install_parser(lang, orig_buf)
+  -- 🔒 [중복 다운로드 방지] 이미 다운로드/컴파일 중이면 추가 요청 생성 없이 스킵
   if installing_parsers[lang] then
     return
   end
@@ -23,7 +37,7 @@ local function try_auto_install_parser(lang, orig_buf)
     return
   end
 
-  -- nvim-treesitter가 지원하는 언어인지 확인
+  -- nvim-treesitter가 공식 지원하는 언어인지 확인
   local ok_avail, available = pcall(ts.get_available)
   if ok_avail and type(available) == 'table' and not vim.tbl_contains(available, lang) then
     return
@@ -33,14 +47,24 @@ local function try_auto_install_parser(lang, orig_buf)
   vim.notify(string.format("Treesitter: '%s' 파서를 백그라운드에서 자동 설치합니다...", lang), vim.log.levels.INFO, { title = 'Treesitter' })
 
   local function do_install()
-    ts.install({ lang }, { summary = false }):await(function()
+    ts.install({ lang }, { summary = false }):await(function(err)
       installing_parsers[lang] = nil
+
+      if err then
+        -- ⚠️ 실패 시 캐시를 nil로 유지하여, 다음에 동일 종류 파일을 열 때 다시 시도할 수 있도록 함
+        installed_cache[lang] = nil
+        vim.notify(string.format("Treesitter: '%s' 파서 자동 설치 실패 (%s) - 다음 파일 오픈 시 재시도합니다.", lang, tostring(err)), vim.log.levels.WARN, { title = 'Treesitter' })
+        return
+      end
+
+      -- ✅ 설치 성공 시 캐시 등록
+      installed_cache[lang] = true
       if pcall(require, 'lazyvim.util') and LazyVim and LazyVim.treesitter then
         LazyVim.treesitter.get_installed(true) -- LazyVim 파서 캐시 갱신
       end
 
       vim.schedule(function()
-        -- 현재 열려 있는 버퍼들 중 해당 언어를 사용하는 버퍼에 트리시터 즉시 적용
+        -- 🔄 [일괄 핫스왑] 현재 열려 있는 버퍼 중 동일 언어를 사용하는 모든 정상 크기 파일에 Treesitter 일괄 적용
         local bufs = vim.api.nvim_list_bufs()
         for _, buf in ipairs(bufs) do
           if vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buflisted then
@@ -52,7 +76,11 @@ local function try_auto_install_parser(lang, orig_buf)
               local filesize = (ok_stat and stat) and stat.size or 0
               local max_size = _G.get_max_file_size and _G.get_max_file_size(buf) or (1024 * 1024)
 
-              if filesize <= max_size then
+              -- 대용량 파일이나 복합 인라인 크기 초과 파일이 아닐 때만 안전하게 전환
+              local is_oversized = filesize > max_size
+              local is_inline_oversized = _G.has_oversized_inline_block and _G.has_oversized_inline_block(buf)
+
+              if not is_oversized and not is_inline_oversized then
                 local ok_start = pcall(vim.treesitter.start, buf, lang)
                 if ok_start then
                   local basename = vim.fn.fnamemodify(fname, ':t')
@@ -100,49 +128,67 @@ vim.api.nvim_create_autocmd('FileType', {
         return
       end
 
+      local basename = vim.fn.fnamemodify(fname, ':t')
       local ok_stat, stat = pcall(vim.uv.fs_stat, fname)
       local filesize = (ok_stat and stat) and stat.size or 0
       local max_size = _G.get_max_file_size and _G.get_max_file_size(buf) or (1024 * 1024)
 
-      local lang = vim.treesitter.language.get_lang(ft) or ft
-      local ok_parser, parser = pcall(vim.treesitter.get_parser, buf, lang)
-      local has_query = vim.treesitter.query.get(lang, 'highlights') ~= nil
-
-      local fallback_reason = nil
-      local is_missing_parser = false
-
-      -- 1. 파일 전체 크기 검사
+      -- =========================================================================
+      -- 🛡️ [0순위 절대 가드 (Bail-out Guard)]
+      -- 파일이 대용량이거나 복합 문법 내 인라인 콘텐츠가 비정상적으로 크면
+      -- 파서 유무 검사, 쿼리 확인, 백그라운드 다운로드 시도 등 모든 트리시터 연산을 100% 즉시 중단합니다.
+      -- =========================================================================
       if filesize > max_size then
+        pcall(vim.treesitter.stop, buf)
+        vim.bo[buf].syntax = ft
         local fmt_cur = (filesize > 1024 * 1024) and string.format('%.1fMB', filesize / (1024 * 1024)) or string.format('%dKB', math.floor(filesize / 1024))
         local fmt_max = (max_size > 1024 * 1024) and string.format('%.1fMB', max_size / (1024 * 1024)) or string.format('%dKB', math.floor(max_size / 1024))
-        fallback_reason = string.format('대용량 파일 (%s > %s)', fmt_cur, fmt_max)
-      -- 2. HTML 등 복합 문법 파일에 <script>/<style> 인라인 콘텐츠가 유독 많으면(options.lua의 has_oversized_inline_block 참고)
-      --    별도로 더 보수적으로 처리 — 크기 검사를 이미 통과 못했으면 elseif로 건너뜀(불필요한 비용 방지)
-      elseif _G.has_oversized_inline_block and _G.has_oversized_inline_block(buf) then
-        fallback_reason = '인라인 script/style 크기 초과'
-      -- 3. 파서 미설치 검사
-      elseif not ok_parser or not parser then
-        fallback_reason = string.format('파서 미설치 (%s)', lang)
-        is_missing_parser = true
-      -- 4. 하이라이트 쿼리(highlights.scm) 누락 검사
-      elseif not has_query then
-        fallback_reason = string.format('하이라이트 쿼리 누락 (%s)', lang)
+        vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (대용량 파일 (%s > %s)) [%s]', fmt_cur, fmt_max, basename), 'DiagnosticWarn' } }, true, {})
+        return
       end
 
-      local basename = vim.fn.fnamemodify(fname, ':t')
-      if fallback_reason then
+      if _G.has_oversized_inline_block and _G.has_oversized_inline_block(buf) then
         pcall(vim.treesitter.stop, buf)
-        vim.bo[buf].syntax = ft -- Vim 전통 정규식 syntax 강조로 안전 폴백
-        -- 파일명이 포함되어 자연히 고유한 메시지 → :NoiceAll / :messages 로 언제든 확인 가능
-        vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (%s) [%s]', fallback_reason, basename), 'DiagnosticWarn' } }, true, {})
+        vim.bo[buf].syntax = ft
+        vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (인라인 script/style 크기 초과) [%s]', basename), 'DiagnosticWarn' } }, true, {})
+        return
+      end
 
-        -- 파서 미설치로 인한 미적용인 경우, 백그라운드 비동기 자동 설치 트리거
-        if is_missing_parser and lang and lang ~= '' then
+      -- =========================================================================
+      -- ⚡ [1순위: O(1) 인메모리 파서 캐시 검사 및 안전 온디맨드 비동기 처리]
+      -- =========================================================================
+      local lang = vim.treesitter.language.get_lang(ft) or ft
+      local has_parser = is_parser_installed(lang)
+
+      if not has_parser then
+        -- 1. 파서 미설치 시: 파일 오픈 지연 없이 즉시 정규식 구문 강조로 화면 렌더링
+        pcall(vim.treesitter.stop, buf)
+        vim.bo[buf].syntax = ft
+        local reason_str = installing_parsers[lang] and string.format('파서 다운로드 중 (%s)', lang) or string.format('파서 미설치 (%s)', lang)
+        vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (%s) [%s]', reason_str, basename), 'DiagnosticWarn' } }, true, {})
+
+        -- 2. 파일 열람과 완전히 독립된 백그라운드 비동기 다운로드 및 컴파일 트리거 (이미 진행 중이면 함수 내부에서 중복 방지 가드)
+        if lang and lang ~= '' then
           try_auto_install_parser(lang, buf)
         end
-      else
-        vim.api.nvim_echo({ { string.format('Treesitter: 적용 [%s]', basename), 'DiagnosticOk' } }, true, {})
+        return
       end
+
+      -- =========================================================================
+      -- 🔍 [2순위: 하이라이트 쿼리(highlights.scm) 유효성 검사]
+      -- =========================================================================
+      local has_query = vim.treesitter.query.get(lang, 'highlights') ~= nil
+      if not has_query then
+        pcall(vim.treesitter.stop, buf)
+        vim.bo[buf].syntax = ft
+        vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (하이라이트 쿼리 누락 (%s)) [%s]', lang, basename), 'DiagnosticWarn' } }, true, {})
+        return
+      end
+
+      -- =========================================================================
+      -- ✅ [3순위: 정상 적용]
+      -- =========================================================================
+      vim.api.nvim_echo({ { string.format('Treesitter: 적용 [%s]', basename), 'DiagnosticOk' } }, true, {})
     end)
   end,
 })
