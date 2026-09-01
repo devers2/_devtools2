@@ -296,6 +296,23 @@ if (-not $installAhk) {
         Remove-Item -Path $ahkTmp -Force -ErrorAction SilentlyContinue
     }
 
+    # ── (3) Ctrl+Alt+T 터미널 실행 권한 선택 (관리자 vs 일반 권한) ──────────────
+    Write-Host ""
+    Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
+    Write-Host "  🔑 Windows Terminal 단축키(Ctrl+Alt+T) 실행 권한 설정" -ForegroundColor Cyan
+    Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
+    Write-Host "  💡 WSL2 개발 및 nvim 사용 시 일반 권한으로도 모든 기능(sudo 포함)이 정상 작동합니다." -ForegroundColor Gray
+    Write-Host "     (일반 권한 권장: 탐색기 파일 드래그 앤 드롭 지원 및 보안 향상)" -ForegroundColor Gray
+
+    $runAsAdmin = Prompt-Confirm "👉 Ctrl+Alt+T 단축키로 Windows Terminal을 관리자 권한으로 실행하시겠습니까?" "N"
+    if ($runAsAdmin) {
+        Write-Info "선택: 관리자 권한(Elevated)으로 터미널을 실행합니다."
+        $ahkRunLevel = 1  # 1 = TASK_RUNLEVEL_HIGHEST (관리자 권한)
+    } else {
+        Write-Info "선택: 일반 사용자 권한(Standard)으로 터미널을 실행합니다. (권장)"
+        $ahkRunLevel = 0  # 0 = TASK_RUNLEVEL_LUA (일반 사용자 권한)
+    }
+
     # 통합 AutoHotkey 자동 실행 등록 (Task Scheduler)
     # Startup 폴더 바로가기는 로그온 후 수 분씩 지연 실행되는 문제가 있어서,
     # 지연 없이(PT0S) 즉시 실행되는 로그온 트리거로 등록합니다.
@@ -338,10 +355,10 @@ if (-not $installAhk) {
             $action.Arguments         = "`"$ahkDest`""
             $action.WorkingDirectory  = $ahkModuleDir
 
-            # 현재 사용자 권한으로 실행 (관리자 권한 불필요)
+            # 사용자 선택 권한으로 등록 (일반: TASK_RUNLEVEL_LUA(0) / 관리자: TASK_RUNLEVEL_HIGHEST(1))
             $task.Principal.UserId    = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
             $task.Principal.LogonType = 3  # 3 = TASK_LOGON_INTERACTIVE_TOKEN
-            $task.Principal.RunLevel  = 0  # 0 = TASK_RUNLEVEL_LUA (일반 사용자 권한)
+            $task.Principal.RunLevel  = $ahkRunLevel
 
             $root.RegisterTaskDefinition($taskName, $task, 6, $null, $null, 3) | Out-Null
             $registered = $true
@@ -363,12 +380,19 @@ if (-not $installAhk) {
         }
     }
 
-    # 기존 AutoHotkey 프로세스 전체 종료 후 통합 프로세스 단 1개만 실행
+    # 기존 AutoHotkey 프로세스 전체 종료 후 선택된 권한으로 재실행
     Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
         ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 
-    if ($ahkExe -and (Test-Path $ahkExe) -and $ahkDest -and (Test-Path $ahkDest)) {
-        Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
+    if ($registered) {
+        # 작업 스케줄러에 등록된 설정(RunLevel)대로 즉시 기동하여 관리자 권한 원치 않는 상속 방지
+        schtasks.exe /Run /TN "$taskName" 2>$null | Out-Null
+    } elseif ($ahkExe -and (Test-Path $ahkExe) -and $ahkDest -and (Test-Path $ahkDest)) {
+        if ($runAsAdmin) {
+            Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -Verb RunAs -WindowStyle Hidden -ErrorAction SilentlyContinue
+        } else {
+            Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden
+        }
     }
 
     if ($ahkFetchError) {
