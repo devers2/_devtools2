@@ -103,8 +103,27 @@ return {
         -- ── 2. Gradle / Spring / Kotlin ──
         -- Kotlin: ktlint 표준 포맷터 (Mason에서 ktlint 설치 시 자동 연동)
         kotlin = { 'ktlint' },
-        -- XML: pom.xml, logback.xml, mapper.xml 등 스프링 XML 설정 포맷팅
-        xml = { 'xmlformatter' },
+        -- XML: pom.xml, logback.xml, web.xml 등 일반 스프링 XML은 정상 포맷팅하되,
+        -- MyBatis 매퍼(*Mapper.xml 또는 <mapper / mybatis DTD 선언 파일)는
+        -- SQL 쿼리 및 다이나믹 태그 인덴트 파손을 원천 차단하기 위해 자동 제외(스킵)합니다.
+        xml = function(bufnr)
+          local fname = vim.api.nvim_buf_get_name(bufnr)
+          -- ① 파일명 기준 감지 (*Mapper.xml, *mapper.xml)
+          if fname:match('[Mm]apper%.xml$') then
+            return {}
+          end
+
+          -- ② 버퍼 상단 25줄 내용 기준 감지 (MyBatis DTD 또는 <mapper 루트 태그)
+          local lines = vim.api.nvim_buf_get_lines(bufnr, 0, 25, false)
+          for _, line in ipairs(lines) do
+            if line:find('mybatis', 1, true) or line:find('<mapper', 1, true) then
+              return {}
+            end
+          end
+
+          -- ③ 일반 스프링/자바 설정 XML은 깔끔하게 자동 정렬
+          return { 'xmlformatter' }
+        end,
         -- SQL: JPA / MyBatis 쿼리 및 단독 SQL 파일 포맷팅
         sql = { 'sql_formatter' },
 
