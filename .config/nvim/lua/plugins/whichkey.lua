@@ -345,6 +345,10 @@ return {
         { '<leader>cF', desc = '삽입 언어 포맷 (Format Injected Langs)' },
         { '<leader>cl', desc = 'LSP 설정 정보 (Lsp Info)' },
         { '<leader>cm', desc = 'Mason 패키지 관리자 (Mason)' },
+        -- 💡 nvim-treesitter-textobjects: 파라미터 순서 교환 (Swap)
+        -- ⚠️ 단축키를 변경할 경우 `lua/plugins/treesitter.lua`의 textobjects.swap 설정도 반드시 함께 변경해야 합니다.
+        { '<leader>cp', desc = '다음 파라미터와 교환 (Swap Next Parameter)' },
+        { '<leader>cP', desc = '이전 파라미터와 교환 (Swap Prev Parameter)' },
         { '<leader>cr', desc = '심볼 이름 변경 (Rename Symbol)' },
         { '<leader>cR', desc = '파일 이름 변경 (Rename File)' },
         { '<leader>cs', desc = '심볼 목록 - Trouble (Symbols - Trouble)' },
