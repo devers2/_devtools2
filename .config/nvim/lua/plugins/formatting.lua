@@ -1,3 +1,38 @@
+-- =============================================================================
+-- 📖 [Conform.nvim 포맷팅 아키텍처 & 확장 가이드]
+-- =============================================================================
+-- 1. 🔄 동적 포맷팅 라우팅 (Dynamic Formatting Routing):
+--    - conform.nvim은 `formatters_by_ft`에 고정 테이블뿐만 아니라 함수(`function(bufnr)`)를 지원합니다.
+--    - 파일이 열릴 때마다 버퍼의 상태(Treesitter 활성 여부, 대용량 파일 여부, 프로젝트 설정 등)를
+--      실시간으로 검사하여 최적의 포맷터 조합을 '100% 동적'으로 결정하여 실행합니다.
+--
+-- 2. 🌲 Treesitter Injected 포맷팅 & 안전 폴백 (Safe Fallback):
+--    - [Treesitter 활성 시]: Markdown, HTML, JS/TS 내부의 코드 블록(SQL, Python, JSON 등)을
+--      Treesitter가 감지하여 해당 언어의 전용 포맷터(`injected`)로 먼저 정렬한 뒤 전체를 포맷팅합니다.
+--    - [Treesitter 비활성 시]: 대용량 파일이나 정규식 구문 강조 모드에서는 `injected` 연산을
+--      자동으로 건너뛰고 기본 포맷터(`prettier` 등)만 단독 실행하여 렉과 오류를 원천 차단합니다.
+--
+-- 3. ➕ 새로운 언어/포맷터 추가 방법 (How to Add New Language):
+--    - ① formatters_by_ft 에 언어 파일타입(ft) 추가:
+--        rust = { 'rustfmt' },
+--        go = { 'goimports', 'gofmt' },
+--    - ② 커스텀 인자나 설정 파일 경로가 필요한 경우 아래 `formatters` 테이블에 정의:
+--        my_formatter = {
+--          prepend_args = { '--config', '/path/to/config' },
+--        },
+-- =============================================================================
+
+-- 헬퍼 함수: Treesitter 활성 여부에 따라 Injected 포맷터를 동적으로 결합
+local function with_injected(base_formatter)
+  return function(bufnr)
+    if _G.is_treesitter_active and _G.is_treesitter_active(bufnr) then
+      return { 'injected', base_formatter }
+    else
+      return { base_formatter }
+    end
+  end
+end
+
 return {
   {
     'stevearc/conform.nvim',
@@ -58,26 +93,53 @@ return {
     opts = {
       notify_on_error = true,
 
+      -- =========================================================================
+      -- 🛠️ [언어별 포맷터 매핑 (실무 Gradle / Spring & Python 최적화)]
+      -- =========================================================================
       formatters_by_ft = {
-        -- HTML: Jinja2 템플릿 문법 보존을 위해 로컬 .prettierrc 자동 탐색
-        -- (프로젝트에 .prettierrc + prettier-plugin-jinja-template 가 설치된 경우 자동 적용)
-        html = { 'prettier_html' },
-        htmldjango = { 'prettier_html' },
-        -- JS/TS 설정
-        javascript = { 'prettier' },
-        typescript = { 'prettier' },
-        -- JSON / YAML / Markdown 설정
+        -- ── 1. Python (Ruff 임포트 정리 + PEP8 코드 포맷팅) ──
+        python = { 'ruff_fix', 'ruff_format' },
+
+        -- ── 2. Gradle / Spring / Kotlin ──
+        -- Kotlin: ktlint 표준 포맷터 (Mason에서 ktlint 설치 시 자동 연동)
+        kotlin = { 'ktlint' },
+        -- XML: pom.xml, logback.xml, mapper.xml 등 스프링 XML 설정 포맷팅
+        xml = { 'xmlformatter' },
+        -- SQL: JPA / MyBatis 쿼리 및 단독 SQL 파일 포맷팅
+        sql = { 'sql_formatter' },
+
+        -- ── 3. 웹 / 템플릿 (Treesitter Injected 동적 연동) ──
+        -- HTML: Jinja2 템플릿 보존 + Treesitter script/style 내장 언어 동적 포맷팅
+        html = with_injected('prettier_html'),
+        htmldjango = with_injected('prettier_html'),
+        -- JS / TS: 템플릿 리터럴(/* sql */, /* html */ 등) 내장 언어 동적 포맷팅
+        javascript = with_injected('prettier'),
+        typescript = with_injected('prettier'),
+        javascriptreact = with_injected('prettier'),
+        typescriptreact = with_injected('prettier'),
+        -- Markdown: ```python, ```sql, ```json 등 내부 코드 블록 동적 포맷팅
+        markdown = with_injected('prettier'),
+
+        -- ── 4. 기타 정적 설정 파일 ──
         json = { 'prettier' },
         jsonc = { 'prettier' },
         yaml = { 'prettier' },
-        markdown = { 'prettier' },
-        -- Style 설정
         css = { 'prettier' },
         scss = { 'prettier' },
-        -- Python 설정
-        python = { 'ruff_format' },
+        lua = { 'stylua' },
       },
+
+      -- =========================================================================
+      -- ⚙️ [포맷터 세부 실행 옵션 및 인자 설정]
+      -- =========================================================================
       formatters = {
+        -- 🌲 Treesitter Injected 포맷터 옵션: 코드 블록 파싱 에러 시 파일 파손 방지 (안전 보존)
+        injected = {
+          options = {
+            ignore_errors = true,
+          },
+        },
+
         -- 기존 prettier: 글로벌 설정 강제 적용 (JS/TS/JSON/CSS 등)
         prettier = {
           prepend_args = {
@@ -87,8 +149,7 @@ return {
             '', -- .gitignore의 '*' 와일드카드로 인해 Prettier가 파일을 무시하는 현상 방지
           },
         },
-        -- HTML 전용: --config 없이 프로젝트 로컬 .prettierrc 자동 탐색
-        -- → 프로젝트에 prettier-plugin-jinja-template 설치 시 {% %} 블록을 깨지 않음
+
         -- HTML 전용: 프로젝트 로컬에 .prettierrc가 존재하면 로컬 설정을 따르고, 없으면 글로벌 설정을 사용하도록 자동 폴백
         prettier_html = {
           command = 'prettier',
@@ -121,14 +182,36 @@ return {
             end
           end,
         },
+
         stylua = {
           prepend_args = { '--config-path', vim.fs.joinpath(vim.fn.stdpath('config'), 'stylua.toml') },
         },
+
         -- Python
         ruff_format = {
           prepend_args = { '--config', _G.DEVTOOLS2_DIR .. '/.config/ruff/ruff.toml' },
         },
+        ruff_fix = {
+          prepend_args = { '--config', _G.DEVTOOLS2_DIR .. '/.config/ruff/ruff.toml' },
+        },
       },
     },
+  },
+
+  -- =========================================================================
+  -- 📦 [Mason 자동 설치 목록 - dotfiles 연동]
+  -- 이 목록에 등록된 포맷터는 어떤 환경에서든 Neovim 첫 실행 시 자동으로 설치됩니다.
+  -- ※ 수동으로 :MasonInstall 하면 로컬에만 설치되어 다른 환경에 연동되지 않습니다.
+  -- =========================================================================
+  {
+    'mason-org/mason.nvim',
+    opts = function(_, opts)
+      opts.ensure_installed = opts.ensure_installed or {}
+      vim.list_extend(opts.ensure_installed, {
+        'ktlint',        -- Kotlin 포맷터 (.kt, .kts, build.gradle.kts 등)
+        'xmlformatter',  -- XML 포맷터 (pom.xml, logback.xml, mapper.xml 등)
+        'sql-formatter', -- SQL 포맷터 (단독 .sql 파일 및 내장 SQL 블록)
+      })
+    end,
   },
 }
