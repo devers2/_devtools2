@@ -730,14 +730,4 @@ return {
       })
     end,
   },
-
-  -- [Mason 자동 설치 설정]
-  -- jdtls는 lspconfig에서 비활성화되어 있으므로(nvim-jdtls 사용) 명시적 목록에 추가
-  {
-    'mason-org/mason.nvim',
-    opts = function(_, opts)
-      opts.ensure_installed = opts.ensure_installed or {}
-      vim.list_extend(opts.ensure_installed, { 'jdtls', 'basedpyright', 'ruff' })
-    end,
-  },
 }

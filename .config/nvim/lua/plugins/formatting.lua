@@ -197,21 +197,4 @@ return {
       },
     },
   },
-
-  -- =========================================================================
-  -- 📦 [Mason 자동 설치 목록 - dotfiles 연동]
-  -- 이 목록에 등록된 포맷터는 어떤 환경에서든 Neovim 첫 실행 시 자동으로 설치됩니다.
-  -- ※ 수동으로 :MasonInstall 하면 로컬에만 설치되어 다른 환경에 연동되지 않습니다.
-  -- =========================================================================
-  {
-    'mason-org/mason.nvim',
-    opts = function(_, opts)
-      opts.ensure_installed = opts.ensure_installed or {}
-      vim.list_extend(opts.ensure_installed, {
-        'ktlint',        -- Kotlin 포맷터 (.kt, .kts, build.gradle.kts 등)
-        'xmlformatter',  -- XML 포맷터 (pom.xml, logback.xml, mapper.xml 등)
-        'sql-formatter', -- SQL 포맷터 (단독 .sql 파일 및 내장 SQL 블록)
-      })
-    end,
-  },
 }

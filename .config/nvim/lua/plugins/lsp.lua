@@ -1,4 +1,11 @@
 return {
+  -- [SchemaStore.nvim: Spring Boot, GitHub Actions, Kubernetes 등 YAML/JSON 스키마 자동 매핑]
+  {
+    'b0o/SchemaStore.nvim',
+    lazy = true,
+    version = false,
+  },
+
   {
     'neovim/nvim-lspconfig',
     opts = {
@@ -11,7 +18,6 @@ return {
       servers = {
         -- [JDTLS] mason-lspconfig의 자동 attach를 비활성화합니다.
         -- JDTLS는 nvim-jdtls 플러그인이 FileType java 이벤트에서 직접 실행합니다.
-        -- 이 설정이 없으면 대시보드 등 비-Java 버퍼에서도 JDTLS가 붙어 오류가 발생합니다.
         jdtls = {
           enabled = false,
         },
@@ -22,6 +28,34 @@ return {
         eslint = {},
         -- TypeScript(vtsls)는 기본 설정을 따르도록 빈 객체로 설정
         vtsls = {},
+
+        -- [Kotlin LSP] 코틀린 파일(.kt, .kts, build.gradle.kts) 자동완성/진단
+        kotlin_language_server = {},
+
+        -- [YAML / Spring Boot application.yml 최적화]
+        -- SchemaStore.nvim과 연동하여 Spring Boot 설정 키/값 자동완성 및 검증 지원
+        yamlls = {
+          on_new_config = function(new_config)
+            new_config.settings.yaml.schemas = vim.tbl_deep_extend(
+              'force',
+              new_config.settings.yaml.schemas or {},
+              require('schemastore').yaml.schemas()
+            )
+          end,
+          settings = {
+            redhat = { telemetry = { enabled = false } }, -- 백그라운드 텔레메트리 차단
+            yaml = {
+              schemaStore = {
+                enable = false, -- 내장 스키마스토어 끄고 SchemaStore.nvim 사용
+                url = '',
+              },
+              schemas = {},
+              validate = true,
+              -- YAML LSP의 포맷팅 기능을 끕니다 (conform.nvim + Prettier가 전담)
+              format = { enable = false },
+            },
+          },
+        },
 
         -- [Python 최적화] 기본 pyright 비활성화 후 basedpyright + ruff 조합 사용
         pyright = {
