@@ -537,4 +537,22 @@ return {
       vim.keymap.set({ 'n', 'x', 'o' }, 'T', ts_repeat.builtin_T_expr, { expr = true })
     end,
   },
+
+  -- [Treesitter Autotag 설정]
+  -- HTML, XML, JSX, TSX, Vue, Svelte, Markdown 등에서 태그 자동 닫기 및 태그 이름 동시 수정을 제공합니다.
+  -- Treesitter 파서 및 AST 노드 기반으로 동작하므로:
+  -- - Treesitter가 활성화된 버퍼에서만 태그 트리를 탐색하여 동작합니다.
+  -- - 대용량 파일 가드 등으로 Treesitter가 꺼진 버퍼에서는 파서 노드가 없어 자동으로 동작이 중단됩니다.
+  {
+    'windwp/nvim-ts-autotag',
+    event = { 'BufReadPost', 'BufNewFile' },
+    opts = {
+      opts = {
+        enable_close = true,          -- <div> 입력 시 </div> 자동 생성 (Auto close tags)
+        enable_rename = true,         -- 시작 태그 이름 수정 시 닫는 태그도 동시 수정 (Auto rename)
+        enable_close_on_slash = true, -- </ 입력 시 가장 가까운 상위 열린 태그 자동 닫기 (VS Code 방식)
+      },
+    },
+  },
 }
+
