@@ -33,7 +33,7 @@ return {
       opts.ensure_installed = opts.ensure_installed or {}
 
       if ENABLE_PRE_INSTALL then
-        vim.list_extend(opts.ensure_installed, {
+        local target_tools = {
           -- ===================================================================
           -- ── 1. LSP 서버 (Language Servers) ──
           -- ===================================================================
@@ -53,7 +53,16 @@ return {
           'xmlformatter',           -- XML (pom.xml, logback.xml, mapper.xml 등)
           'sql-formatter',          -- SQL (단독 .sql 파일 및 JPA/MyBatis 텍스트 블록)
           'markdownlint-cli2',      -- Markdown (nvim-lint 마크다운 린터)
-        })
+        }
+
+        -- 🔒 [중복 설치 충돌 원천 방지]
+        -- LazyVim 기본 목록에 이미 포함된 도구(stylua, vtsls 등)와의 중복 삽입을 방지하여
+        -- Mason의 "Package is already installing" assert 에러를 100% 차단합니다.
+        for _, tool in ipairs(target_tools) do
+          if not vim.tbl_contains(opts.ensure_installed, tool) then
+            table.insert(opts.ensure_installed, tool)
+          end
+        end
       end
     end,
   },
