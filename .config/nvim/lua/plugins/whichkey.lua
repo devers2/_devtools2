@@ -2,8 +2,15 @@ return {
   -- [which-key 딜레이 최적화 및 전체 그룹 라벨 한글화]
   {
     'folke/which-key.nvim',
+    lazy = false, -- 에디터 시작 시 즉시 로드하여 첫 키 입력 시 팝업 누락 방지
     opts = {
       delay = 150, -- 팝업 표시 대기 시간을 150ms로 지정 (기본값은 500ms)
+      -- 🚀 [오퍼레이터 지연 해제]
+      -- which-key v3는 기본적으로 d, y, c 같은 Operator-pending 모드에서 팝업을 차단(defer=true)합니다.
+      -- 아래 설정을 통해 d나 c를 눌렀을 때도 지연 없이 즉시 우측 하단 가이드 창이 열리도록 합니다.
+      defer = function(ctx)
+        return false
+      end,
       spec = {
         -- ── 최상위 그룹 (Top-level Leader Groups) ──
         -- 그룹명 앞에 [키] 를 표시하여 breadcrumb 타이틀에서 어떤 키를 눌렀는지 직관적으로 확인 가능

@@ -525,16 +525,30 @@ return {
       -- -----------------------------------------------------------------------
       -- [Move 반복 이동 지원] ; 와 , 로 마지막 이동 반복 (f/t 와 동일한 UX)
       -- -----------------------------------------------------------------------
-      local ts_repeat = require('nvim-treesitter.textobjects.repeatable_move')
-      vim.keymap.set({ 'n', 'x', 'o' }, ';', ts_repeat.repeat_last_move,
-        { desc = '마지막 textobject 이동 반복 (전방)' })
-      vim.keymap.set({ 'n', 'x', 'o' }, ',', ts_repeat.repeat_last_move_opposite,
-        { desc = '마지막 textobject 이동 반복 (후방)' })
-      -- f/t/F/T 도 ; , 로 반복 가능하도록 통합
-      vim.keymap.set({ 'n', 'x', 'o' }, 'f', ts_repeat.builtin_f_expr, { expr = true })
-      vim.keymap.set({ 'n', 'x', 'o' }, 'F', ts_repeat.builtin_F_expr, { expr = true })
-      vim.keymap.set({ 'n', 'x', 'o' }, 't', ts_repeat.builtin_t_expr, { expr = true })
-      vim.keymap.set({ 'n', 'x', 'o' }, 'T', ts_repeat.builtin_T_expr, { expr = true })
+      local ok_repeat, ts_repeat = pcall(require, 'nvim-treesitter-textobjects.repeatable_move')
+      if not ok_repeat then
+        ok_repeat, ts_repeat = pcall(require, 'nvim-treesitter.textobjects.repeatable_move')
+      end
+
+      if ok_repeat and ts_repeat then
+        local next_move = ts_repeat.repeat_last_move_next or ts_repeat.repeat_last_move
+        local prev_move = ts_repeat.repeat_last_move_previous or ts_repeat.repeat_last_move_opposite
+        if next_move then
+          vim.keymap.set({ 'n', 'x', 'o' }, ';', next_move, { desc = '마지막 textobject 이동 반복 (전방)' })
+        end
+        if prev_move then
+          vim.keymap.set({ 'n', 'x', 'o' }, ',', prev_move, { desc = '마지막 textobject 이동 반복 (후방)' })
+        end
+
+        local f_fn = ts_repeat.builtin_f_expr or ts_repeat.builtin_f
+        local F_fn = ts_repeat.builtin_F_expr or ts_repeat.builtin_F
+        local t_fn = ts_repeat.builtin_t_expr or ts_repeat.builtin_t
+        local T_fn = ts_repeat.builtin_T_expr or ts_repeat.builtin_T
+        if f_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'f', f_fn, { expr = true }) end
+        if F_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'F', F_fn, { expr = true }) end
+        if t_fn then vim.keymap.set({ 'n', 'x', 'o' }, 't', t_fn, { expr = true }) end
+        if T_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'T', T_fn, { expr = true }) end
+      end
     end,
   },
 
