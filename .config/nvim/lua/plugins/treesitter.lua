@@ -558,37 +558,6 @@ return {
     },
   },
 
-  -- [Treesitter Rainbow Delimiters 설정]
-  -- 중첩된 괄호 (), {}, [] 의 색상을 단계별로 무지개 색상으로 구분하여 가독성을 높입니다.
-  -- Treesitter 동작 여부와 완벽 연동:
-  -- - condition 함수에서 is_treesitter_active(bufnr) 검사
-  -- - 대용량 파일 가드 등으로 Treesitter가 꺼진 버퍼에서는 0.001ms 만에 즉시 제외되어 성능을 보존합니다.
-  {
-    'HiPhish/rainbow-delimiters.nvim',
-    event = { 'BufReadPost', 'BufNewFile' },
-    config = function()
-      require('util.plugin_guard').safe_setup('rainbow-delimiters.nvim', 'Treesitter', function()
-        local rainbow = require('rainbow-delimiters')
-        vim.g.rainbow_delimiters = {
-          strategy = {
-            [''] = rainbow.strategy['global'],
-            vim = rainbow.strategy['local'],
-          },
-          query = {
-            [''] = 'rainbow-delimiters',
-            lua = 'rainbow-blocks',
-          },
-          priority = {
-            [''] = 110,
-          },
-          -- 🔒 Treesitter가 켜져 있는 정상 버퍼에서만 동작하도록 가드 연동
-          condition = function(bufnr)
-            return is_treesitter_active(bufnr)
-          end,
-        }
-      end)
-    end,
-  },
 
   -- [Treesitter TreeSJ 설정]
   -- 배열, 딕셔너리/객체, 함수 파라미터 등을 한 줄 ↔ 여러 줄로 스마트하게 분할/병합(Split/Join)합니다.
