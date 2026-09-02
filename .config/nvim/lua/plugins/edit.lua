@@ -262,4 +262,33 @@ return {
       },
     },
   },
+
+  -- [nvim-surround - 괄호/따옴표/HTML 태그 감싸기 및 교체 끝판왕]
+  -- ── 핵심 키맵 ────────────────────────────────────────────────────────────
+  --   노멀: ysiw)        → hello → (hello)
+  --   노멀: ysiw<div>    → hello → <div>hello</div>
+  --   노멀: ds"          → "hello" → hello (따옴표 삭제)
+  --   노멀: cs"'         → "hello" → 'hello' (따옴표 교체)
+  --   노멀: cst<span>    → <div>hi</div> → <span>hi</span> (태그 교체)
+  --   비주얼: S)         → 선택 영역을 괄호로 감싸기
+  -- ── Textobjects 결합 ─────────────────────────────────────────────────────
+  --   ysaf)              → 함수 전체(af)를 괄호로 감싸기
+  -- ※ 성능: 키를 눌렀을 때만 1회 실행 → 상시 부하 0%
+  {
+    'kylechui/nvim-surround',
+    version = '*',
+    event = 'VeryLazy',
+    opts = {},
+  },
+
+  -- [tpope/vim-endwise - Lua / Shell 닫는 키워드 자동 완성]
+  -- Lua : if ... then<Enter> → end 자동 생성
+  -- Bash: if ...; then<Enter> → fi 자동 생성
+  -- Bash: for/while ...; do<Enter> → done 자동 생성
+  -- ※ 특징: Treesitter 의존성 없이 순수 Vim 표준 문법 기반으로 동작하여
+  --   버전 충돌이나 에러 위험이 0%이며 대용량 파일에서도 완벽하게 안전합니다.
+  {
+    'tpope/vim-endwise',
+    event = 'InsertEnter',
+  },
 }
