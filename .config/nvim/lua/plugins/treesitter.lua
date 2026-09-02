@@ -613,17 +613,4 @@ return {
       max_join_length = 150,      -- 한 줄로 합칠 때 허용할 최대 문자 수
     },
   },
-
-  -- [ts-comments.nvim - Treesitter 복합 파일 언어별 주석 자동 전환]
-  -- HTML <script> 안: gc → // JS 주석
-  -- HTML <style>  안: gc → /* CSS 주석 */
-  -- HTML 본문    안: gc → <!-- HTML 주석 -->
-  -- JSX/Vue/Svelte 템플릿에서도 동일하게 언어 영역을 인식합니다.
-  -- ※ 성능: 키(gc)를 눌렀을 때만 현재 커서 위치의 Treesitter 노드를 1회 조회 → 상시 부하 0%
-  -- ※ Neovim 0.10+ 내장 주석 엔진과 연동되어 매우 가볍고 안전합니다.
-  {
-    'folke/ts-comments.nvim',
-    event = 'VeryLazy',
-    opts = {},
-  },
 }
