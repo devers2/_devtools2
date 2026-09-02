@@ -7,6 +7,50 @@
 local installed_cache = {} -- [lang] = true (설치됨) | nil (미설치/재시도 가능)
 local installing_parsers = {} -- [lang] = true (현재 백그라운드 설치 진행 중)
 
+-- =============================================================================
+-- [treesitter-context 연동 헬퍼]
+-- nvim-treesitter-context 플러그인은 전역 enable/disable API만 제공하며,
+-- 버퍼별 제어 API가 없습니다. 따라서 버퍼 진입(BufEnter) 시점에 해당 버퍼의
+-- treesitter 파서 활성 상태를 확인하여 context 창을 동기화합니다.
+-- - treesitter 켜진 버퍼 → context enable (메서드/클래스명 상단 고정 활성)
+-- - treesitter 꺼진 버퍼 → context disable (상단 고정창 숨김)
+-- =============================================================================
+
+---현재 버퍼에 treesitter 파서가 활성화되어 있는지 확인
+---@param buf integer 버퍼 번호
+---@return boolean
+local function is_treesitter_active(buf)
+  local ok, parser = pcall(vim.treesitter.get_parser, buf)
+  return ok and parser ~= nil
+end
+
+---treesitter-context를 현재 버퍼의 treesitter 상태에 맞춰 동기화
+---treesitter가 켜진 버퍼로 진입 시 enable, 꺼진 버퍼면 disable
+---@param buf integer 버퍼 번호
+local function sync_ts_context(buf)
+  local ok, ts_ctx = pcall(require, 'treesitter-context')
+  if not ok then
+    return
+  end
+  if is_treesitter_active(buf) then
+    ts_ctx.enable()
+  else
+    ts_ctx.disable()
+  end
+end
+
+---treesitter를 중단하고, 현재 창이 해당 버퍼를 보고 있을 때 context도 함께 비활성화
+---@param buf integer 버퍼 번호
+local function stop_treesitter(buf)
+  pcall(vim.treesitter.stop, buf)
+  if vim.api.nvim_get_current_buf() == buf then
+    local ok, ts_ctx = pcall(require, 'treesitter-context')
+    if ok then
+      ts_ctx.disable()
+    end
+  end
+end
+
 ---로컬에 파서가 설치되어 있는지 O(1) 인메모리 캐시 기반으로 초고속 확인
 ---@param lang string 언어 파서 이름
 ---@return boolean is_installed
@@ -23,7 +67,7 @@ local function is_parser_installed(lang)
   return ok
 end
 
----버퍼 성능 티어 설정 함수 (경량 모드 시 무거운 Folds/Indent/Context를 선별 차단하여 타이핑 렉 완벽 방지)
+---버퍼 성능 티어 설정 함수 (경량 모드 시 무거운 Folds/Indent를 선별 차단하여 타이핑 렉 완벽 방지)
 ---@param buf integer 버퍼 번호
 ---@param is_light boolean 경량 모드 여부
 local function configure_buffer_tier(buf, is_light)
@@ -33,8 +77,8 @@ local function configure_buffer_tier(buf, is_light)
     vim.opt_local.foldexpr = '0'
     -- 2. 자동 들여쓰기(Indent) Treesitter 연산 차단 (기본 내장 들여쓰기로 폴백하여 엔터 렉 차단)
     vim.opt_local.indentexpr = ''
-    -- 3. treesitter-context 상단 고정창 비활성화
-    vim.b[buf].treesitter_context = false
+    -- 3. treesitter-context 상단 고정창 비활성화는 stop_treesitter() 또는 FileType 콜백 말미의
+    --    sync_ts_context(buf)가 담당합니다 (treesitter-context는 버퍼별 API가 없고 전역 API만 제공)
   end
 end
 
@@ -101,6 +145,10 @@ local function try_auto_install_parser(lang, orig_buf)
                 configure_buffer_tier(buf, is_light)
                 local ok_start = pcall(vim.treesitter.start, buf, lang)
                 if ok_start then
+                  -- 핫스왑된 버퍼가 현재 포커스된 버퍼일 때만 context 동기화
+                  if vim.api.nvim_get_current_buf() == buf then
+                    sync_ts_context(buf)
+                  end
                   local basename = vim.fn.fnamemodify(fname, ':t')
                   local msg = is_light and string.format('Treesitter: 경량 적용 (파서 자동 설치 완료, 부가기능 최적화) [%s]', basename)
                     or string.format('Treesitter: 적용 (파서 자동 설치 완료) [%s]', basename)
@@ -159,7 +207,7 @@ vim.api.nvim_create_autocmd('FileType', {
       -- 파서 유무 검사, 쿼리 확인, 백그라운드 다운로드 시도 등 모든 트리시터 연산을 100% 즉시 중단합니다.
       -- =========================================================================
       if filesize > max_size then
-        pcall(vim.treesitter.stop, buf)
+        stop_treesitter(buf)
         vim.bo[buf].syntax = ft
         local fmt_cur = (filesize > 1024 * 1024) and string.format('%.1fMB', filesize / (1024 * 1024)) or string.format('%dKB', math.floor(filesize / 1024))
         local fmt_max = (max_size > 1024 * 1024) and string.format('%.1fMB', max_size / (1024 * 1024)) or string.format('%dKB', math.floor(max_size / 1024))
@@ -168,7 +216,7 @@ vim.api.nvim_create_autocmd('FileType', {
       end
 
       if _G.has_oversized_inline_block and _G.has_oversized_inline_block(buf) then
-        pcall(vim.treesitter.stop, buf)
+        stop_treesitter(buf)
         vim.bo[buf].syntax = ft
         local inline_size = _G.get_inline_block_size and _G.get_inline_block_size(buf) or 0
         local fmt_inline = string.format('%dKB', math.floor(inline_size / 1024))
@@ -185,7 +233,7 @@ vim.api.nvim_create_autocmd('FileType', {
 
       if not has_parser then
         -- 1. 파서 미설치 시: 파일 오픈 지연 없이 즉시 정규식 구문 강조로 화면 렌더링
-        pcall(vim.treesitter.stop, buf)
+        stop_treesitter(buf)
         vim.bo[buf].syntax = ft
         local reason_str = installing_parsers[lang] and string.format('파서 다운로드 중 (%s)', lang) or string.format('파서 미설치 (%s)', lang)
         vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (%s) [%s]', reason_str, basename), 'DiagnosticWarn' } }, true, {})
@@ -202,7 +250,7 @@ vim.api.nvim_create_autocmd('FileType', {
       -- =========================================================================
       local has_query = vim.treesitter.query.get(lang, 'highlights') ~= nil
       if not has_query then
-        pcall(vim.treesitter.stop, buf)
+        stop_treesitter(buf)
         vim.bo[buf].syntax = ft
         vim.api.nvim_echo({ { string.format('Treesitter: 미적용 (하이라이트 쿼리 누락 (%s)) [%s]', lang, basename), 'DiagnosticWarn' } }, true, {})
         return
@@ -216,9 +264,15 @@ vim.api.nvim_create_autocmd('FileType', {
       local is_inline_light = _G.has_light_inline_block and _G.has_light_inline_block(buf)
       local is_light_tier = is_file_light or is_inline_light
 
-      -- 경량화 대상인 경우 무거운 부가기능(Folds/Indent/Context) 선별 차단
+      -- 경량화 대상인 경우 무거운 부가기능(Folds/Indent) 선별 차단
       configure_buffer_tier(buf, is_light_tier)
-      pcall(vim.treesitter.start, buf, lang)
+      local ok_start = pcall(vim.treesitter.start, buf, lang)
+
+      -- treesitter 시작 성공 여부에 따라 context 창 동기화
+      -- (경량 모드라도 treesitter 자체는 켜지므로 context도 활성화 유지)
+      if ok_start then
+        sync_ts_context(buf)
+      end
 
       if is_light_tier then
         local reason_detail = is_inline_light and '인라인 script/style 최적화' or '중대형 파일 최적화'
@@ -227,6 +281,33 @@ vim.api.nvim_create_autocmd('FileType', {
         vim.api.nvim_echo({ { string.format('Treesitter: 적용 [%s]', basename), 'DiagnosticOk' } }, true, {})
       end
     end)
+  end,
+})
+
+-- =============================================================================
+-- [BufEnter: 버퍼 전환 시 treesitter-context 자동 동기화]
+-- FileType 이벤트는 버퍼를 새로 열 때만 발생합니다.
+-- 이미 열린 버퍼 간 전환(BufEnter) 시에도 해당 버퍼의 treesitter 상태에
+-- 맞춰 context 창을 자동으로 켜거나 끄기 위해 별도의 autocmd를 등록합니다.
+--
+-- 예시 시나리오:
+--   A.java (treesitter 켜짐) → B.html (5MB, treesitter 꺼짐)으로 전환
+--   → BufEnter B.html → context disable (상단 고정창 사라짐)
+--   → 다시 A.java로 돌아옴 → BufEnter A.java → context enable (복원)
+-- =============================================================================
+vim.api.nvim_create_autocmd('BufEnter', {
+  group = vim.api.nvim_create_augroup('devtools2_ts_context_sync', { clear = true }),
+  callback = function(ev)
+    local buf = ev.buf
+    -- 특수 버퍼(터미널, 플로팅 등)는 건너뜀
+    if vim.bo[buf].buftype ~= '' then
+      return
+    end
+    -- treesitter-context가 아직 로드되지 않았으면 건너뜀 (로딩 지연 방지)
+    if not package.loaded['treesitter-context'] then
+      return
+    end
+    sync_ts_context(buf)
   end,
 })
 
