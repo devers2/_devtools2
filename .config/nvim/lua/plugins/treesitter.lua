@@ -327,33 +327,20 @@ return {
     end,
     opts = function(_, opts)
       -- 🚀 [사전 설치 목록 완전 제거 및 순수 동적(On-demand) 자동 설치]
-      -- 에디터 시작 시 수십 개 언어 파서를 일괄 빌드하는 CPU/RAM 부하와 초기 지연을 방지하기 위해
-      -- 기본적으로 ensure_installed 목록을 비워둡니다 (opts.ensure_installed = {}).
-      -- 파일타입(FileType) 감지 시 Neovim의 언어 매핑 규칙을 통해 동적으로 파서 이름을 찾아내며,
-      -- 위쪽 devtools2_treesitter_fallback_guard의 try_auto_install_parser가
-      -- 실제로 열람/편집하는 파일의 파서만 1개씩 안전하게 백그라운드에서 동적으로 자동 설치합니다.
+      -- =========================================================================
+      -- ⚠️ [CRITICAL RULE: ensure_installed 등록 대상 절대 원칙]
+      -- =========================================================================
+      -- ❌ [추가 금지]: 단독 파일 언어 (kotlin, groovy, yaml, python, java, rust, go 등)
+      --    -> 사용자가 해당 파일을 여는 순간 FileType 이벤트가 발생하여,
+      --       위의 `try_auto_install_parser`가 100% 온디맨드 비동기로 자동 설치 & 핫스왑합니다.
+      --       따라서 일반 언어는 여기에 절대로 추가할 필요가 없습니다.
       --
-      -- 💡 [추후 필요 시 특정 언어를 사전 설치(Pre-install)하고 싶을 때]
-      -- 첫 파일 오픈 시점의 다운로드/컴파일 딜레이 없이 항상 즉시 켜져야 하는 핵심 언어가 있다면
-      -- 아래 테이블에 언어 이름을 추가해 주시면 됩니다. (이미 설치된 파서는 건너뛰므로 오버헤드가 없습니다)
-      --
-      -- 예시 (주요 34개 언어 파서 목록):
-      -- opts.ensure_installed = {
-      --   -- 백엔드 / 시스템 / 스크립트
-      --   'java', 'c', 'python', 'bash', 'sql',
-      --   -- 프론트엔드 / 웹
-      --   'html', 'javascript', 'typescript', 'tsx', 'css', 'scss', 'jsdoc',
-      --   -- 데이터 포맷 / 설정 파일
-      --   'xml', 'dtd', 'json', 'yaml', 'toml', 'properties',
-      --   -- 문서 / 마크다운 / 주석 / 빌드
-      --   'markdown', 'markdown_inline', 'rst', 'ninja', 'printf', 'regex', 'query', 'diff',
-      --   -- Neovim 설정 / Lua
-      --   'lua', 'luadoc', 'luap', 'vim', 'vimdoc',
-      -- }
-      -- ⚠️ [Treesitter Injection 필수 파서 사전 설치]
-      -- css, javascript 등 HTML/템플릿 파일 내부에 <style>, <script> 태그로 주입되는 언어 파서는
-      -- FileType 이벤트가 발생하지 않아 on-demand 자동 설치 로직이 절대 트리거되지 않습니다.
-      -- 따라서 이 파서들은 반드시 여기에 명시하여 사전 설치해야 <style>, <script> 내부 구문 강조가 동작합니다.
+      -- ⭕ [유일한 등록 대상]: 복합 파일 내부에 삽입(Injection)되어 자체 FileType 이벤트가 없는 언어
+      --    -> HTML 내부의 <style>(css), <script>(javascript), JS/TS 주석(jsdoc),
+      --       정규식(regex), 마크다운 인라인(markdown_inline) 등은 단독 파일로 열리지 않아
+      --       FileType 이벤트가 절대 발생하지 않으므로 온디맨드 자동 설치가 불가능합니다.
+      --       오직 이러한 '순수 인젝션(Injection-only) 언어'만 여기에 등록하여 사전 설치합니다.
+      -- =========================================================================
       opts.ensure_installed = {
         -- ── Injection-only: 자체 FileType 없음 → on-demand 자동 설치 절대 불가 ──
         'css',            -- <style> 내부 (HTML/htmldjango/vue/svelte 등)
