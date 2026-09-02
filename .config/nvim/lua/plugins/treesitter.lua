@@ -593,7 +593,8 @@ return {
   -- [Treesitter TreeSJ 설정]
   -- 배열, 딕셔너리/객체, 함수 파라미터 등을 한 줄 ↔ 여러 줄로 스마트하게 분할/병합(Split/Join)합니다.
   -- Treesitter AST 구문 트리 기반으로 콤마와 들여쓰기를 완벽하게 유지합니다.
-  {\n    'Wansmer/treesj',
+  {
+    'Wansmer/treesj',
     keys = {
       {
         '<leader>cj',
