@@ -357,6 +357,12 @@ return {
       -- 하이라이팅 활성화
       opts.highlight = opts.highlight or {}
       opts.highlight.enable = true
+
+      -- [nvim-treesitter-endwise 연동]
+      -- 최신 nvim-treesitter(v1.0+)는 nvim-treesitter.configs 모듈을 제거했으므로
+      -- endwise 설정은 반드시 메인 opts에 통합하여 nvim-treesitter가 직접 전달해야 합니다.
+      opts.endwise = { enable = true }
+
       return opts
     end,
   },
@@ -634,14 +640,11 @@ return {
   -- Ruby/Elixir 등에서도 동일하게 동작합니다.
   -- ※ 성능: 엔터 입력 이벤트에서 현재 줄 Treesitter 노드를 1회 확인 → 상시 부하 0%
   -- ※ Java, Kotlin, Python 등 중괄호/콜론 언어에서는 자동으로 비활성화됩니다.
+  -- ※ 설정은 메인 nvim-treesitter opts의 `endwise = { enable = true }` 에서 통합 관리합니다.
+  --   (최신 nvim-treesitter v1.0+에서 nvim-treesitter.configs 모듈이 제거되어 이 방식이 유일한 정상 경로)
   {
     'RRethy/nvim-treesitter-endwise',
     event = 'InsertEnter',
-    config = function()
-      require('nvim-treesitter.configs').setup({
-        endwise = { enable = true },
-      })
-    end,
     dependencies = { 'nvim-treesitter/nvim-treesitter' },
   },
 }
