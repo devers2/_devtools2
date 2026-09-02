@@ -413,129 +413,131 @@ return {
     'nvim-treesitter/nvim-treesitter-textobjects',
     event = 'BufReadPost',
     config = function()
-      require('nvim-treesitter-textobjects').setup({
+      require('util.plugin_guard').safe_setup('nvim-treesitter-textobjects', 'Treesitter', function()
+        require('nvim-treesitter-textobjects').setup({
 
-        -- =====================================================================
-        -- [Select] 코드 단위 선택 (Visual / Operator-pending 모드)
-        -- =====================================================================
-        select = {
-          enable = true,
+          -- =====================================================================
+          -- [Select] 코드 단위 선택 (Visual / Operator-pending 모드)
+          -- =====================================================================
+          select = {
+            enable = true,
 
-          -- treesitter가 꺼진 버퍼는 선택 기능도 비활성화
-          -- 기존 is_treesitter_active() 헬퍼를 재활용
-          disable = function(lang, buf)
-            return not is_treesitter_active(buf)
-          end,
+            -- treesitter가 꺼진 버퍼는 선택 기능도 비활성화
+            -- 기존 is_treesitter_active() 헬퍼를 재활용
+            disable = function(lang, buf)
+              return not is_treesitter_active(buf)
+            end,
 
-          -- 현재 커서 위치 뒤에 있는 텍스트오브젝트도 자동으로 점프해서 선택
-          lookahead = true,
+            -- 현재 커서 위치 뒤에 있는 텍스트오브젝트도 자동으로 점프해서 선택
+            lookahead = true,
 
-          keymaps = {
-            -- [함수]
-            ['af'] = { query = '@function.outer', desc = '함수 전체 선택 (outer)' },
-            ['if'] = { query = '@function.inner', desc = '함수 본문 선택 (inner)' },
-            -- [클래스]
-            ['ac'] = { query = '@class.outer',    desc = '클래스 전체 선택 (outer)' },
-            ['ic'] = { query = '@class.inner',    desc = '클래스 본문 선택 (inner)' },
-            -- [파라미터/인자]
-            ['aa'] = { query = '@parameter.outer', desc = '파라미터 선택 (outer, 콤마 포함)' },
-            ['ia'] = { query = '@parameter.inner', desc = '파라미터 선택 (inner)' },
-            -- [조건문]
-            ['ai'] = { query = '@conditional.outer', desc = 'if/else 블록 전체 선택' },
-            ['ii'] = { query = '@conditional.inner', desc = 'if/else 본문 선택' },
-            -- [반복문]
-            ['al'] = { query = '@loop.outer', desc = 'loop 블록 전체 선택' },
-            ['il'] = { query = '@loop.inner', desc = 'loop 본문 선택' },
-            -- [블록 (중괄호 등)]
-            ['ab'] = { query = '@block.outer', desc = '블록 전체 선택' },
-            ['ib'] = { query = '@block.inner', desc = '블록 본문 선택' },
+            keymaps = {
+              -- [함수]
+              ['af'] = { query = '@function.outer', desc = '함수 전체 선택 (outer)' },
+              ['if'] = { query = '@function.inner', desc = '함수 본문 선택 (inner)' },
+              -- [클래스]
+              ['ac'] = { query = '@class.outer',    desc = '클래스 전체 선택 (outer)' },
+              ['ic'] = { query = '@class.inner',    desc = '클래스 본문 선택 (inner)' },
+              -- [파라미터/인자]
+              ['aa'] = { query = '@parameter.outer', desc = '파라미터 선택 (outer, 콤마 포함)' },
+              ['ia'] = { query = '@parameter.inner', desc = '파라미터 선택 (inner)' },
+              -- [조건문]
+              ['ai'] = { query = '@conditional.outer', desc = 'if/else 블록 전체 선택' },
+              ['ii'] = { query = '@conditional.inner', desc = 'if/else 본문 선택' },
+              -- [반복문]
+              ['al'] = { query = '@loop.outer', desc = 'loop 블록 전체 선택' },
+              ['il'] = { query = '@loop.inner', desc = 'loop 본문 선택' },
+              -- [블록 (중괄호 등)]
+              ['ab'] = { query = '@block.outer', desc = '블록 전체 선택' },
+              ['ib'] = { query = '@block.inner', desc = '블록 본문 선택' },
+            },
+
+            -- 셀렉션 모드: 함수/클래스는 라인 단위(V), 파라미터는 문자 단위(v)
+            selection_modes = {
+              ['@function.outer']  = 'V',
+              ['@function.inner']  = 'V',
+              ['@class.outer']     = 'V',
+              ['@class.inner']     = 'V',
+              ['@parameter.outer'] = 'v',
+              ['@parameter.inner'] = 'v',
+            },
+
+            -- 선택 시 앞뒤 공백 포함 여부 (false = 코드만 정확하게 선택)
+            include_surrounding_whitespace = false,
           },
 
-          -- 셀렉션 모드: 함수/클래스는 라인 단위(V), 파라미터는 문자 단위(v)
-          selection_modes = {
-            ['@function.outer']  = 'V',
-            ['@function.inner']  = 'V',
-            ['@class.outer']     = 'V',
-            ['@class.inner']     = 'V',
-            ['@parameter.outer'] = 'v',
-            ['@parameter.inner'] = 'v',
+          -- =====================================================================
+          -- [Move] 함수/클래스 경계로 커서 이동
+          -- treesitter 파서 없으면 내부적으로 graceful 실패 → 별도 disable 불필요
+          -- =====================================================================
+          move = {
+            enable = true,
+            -- 이동 기록을 jumplist에 추가 (Ctrl-O/Ctrl-I로 되돌아올 수 있음)
+            set_jumps = true,
+
+            goto_next_start = {
+              [']f'] = { query = '@function.outer', desc = '다음 함수 시작으로 이동' },
+              [']c'] = { query = '@class.outer',    desc = '다음 클래스 시작으로 이동' },
+              [']a'] = { query = '@parameter.inner', desc = '다음 파라미터로 이동' },
+            },
+            goto_next_end = {
+              [']F'] = { query = '@function.outer', desc = '다음 함수 끝으로 이동' },
+              [']C'] = { query = '@class.outer',    desc = '다음 클래스 끝으로 이동' },
+            },
+            goto_previous_start = {
+              ['[f'] = { query = '@function.outer', desc = '이전 함수 시작으로 이동' },
+              ['[c'] = { query = '@class.outer',    desc = '이전 클래스 시작으로 이동' },
+              ['[a'] = { query = '@parameter.inner', desc = '이전 파라미터로 이동' },
+            },
+            goto_previous_end = {
+              ['[F'] = { query = '@function.outer', desc = '이전 함수 끝으로 이동' },
+              ['[C'] = { query = '@class.outer',    desc = '이전 클래스 끝으로 이동' },
+            },
           },
 
-          -- 선택 시 앞뒤 공백 포함 여부 (false = 코드만 정확하게 선택)
-          include_surrounding_whitespace = false,
-        },
+          -- =====================================================================
+          -- [Swap] 파라미터/인자 순서 교환
+          -- treesitter 파서 없으면 내부적으로 graceful 실패 → 별도 disable 불필요
+          -- =====================================================================
+          swap = {
+            enable = true,
+            swap_next = {
+              ['<leader>cp'] = { query = '@parameter.inner', desc = '현재 파라미터를 다음과 교환 (Swap Next Param)' },
+            },
+            swap_previous = {
+              ['<leader>cP'] = { query = '@parameter.inner', desc = '현재 파라미터를 이전과 교환 (Swap Prev Param)' },
+            },
+          },
+        })
 
-        -- =====================================================================
-        -- [Move] 함수/클래스 경계로 커서 이동
-        -- treesitter 파서 없으면 내부적으로 graceful 실패 → 별도 disable 불필요
-        -- =====================================================================
-        move = {
-          enable = true,
-          -- 이동 기록을 jumplist에 추가 (Ctrl-O/Ctrl-I로 되돌아올 수 있음)
-          set_jumps = true,
-
-          goto_next_start = {
-            [']f'] = { query = '@function.outer', desc = '다음 함수 시작으로 이동' },
-            [']c'] = { query = '@class.outer',    desc = '다음 클래스 시작으로 이동' },
-            [']a'] = { query = '@parameter.inner', desc = '다음 파라미터로 이동' },
-          },
-          goto_next_end = {
-            [']F'] = { query = '@function.outer', desc = '다음 함수 끝으로 이동' },
-            [']C'] = { query = '@class.outer',    desc = '다음 클래스 끝으로 이동' },
-          },
-          goto_previous_start = {
-            ['[f'] = { query = '@function.outer', desc = '이전 함수 시작으로 이동' },
-            ['[c'] = { query = '@class.outer',    desc = '이전 클래스 시작으로 이동' },
-            ['[a'] = { query = '@parameter.inner', desc = '이전 파라미터로 이동' },
-          },
-          goto_previous_end = {
-            ['[F'] = { query = '@function.outer', desc = '이전 함수 끝으로 이동' },
-            ['[C'] = { query = '@class.outer',    desc = '이전 클래스 끝으로 이동' },
-          },
-        },
-
-        -- =====================================================================
-        -- [Swap] 파라미터/인자 순서 교환
-        -- treesitter 파서 없으면 내부적으로 graceful 실패 → 별도 disable 불필요
-        -- =====================================================================
-        swap = {
-          enable = true,
-          swap_next = {
-            ['<leader>cp'] = { query = '@parameter.inner', desc = '현재 파라미터를 다음과 교환 (Swap Next Param)' },
-          },
-          swap_previous = {
-            ['<leader>cP'] = { query = '@parameter.inner', desc = '현재 파라미터를 이전과 교환 (Swap Prev Param)' },
-          },
-        },
-      })
-
-      -- -----------------------------------------------------------------------
-      -- [Move 반복 이동 지원] ; 와 , 로 마지막 이동 반복 (f/t 와 동일한 UX)
-      -- -----------------------------------------------------------------------
-      local ok_repeat, ts_repeat = pcall(require, 'nvim-treesitter-textobjects.repeatable_move')
-      if not ok_repeat then
-        ok_repeat, ts_repeat = pcall(require, 'nvim-treesitter.textobjects.repeatable_move')
-      end
-
-      if ok_repeat and ts_repeat then
-        local next_move = ts_repeat.repeat_last_move_next or ts_repeat.repeat_last_move
-        local prev_move = ts_repeat.repeat_last_move_previous or ts_repeat.repeat_last_move_opposite
-        if next_move then
-          vim.keymap.set({ 'n', 'x', 'o' }, ';', next_move, { desc = '마지막 textobject 이동 반복 (전방)' })
-        end
-        if prev_move then
-          vim.keymap.set({ 'n', 'x', 'o' }, ',', prev_move, { desc = '마지막 textobject 이동 반복 (후방)' })
+        -- -----------------------------------------------------------------------
+        -- [Move 반복 이동 지원] ; 와 , 로 마지막 이동 반복 (f/t 와 동일한 UX)
+        -- -----------------------------------------------------------------------
+        local ok_repeat, ts_repeat = pcall(require, 'nvim-treesitter-textobjects.repeatable_move')
+        if not ok_repeat then
+          ok_repeat, ts_repeat = pcall(require, 'nvim-treesitter.textobjects.repeatable_move')
         end
 
-        local f_fn = ts_repeat.builtin_f_expr or ts_repeat.builtin_f
-        local F_fn = ts_repeat.builtin_F_expr or ts_repeat.builtin_F
-        local t_fn = ts_repeat.builtin_t_expr or ts_repeat.builtin_t
-        local T_fn = ts_repeat.builtin_T_expr or ts_repeat.builtin_T
-        if f_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'f', f_fn, { expr = true }) end
-        if F_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'F', F_fn, { expr = true }) end
-        if t_fn then vim.keymap.set({ 'n', 'x', 'o' }, 't', t_fn, { expr = true }) end
-        if T_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'T', T_fn, { expr = true }) end
-      end
+        if ok_repeat and ts_repeat then
+          local next_move = ts_repeat.repeat_last_move_next or ts_repeat.repeat_last_move
+          local prev_move = ts_repeat.repeat_last_move_previous or ts_repeat.repeat_last_move_opposite
+          if next_move then
+            vim.keymap.set({ 'n', 'x', 'o' }, ';', next_move, { desc = '마지막 textobject 이동 반복 (전방)' })
+          end
+          if prev_move then
+            vim.keymap.set({ 'n', 'x', 'o' }, ',', prev_move, { desc = '마지막 textobject 이동 반복 (후방)' })
+          end
+
+          local f_fn = ts_repeat.builtin_f_expr or ts_repeat.builtin_f
+          local F_fn = ts_repeat.builtin_F_expr or ts_repeat.builtin_F
+          local t_fn = ts_repeat.builtin_t_expr or ts_repeat.builtin_t
+          local T_fn = ts_repeat.builtin_T_expr or ts_repeat.builtin_T
+          if f_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'f', f_fn, { expr = true }) end
+          if F_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'F', F_fn, { expr = true }) end
+          if t_fn then vim.keymap.set({ 'n', 'x', 'o' }, 't', t_fn, { expr = true }) end
+          if T_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'T', T_fn, { expr = true }) end
+        end
+      end)
     end,
   },
 
@@ -565,44 +567,49 @@ return {
     'HiPhish/rainbow-delimiters.nvim',
     event = { 'BufReadPost', 'BufNewFile' },
     config = function()
-      local rainbow = require('rainbow-delimiters')
-      vim.g.rainbow_delimiters = {
-        strategy = {
-          [''] = rainbow.strategy['global'],
-          vim = rainbow.strategy['local'],
-        },
-        query = {
-          [''] = 'rainbow-delimiters',
-          lua = 'rainbow-blocks',
-        },
-        priority = {
-          [''] = 110,
-        },
-        -- 🔒 Treesitter가 켜져 있는 정상 버퍼에서만 동작하도록 가드 연동
-        condition = function(bufnr)
-          return is_treesitter_active(bufnr)
-        end,
-      }
+      require('util.plugin_guard').safe_setup('rainbow-delimiters.nvim', 'Treesitter', function()
+        local rainbow = require('rainbow-delimiters')
+        vim.g.rainbow_delimiters = {
+          strategy = {
+            [''] = rainbow.strategy['global'],
+            vim = rainbow.strategy['local'],
+          },
+          query = {
+            [''] = 'rainbow-delimiters',
+            lua = 'rainbow-blocks',
+          },
+          priority = {
+            [''] = 110,
+          },
+          -- 🔒 Treesitter가 켜져 있는 정상 버퍼에서만 동작하도록 가드 연동
+          condition = function(bufnr)
+            return is_treesitter_active(bufnr)
+          end,
+        }
+      end)
     end,
   },
 
   -- [Treesitter TreeSJ 설정]
   -- 배열, 딕셔너리/객체, 함수 파라미터 등을 한 줄 ↔ 여러 줄로 스마트하게 분할/병합(Split/Join)합니다.
   -- Treesitter AST 구문 트리 기반으로 콤마와 들여쓰기를 완벽하게 유지합니다.
-  {
-    'Wansmer/treesj',
+  {\n    'Wansmer/treesj',
     keys = {
       {
         '<leader>cj',
         function()
-          require('treesj').toggle()
+          require('util.plugin_guard').safe_setup('treesj', 'Treesitter', function()
+            require('treesj').toggle()
+          end)
         end,
         desc = '코드 한 줄 ↔ 여러 줄 변환 토글 (Split/Join Toggle)',
       },
       {
         '<leader>cJ',
         function()
-          require('treesj').toggle({ split = { recursive = true } })
+          require('util.plugin_guard').safe_setup('treesj', 'Treesitter', function()
+            require('treesj').toggle({ split = { recursive = true } })
+          end)
         end,
         desc = '하위 항목까지 재귀적 변환 (Recursive Split/Join)',
       },
