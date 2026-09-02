@@ -187,6 +187,15 @@ return {
           prepend_args = { '--config-path', vim.fs.joinpath(vim.fn.stdpath('config'), 'stylua.toml') },
         },
 
+        -- XML (Spring & MyBatis 매퍼):
+        -- MyBatis 다이나믹 쿼리 및 SQL 태그 내부의 줄바꿈/인덴트를 100% 보존(--preserve)하여 쿼리 뭉개짐을 방지합니다.
+        xmlformatter = {
+          prepend_args = {
+            '--preserve',
+            'select,insert,update,delete,sql,selectKey,if,choose,when,otherwise,where,set,trim,foreach,bind',
+          },
+        },
+
         -- Python
         ruff_format = {
           prepend_args = { '--config', _G.DEVTOOLS2_DIR .. '/.config/ruff/ruff.toml' },
