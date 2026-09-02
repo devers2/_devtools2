@@ -584,6 +584,35 @@ return {
       }
     end,
   },
+
+  -- [Treesitter TreeSJ 설정]
+  -- 배열, 딕셔너리/객체, 함수 파라미터 등을 한 줄 ↔ 여러 줄로 스마트하게 분할/병합(Split/Join)합니다.
+  -- Treesitter AST 구문 트리 기반으로 콤마와 들여쓰기를 완벽하게 유지합니다.
+  {
+    'Wansmer/treesj',
+    keys = {
+      {
+        '<leader>cj',
+        function()
+          require('treesj').toggle()
+        end,
+        desc = '코드 한 줄 ↔ 여러 줄 변환 토글 (Split/Join Toggle)',
+      },
+      {
+        '<leader>cJ',
+        function()
+          require('treesj').toggle({ split = { recursive = true } })
+        end,
+        desc = '하위 항목까지 재귀적 변환 (Recursive Split/Join)',
+      },
+    },
+    dependencies = { 'nvim-treesitter/nvim-treesitter' },
+    opts = {
+      use_default_keymaps = false, -- <leader>cj 커스텀 키맵 사용을 위해 기본 키맵 비활성화
+      max_join_length = 150,      -- 한 줄로 합칠 때 허용할 최대 문자 수
+    },
+  },
 }
+
 
 

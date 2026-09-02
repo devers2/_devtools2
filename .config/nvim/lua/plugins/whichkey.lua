@@ -345,6 +345,9 @@ return {
         { '<leader>cF', desc = '삽입 언어 포맷 (Format Injected Langs)' },
         { '<leader>cl', desc = 'LSP 설정 정보 (Lsp Info)' },
         { '<leader>cm', desc = 'Mason 패키지 관리자 (Mason)' },
+        -- 💡 Wansmer/treesj: 코드 한 줄 ↔ 여러 줄 변환 (Split/Join)
+        { '<leader>cj', desc = '한 줄 ↔ 여러 줄 변환 토글 (Split/Join Toggle)' },
+        { '<leader>cJ', desc = '하위 항목까지 재귀적 변환 (Recursive Split/Join)' },
         -- 💡 nvim-treesitter-textobjects: 파라미터 순서 교환 (Swap)
         -- ⚠️ 단축키를 변경할 경우 `lua/plugins/treesitter.lua`의 textobjects.swap 설정도 반드시 함께 변경해야 합니다.
         { '<leader>cp', desc = '다음 파라미터와 교환 (Swap Next Parameter)' },
