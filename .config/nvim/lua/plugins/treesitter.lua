@@ -375,17 +375,45 @@ return {
   },
 
   -- [Treesitter Context 설정]
-  -- 파일 상단에 현재 커서가 위치한 컨텍스트(클래스, 메서드 명 등)를 고정하여 보여줍니다.
+  -- 파일 상단에 현재 커서가 위치한 컨텍스트(클래스 → 메서드 → 블록)를 고정하여 보여줍니다.
   {
     'nvim-treesitter/nvim-treesitter-context',
     event = 'BufReadPost',
     opts = {
-      max_lines = 3, -- 상단에 고정될 최대 줄 수 (너무 많으면 화면을 가리므로 3~5줄 추천)
-      min_window_height = 0, -- 설정한 높이 이상의 창에서만 작동
+      -- 1. 고정 줄 수 제한 없음 → 화면 비율 제한(max_window_height)이 실질적으로 통제
+      --    (숫자로 고정하면 창 크기가 달라질 때 너무 많거나 너무 적어지는 문제 발생)
+      max_lines = 0,
+
+      -- 2. 화면 비율 제한: 편집기 창 높이의 최대 25%까지만 컨텍스트로 고정
+      --    → 작은 창에서 컨텍스트가 절반을 차지하는 현상 방지
+      --    → 큰 창에서는 깊은 중첩도 충분히 표시
+      max_window_height = 0.25,
+
+      -- 3. 20줄 미만의 작은 창(팝업/미리보기 등)에서는 표시 안 함
+      min_window_height = 20,
+
+      -- 4. 줄 번호 표시 (컨텍스트가 파일의 몇 번째 줄에서 왔는지 파악 가능)
       line_numbers = true,
-      multiline_threshold = 20, -- 한 메서드가 너무 길 때 유지할 최대 줄 수
-      trim_scope = 'outer', -- max_lines를 넘었을 때 어느 쪽을 숨길지 설정
-      mode = 'cursor', -- 'cursor' 또는 'topline' 기준
+
+      -- 5. 함수 선언부가 여러 줄일 때 최대 3줄까지 표시
+      --    def example(    ← 1줄
+      --      param_a,      ← 2줄
+      --      param_b,      ← 3줄 (여기까지만 표시)
+      --    ):
+      multiline_threshold = 3,
+
+      -- 6. max_lines/max_window_height 초과 시 바깥 스코프(클래스 레벨)부터 숨김
+      --    → 현재 커서가 있는 안쪽 함수/조건문을 우선 보존
+      trim_scope = 'outer',
+
+      -- 7. 커서 위치 기준으로 컨텍스트 결정 (topline보다 직관적)
+      mode = 'cursor',
+
+      -- 8. 컨텍스트 고정 영역과 실제 코드 사이 구분선 (없으면 경계가 불명확)
+      separator = '─',
+
+      -- 9. 플로팅 창 z-order (다른 팝업에 가리지 않는 기본값)
+      zindex = 20,
     },
   },
 }
