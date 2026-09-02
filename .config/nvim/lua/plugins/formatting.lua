@@ -22,10 +22,19 @@
 --        },
 -- =============================================================================
 
+-- 헬퍼 함수: 버퍼의 Treesitter 활성 여부 안전 검사 (전역 헬퍼 + Neovim 표준 API 이중 가드)
+local function is_ts_active(bufnr)
+  if _G.is_treesitter_active then
+    return _G.is_treesitter_active(bufnr)
+  end
+  local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
+  return ok and parser ~= nil
+end
+
 -- 헬퍼 함수: Treesitter 활성 여부에 따라 Injected 포맷터를 동적으로 결합
 local function with_injected(base_formatter)
   return function(bufnr)
-    if _G.is_treesitter_active and _G.is_treesitter_active(bufnr) then
+    if is_ts_active(bufnr) then
       return { 'injected', base_formatter }
     else
       return { base_formatter }
@@ -33,29 +42,50 @@ local function with_injected(base_formatter)
   end
 end
 
+-- 헬퍼 함수: 프로젝트 로컬 Prettier 설정 파일 존재 여부 검사
+local function find_local_prettier_config(filename)
+  if not filename or filename == '' then
+    return nil
+  end
+  return vim.fs.root(filename, {
+    '.prettierrc',
+    '.prettierrc.json',
+    '.prettierrc.js',
+    '.prettierrc.cjs',
+    '.prettierrc.mjs',
+    '.prettierrc.yaml',
+    '.prettierrc.yml',
+    'prettier.config.js',
+    'prettier.config.cjs',
+    'prettier.config.mjs',
+  })
+end
+
+-- 헬퍼 함수: 스마트 Prettier 인자 빌더
+-- 프로젝트 로컬에 Prettier 설정이 존재하면 로컬 설정을 따르고,
+-- 로컬 설정이 없을 때만 글로벌 _devtools2의 .prettierrc.cjs 설정을 안전하게 폴백 적용합니다.
+local function get_smart_prettier_prepend_args(self, ctx)
+  local has_local_config = find_local_prettier_config(ctx.filename) ~= nil
+
+  if has_local_config then
+    -- 로컬 설정 파일 존재 시: Prettier 자체 설정 탐색 활용 (--ignore-path ""로 와일드카드 무시 버그만 방어)
+    return { '--ignore-path', '' }
+  else
+    -- 로컬 설정 파일 부재 시: 글로벌 _devtools2 Prettier 설정 명시 지정
+    return {
+      '--config',
+      _G.DEVTOOLS2_DIR .. '/.config/prettier/.prettierrc.cjs',
+      '--ignore-path',
+      '',
+    }
+  end
+end
+
 return {
   {
     'stevearc/conform.nvim',
     init = function()
-      -- 1. LazyVim의 기본 conform 포맷터 자동 등록 (저장 시 자동 포맷팅 엔진)
-      LazyVim.on_very_lazy(function()
-        LazyVim.format.register({
-          name = 'conform.nvim',
-          priority = 100,
-          primary = true,
-          format = function(buf)
-            require('conform').format({ bufnr = buf })
-          end,
-          sources = function(buf)
-            local ret = require('conform').list_formatters(buf)
-            return vim.tbl_map(function(v)
-              return v.name
-            end, ret)
-          end,
-        })
-      end)
-
-      -- 2. [프로젝트별 conform 로그 파일 분리]
+      -- 1. [프로젝트별 conform 로그 파일 분리]
       -- conform.nvim의 기본값(~/.local/state/nvim/conform.log)은 모든 프로젝트의 로그가 하나의 파일에 누적되어,
       -- 다른 프로젝트에서 :ConformInfo 를 열었을 때 이전 프로젝트의 오류/로그가 뒤섞여 보이는 문제가 있습니다.
       -- 이를 해결하기 위해 현재 열려있는 파일의 프로젝트 루트(Git 또는 프로젝트 디렉터리명)를 기준으로
@@ -127,10 +157,12 @@ return {
         -- SQL: JPA / MyBatis 쿼리 및 단독 SQL 파일 포맷팅
         sql = { 'sql_formatter' },
 
-        -- ── 3. 웹 / 템플릿 (Treesitter Injected 동적 연동) ──
-        -- HTML: Jinja2 템플릿 보존 + Treesitter script/style 내장 언어 동적 포맷팅
-        html = with_injected('prettier_html'),
-        htmldjango = with_injected('prettier_html'),
+        -- ── 3. 웹 / 템플릿 (Treesitter Injected 동적 연동 & 안전 분리) ──
+        -- HTML / Django: Prettier HTML 파서가 <script>/<style> 들여쓰기를 HTML 문맥(+2)에 맞게 전담합니다.
+        -- standalone JS Injected 포맷터가 0칸 기준으로 뭉갰다가 Prettier가 다시 미는
+        -- 들여쓰기 누적/경합 버그(CDATA 스크립트 등)를 원천 차단하기 위해 Prettier 단독 실행합니다.
+        html = { 'prettier' },
+        htmldjango = { 'prettier' },
         -- JS / TS: 템플릿 리터럴(/* sql */, /* html */ 등) 내장 언어 동적 포맷팅
         javascript = with_injected('prettier'),
         typescript = with_injected('prettier'),
@@ -159,47 +191,15 @@ return {
           },
         },
 
-        -- 기존 prettier: 글로벌 설정 강제 적용 (JS/TS/JSON/CSS 등)
+        -- 🌟 스마트 Prettier:
+        -- 1) 프로젝트 로컬에 .prettierrc / prettier.config 등이 존재하면 로컬 설정을 최우선 존중
+        -- 2) 로컬 설정이 없는 독립 파일/프로젝트일 때만 글로벌 _devtools2의 .prettierrc.cjs 로 안전하게 폴백
+        -- 3) --ignore-path "" 로 .gitignore의 '*' 와일드카드로 인해 Prettier가 파일을 건너뛰는 현상 완벽 방어
         prettier = {
-          prepend_args = {
-            '--config',
-            _G.DEVTOOLS2_DIR .. '/.config/prettier/.prettierrc.cjs',
-            '--ignore-path',
-            '', -- .gitignore의 '*' 와일드카드로 인해 Prettier가 파일을 무시하는 현상 방지
-          },
+          prepend_args = get_smart_prettier_prepend_args,
         },
-
-        -- HTML 전용: 프로젝트 로컬에 .prettierrc가 존재하면 로컬 설정을 따르고, 없으면 글로벌 설정을 사용하도록 자동 폴백
         prettier_html = {
-          command = 'prettier',
-          args = function(self, ctx)
-            local has_local_config = false
-            if ctx.filename and ctx.filename ~= '' then
-              has_local_config = vim.fs.root(ctx.filename, {
-                '.prettierrc',
-                '.prettierrc.json',
-                '.prettierrc.js',
-                '.prettierrc.cjs',
-                '.prettierrc.yaml',
-                '.prettierrc.yml',
-                'prettier.config.js',
-                'prettier.config.cjs',
-              }) ~= nil
-            end
-
-            if has_local_config then
-              -- 프로젝트 로컬 설정 파일이 존재할 경우: --config 없이 자동으로 로컬 설정을 찾아서 사용하도록 유도
-              return { '--stdin-filepath', '$FILENAME' }
-            else
-              -- 로컬 설정 파일이 없을 경우: 글로벌 _devtools2의 .prettierrc.cjs 설정을 사용하도록 강제 지정
-              return {
-                '--config',
-                _G.DEVTOOLS2_DIR .. '/.config/prettier/.prettierrc.cjs',
-                '--stdin-filepath',
-                '$FILENAME',
-              }
-            end
-          end,
+          prepend_args = get_smart_prettier_prepend_args,
         },
 
         stylua = {

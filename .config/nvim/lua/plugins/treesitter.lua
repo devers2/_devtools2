@@ -23,6 +23,7 @@ local function is_treesitter_active(buf)
   local ok, parser = pcall(vim.treesitter.get_parser, buf)
   return ok and parser ~= nil
 end
+_G.is_treesitter_active = is_treesitter_active
 
 ---treesitter-context를 현재 버퍼의 treesitter 상태에 맞춰 동기화
 ---treesitter가 켜진 버퍼로 진입 시 enable, 꺼진 버퍼면 disable
@@ -414,45 +415,14 @@ return {
     event = 'BufReadPost',
     config = function()
       require('util.plugin_guard').safe_setup('nvim-treesitter-textobjects', 'Treesitter', function()
+        local select = require('nvim-treesitter-textobjects.select')
+        local move = require('nvim-treesitter-textobjects.move')
+        local swap = require('nvim-treesitter-textobjects.swap')
+
+        -- 최신 main 브랜치 옵션 설정 (lookahead, selection_modes, whitespace)
         require('nvim-treesitter-textobjects').setup({
-
-          -- =====================================================================
-          -- [Select] 코드 단위 선택 (Visual / Operator-pending 모드)
-          -- =====================================================================
           select = {
-            enable = true,
-
-            -- treesitter가 꺼진 버퍼는 선택 기능도 비활성화
-            -- 기존 is_treesitter_active() 헬퍼를 재활용
-            disable = function(lang, buf)
-              return not is_treesitter_active(buf)
-            end,
-
-            -- 현재 커서 위치 뒤에 있는 텍스트오브젝트도 자동으로 점프해서 선택
             lookahead = true,
-
-            keymaps = {
-              -- [함수]
-              ['af'] = { query = '@function.outer', desc = '함수 전체 선택 (outer)' },
-              ['if'] = { query = '@function.inner', desc = '함수 본문 선택 (inner)' },
-              -- [클래스]
-              ['ac'] = { query = '@class.outer',    desc = '클래스 전체 선택 (outer)' },
-              ['ic'] = { query = '@class.inner',    desc = '클래스 본문 선택 (inner)' },
-              -- [파라미터/인자]
-              ['aa'] = { query = '@parameter.outer', desc = '파라미터 선택 (outer, 콤마 포함)' },
-              ['ia'] = { query = '@parameter.inner', desc = '파라미터 선택 (inner)' },
-              -- [조건문]
-              ['ai'] = { query = '@conditional.outer', desc = 'if/else 블록 전체 선택' },
-              ['ii'] = { query = '@conditional.inner', desc = 'if/else 본문 선택' },
-              -- [반복문]
-              ['al'] = { query = '@loop.outer', desc = 'loop 블록 전체 선택' },
-              ['il'] = { query = '@loop.inner', desc = 'loop 본문 선택' },
-              -- [블록 (중괄호 등)]
-              ['ab'] = { query = '@block.outer', desc = '블록 전체 선택' },
-              ['ib'] = { query = '@block.inner', desc = '블록 본문 선택' },
-            },
-
-            -- 셀렉션 모드: 함수/클래스는 라인 단위(V), 파라미터는 문자 단위(v)
             selection_modes = {
               ['@function.outer']  = 'V',
               ['@function.inner']  = 'V',
@@ -461,54 +431,86 @@ return {
               ['@parameter.outer'] = 'v',
               ['@parameter.inner'] = 'v',
             },
-
-            -- 선택 시 앞뒤 공백 포함 여부 (false = 코드만 정확하게 선택)
             include_surrounding_whitespace = false,
           },
-
-          -- =====================================================================
-          -- [Move] 함수/클래스 경계로 커서 이동
-          -- treesitter 파서 없으면 내부적으로 graceful 실패 → 별도 disable 불필요
-          -- =====================================================================
           move = {
-            enable = true,
-            -- 이동 기록을 jumplist에 추가 (Ctrl-O/Ctrl-I로 되돌아올 수 있음)
             set_jumps = true,
-
-            goto_next_start = {
-              [']f'] = { query = '@function.outer', desc = '다음 함수 시작으로 이동' },
-              [']c'] = { query = '@class.outer',    desc = '다음 클래스 시작으로 이동' },
-              [']a'] = { query = '@parameter.inner', desc = '다음 파라미터로 이동' },
-            },
-            goto_next_end = {
-              [']F'] = { query = '@function.outer', desc = '다음 함수 끝으로 이동' },
-              [']C'] = { query = '@class.outer',    desc = '다음 클래스 끝으로 이동' },
-            },
-            goto_previous_start = {
-              ['[f'] = { query = '@function.outer', desc = '이전 함수 시작으로 이동' },
-              ['[c'] = { query = '@class.outer',    desc = '이전 클래스 시작으로 이동' },
-              ['[a'] = { query = '@parameter.inner', desc = '이전 파라미터로 이동' },
-            },
-            goto_previous_end = {
-              ['[F'] = { query = '@function.outer', desc = '이전 함수 끝으로 이동' },
-              ['[C'] = { query = '@class.outer',    desc = '이전 클래스 끝으로 이동' },
-            },
-          },
-
-          -- =====================================================================
-          -- [Swap] 파라미터/인자 순서 교환
-          -- treesitter 파서 없으면 내부적으로 graceful 실패 → 별도 disable 불필요
-          -- =====================================================================
-          swap = {
-            enable = true,
-            swap_next = {
-              ['<leader>cp'] = { query = '@parameter.inner', desc = '현재 파라미터를 다음과 교환 (Swap Next Param)' },
-            },
-            swap_previous = {
-              ['<leader>cP'] = { query = '@parameter.inner', desc = '현재 파라미터를 이전과 교환 (Swap Prev Param)' },
-            },
           },
         })
+
+        -- treesitter가 꺼진 버퍼는 선택/이동/스왑 기능도 안전하게 비활성화 (기존 is_treesitter_active 재활용)
+        local function ts_guard(fn)
+          return function(...)
+            local buf = vim.api.nvim_get_current_buf()
+            if not is_treesitter_active(buf) then
+              return
+            end
+            return fn(...)
+          end
+        end
+
+        -- =====================================================================
+        -- [Select] 코드 단위 선택 (Visual / Operator-pending 모드)
+        -- =====================================================================
+        local select_keymaps = {
+          -- [함수]
+          ['af'] = { '@function.outer', '함수 전체 선택 (outer)' },
+          ['if'] = { '@function.inner', '함수 본문 선택 (inner)' },
+          -- [클래스]
+          ['ac'] = { '@class.outer',    '클래스 전체 선택 (outer)' },
+          ['ic'] = { '@class.inner',    '클래스 본문 선택 (inner)' },
+          -- [파라미터/인자]
+          ['aa'] = { '@parameter.outer', '파라미터 선택 (outer, 콤마 포함)' },
+          ['ia'] = { '@parameter.inner', '파라미터 선택 (inner)' },
+          -- [조건문]
+          ['ai'] = { '@conditional.outer', 'if/else 블록 전체 선택' },
+          ['ii'] = { '@conditional.inner', 'if/else 본문 선택' },
+          -- [반복문]
+          ['al'] = { '@loop.outer', 'loop 블록 전체 선택' },
+          ['il'] = { '@loop.inner', 'loop 본문 선택' },
+          -- [블록 (중괄호 등)]
+          ['ab'] = { '@block.outer', '블록 전체 선택' },
+          ['ib'] = { '@block.inner', '블록 본문 선택' },
+        }
+
+        for key, def in pairs(select_keymaps) do
+          vim.keymap.set({ 'x', 'o' }, key, ts_guard(function()
+            select.select_textobject(def[1], 'textobjects')
+          end), { desc = def[2], silent = true })
+        end
+
+        -- =====================================================================
+        -- [Move] 함수/클래스 경계로 커서 이동
+        -- =====================================================================
+        local move_keymaps = {
+          [']f'] = { move.goto_next_start,     '@function.outer', '다음 함수 시작으로 이동' },
+          [']c'] = { move.goto_next_start,     '@class.outer',    '다음 클래스 시작으로 이동' },
+          [']a'] = { move.goto_next_start,     '@parameter.inner', '다음 파라미터로 이동' },
+          [']F'] = { move.goto_next_end,       '@function.outer', '다음 함수 끝으로 이동' },
+          [']C'] = { move.goto_next_end,       '@class.outer',    '다음 클래스 끝으로 이동' },
+          ['[f'] = { move.goto_previous_start, '@function.outer', '이전 함수 시작으로 이동' },
+          ['[c'] = { move.goto_previous_start, '@class.outer',    '이전 클래스 시작으로 이동' },
+          ['[a'] = { move.goto_previous_start, '@parameter.inner', '이전 파라미터로 이동' },
+          ['[F'] = { move.goto_previous_end,   '@function.outer', '이전 함수 끝으로 이동' },
+          ['[C'] = { move.goto_previous_end,   '@class.outer',    '이전 클래스 끝으로 이동' },
+        }
+
+        for key, def in pairs(move_keymaps) do
+          vim.keymap.set({ 'n', 'x', 'o' }, key, ts_guard(function()
+            def[1](def[2], 'textobjects')
+          end), { desc = def[3], silent = true })
+        end
+
+        -- =====================================================================
+        -- [Swap] 파라미터/인자 순서 교환
+        -- =====================================================================
+        vim.keymap.set('n', '<leader>cp', ts_guard(function()
+          swap.swap_next('@parameter.inner')
+        end), { desc = '현재 파라미터를 다음과 교환 (Swap Next Param)' })
+
+        vim.keymap.set('n', '<leader>cP', ts_guard(function()
+          swap.swap_previous('@parameter.inner')
+        end), { desc = '현재 파라미터를 이전과 교환 (Swap Prev Param)' })
 
         -- -----------------------------------------------------------------------
         -- [Move 반복 이동 지원] ; 와 , 로 마지막 이동 반복 (f/t 와 동일한 UX)
