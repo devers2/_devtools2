@@ -17,64 +17,44 @@ local ENABLE_PRE_INSTALL = true
 
 return {
   {
-    'mason-org/mason.nvim',
+    'williamboman/mason.nvim',
     cmd = 'Mason',
     keys = { { '<leader>cm', '<cmd>Mason<cr>', desc = 'Mason 패키지 관리자 (Mason)' } },
     build = ':MasonUpdate',
-    opts = {
-      ui = {
-        border = 'rounded',
-        icons = {
-          package_installed = '✓',
-          package_pending = '➜',
-          package_uninstalled = '✗',
-        },
-      },
-      -- ENABLE_PRE_INSTALL 플래그에 따라 사전 설치 목록을 동적으로 활성화/비활성화
-      ensure_installed = ENABLE_PRE_INSTALL and {
-        -- =====================================================================
-        -- ── 1. LSP 서버 (Language Servers) ──
-        -- =====================================================================
-        'jdtls',                  -- Java (nvim-jdtls와 연동)
-        'kotlin-language-server', -- Kotlin (.kt, .kts, build.gradle.kts)
-        'basedpyright',           -- Python (초고속 정적 타입 분석 및 정의 이동)
-        'ruff',                   -- Python (실시간 린팅 & 진단)
-        'yaml-language-server',   -- YAML (Spring Boot application.yml, GitHub Actions 등)
-        'vtsls',                  -- TypeScript / JavaScript
+    opts = function(_, opts)
+      opts.ui = opts.ui or {}
+      opts.ui.border = 'rounded'
+      opts.ui.icons = {
+        package_installed = '✓',
+        package_pending = '➜',
+        package_uninstalled = '✗',
+      }
 
-        -- =====================================================================
-        -- ── 2. 포맷터 & 린터 (Formatters & Linters) ──
-        -- =====================================================================
-        'prettier',               -- 웹/문서 (HTML, JS/TS, CSS, JSON, YAML, Markdown)
-        'stylua',                 -- Lua (Neovim 설정 파일 포맷팅)
-        'ktlint',                 -- Kotlin (.kt, .kts, build.gradle.kts 표준 포맷터)
-        'xmlformatter',           -- XML (pom.xml, logback.xml, mapper.xml 등)
-        'sql-formatter',          -- SQL (단독 .sql 파일 및 JPA/MyBatis 텍스트 블록)
-        'markdownlint-cli2',      -- Markdown (nvim-lint 마크다운 린터)
-      } or {},
-    },
-    ---@param opts MasonSettings | {ensure_installed: string[]}
-    config = function(_, opts)
-      require('mason').setup(opts)
-      local mr = require('mason-registry')
-      mr:on('package:install:success', function()
-        vim.defer_fn(function()
-          -- 패키지 설치 완료 시 필요한 핸들러 자동 트리거
-          pcall(require('lazy.core.handler.event').custom, {
-            event = 'FileType',
-            buf = vim.api.nvim_get_current_buf(),
-          })
-        end, 100)
-      end)
+      opts.ensure_installed = opts.ensure_installed or {}
 
-      mr.refresh(function()
-        for _, tool in ipairs(opts.ensure_installed) do
-          local p = mr.get_package(tool)
-          if not p:is_installed() then
-            p:install()
-          end
-        end
-      end)
+      if ENABLE_PRE_INSTALL then
+        vim.list_extend(opts.ensure_installed, {
+          -- ===================================================================
+          -- ── 1. LSP 서버 (Language Servers) ──
+          -- ===================================================================
+          'jdtls',                  -- Java (nvim-jdtls와 연동)
+          'kotlin-language-server', -- Kotlin (.kt, .kts, build.gradle.kts)
+          'basedpyright',           -- Python (초고속 정적 타입 분석 및 정의 이동)
+          'ruff',                   -- Python (실시간 린팅 & 진단)
+          'yaml-language-server',   -- YAML (Spring Boot application.yml, GitHub Actions 등)
+          'vtsls',                  -- TypeScript / JavaScript
+
+          -- ===================================================================
+          -- ── 2. 포맷터 & 린터 (Formatters & Linters) ──
+          -- ===================================================================
+          'prettier',               -- 웹/문서 (HTML, JS/TS, CSS, JSON, YAML, Markdown)
+          'stylua',                 -- Lua (Neovim 설정 파일 포맷팅)
+          'ktlint',                 -- Kotlin (.kt, .kts, build.gradle.kts 표준 포맷터)
+          'xmlformatter',           -- XML (pom.xml, logback.xml, mapper.xml 등)
+          'sql-formatter',          -- SQL (단독 .sql 파일 및 JPA/MyBatis 텍스트 블록)
+          'markdownlint-cli2',      -- Markdown (nvim-lint 마크다운 린터)
+        })
+      end
     end,
   },
 }
