@@ -17,7 +17,7 @@ local ENABLE_PRE_INSTALL = true
 
 return {
   {
-    'williamboman/mason.nvim',
+    'mason-org/mason.nvim',
     cmd = 'Mason',
     keys = { { '<leader>cm', '<cmd>Mason<cr>', desc = 'Mason 패키지 관리자 (Mason)' } },
     build = ':MasonUpdate',
