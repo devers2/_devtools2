@@ -613,7 +613,35 @@ return {
       max_join_length = 150,      -- 한 줄로 합칠 때 허용할 최대 문자 수
     },
   },
+
+  -- [ts-comments.nvim - Treesitter 복합 파일 언어별 주석 자동 전환]
+  -- HTML <script> 안: gc → // JS 주석
+  -- HTML <style>  안: gc → /* CSS 주석 */
+  -- HTML 본문    안: gc → <!-- HTML 주석 -->
+  -- JSX/Vue/Svelte 템플릿에서도 동일하게 언어 영역을 인식합니다.
+  -- ※ 성능: 키를 눌렀을 때만 현재 커서 위치의 Treesitter 노드를 1회 조회 → 상시 부하 0%
+  -- ※ Neovim 0.10+ 내장 주석 엔진(vim.api.nvim_buf_set_commentstring)과 연동하여 매우 가볍습니다.
+  {
+    'folke/ts-comments.nvim',
+    event = 'VeryLazy',
+    opts = {},
+  },
+
+  -- [nvim-treesitter-endwise - 언어 키워드 자동 닫기]
+  -- Lua : if ... then<Enter> → end 자동 생성
+  -- Bash: if<Enter>          → fi 자동 생성
+  -- Bash: for/while<Enter>   → done 자동 생성
+  -- Ruby/Elixir 등에서도 동일하게 동작합니다.
+  -- ※ 성능: 엔터 입력 이벤트에서 현재 줄 Treesitter 노드를 1회 확인 → 상시 부하 0%
+  -- ※ Java, Kotlin, Python 등 중괄호/콜론 언어에서는 자동으로 비활성화됩니다.
+  {
+    'RRethy/nvim-treesitter-endwise',
+    event = 'InsertEnter',
+    config = function()
+      require('nvim-treesitter.configs').setup({
+        endwise = { enable = true },
+      })
+    end,
+    dependencies = { 'nvim-treesitter/nvim-treesitter' },
+  },
 }
-
-
-
