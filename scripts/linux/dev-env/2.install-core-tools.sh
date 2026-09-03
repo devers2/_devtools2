@@ -378,26 +378,54 @@ if [ -f "package.json" ]; then
         _has_npm_pkgs=true
     fi
 
-    _do_npm_install=false
+    _npm_action=""
+    echo ""
     if [ "$_has_npm_pkgs" = true ]; then
+        print_question "📦 이미 글로벌 npm 패키지가 설치되어 있습니다. 처리 방식을 선택하세요:"
         echo ""
-        print_warn "이미 글로벌 npm 패키지가 설치되어 있습니다."
-        if prompt_confirm "   글로벌 npm 패키지를 다시 복구(npm install)하시겠습니까?" "N"; then
-            _do_npm_install=true
-        else
-            print_info "기존 글로벌 npm 패키지를 유지합니다 (건너뜀)."
-        fi
+        print_option "1" "기존 패키지 유지 (건너뛰기)" "[기본값]"
+        print_option "2" "잠금 파일 기준 다시 복구 (안정 버전 재설치)"
+        print_option "3" "최신 버전으로 업데이트 (최신 버전 갱신 및 락파일 업데이트)"
+        echo ""
+        prompt_read _npm_choice "   선택 [${_C_DEFAULT}1${_C_RESET}/2/3]: "
+        echo ""
+        case "${_npm_choice:-1}" in
+            2) _npm_action="install" ; print_info "글로벌 npm: 잠금 파일 기준 다시 복구 선택됨" ;;
+            3) _npm_action="update"  ; print_info "글로벌 npm: 최신 버전으로 업데이트 선택됨" ;;
+            *) _npm_action="skip"    ; print_info "기존 글로벌 npm 패키지를 유지합니다 (건너뜀)." ;;
+        esac
     else
-        _do_npm_install=true
+        print_question "📦 글로벌 npm 패키지 설치 방식을 선택하세요:"
+        echo ""
+        print_option "1" "잠금 파일 기준 복구 (검증된 고정 버전 설치)" "[기본값]"
+        print_option "2" "최신 버전으로 업데이트 설치 (최신 버전 갱신 및 락파일 업데이트)"
+        echo ""
+        prompt_read _npm_choice "   선택 [${_C_DEFAULT}1${_C_RESET}/2]: "
+        echo ""
+        case "${_npm_choice:-1}" in
+            2) _npm_action="update"  ; print_info "글로벌 npm: 최신 버전으로 업데이트 설치 선택됨" ;;
+            *) _npm_action="install" ; print_info "글로벌 npm: 잠금 파일 기준 복구 선택됨" ;;
+        esac
     fi
 
-    if [ "$_do_npm_install" = true ]; then
-        (npm install -q) >/tmp/_npm_install.log 2>&1 &
+    if [ "$_npm_action" = "install" ] || [ "$_npm_action" = "update" ]; then
+        _npm_cmd="install"
+        _npm_label="글로벌 npm 패키지 복구 진행 중..."
+        _npm_done_label="글로벌 npm 패키지 복구 완료!"
+        if [ "$_npm_action" = "update" ]; then
+            _npm_cmd="update"
+            _npm_label="글로벌 npm 패키지 최신 업데이트 중..."
+            _npm_done_label="글로벌 npm 패키지 최신 업데이트 완료!"
+        fi
+
+        echo -n "   📦 $_npm_label"
+        (npm "$_npm_cmd" -q) >/tmp/_npm_install.log 2>&1 &
         _npm_pid=$!
         show_spinner "$_npm_pid"
         wait "$_npm_pid" 2>/dev/null || true
         rm -f /tmp/_npm_install.log 2>/dev/null
-        print_done "글로벌 npm 패키지 복구 완료!"
+        echo " 완료"
+        print_done "$_npm_done_label"
     fi
 fi
 
