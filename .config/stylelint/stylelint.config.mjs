@@ -1,21 +1,29 @@
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const globalNodeModules =
+  process.platform === 'win32'
+    ? path.join(__dirname, '../../data/.npm-packages/node_modules')
+    : path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
+
 /**
  * 순수 CSS 전용 Stylelint 설정을 정의 (SCSS는 stylelint.scss.config.mjs 참고)
  * @type {import('stylelint').Config}
  */
 const config = {
-  // 플러그인 설정
+  // 플러그인 설정 (글로벌 설치 경로를 명시적으로 resolve하여 어디서 실행하든 정상 탐색)
   plugins: [
-    'stylelint-prettier' // Prettier와의 통합을 위한 플러그인
+    require.resolve('stylelint-prettier', { paths: [globalNodeModules] })
   ],
 
   // 표준 CSS 규칙 세트를 상속받아 사용
   extends: [
-    'stylelint-config-standard', // 순수 CSS 표준 규칙
-
-    /*
-     * ❗Prettier와 충돌 방지를 위해 반드시 마지막에 위치해야 함
-     */
-    'stylelint-prettier/recommended' // Prettier를 lint 규칙으로도 사용
+    require.resolve('stylelint-config-standard', { paths: [globalNodeModules] }),
+    require.resolve('stylelint-prettier/recommended', { paths: [globalNodeModules] })
   ],
 
   /**
