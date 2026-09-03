@@ -181,6 +181,7 @@ return {
         -- 들여쓰기 누적/경합 버그(CDATA 스크립트 등)를 원천 차단하기 위해 Prettier 단독 실행합니다.
         html = { 'prettier' },
         htmldjango = { 'prettier' },
+        vue = { 'prettier' },
         -- JS / TS: 템플릿 리터럴(/* sql */, /* html */ 등) 내장 언어 동적 포맷팅
         javascript = with_injected('prettier'),
         typescript = with_injected('prettier'),
