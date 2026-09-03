@@ -371,47 +371,85 @@ cd "$DEVTOOLS2/data/.npm-packages"
 export PATH="$DEVTOOLS2/modules/nodejs/node-v24/bin:$PATH"
 
 if [ -f "package.json" ]; then
-    _has_npm_pkgs=false
-    if [ -d "lib/node_modules" ] && [ -n "$(ls -A lib/node_modules 2>/dev/null)" ]; then
-        _has_npm_pkgs=true
-    elif [ -d "node_modules" ] && [ -n "$(ls -A node_modules 2>/dev/null)" ]; then
-        _has_npm_pkgs=true
+    # ── package.json devDependencies 기준 설치 상태 상세 확인 ──────────────────
+    # 단순 디렉터리 존재 여부가 아닌, 선언된 패키지 각각의 설치 여부를 확인합니다.
+    # (설치 도중 강제 종료된 경우 일부만 설치된 상태를 정확히 감지하기 위함)
+    _npm_total=0
+    _npm_installed=0
+    _npm_missing=""
+
+    _pkg_list=$(node -e "
+const p = require('./package.json');
+const deps = {...(p.dependencies||{}), ...(p.devDependencies||{})};
+Object.keys(deps).forEach(k => console.log(k));
+" 2>/dev/null)
+
+    if [ -n "$_pkg_list" ]; then
+        while IFS= read -r _pkg; do
+            [ -z "$_pkg" ] && continue
+            _npm_total=$((_npm_total + 1))
+            # Linux는 lib/node_modules, Windows(WSL 경유 설치)는 node_modules 에 위치
+            if [ -d "lib/node_modules/$_pkg" ] || [ -d "node_modules/$_pkg" ]; then
+                _npm_installed=$((_npm_installed + 1))
+            else
+                _npm_missing="${_npm_missing:+${_npm_missing}, }${_pkg}"
+            fi
+        done <<< "$_pkg_list"
     fi
 
     _npm_action=""
     echo ""
-    if [ "$_has_npm_pkgs" = true ]; then
-        print_question "📦 이미 글로벌 npm 패키지가 설치되어 있습니다. 처리 방식을 선택하세요:"
+
+    if [ "$_npm_total" -gt 0 ] && [ "$_npm_installed" -eq "$_npm_total" ]; then
+        # ── 전체 설치됨 ────────────────────────────────────────────────────────
+        print_question "📦 글로벌 npm 패키지 (${_npm_installed}/${_npm_total}개) 모두 설치되어 있습니다. 처리 방식을 선택하세요:"
         echo ""
         print_option "1" "기존 패키지 유지 (건너뛰기)" "[기본값]"
-        print_option "2" "잠금 파일 기준 다시 복구 (안정 버전 재설치)"
-        print_option "3" "최신 버전으로 업데이트 (최신 버전 갱신 및 락파일 업데이트)"
+        print_option "2" "package-lock.json 기준 다시 설치 (버전 고정 재설치)"
+        print_option "3" "최신 버전으로 업데이트 (package-lock.json 갱신)"
         echo ""
         prompt_read _npm_choice "   선택 [${_C_DEFAULT}1${_C_RESET}/2/3]: "
         echo ""
         case "${_npm_choice:-1}" in
-            2) _npm_action="install" ; print_info "글로벌 npm: 잠금 파일 기준 다시 복구 선택됨" ;;
-            3) _npm_action="update"  ; print_info "글로벌 npm: 최신 버전으로 업데이트 선택됨" ;;
+            2) _npm_action="install" ; print_info "package-lock.json 기준 재설치 선택됨" ;;
+            3) _npm_action="update"  ; print_info "최신 버전으로 업데이트 선택됨" ;;
             *) _npm_action="skip"    ; print_info "기존 글로벌 npm 패키지를 유지합니다 (건너뜀)." ;;
         esac
-    else
-        print_question "📦 글로벌 npm 패키지 설치 방식을 선택하세요:"
+
+    elif [ "$_npm_total" -gt 0 ] && [ "$_npm_installed" -gt 0 ]; then
+        # ── 일부만 설치됨 (설치 중단 등) ─────────────────────────────────────
+        print_warn "📦 글로벌 npm 패키지 일부 미설치: ${_npm_installed}/${_npm_total}개 설치됨"
+        echo "   미설치 패키지: ${_npm_missing}"
         echo ""
-        print_option "1" "잠금 파일 기준 복구 (검증된 고정 버전 설치)" "[기본값]"
-        print_option "2" "최신 버전으로 업데이트 설치 (최신 버전 갱신 및 락파일 업데이트)"
+        print_option "1" "package-lock.json 기준 재설치 (버전 고정 설치)" "[기본값]"
+        print_option "2" "최신 버전으로 설치 (package-lock.json 갱신)"
         echo ""
         prompt_read _npm_choice "   선택 [${_C_DEFAULT}1${_C_RESET}/2]: "
         echo ""
         case "${_npm_choice:-1}" in
-            2) _npm_action="update"  ; print_info "글로벌 npm: 최신 버전으로 업데이트 설치 선택됨" ;;
-            *) _npm_action="install" ; print_info "글로벌 npm: 잠금 파일 기준 복구 선택됨" ;;
+            2) _npm_action="update"  ; print_info "최신 버전으로 설치 선택됨" ;;
+            *) _npm_action="install" ; print_info "package-lock.json 기준 재설치 선택됨" ;;
+        esac
+
+    else
+        # ── 미설치 ────────────────────────────────────────────────────────────
+        print_question "📦 글로벌 npm 패키지 설치 방식을 선택하세요:"
+        echo ""
+        print_option "1" "package-lock.json 기준 설치 (버전 고정 설치)" "[기본값]"
+        print_option "2" "최신 버전으로 설치 (package-lock.json 갱신)"
+        echo ""
+        prompt_read _npm_choice "   선택 [${_C_DEFAULT}1${_C_RESET}/2]: "
+        echo ""
+        case "${_npm_choice:-1}" in
+            2) _npm_action="update"  ; print_info "최신 버전으로 설치 선택됨" ;;
+            *) _npm_action="install" ; print_info "package-lock.json 기준 설치 선택됨" ;;
         esac
     fi
 
     if [ "$_npm_action" = "install" ] || [ "$_npm_action" = "update" ]; then
         _npm_cmd="install"
-        _npm_label="글로벌 npm 패키지 복구 진행 중..."
-        _npm_done_label="글로벌 npm 패키지 복구 완료!"
+        _npm_label="글로벌 npm 패키지 설치 진행 중..."
+        _npm_done_label="글로벌 npm 패키지 설치 완료!"
         if [ "$_npm_action" = "update" ]; then
             _npm_cmd="update"
             _npm_label="글로벌 npm 패키지 최신 업데이트 중..."
