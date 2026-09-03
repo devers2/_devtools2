@@ -85,7 +85,25 @@ return {
   {
     'stevearc/conform.nvim',
     init = function()
-      -- 1. [프로젝트별 conform 로그 파일 분리]
+      -- 1. LazyVim의 기본 conform 포맷터 자동 등록 (저장 시 자동 포맷팅 엔진)
+      LazyVim.on_very_lazy(function()
+        LazyVim.format.register({
+          name = 'conform.nvim',
+          priority = 100,
+          primary = true,
+          format = function(buf)
+            require('conform').format({ bufnr = buf })
+          end,
+          sources = function(buf)
+            local ret = require('conform').list_formatters(buf)
+            return vim.tbl_map(function(v)
+              return v.name
+            end, ret)
+          end,
+        })
+      end)
+
+      -- 2. [프로젝트별 conform 로그 파일 분리]
       -- conform.nvim의 기본값(~/.local/state/nvim/conform.log)은 모든 프로젝트의 로그가 하나의 파일에 누적되어,
       -- 다른 프로젝트에서 :ConformInfo 를 열었을 때 이전 프로젝트의 오류/로그가 뒤섞여 보이는 문제가 있습니다.
       -- 이를 해결하기 위해 현재 열려있는 파일의 프로젝트 루트(Git 또는 프로젝트 디렉터리명)를 기준으로

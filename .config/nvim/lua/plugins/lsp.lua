@@ -121,10 +121,12 @@ return {
           local raw_config = _G.DEVTOOLS2_DIR .. '/.config/eslint/eslint.config.mjs'
           local config_file = (vim.uv.fs_realpath(raw_config) or raw_config):gsub('\\', '/')
 
+          local is_win = _G.OS_TYPE == _G.OS.WINDOWS
+          local node_path = _G.DEVTOOLS2_DIR .. (is_win and '/data/.npm-packages/node_modules' or '/data/.npm-packages/lib/node_modules')
+
           opts.settings = {
-            useFlatConfig = true,
-            experimental = { useFlatConfig = true },
             workingDirectory = { mode = 'location' },
+            nodePath = node_path,
             -- ESLint LSP의 포맷팅 기능을 끕니다. (conform.nvim + Prettier가 담당)
             -- 중복 포맷팅으로 인한 멈춤과 충돌을 원천 차단합니다.
             format = { enable = false },
@@ -132,9 +134,8 @@ return {
               overrideConfigFile = config_file,
             },
             eslint = {
-              useFlatConfig = true,
-              experimental = { useFlatConfig = true },
               workingDirectory = { mode = 'location' },
+              nodePath = node_path,
               format = { enable = false },
               options = {
                 overrideConfigFile = config_file,

@@ -16,7 +16,6 @@ module.exports = {
     require.resolve('@prettier/plugin-xml', { paths: [globalNodeModules] }),
     require.resolve('prettier-plugin-jinja-template', { paths: [globalNodeModules] })
   ],
-  useEditorConfig: true, // Prettier 에서 .editorconfig 사용 → true: 활성화(.prettierrc / prettier.config.js > .editorconfig > settings.json 순으로 적용)
   printWidth: 100, // Prettier가 줄 바꿈을 할 코드의 최대 길이 → 80: 80자(기본값)
   tabWidth: 2, // 탭 간격 → 2: 기본값
   useTabs: false, // 탭 사용 → true: 탭 문자(\t) 사용, false: 스페이스 문자( ) 사용
@@ -32,13 +31,10 @@ module.exports = {
   htmlWhitespaceSensitivity: 'css', // HTML 공백 감도 설정 → 'css': CSS 규칙에 따름
 
   /* Prettier-SQL 설정 */
-  'Prettier-SQL.tabSizeOverride': 2,
-  'Prettier-SQL.ignoreTabSettings': false,
-  'Prettier-SQL.insertSpacesOverride': true,
-  // 'Prettier-SQL.language': 'postgresql', // SQL 포맷팅에 사용할 데이터베이스 방언(Dialect)을 지정 → postgresql, mysql, sqlite 중 선택
-  'Prettier-SQL.uppercase': true, // SELECT, FROM 대문자
-  'Prettier-SQL.linesBetweenQueries': 2, // 쿼리 사이 빈 줄
-  'Prettier-SQL.indent': '  ', // 들여쓰기 2
+  keywordCase: 'upper',
+  dataTypeCase: 'upper',
+  functionCase: 'upper',
+  linesBetweenQueries: 2,
 
   overrides: [
     {
@@ -74,7 +70,7 @@ module.exports = {
       files: ['*.sql'],
       options: {
         // language: 'postgresql', // SQL 포맷팅에 사용할 데이터베이스 방언(Dialect)을 지정 → postgresql, mysql, sqlite 중 선택
-        uppercase: true,
+        keywordCase: 'upper',
         linesBetweenQueries: 2 // 쿼리 사이 빈 줄
       }
     }
