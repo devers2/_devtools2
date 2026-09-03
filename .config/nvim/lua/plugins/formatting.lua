@@ -193,6 +193,7 @@ return {
         -- ── 4. 기타 정적 설정 파일 ──
         json = { 'prettier' },
         jsonc = { 'prettier' },
+        json5 = { 'prettier' },
         yaml = { 'prettier' },
         css = { 'prettier' },
         scss = { 'prettier' },

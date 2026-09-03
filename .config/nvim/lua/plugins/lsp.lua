@@ -57,6 +57,15 @@ return {
           },
         },
 
+        -- [JSON 최적화] 포맷팅은 conform.nvim + Prettier가 전담하도록 LSP 포맷팅 비활성화
+        jsonls = {
+          settings = {
+            json = {
+              format = { enable = false },
+            },
+          },
+        },
+
         -- [Python 최적화] 기본 pyright 비활성화 후 basedpyright + ruff 조합 사용
         pyright = {
           enabled = false,
