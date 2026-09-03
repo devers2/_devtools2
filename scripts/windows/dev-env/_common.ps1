@@ -285,6 +285,76 @@ function Wait-WithSpinner {
 }
 
 # ==============================================================================
+# WSL 디스트로 상태 확인 / 안전 종료 대기 공용 헬퍼
+# ==============================================================================
+# wsl -l -v 출력에서 null 바이트를 제거한 뒤 파싱하는 방식으로 구현한다.
+# (wsl.exe는 UTF-16LE로 출력하므로 PowerShell이 null 바이트를 포함하는 경우가 있음)
+
+# 지정한 WSL 디스트로가 현재 Running 상태인지 여부를 반환한다.
+# 사용법: $isRunning = Test-WslDistroRunning "devtools2"
+function Test-WslDistroRunning {
+    param([string]$Distro)
+    $raw   = wsl.exe -l -v 2>$null
+    $lines = $raw -split "`r?`n" | ForEach-Object { $_ -replace "`0", "" }
+    return [bool]($lines | Where-Object { $_ -match $Distro -and $_ -match 'Running' })
+}
+
+# wsl --shutdown 을 실행한 뒤 지정한 디스트로가 완전히 Stopped 될 때까지 스피너로 대기한다.
+# - 타임아웃(기본 60초) 초과 시 오류 메시지 출력 후 $false 반환
+# - 성공 시 $true 반환
+#
+# 사용법:
+#   if (-not (Invoke-WslShutdown -Distro "devtools2")) {
+#       Write-Fail "WSL 종료 실패"
+#       Pause-Script; exit 1
+#   }
+function Invoke-WslShutdown {
+    param(
+        [string]$Distro          = "devtools2",
+        [int]   $TimeoutSeconds  = 60,
+        [string]$ShutdownMessage = "WSL 가상 머신 완전 종료 대기 중"
+    )
+
+    Write-Info "wsl --shutdown 실행 중..."
+    wsl --shutdown 2>$null
+
+    # 디스트로가 이미 Stopped 상태이면 즉시 성공 반환
+    if (-not (Test-WslDistroRunning -Distro $Distro)) {
+        Write-Host "  [완료] $Distro 이미 종료됨 — 즉시 계속합니다." -ForegroundColor Green
+        return $true
+    }
+
+    $spinner   = @('⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏')
+    $spinIdx   = 0
+    $startTime = Get-Date
+
+    while ($true) {
+        $elapsed = (Get-Date) - $startTime
+
+        # 타임아웃 초과 시 실패
+        if ($elapsed.TotalSeconds -gt $TimeoutSeconds) {
+            Write-Host ""
+            Write-Fail "WSL 종료 대기 시간 초과 (${TimeoutSeconds}초 초과)"
+            Write-Info "  → PC를 재부팅한 후 다시 실행해 주세요."
+            return $false
+        }
+
+        # 디스트로가 멈췄으면 성공
+        if (-not (Test-WslDistroRunning -Distro $Distro)) {
+            $sec = [int]$elapsed.TotalSeconds
+            Write-Host "`r  [완료] $ShutdownMessage 완료! (${sec}초 소요)   " -ForegroundColor Green
+            return $true
+        }
+
+        $remaining = [int]($TimeoutSeconds - $elapsed.TotalSeconds)
+        $char      = $spinner[$spinIdx % $spinner.Count]
+        Write-Host -NoNewline "`r  [$char] $ShutdownMessage... (제한 ${TimeoutSeconds}초 / 남은 ${remaining}초)   " -ForegroundColor Cyan
+        Start-Sleep -Milliseconds 500
+        $spinIdx++
+    }
+}
+
+# ==============================================================================
 # 다운로드 게이지 프로그레스 바 공용 헬퍼 (스트림 기반 실시간 프로그레스 바)
 # ==============================================================================
 # Bash 환경(_common.sh 의 download_with_progress)과 100% 동일한 게이지 바로 렌더링합니다.

@@ -471,15 +471,21 @@ $interopCheck = wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/W
 if ($interopCheck -ne "OK") {
     Write-Warn "WSL Interop 비활성 감지 (binfmt_misc/WSLInterop 미등록)"
     Write-Info "  → WSL Interop이 없으면 Windows 실행 파일(.exe) 연동이 불가능합니다."
-    Write-Info "  → wsl --shutdown 후 자동 재시작합니다..."
-    wsl --shutdown 2>$null
-    Start-Sleep -Seconds 3
+    Write-Info "  → WSL을 완전히 재시작합니다..."
+
+    # wsl --shutdown 후 디스트로가 실제로 멈출 때까지 대기 (최대 60초)
+    if (-not (Invoke-WslShutdown -Distro $wslDistro -TimeoutSeconds 60 -ShutdownMessage "WSL Interop 복구를 위한 재시작 대기")) {
+        Write-Fail "WSL이 지정 시간(60초) 내에 종료되지 않았습니다."
+        Write-Info "  → PC를 재부팅한 후 다시 실행해 주세요."
+        Pause-Script
+        exit 1
+    }
 
     # 재시작 후 재확인
     $interopCheck2 = wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null
     if ($interopCheck2 -ne "OK") {
-        Write-Fail "WSL --shutdown 후에도 WSL Interop 복구 실패."
-        Write-Info "  PC를 재부팅한 후 다시 실행해 주세요."
+        Write-Fail "WSL 재시작 후에도 WSL Interop 복구 실패."
+        Write-Info "  → PC를 재부팅한 후 다시 실행해 주세요."
         Pause-Script
         exit 1
     }
