@@ -774,29 +774,44 @@ function M.setup()
   end
 
   -- ── 2. dap.ui.pick_one 인터셉터 (DAP 세션 메뉴) ──
-  local dap_ok, dap_ui = pcall(require, 'dap.ui')
-  if dap_ok and dap_ui and dap_ui.pick_one and not dap_ui._translator_wrapped then
-    dap_ui._translator_wrapped = true
-    local orig_pick_one = dap_ui.pick_one
-    dap_ui.pick_one = function(items, prompt, label_fn, cb)
-      if not M.enabled then
-        return orig_pick_one(items, prompt, label_fn, cb)
-      end
-      if prompt and items then
-        label_fn = label_fn or function(x)
-          return tostring(x)
+  -- nvim-dap가 실제로 로드되었을 때만 래핑하도록 지연 처리하여 기동 속도 최적화
+  local function hook_dap_ui()
+    if package.loaded['dap.ui'] or package.loaded['dap'] then
+      local dap_ok, dap_ui = pcall(require, 'dap.ui')
+      if dap_ok and dap_ui and dap_ui.pick_one and not dap_ui._translator_wrapped then
+        dap_ui._translator_wrapped = true
+        local orig_pick_one = dap_ui.pick_one
+        dap_ui.pick_one = function(items, prompt, label_fn, cb)
+          if not M.enabled then
+            return orig_pick_one(items, prompt, label_fn, cb)
+          end
+          if prompt and items then
+            label_fn = label_fn or function(x)
+              return tostring(x)
+            end
+            for _, item in ipairs(items) do
+              local raw_label = label_fn(item)
+              item._custom_display = M.translate_menu(raw_label)
+            end
+            return orig_pick_one(items, prompt, function(x)
+              return x._custom_display or label_fn(x)
+            end, cb)
+          end
+          return orig_pick_one(items, prompt, label_fn, cb)
         end
-        for _, item in ipairs(items) do
-          local raw_label = label_fn(item)
-          item._custom_display = M.translate_menu(raw_label)
-        end
-        return orig_pick_one(items, prompt, function(x)
-          return x._custom_display or label_fn(x)
-        end, cb)
       end
-      return orig_pick_one(items, prompt, label_fn, cb)
     end
   end
+
+  vim.api.nvim_create_autocmd('User', {
+    pattern = 'LazyLoad',
+    callback = function(event)
+      if event.data == 'nvim-dap' then
+        vim.schedule(hook_dap_ui)
+      end
+    end,
+  })
+  hook_dap_ui()
 
   -- ── 3. 공식 LSP Progress 핸들러 인터셉터 ($/progress) ──
   local orig_progress = vim.lsp.handlers['$/progress']

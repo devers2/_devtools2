@@ -58,6 +58,7 @@ return {
         { '<leader>l', desc = '수동 ESLint 실행 (ESLint: Run Manual Lint)' },
         { '<leader>L', desc = 'ESLint 창 닫기 (ESLint: Close Result Window)' },
         { '<leader>n', desc = '알림 기록 (Notification History)' },
+        { '<leader>p', desc = '복사/클립보드 기록 (Yank History)' },
         { '<leader>S', desc = '스크래치 버퍼 선택 (Select Scratch Buffer)' },
         { '<leader>,', desc = '열린 버퍼 목록 (Buffers)' },
         { '<leader>-', desc = '창 아래로 분할 (Split Window Below)' },
@@ -150,6 +151,7 @@ return {
         { '<leader>gQ', desc = 'Git Diffview 닫기 (Close Git Diffview)' },
         { '<leader>gs', desc = 'Git 상태 (Git Status)' },
         { '<leader>gS', desc = 'Git Stash' },
+        { '<leader>gx', '<cmd>GitConflictListQf<cr>', desc = 'Git 충돌 목록 보기 (List Conflicts)' },
         { '<leader>gY', desc = 'Git 브라우저 - 링크 복사 (Git Browse copy)' },
 
         -- ── Git 변경 조각 그룹 (<leader>gh / Hunks) ──

@@ -8,117 +8,116 @@ vim.keymap.set('n', '<leader>fE', function()
   vim.ui.open(path)
 end, { desc = 'Open System Explorer' })
 
-local ok, dap = pcall(require, 'dap')
-if ok then
-  -- 프로젝트별 상태 관리를 위한 파일 경로 설정
-  local nvim_state_dir = _G.HOME_DIR .. '/.nvim'
-  local state_file = nvim_state_dir .. '/state.json'
+-- 프로젝트별 상태 관리를 위한 파일 경로 설정
+local nvim_state_dir = _G.HOME_DIR .. '/.nvim'
+local state_file = nvim_state_dir .. '/state.json'
 
-  -- 디렉토리 생성
-  vim.fn.mkdir(nvim_state_dir, 'p')
+-- 디렉토리 생성
+vim.fn.mkdir(nvim_state_dir, 'p')
 
-  -- 상태 읽기/쓰기 함수 (언어별 포트 분리 저장)
-  local function get_last_debug_port(ft, default_port)
-    local f = io.open(state_file, 'r')
-    if not f then
-      return default_port
-    end
-    local content = f:read('*all')
-    f:close()
-    -- save_last_debug_port와 동일하게 빈 내용 방어: 쓰기 도중 중단 등으로 파일이
-    -- 0바이트인 경우 vim.json.decode('')가 에러를 던지는 것을 방지합니다.
-    if not content or content == '' then
-      return default_port
-    end
-    local ok, state = pcall(vim.json.decode, content)
-    if not ok or type(state) ~= 'table' then
-      return default_port
-    end
-    local cwd = vim.fn.getcwd()
-    local cwd_state = state[cwd] or {}
-    -- 자바의 경우 기존 last_debug_port 키 하위 호환 처리
-    if ft == 'java' and cwd_state.last_debug_port and not cwd_state.last_java_port then
-      return cwd_state.last_debug_port
-    end
-    return cwd_state['last_' .. ft .. '_port'] or default_port
+-- 상태 읽기/쓰기 함수 (언어별 포트 분리 저장)
+local function get_last_debug_port(ft, default_port)
+  local f = io.open(state_file, 'r')
+  if not f then
+    return default_port
   end
+  local content = f:read('*all')
+  f:close()
+  -- save_last_debug_port와 동일하게 빈 내용 방어: 쓰기 도중 중단 등으로 파일이
+  -- 0바이트인 경우 vim.json.decode('')가 에러를 던지는 것을 방지합니다.
+  if not content or content == '' then
+    return default_port
+  end
+  local ok, state = pcall(vim.json.decode, content)
+  if not ok or type(state) ~= 'table' then
+    return default_port
+  end
+  local cwd = vim.fn.getcwd()
+  local cwd_state = state[cwd] or {}
+  -- 자바의 경우 기존 last_debug_port 키 하위 호환 처리
+  if ft == 'java' and cwd_state.last_debug_port and not cwd_state.last_java_port then
+    return cwd_state.last_debug_port
+  end
+  return cwd_state['last_' .. ft .. '_port'] or default_port
+end
 
-  local function save_last_debug_port(ft, port)
-    vim.fn.mkdir(nvim_state_dir, 'p')
-    local f_read = io.open(state_file, 'r')
-    local state = {}
-    if f_read then
-      local content = f_read:read('*all')
-      if content and content ~= '' then
-        local ok_decode, decoded = pcall(vim.json.decode, content)
-        if ok_decode and type(decoded) == 'table' then
-          state = decoded
+local function save_last_debug_port(ft, port)
+  vim.fn.mkdir(nvim_state_dir, 'p')
+  local f_read = io.open(state_file, 'r')
+  local state = {}
+  if f_read then
+    local content = f_read:read('*all')
+    if content and content ~= '' then
+      local ok_decode, decoded = pcall(vim.json.decode, content)
+      if ok_decode and type(decoded) == 'table' then
+        state = decoded
+      end
+    end
+    f_read:close()
+  end
+  local cwd = vim.fn.getcwd()
+  state[cwd] = state[cwd] or {}
+  state[cwd]['last_' .. ft .. '_port'] = port
+  local f_write = io.open(state_file, 'w')
+  if f_write then
+    f_write:write(vim.json.encode(state))
+    f_write:close()
+  end
+end
+
+-- 현재 버퍼가 자바 환경인지 감지 (filetype=java 또는 jdtls LSP 활성화 여부)
+local function is_java_env()
+  if vim.bo.filetype == 'java' then
+    return true
+  end
+  local clients = vim.lsp.get_clients({ name = 'jdtls' })
+  if #clients > 0 then
+    return true
+  end
+  return false
+end
+
+-- Java: 어태치 모드 / Python: FastAPI 런치 모드 자동 분기
+local function attach_debug()
+  local dap = require('dap')
+  if is_java_env() then
+    -- Java: 포트 입력 후 어태치
+    local default_port = get_last_debug_port('java', '5005')
+    vim.ui.input({
+      prompt = 'Java Debug Port: ',
+      default = default_port,
+    }, function(input)
+      if input and input ~= '' then
+        local port = tonumber(input)
+        if port then
+          save_last_debug_port('java', tostring(port))
+          dap.run({
+            type = 'java',
+            request = 'attach',
+            name = 'Java Attach: ' .. port,
+            hostName = '127.0.0.1',
+            port = port,
+          })
+        else
+          vim.notify('포트는 숫자여야 합니다.', vim.log.levels.ERROR)
         end
       end
-      f_read:close()
-    end
-    local cwd = vim.fn.getcwd()
-    state[cwd] = state[cwd] or {}
-    state[cwd]['last_' .. ft .. '_port'] = port
-    local f_write = io.open(state_file, 'w')
-    if f_write then
-      f_write:write(vim.json.encode(state))
-      f_write:close()
-    end
-  end
-
-  -- 현재 버퍼가 자바 환경인지 감지 (filetype=java 또는 jdtls LSP 활성화 여부)
-  local function is_java_env()
-    if vim.bo.filetype == 'java' then
-      return true
-    end
-    local clients = vim.lsp.get_clients({ name = 'jdtls' })
-    if #clients > 0 then
-      return true
-    end
-    return false
-  end
-
-  -- Java: 어태치 모드 / Python: FastAPI 런치 모드 자동 분기
-  local function attach_debug()
-    if is_java_env() then
-      -- Java: 포트 입력 후 어태치
-      local default_port = get_last_debug_port('java', '5005')
-      vim.ui.input({
-        prompt = 'Java Debug Port: ',
-        default = default_port,
-      }, function(input)
-        if input and input ~= '' then
-          local port = tonumber(input)
-          if port then
-            save_last_debug_port('java', tostring(port))
-            dap.run({
-              type = 'java',
-              request = 'attach',
-              name = 'Java Attach: ' .. port,
-              hostName = '127.0.0.1',
-              port = port,
-            })
-          else
-            vim.notify('포트는 숫자여야 합니다.', vim.log.levels.ERROR)
-          end
-        end
-      end)
-    elseif vim.bo.filetype == 'python' then
-      -- Python: 포트 입력 후 FastAPI 런치
-      local default_port = get_last_debug_port('python', '8095')
-      vim.ui.input({
-        prompt = 'FastAPI Debug Port: ',
-        default = default_port,
-      }, function(input)
-        if input and input ~= '' then
-          local port = tonumber(input)
-          if port then
-            save_last_debug_port('python', tostring(port))
-            dap.run({
-              type = 'python',
-              request = 'launch',
-              name = 'FastAPI 디버깅 실행: ' .. port,
+    end)
+  elseif vim.bo.filetype == 'python' then
+    -- Python: 포트 입력 후 FastAPI 런치
+    local default_port = get_last_debug_port('python', '8095')
+    vim.ui.input({
+      prompt = 'FastAPI Debug Port: ',
+      default = default_port,
+    }, function(input)
+      if input and input ~= '' then
+        local port = tonumber(input)
+        if port then
+          save_last_debug_port('python', tostring(port))
+          dap.run({
+            type = 'python',
+            request = 'launch',
+            name = 'FastAPI 디버깅 실행: ' .. port,
               module = 'uvicorn',
               args = {
                 'main:app',
@@ -166,7 +165,7 @@ if ok then
     { desc = '포트 지정 디버그 연결 (Attach/Launch Debug)' }
   )
   vim.keymap.set('n', '<leader>db', function()
-    dap.toggle_breakpoint()
+    require('dap').toggle_breakpoint()
   end, { desc = '브레이크포인트 설정/해제 (Toggle Breakpoint)' })
   -- [스마트 디버그 실행 (<leader>dd)]
   -- 1. 활성 세션 존재 시: `dap.continue()` (다음 브레이크포인트까지 계속 실행)
@@ -203,24 +202,23 @@ if ok then
     dap.continue()
   end, { desc = '디버그 실행 / 계속 (Run/Continue)' })
   vim.keymap.set('n', '<leader>dc', function()
-    dap.run_to_cursor()
+    require('dap').run_to_cursor()
   end, { desc = '커서 위치까지 실행 (Run to Cursor)' })
   vim.keymap.set('n', '<leader>de', function()
-    dap.step_over()
+    require('dap').step_over()
   end, { desc = '다음 줄 실행 (Step Over)' })
   vim.keymap.set('n', '<leader>di', function()
-    dap.step_into()
+    require('dap').step_into()
   end, { desc = '함수 내부 진입 (Step Into)' })
   vim.keymap.set('n', '<leader>do', function()
-    dap.step_out()
+    require('dap').step_out()
   end, { desc = '함수 밖으로 탈출 (Step Out)' })
   vim.keymap.set('n', '<leader>dr', function()
-    dap.repl.toggle()
+    require('dap').repl.toggle()
   end, { desc = 'REPL 창 토글 (Toggle REPL)' })
   vim.keymap.set('n', '<leader>dt', function()
-    dap.terminate()
+    require('dap').terminate()
   end, { desc = '디버깅 및 서버 종료 (Terminate)' })
-end
 
 -- ============================================================
 -- [수동 ESLint 린터] <leader>l 로 실행, <leader>L 로 창 닫기
@@ -253,9 +251,18 @@ local function run_manual_eslint()
     return
   end
 
-  -- vscode-eslint-language-server가 참조하는 글로벌 eslint CLI의 절대 경로
-  -- (_G.DEVTOOLS2_DIR은 심볼릭 링크까지 해석된 실제 절대경로: /var/opt/_devtools2 등)
-  local eslint_bin = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/lib/node_modules/.bin/eslint'
+  local is_win = _G.OS_TYPE == _G.OS.WINDOWS
+  local eslint_bin
+  if is_win then
+    local win_cmd = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/eslint.cmd'
+    if vim.fn.filereadable(win_cmd) == 1 then
+      eslint_bin = win_cmd
+    else
+      eslint_bin = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/node_modules/.bin/eslint.cmd'
+    end
+  else
+    eslint_bin = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/lib/node_modules/.bin/eslint'
+  end
   local config_file = _G.DEVTOOLS2_DIR .. '/.config/eslint/eslint.config.mjs'
 
   -- eslint 바이너리가 존재하는지 미리 확인

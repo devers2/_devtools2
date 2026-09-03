@@ -25,6 +25,7 @@ return {
         },
       },
       picker = {
+        ui_select = true, -- Neovim 기본 vim.ui.select(LSP Code Action 등)를 Snacks 피커로 통합
         -- 전역 기본값: 숨김 파일 비허용 (아래 sources에서 소스별로 개별 override)
         hidden = false,
         -- 이미 열려있는 버퍼 프리뷰 시 외부 플러그인에 의해 모드가 풀리는 현상 수정

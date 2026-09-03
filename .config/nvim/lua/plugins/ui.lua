@@ -33,4 +33,9 @@ return {
       vim.diagnostic.config({ virtual_text = false })
     end,
   },
+
+  -- [iamcco/markdown-preview.nvim 비활성화]
+  -- 버퍼 내부에서 실시간 렌더링하는 최신 render-markdown.nvim이 전담하므로,
+  -- Node.js 백그라운드 프로세스를 띄우는 레거시 브라우저 프리뷰어는 비활성화하여 리소스 절약
+  { 'iamcco/markdown-preview.nvim', enabled = false },
 }

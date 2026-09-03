@@ -95,7 +95,7 @@ vim.api.nvim_create_autocmd({ 'BufReadPre', 'BufEnter' }, {
       vim.opt_local.synmaxcol = 300
 
       -- 3. 매 커서 이동마다 괄호 짝을 맞춰보며 화면을 지연시키는 matchparen 플러그인 임시 비활성화
-      vim.cmd('NoMatchParen')
+      pcall(vim.cmd, 'NoMatchParen')
 
       -- 4. 실행 취소 파일(undofile) 비활성화로 디스크 I/O 최적화
       vim.opt_local.undofile = false
@@ -104,7 +104,7 @@ vim.api.nvim_create_autocmd({ 'BufReadPre', 'BufEnter' }, {
       vim.b[buf].autoformat = false
     else
       -- 일반 파일 버퍼로 돌아왔을 때는 괄호 짝 매칭 기능을 다시 활성화
-      vim.cmd('DoMatchParen')
+      pcall(vim.cmd, 'DoMatchParen')
     end
   end,
 })
