@@ -196,55 +196,6 @@ if ($hasWslFonts) {
 # ==============================================================================
 Write-Step "[Step 3] Windows Terminal settings.json 갱신"
 
-# ── Windows Terminal 실행 중이면 종료 여부 확인 (state.json 덮어쓰기 방지) ──────
-# 살아있는 Windows Terminal 프로세스는 종료될 때 자기 메모리 상태(state.json)를 다시
-# 디스크에 저장하므로, 이 스크립트가 state.json을 정리해도 곧바로 덮어써질 수 있습니다
-# (실측 확인: WT가 떠 있는 채로 정리해도 재확인해보면 원상복구돼 있었음).
-#
-# $env:WT_SESSION 은 "지금 이 스크립트 자신이 Windows Terminal 안에서 실행 중인지"를
-# 알려주는 값입니다 — 관리자 권한 승격(-Verb RunAs)으로 새 프로세스가 뜨더라도, Windows
-# 11 기본 터미널 설정이 Windows Terminal이면 그 새 프로세스도 다시 Windows Terminal
-# 안에서 열리므로 이 값이 그대로 설정돼 있을 수 있습니다. 이 경우 모든 Windows Terminal을
-# 강제 종료하면 지금 실행 중인 이 설치 스크립트 자신도 같이 끊겨버리므로, 절대 자동
-# 종료하지 않고 state.json 정리만 건너뜁니다.
-$skipStateCleanup = $false
-$wtProcesses = Get-Process -Name "WindowsTerminal" -ErrorAction SilentlyContinue
-if ($wtProcesses) {
-    if ($env:WT_SESSION) {
-        Write-Warn "이 스크립트 자체가 Windows Terminal 안에서 실행 중이라 자동으로 닫을 수 없습니다(설치가 끊깁니다)."
-        Write-Warn "settings.json은 정상 갱신되지만, WSL 중복 프로필의 state.json 정리는 이번엔 건너뛰게 됩니다."
-        Write-Warn "완전히 정리하려면 지금 중단한 뒤 Windows Terminal이 아닌 곳(시작 메뉴에서 'Windows PowerShell' 검색)에서 이 스크립트를 다시 실행해주세요."
-        Write-Host ""
-        # 중요한 갈림길이라 기본값(Enter로 통과) 없이, y/n 둘 중 하나를 명시적으로 입력할 때까지 재질문
-        $wtSessionChoice = ""
-        while ($wtSessionChoice -notmatch '^[YyNn]') {
-            Write-Host "👉 state.json 정리 없이 이대로 진행할까요? (y/n): " -ForegroundColor Yellow -NoNewline
-            $wtSessionChoice = Read-Host
-        }
-        if ($wtSessionChoice -match '^[Yy]') {
-            $skipStateCleanup = $true
-        } else {
-            Write-Fail "설치를 중단합니다."
-            exit 1
-        }
-    } else {
-        Write-Host ""
-        Write-Host "  Windows Terminal이 실행 중입니다(지금 이 설치 스크립트와는 다른 창)." -ForegroundColor Yellow
-        Write-Host "  WSL 중복 프로필을 완전히 정리하려면 지금 전부 닫아야 합니다." -ForegroundColor Yellow
-        Write-Host "👉 Windows Terminal을 지금 닫고 계속할까요? [y/" -ForegroundColor Yellow -NoNewline
-        Write-Host "N" -ForegroundColor Green -NoNewline
-        Write-Host "]: " -ForegroundColor Yellow -NoNewline
-        $closeChoice = Read-Host
-        if ($closeChoice -match '^[Yy]') {
-            $wtProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Milliseconds 500
-            Write-Success "Windows Terminal을 종료했습니다."
-        } else {
-            Write-Fail "설치를 중단합니다."
-            exit 1
-        }
-    }
-}
 
 # MSIX 패키지 폴더는 설치마다 조금씩 다를 수 있어 동적으로 찾습니다 (Store/Preview 겸용)
 $wtPackageDir = Get-ChildItem "$env:LOCALAPPDATA\Packages" -Filter "Microsoft.WindowsTerminal*" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -302,45 +253,79 @@ if (-not (Test-Path $settingsPath)) {
 
         # ── WSL 동적 프로필 중복 정리 (멱등성 보장) ─────────────────────────────
         # Windows Terminal은 WSL 배포판을 재등록할 때마다 새 GUID로 동적 프로필을 자동
-        # 생성하고, 예전 GUID는 스스로 지우지 않습니다(실측: 이 PC에 "devtools2"/"Ubuntu"
-        # 중복 프로필이 80개 넘게 쌓여있었음). 같은 이름의 항목이 여러 개면, WT가 새
-        # 프로필을 항상 목록 끝에 추가하는 특성을 이용해 "마지막 것 = 가장 최근에 생성된
-        # 것"으로 보고 그것만 남기고 나머지를 지웁니다(정확히 어떤 GUID가 지금 살아있는
-        # 배포판인지는 알 수 없지만, 유효한 게 최소 1개는 남도록 보수적으로 정리).
+        # 생성하고, 예전 GUID는 스스로 지우지 않습니다. 같은 이름의 항목이 여러 개면,
+        # WT가 새 프로필을 항상 목록 끝에 추가하는 특성을 이용해 "마지막 것 = 가장 최근에
+        # 생성된 것"으로 보고 그것만 남기고 나머지를 지웁니다.
+        #
+        # 단, Windows Terminal이 실행 중인 상태에서는 종료 시 메모리 상태(state.json)를
+        # 다시 디스크에 쓰므로, state.json 정리가 무효화될 수 있습니다.
+        # 따라서 중복 프로필이 실제로 존재할 때만 터미널 종료 여부를 확인하며,
+        # 종료하지 않더라도 설치를 중단하지 않고 프로필 정리만 안전하게 건너뜁니다.
         $wslProfiles = @($settings.profiles.list | Where-Object { $_.source -eq "Microsoft.WSL" })
         $dupNameGroups = $wslProfiles | Group-Object -Property name | Where-Object { $_.Count -gt 1 }
-        $staleWslGuids = @()
         if ($dupNameGroups) {
+            $staleWslGuids = @()
             foreach ($grp in $dupNameGroups) {
                 $items = @($grp.Group)
                 # PS5.1 호환을 위해 -SkipLast 대신 배열 슬라이싱으로 "마지막 하나만 제외한 나머지"를 구함
                 $toRemove = $items[0..($items.Count - 2)]
                 $staleWslGuids += @($toRemove | ForEach-Object { $_.guid })
             }
-            $settings.profiles.list = @($settings.profiles.list | Where-Object { $staleWslGuids -notcontains $_.guid })
-            Write-Success "WSL 동적 프로필 중복 $($staleWslGuids.Count)개 정리 (이름별 최신 1개만 유지)"
 
-            # settings.json에서만 지우면 state.json의 generatedProfiles가 "이미 생성함"으로
-            # 기억하고 있어서 Windows Terminal이 재생성을 건너뛰는 버그가 있음
-            # (microsoft/terminal#11510) — 지운 GUID를 state.json에서도 같이 제거해야 함.
-            # 단, 이 스크립트 자신이 Windows Terminal 안에서 실행 중이라 종료를 건너뛴
-            # 경우($skipStateCleanup)는 살아있는 프로세스가 곧바로 덮어쓸 것이 확실하므로
-            # 시도 자체를 생략합니다.
-            $statePath = Join-Path (Split-Path $settingsPath -Parent) "state.json"
-            if ($skipStateCleanup) {
-                Write-Warn "state.json 정리를 건너뜁니다 (위 안내 참고)."
-            } elseif (Test-Path $statePath) {
-                try {
-                    Copy-Item -Path $statePath -Destination "$statePath.bak" -Force -ErrorAction SilentlyContinue
-                    $state = (Get-Content -Path $statePath -Raw -Encoding UTF8) | ConvertFrom-Json
-                    if ($state.generatedProfiles) {
-                        $state.generatedProfiles = @($state.generatedProfiles | Where-Object { $staleWslGuids -notcontains $_ })
-                        $stateJson = $state | ConvertTo-Json -Depth 100
-                        [System.IO.File]::WriteAllText($statePath, $stateJson, (New-Object System.Text.UTF8Encoding($false)))
-                        Write-Success "state.json의 generatedProfiles 동기화 완료 (재생성 차단 버그 우회)"
+            $skipProfileCleanup = $false
+            $wtProcesses = Get-Process -Name "WindowsTerminal" -ErrorAction SilentlyContinue
+            if ($wtProcesses) {
+                if ($env:WT_SESSION) {
+                    # 스크립트 자체가 WT 내부에서 실행 중이면 종료 시 설치 프로세스가 끊기므로 자동 건너뜀
+                    Write-Info "WSL 동적 프로필 중복 $($staleWslGuids.Count)개가 발견되었습니다."
+                    Write-Info "현재 스크립트가 Windows Terminal 안에서 실행 중이므로 터미널을 닫지 않고 계속 진행합니다."
+                    Write-Info "(프로필 정리는 건너뛰며, 테마/폰트/단축키 설정은 정상 적용됩니다.)"
+                    $skipProfileCleanup = $true
+                } else {
+                    Write-Host ""
+                    Write-Host "  WSL 동적 프로필 중복 $($staleWslGuids.Count)개가 발견되었습니다." -ForegroundColor Yellow
+                    Write-Host "  중복 프로필의 완전한 정리를 위해 Windows Terminal 종료를 권장하지만," -ForegroundColor Yellow
+                    Write-Host "  종료하지 않고도 안전하게 설치를 계속 진행할 수 있습니다." -ForegroundColor Yellow
+                    Write-Host ""
+                    Write-Host "  · [y] Windows Terminal을 지금 닫고 중복 프로필 정리 포함 설치 진행" -ForegroundColor Cyan
+                    Write-Host "  · [n] Windows Terminal을 닫지 않고 정리 없이 설치 계속 진행 [기본값 / 권장]" -ForegroundColor Green
+                    Write-Host ""
+                    Write-Host "👉 Windows Terminal을 닫고 중복 프로필을 정리할까요? [y/" -ForegroundColor Yellow -NoNewline
+                    Write-Host "N" -ForegroundColor Green -NoNewline
+                    Write-Host "] (Enter 입력 시 닫지 않고 계속 진행): " -ForegroundColor Yellow -NoNewline
+                    $closeChoice = Read-Host
+                    if ($closeChoice -match '^[Yy]') {
+                        $wtProcesses | Stop-Process -Force -ErrorAction SilentlyContinue
+                        Start-Sleep -Milliseconds 500
+                        Write-Success "Windows Terminal을 종료했습니다. 프로필 정리를 진행합니다."
+                    } else {
+                        $skipProfileCleanup = $true
+                        Write-Info "Windows Terminal을 닫지 않고 설치를 계속 진행합니다 (프로필 정리 건너뜀)."
                     }
-                } catch {
-                    Write-Warn "state.json 정리 실패: $($_.Exception.Message)"
+                }
+            }
+
+            if (-not $skipProfileCleanup) {
+                $settings.profiles.list = @($settings.profiles.list | Where-Object { $staleWslGuids -notcontains $_.guid })
+                Write-Success "WSL 동적 프로필 중복 $($staleWslGuids.Count)개 정리 (이름별 최신 1개만 유지)"
+
+                # settings.json에서만 지우면 state.json의 generatedProfiles가 "이미 생성함"으로
+                # 기억하고 있어서 Windows Terminal이 재생성을 건너뛰는 버그가 있음
+                # (microsoft/terminal#11510) — 지운 GUID를 state.json에서도 같이 제거해야 함.
+                $statePath = Join-Path (Split-Path $settingsPath -Parent) "state.json"
+                if (Test-Path $statePath) {
+                    try {
+                        Copy-Item -Path $statePath -Destination "$statePath.bak" -Force -ErrorAction SilentlyContinue
+                        $state = (Get-Content -Path $statePath -Raw -Encoding UTF8) | ConvertFrom-Json
+                        if ($state.generatedProfiles) {
+                            $state.generatedProfiles = @($state.generatedProfiles | Where-Object { $staleWslGuids -notcontains $_ })
+                            $stateJson = $state | ConvertTo-Json -Depth 100
+                            [System.IO.File]::WriteAllText($statePath, $stateJson, (New-Object System.Text.UTF8Encoding($false)))
+                            Write-Success "state.json의 generatedProfiles 동기화 완료 (재생성 차단 버그 우회)"
+                        }
+                    } catch {
+                        Write-Warn "state.json 정리 실패: $($_.Exception.Message)"
+                    }
                 }
             }
         }
