@@ -464,3 +464,198 @@ EOF
     echo "✅ SFTP 마운트 서비스 시작 완료! (${LOCAL_MOUNT_PATH})"
     echo "   상태 확인: systemctl --user status ${SERVICE_NAME}.service"
 }
+
+# ── 프로젝트 저장소 클론 및 Bitwarden 세션 확인 ────────────────────────────
+# 기능:
+#   - bw_ensure_session 을 통해 Bitwarden 세션 확보
+#   - 대상 디렉토리에 .git 이 이미 있으면 건너뜀 (멱등성)
+#   - 없으면 bw_git_clone_interactive 로 자동 PAT 인증 클론 수행
+# 인수:
+#   $1 = REPO_URL   (필수)
+#   $2 = TARGET_DIR (필수)
+ensure_project_repo() {
+    local REPO_URL="$1"
+    local TARGET_DIR="$2"
+
+    if [ -z "$REPO_URL" ] || [ -z "$TARGET_DIR" ]; then
+        echo "❌ ensure_project_repo: REPO_URL과 TARGET_DIR이 지정되지 않았습니다."
+        return 1
+    fi
+
+    echo "⏳ Bitwarden 상태 확인 중..."
+    if ! command -v bw_ensure_session &>/dev/null; then
+        local _DEVTOOLS2_BASE="${DEVTOOLS2:-$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/../../../..")}"
+        if [ -f "$_DEVTOOLS2_BASE/scripts/fzf/bw-lib" ]; then
+            # shellcheck disable=SC1090
+            source "$_DEVTOOLS2_BASE/scripts/fzf/bw-lib"
+        else
+            echo "❌ bw-lib 라이브러리를 찾을 수 없습니다: $_DEVTOOLS2_BASE/scripts/fzf/bw-lib"
+            return 1
+        fi
+    fi
+    bw_ensure_session || return 1
+
+    if [ -d "$TARGET_DIR/.git" ]; then
+        echo "ℹ️  이미 깃 저장소가 존재합니다. 클론 단계를 건너뜁니다."
+    else
+        bw_git_clone_interactive "$REPO_URL" "$TARGET_DIR" || return 1
+    fi
+}
+
+# ── command-palette / devtools2 프로젝트 실행 프로필 저장 ─────────────────────
+# 기능:
+#   - 대상 프로젝트 디렉토리 경로를 MD5 해시(PROJ_KEY)하여 ~/.devtools2/state.properties 에 저장
+#   - command-palette(fzf) 및 Neovim 디버깅 프로필 기본값으로 자동 연동됨
+# 인수:
+#   $1 = TARGET_DIR (필수, 예: $HOME/workspaces/goono/Goono-ELN)
+#   $2 = PROP_KEY   (필수, 예: "gradle_run.profile")
+#   $3 = PROP_VAL   (필수, 예: "0_DEVELOP,0_LOCAL,s2")
+save_devtools2_project_state() {
+    local TARGET_DIR="$1"
+    local PROP_KEY="$2"
+    local PROP_VAL="$3"
+
+    if [ -z "$TARGET_DIR" ] || [ -z "$PROP_KEY" ] || [ -z "$PROP_VAL" ]; then
+        return 0
+    fi
+
+    echo "⚙️  command-palette 실행 프로필 저장 중 (~/.devtools2/state.properties)..."
+    local DEVTOOLS2_USER_DIR="$HOME/.devtools2"
+    mkdir -p "$DEVTOOLS2_USER_DIR"
+    local STATE_FILE="$DEVTOOLS2_USER_DIR/state.properties"
+
+    local NORM_CWD
+    NORM_CWD=$(echo "$TARGET_DIR" | tr '\\' '/' | sed 's/\/$//')
+    local PROJ_KEY
+    PROJ_KEY=$(echo -n "$NORM_CWD" | md5sum | awk '{print $1}')
+    local FULL_KEY="${PROJ_KEY}.${PROP_KEY}"
+
+    touch "$STATE_FILE"
+    local TMP_STATE
+    TMP_STATE=$(mktemp)
+    grep -v "^${FULL_KEY}=" "$STATE_FILE" > "$TMP_STATE" 2>/dev/null || true
+    echo "${FULL_KEY}=${PROP_VAL}" >> "$TMP_STATE"
+    mv "$TMP_STATE" "$STATE_FILE"
+    echo "✅ 실행 프로필 저장 완료 ($STATE_FILE)"
+    echo "   Key  : $FULL_KEY"
+    echo "   Value: $PROP_VAL"
+}
+
+# ── VSCode 필수 확장 프로그램 자동 검사 및 설치 ──────────────────────────────
+# 기능:
+#   - code 또는 code-insiders 바이너리 자동 탐색
+#   - 이미 설치된 익스텐션은 건너뛰고, 미설치 익스텐션만 자동 설치 (--force)
+# 인수:
+#   $@ = 설치할 익스텐션 ID 목록 (예: "redhat.java" "vscjava.vscode-java-debug")
+install_vscode_extensions() {
+    local _EXTENSIONS=("$@")
+    if [ ${#_EXTENSIONS[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    echo ""
+    echo "⏳ VSCode 필수 확장 프로그램을 확인/설치합니다..."
+
+    local VSCODE_BIN=""
+    for _bin in code code-insiders; do
+        if command -v "$_bin" &>/dev/null; then
+            VSCODE_BIN="$_bin"
+            break
+        fi
+    done
+
+    if [ -z "$VSCODE_BIN" ]; then
+        echo "⚠️  VSCode(code) 명령어를 찾을 수 없습니다. 확장 설치를 건너뜁니다."
+        echo "   → VSCode 설치 후 아래 확장을 수동으로 설치하세요:"
+        for _ext in "${_EXTENSIONS[@]}"; do
+            echo "      • $_ext"
+        done
+        return 0
+    fi
+
+    local _INSTALLED_EXTS
+    _INSTALLED_EXTS=$("$VSCODE_BIN" --list-extensions 2>/dev/null || echo "")
+    for _ext in "${_EXTENSIONS[@]}"; do
+        if echo "$_INSTALLED_EXTS" | grep -qi "^${_ext}$"; then
+            echo "   ✅ 이미 설치됨: $_ext"
+        else
+            echo "   📦 설치 중: $_ext ..."
+            if "$VSCODE_BIN" --install-extension "$_ext" --force 2>/dev/null; then
+                echo "   ✅ 설치 완료: $_ext"
+            else
+                echo "   ⚠️  설치 실패 (수동 설치 필요): $_ext"
+            fi
+        fi
+    done
+}
+
+# ── SFTP 마운트 옵션 통합 처리 헬퍼 ──────────────────────────────────────────
+# 기능:
+#   - --sftp "user@host[:port]" 단축 형식 또는 개별 변수를 파싱하여 setup_rclone_sftp_mount 호출
+#   - remote_path 및 local_path 미지정 시 ~/mount/<app-name> 기본값 자동 적용
+# 인수:
+#   $1 = SFTP_SPEC (예: "namupia@aiplus.im:222" 또는 "")
+#   $2 = SFTP_USER
+#   $3 = SFTP_HOST
+#   $4 = SFTP_PORT (기본값: 22)
+#   $5 = SFTP_REMOTE_PATH
+#   $6 = SFTP_LOCAL_PATH
+#   $7 = APP_NAME
+handle_sftp_mount_options() {
+    local SFTP_SPEC="$1"
+    local SFTP_USER="$2"
+    local SFTP_HOST="$3"
+    local SFTP_PORT="${4:-22}"
+    local SFTP_REMOTE_PATH="$5"
+    local SFTP_LOCAL_PATH="$6"
+    local APP_NAME="$7"
+
+    # --sftp "user@host:port" 단축 형식 파싱
+    if [ -n "$SFTP_SPEC" ]; then
+        if [[ "$SFTP_SPEC" == *"@"* ]]; then
+            SFTP_USER=$(echo "$SFTP_SPEC" | cut -d'@' -f1)
+            local _REM="${SFTP_SPEC#*@}"
+            if [[ "$_REM" == *:* ]]; then
+                SFTP_HOST="${_REM%:*}"
+                SFTP_PORT="${_REM##*:}"
+            else
+                SFTP_HOST="$_REM"
+                SFTP_PORT="22"
+            fi
+        else
+            SFTP_HOST="$SFTP_SPEC"
+        fi
+    fi
+
+    if [ -n "$SFTP_USER" ] && [ -n "$SFTP_HOST" ]; then
+        local _DEFAULT_MOUNT_NAME="${APP_NAME:-$SFTP_USER}"
+        local _REMOTE="${SFTP_REMOTE_PATH:-~/mount/$_DEFAULT_MOUNT_NAME}"
+        local _LOCAL="${SFTP_LOCAL_PATH:-$HOME/mount/$_DEFAULT_MOUNT_NAME}"
+
+        setup_rclone_sftp_mount \
+            "$SFTP_USER" \
+            "$SFTP_HOST" \
+            "$SFTP_PORT" \
+            "$_REMOTE" \
+            "$_LOCAL" || {
+                local _exit_code=$?
+                if [ "$_exit_code" -eq 2 ]; then
+                    return 2
+                else
+                    echo "⚠️  SFTP 마운트 설정 실패. 나머지 설정을 계속 진행합니다."
+                fi
+            }
+    fi
+    return 0
+}
+
+# ── 하위 언어별 전문 모듈 자동 로드 ──────────────────────────────────────────
+_CURRENT_MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$_CURRENT_MODULE_DIR/java-setup.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$_CURRENT_MODULE_DIR/java-setup.sh"
+fi
+if [ -f "$_CURRENT_MODULE_DIR/python-setup.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$_CURRENT_MODULE_DIR/python-setup.sh"
+fi
