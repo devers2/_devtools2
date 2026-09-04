@@ -369,6 +369,109 @@ cd "$DEVTOOLS2/data/.npm-packages"
 
 # 임시 PATH 추가 (방금 설치한 Node.js 바이너리를 현재 셸 환경에 즉시 연동)
 export PATH="$DEVTOOLS2/modules/nodejs/node-v24/bin:$PATH"
+export NPM_CONFIG_USERCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
+setup_npm_mirror
+
+# ── 글로벌 npm 패키지 실시간 프로그래스 바 및 미러 서버 폴백 설치 헬퍼 ──────
+install_npm_packages_with_progress() {
+    local cmd="$1"             # "install" 또는 "update"
+    local done_label="$2"
+    local total_pkgs=243
+
+    if [ -f "package-lock.json" ]; then
+        local detected
+        detected=$(node -e "
+        try {
+            const p = require('./package-lock.json');
+            const count = Object.keys(p.packages || {}).filter(k => k.startsWith('node_modules/')).length;
+            if (count > 0) console.log(count);
+        } catch(e) {}
+        " 2>/dev/null || true)
+        [ -n "$detected" ] && total_pkgs="$detected"
+    fi
+
+    local mirror_reg="${NPM_MIRROR_REGISTRY:-https://registry.npmmirror.com/}"
+    local official_reg="${NPM_OFFICIAL_REGISTRY:-https://registry.npmjs.org/}"
+    local target_reg="$official_reg"
+    local is_mirror=false
+
+    if check_mirror_available "registry.npmmirror.com" 443; then
+        target_reg="$mirror_reg"
+        is_mirror=true
+        print_info "한국/아시아 초고속 미러 서버(registry.npmmirror.com)를 우선 적용합니다."
+    else
+        print_info "미러 서버에 연결할 수 없어 공식 npmjs 레지스트리(registry.npmjs.org)를 사용합니다."
+    fi
+
+    _exec_npm_stream() {
+        local reg="$1"
+        local err_log="/tmp/_npm_install_err.log"
+        rm -f "$err_log"
+
+        local bar_len=25
+        local count=0
+        local spinner=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+        local spin_idx=0
+
+        # npm 실행 및 timing 스트림을 파이프로 연결하여 실시간 게이지 렌더링
+        npm "$cmd" --registry="$reg" --no-audit --no-fund --timing 2>&1 | tee "$err_log" | while IFS= read -r line; do
+            if [[ "$line" =~ reifyNode:node_modules/([^[:space:]]+) ]]; then
+                local pkg="${BASH_REMATCH[1]}"
+                count=$((count + 1))
+                local pct=$(( count * 100 / total_pkgs ))
+                [ "$pct" -gt 100 ] && pct=100
+                local filled=$(( bar_len * count / total_pkgs ))
+                [ "$filled" -gt "$bar_len" ] && filled=$bar_len
+                local empty=$(( bar_len - filled ))
+
+                local bar=$(printf "%${filled}s" "" | tr ' ' '=')
+                local spaces=$(printf "%${empty}s" "" | tr ' ' ' ')
+
+                local pkg_disp="$pkg"
+                if [ ${#pkg_disp} -gt 28 ]; then
+                    pkg_disp="${pkg_disp:0:25}..."
+                fi
+
+                printf "\r   \033[36m[%s%s]\033[0m %3d%% (%d/%d) %-28s\033[K" "$bar" "$spaces" "$pct" "$count" "$total_pkgs" "$pkg_disp"
+            elif [ "$count" -eq 0 ]; then
+                local spin_char="${spinner[spin_idx]}"
+                spin_idx=$(( (spin_idx + 1) % 10 ))
+                printf "\r   \033[36m[%s]\033[0m 패키지 메타데이터 확인 및 다운로드 준비 중...\033[K" "$spin_char"
+            fi
+        done
+        local _stream_ec=${PIPESTATUS[0]}
+        printf "\r\033[K"
+        return $_stream_ec
+    }
+
+    local success=false
+    if _exec_npm_stream "$target_reg"; then
+        success=true
+    elif [ "$is_mirror" = true ]; then
+        print_warn "미러 서버($target_reg) 설치 실패. 공식 레지스트리($official_reg)로 자동 폴백합니다..."
+        restore_npm_mirror
+        if _exec_npm_stream "$official_reg"; then
+            success=true
+            target_reg="$official_reg"
+        fi
+    fi
+
+    if [ "$success" = true ]; then
+        local cur_reg
+        cur_reg=$(npm config get registry 2>/dev/null | sed 's#/$##')
+        if [ "$cur_reg" != "${target_reg%/}" ]; then
+            npm config set registry "$target_reg" 2>/dev/null || true
+        fi
+        print_done "$done_label (적용 저장소: $target_reg)"
+    else
+        print_error "글로벌 npm 패키지 설치 실패!"
+        if [ -f "/tmp/_npm_install_err.log" ]; then
+            echo "   [에러 상세 로그]"
+            grep -E "npm ERR!" "/tmp/_npm_install_err.log" | head -n 10 | sed 's/^/   /'
+        fi
+        return 1
+    fi
+}
 
 if [ -f "package.json" ]; then
     # ── package.json devDependencies 기준 설치 상태 상세 확인 ──────────────────
@@ -448,22 +551,13 @@ Object.keys(deps).forEach(k => console.log(k));
 
     if [ "$_npm_action" = "install" ] || [ "$_npm_action" = "update" ]; then
         _npm_cmd="install"
-        _npm_label="글로벌 npm 패키지 설치 진행 중..."
         _npm_done_label="글로벌 npm 패키지 설치 완료!"
         if [ "$_npm_action" = "update" ]; then
             _npm_cmd="update"
-            _npm_label="글로벌 npm 패키지 최신 업데이트 중..."
             _npm_done_label="글로벌 npm 패키지 최신 업데이트 완료!"
         fi
 
-        echo -n "   📦 $_npm_label"
-        (npm "$_npm_cmd" -q) >/tmp/_npm_install.log 2>&1 &
-        _npm_pid=$!
-        show_spinner "$_npm_pid"
-        wait "$_npm_pid" 2>/dev/null || true
-        rm -f /tmp/_npm_install.log 2>/dev/null
-        echo " 완료"
-        print_done "$_npm_done_label"
+        install_npm_packages_with_progress "$_npm_cmd" "$_npm_done_label"
     fi
 fi
 
@@ -475,6 +569,10 @@ mkdir -p lib/node_modules
 if [ -d "node_modules" ]; then
     rsync -avq --remove-source-files node_modules/ lib/node_modules/
     find node_modules -type d -empty -delete 2>/dev/null
+fi
+# PATH 연동을 위한 bin 디렉터리 심볼릭 링크 연결
+if [ -d "lib/node_modules/.bin" ]; then
+    ln -sfn lib/node_modules/.bin bin
 fi
 echo "✅ Node.js 설치 완료 ($ARCH)"
 echo ""

@@ -328,17 +328,40 @@ EOF
     fi
 }
 
+# Node.js npm 고속 미러 상수
+NPM_MIRROR_REGISTRY="https://registry.npmmirror.com/"
+NPM_OFFICIAL_REGISTRY="https://registry.npmjs.org/"
+
 # Node.js npm 고속 미러 설정 (1순위 npmmirror -> 2순위 공식 npmjs)
 setup_npm_mirror() {
     if command -v npm >/dev/null 2>&1; then
+        local cur_reg
+        cur_reg=$(npm config get registry 2>/dev/null | sed 's#/$##')
         if check_mirror_available "registry.npmmirror.com" 443; then
-            npm config set registry https://registry.npmmirror.com/ 2>/dev/null || true
+            if [ "$cur_reg" != "${NPM_MIRROR_REGISTRY%/}" ]; then
+                npm config set registry "$NPM_MIRROR_REGISTRY" 2>/dev/null || true
+            fi
             print_info "npmmirror 고속 미러 서버를 npm registry로 적용했습니다."
+            return 0
         else
-            npm config set registry https://registry.npmjs.org/ 2>/dev/null || true
+            if [ "$cur_reg" != "${NPM_OFFICIAL_REGISTRY%/}" ]; then
+                npm config set registry "$NPM_OFFICIAL_REGISTRY" 2>/dev/null || true
+            fi
+            print_info "공식 npmjs 서버를 npm registry로 적용했습니다."
+            return 1
         fi
     fi
+    return 1
 }
+
+# npm 공식 레지스트리 원복 헬퍼 (미러 서버 실패 시 공식 서버로 복구)
+restore_npm_mirror() {
+    if command -v npm >/dev/null 2>&1; then
+        npm config set registry "$NPM_OFFICIAL_REGISTRY" 2>/dev/null || true
+        print_info "npm registry를 공식 서버(https://registry.npmjs.org/)로 원복했습니다."
+    fi
+}
+
 
 
 
