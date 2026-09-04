@@ -781,6 +781,17 @@ return {
           config.mainClass = _G.MAIN_CLASS
         end
 
+        -- vscode-java-debug (com.microsoft.java.debug.core) 규격상 args와 vmArgs는 배열이 아닌 String이어야 합니다.
+        -- 테이블(배열) 타입인 경우 문자열로 결합하여 JsonSyntaxException (Expected STRING but was BEGIN_ARRAY)을 방지합니다.
+        if type(config.args) == 'table' then
+          local str = table.concat(config.args, ' ')
+          config.args = str ~= '' and str or nil
+        end
+        if type(config.vmArgs) == 'table' then
+          local str = table.concat(config.vmArgs, ' ')
+          config.vmArgs = str ~= '' and str or nil
+        end
+
         if config.mainClass and TEST_RUNNER_CLASSES[config.mainClass] then
           launch_with_watchdogs(config, run_opts, run_next)
           return
@@ -792,13 +803,6 @@ return {
         }, function(profile_input)
           if profile_input == nil then
             return -- Esc로 취소 (실행하지 않음)
-          end
-
-          -- vscode-java-debug (com.microsoft.java.debug.core) 규격상 args는 배열이 아닌 String이어야 합니다.
-          -- 테이블(배열) 타입인 경우 문자열로 결합하여 JsonSyntaxException (Expected STRING but was BEGIN_ARRAY at path $.args)을 방지합니다.
-          if type(config.args) == 'table' then
-            local str = table.concat(config.args, ' ')
-            config.args = str ~= '' and str or nil
           end
 
           -- dap.configurations.java의 config 테이블은 LspAttach가 다시 발생하기 전까지 재사용되므로,
@@ -862,6 +866,22 @@ return {
                   if adapter_result then
                     adapter_result.options = adapter_result.options or {}
                     adapter_result.options.initialize_timeout_sec = 55
+                    local orig_enrich = adapter_result.enrich_config
+                    if orig_enrich then
+                      adapter_result.enrich_config = function(c, on_c)
+                        orig_enrich(c, function(enriched)
+                          if type(enriched.args) == 'table' then
+                            local str = table.concat(enriched.args, ' ')
+                            enriched.args = str ~= '' and str or nil
+                          end
+                          if type(enriched.vmArgs) == 'table' then
+                            local str = table.concat(enriched.vmArgs, ' ')
+                            enriched.vmArgs = str ~= '' and str or nil
+                          end
+                          on_c(enriched)
+                        end)
+                      end
+                    end
                   end
                   cb(adapter_result)
                 end, conf)

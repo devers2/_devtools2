@@ -136,7 +136,7 @@ else
       "name": "GoonoELNApplication",
       "request": "launch",
       "mainClass": "so.goono.GoonoELNApplication",
-      "vmArgs": ["-Dfile.encoding=UTF-8", "-Dspring.profiles.active=0_DEVELOP,0_LOCAL,s2"]
+      "vmArgs": "-Dfile.encoding=UTF-8 -Dspring.profiles.active=0_DEVELOP,0_LOCAL,s2"
     }
   ]
 }
