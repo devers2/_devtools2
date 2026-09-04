@@ -264,10 +264,12 @@ if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction Silent
                 } else {
                     Start-Sleep -Seconds 2
                 }
-            }
             if (-not $installed) {
                 Write-Host " ✗ (실패)" -ForegroundColor Red
-                $lastErr = if (Test-Path $extErrFile) { (Get-Content $extErrFile | Where-Object { $_.Trim() -ne "" } | Select-Object -First 1) } else { "" }
+                $lastErr = if (Test-Path $extErrFile) {
+                    $errLines = @(Get-Content $extErrFile | Where-Object { $_.Trim() -ne "" -and $_ -notmatch 'DEP0169|DeprecationWarning' })
+                    if ($errLines.Count -gt 0) { $errLines[0] } else { (Get-Content $extErrFile | Where-Object { $_.Trim() -ne "" } | Select-Object -First 1) }
+                } else { "" }
                 $failedExts[$ext] = $lastErr
             }
         }

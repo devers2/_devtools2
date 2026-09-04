@@ -118,19 +118,22 @@ if [ "$_do_vscode" = true ]; then
             _INSTALLED_EXTS=$(tr '[:upper:]' '[:lower:]' < /tmp/_vscode_installed.tmp 2>/dev/null || echo "")
             rm -f /tmp/_vscode_installed.tmp 2>/dev/null
 
-            print_info "VSCode 확장 프로그램 설치 중 (extensions.txt 기반)..."
+            _ext_total=$(grep -v '^[[:space:]]*#' "$VSCODE_EXT_LIST" | grep -v '^[[:space:]]*$' | wc -l | tr -d ' ')
+            print_info "VSCode 확장 프로그램 설치 중 (extensions.txt 기반, 총 ${_ext_total}개)..."
             _vscode_install_count=0
             _vscode_skip_count=0
             _vscode_fail_count=0
+            _ext_idx=0
             while IFS= read -r ext_line || [ -n "$ext_line" ]; do
                 ext=$(echo "$ext_line" | tr -d '\r' | sed 's/#.*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
                 [ -z "$ext" ] && continue
+                _ext_idx=$((_ext_idx + 1))
                 ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
                 if echo "$_INSTALLED_EXTS" | grep -qF "$ext_lower"; then
-                    echo "   ⏭️  [건너뜀] $ext (이미 설치됨)"
+                    echo "   ⏭️  [${_ext_idx}/${_ext_total}] [건너뜀] $ext (이미 설치됨)"
                     _vscode_skip_count=$((_vscode_skip_count + 1))
                 else
-                    echo -n "   📥 [설치] $ext ..."
+                    echo -n "   📥 [${_ext_idx}/${_ext_total}] [설치] $ext ..."
                     _ok=0
                     _ext_err_file="/tmp/_vscode_ext_err_$$.log"
                     for _retry in 1 2 3; do
@@ -152,7 +155,8 @@ if [ "$_do_vscode" = true ]; then
                         echo " ✅"
                         _vscode_install_count=$((_vscode_install_count + 1))
                     else
-                        _err_line=$(head -n 1 "$_ext_err_file" 2>/dev/null | tr -d '\r\n' || echo "")
+                        _err_line=$(grep -v 'DEP0169\|DeprecationWarning' "$_ext_err_file" 2>/dev/null | grep -E 'Error|error|실패|failed' | head -n 1 | tr -d '\r\n' || true)
+                        [ -z "$_err_line" ] && _err_line=$(head -n 1 "$_ext_err_file" 2>/dev/null | tr -d '\r\n' || echo "")
                         if [ -n "$_err_line" ]; then
                             echo " ⚠️  실패: $_err_line"
                         else

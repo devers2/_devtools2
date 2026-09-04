@@ -296,20 +296,24 @@ if (-not $installAhk) {
         Remove-Item -Path $ahkTmp -Force -ErrorAction SilentlyContinue
     }
 
-    # ── (3) Ctrl+Alt+T 터미널 실행 권한 선택 (관리자 vs 일반 권한) ──────────────
+    # ── (3) Ctrl+Alt+T 터미널 실행 권한 선택 (일반 사용자 vs 관리자 권한) ────────
     Write-Host ""
     Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
-    Write-Host "  🔑 Windows Terminal 단축키(Ctrl+Alt+T) 실행 권한 설정" -ForegroundColor Cyan
+    Write-Host "  🔑 Windows Terminal 단축키(Ctrl+Alt+T) 실행 권한 선택" -ForegroundColor Cyan
     Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
     Write-Host "  💡 WSL2 개발 및 nvim 사용 시 일반 권한으로도 모든 기능(sudo 포함)이 정상 작동합니다." -ForegroundColor Gray
     Write-Host "     (일반 권한 권장: 탐색기 파일 드래그 앤 드롭 지원 및 보안 향상)" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  실행 권한 선택:" -ForegroundColor White
+    Write-Host "    1) 일반 사용자 권한 (Standard - 권장: 파일 드래그 앤 드롭 지원 및 보안)" -ForegroundColor White
+    Write-Host "    2) 관리자 권한 (Elevated)" -ForegroundColor White
 
-    $runAsAdmin = Prompt-Confirm "👉 Ctrl+Alt+T 단축키로 Windows Terminal을 관리자 권한으로 실행하시겠습니까?" "N"
-    if ($runAsAdmin) {
-        Write-Info "선택: 관리자 권한(Elevated)으로 터미널을 실행합니다."
+    $privChoice = Prompt-Choice "👉 단축키 실행 시 적용할 권한을 선택하세요" @("일반 사용자 권한 (권장)", "관리자 권한") 1
+    if ($privChoice -eq 2) {
+        Write-Info "선택: 관리자 권한(Elevated)으로 터미널을 실행하도록 설정합니다."
         $ahkRunLevel = 1  # 1 = TASK_RUNLEVEL_HIGHEST (관리자 권한)
     } else {
-        Write-Info "선택: 일반 사용자 권한(Standard)으로 터미널을 실행합니다. (권장)"
+        Write-Info "선택: 일반 사용자 권한(Standard)으로 터미널을 실행하도록 설정합니다. (권장)"
         $ahkRunLevel = 0  # 0 = TASK_RUNLEVEL_LUA (일반 사용자 권한)
     }
 
