@@ -467,27 +467,33 @@ if ($LASTEXITCODE -ne 0) {
 #   → 감지 즉시 wsl --shutdown 후 자동 재시작하여 확인.
 # ==============================================================================
 Write-SubStep "▶ [사전 확인] WSL Interop 상태 점검"
-$interopCheck = wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null
+$interopCheck = ((wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null) -replace "`0", "").Trim()
 if ($interopCheck -ne "OK") {
     Write-Warn "WSL Interop 비활성 감지 (binfmt_misc/WSLInterop 미등록)"
-    Write-Info "  → WSL Interop이 없으면 Windows 실행 파일(.exe) 연동이 불가능합니다."
-    Write-Info "  → WSL을 완전히 재시작합니다..."
+    Write-Info "  → root 권한으로 WSL Interop 핸들러 및 binfmt.d 설정을 즉시 등록합니다..."
+    wsl -d $wslDistro -u root -- bash -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)"
 
-    # wsl --shutdown 후 디스트로가 실제로 멈출 때까지 대기 (최대 60초)
-    if (-not (Invoke-WslShutdown -Distro $wslDistro -TimeoutSeconds 60 -ShutdownMessage "WSL Interop 복구를 위한 재시작 대기")) {
-        Write-Fail "WSL이 지정 시간(60초) 내에 종료되지 않았습니다."
-        Write-Info "  → PC를 재부팅한 후 다시 실행해 주세요."
-        Pause-Script
-        exit 1
-    }
+    $interopCheck = ((wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null) -replace "`0", "").Trim()
+    if ($interopCheck -ne "OK") {
+        Write-Info "  → WSL Interop이 없으면 Windows 실행 파일(.exe) 연동이 불가능합니다."
+        Write-Info "  → WSL을 완전히 재시작합니다..."
 
-    # 재시작 후 재확인
-    $interopCheck2 = wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null
-    if ($interopCheck2 -ne "OK") {
-        Write-Fail "WSL 재시작 후에도 WSL Interop 복구 실패."
-        Write-Info "  → PC를 재부팅한 후 다시 실행해 주세요."
-        Pause-Script
-        exit 1
+        # wsl --shutdown 후 디스트로가 실제로 멈출 때까지 대기 (최대 60초)
+        if (-not (Invoke-WslShutdown -Distro $wslDistro -TimeoutSeconds 60 -ShutdownMessage "WSL Interop 복구를 위한 재시작 대기")) {
+            Write-Fail "WSL이 지정 시간(60초) 내에 종료되지 않았습니다."
+            Write-Info "  → PC를 재부팅한 후 다시 실행해 주세요."
+            Pause-Script
+            exit 1
+        }
+
+        # 재시작 후 재확인
+        $interopCheck2 = ((wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null) -replace "`0", "").Trim()
+        if ($interopCheck2 -ne "OK") {
+            Write-Fail "WSL 재시작 후에도 WSL Interop 복구 실패."
+            Write-Info "  → PC를 재부팅한 후 다시 실행해 주세요."
+            Pause-Script
+            exit 1
+        }
     }
     Write-Success "WSL Interop 복구 완료! 설치를 계속합니다."
 } else {
@@ -544,7 +550,7 @@ Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-zed.ps1" -Arguments @{ WslDistro
 
 # ── 4-5. Orca (Windows GUI 클라이언트 — 에이전트 실행부는 WSL2의 orca serve) ──
 Write-SubStep "▶ (5/5) Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 안내"
-Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
+$userChoseOrca = Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
 
 # 🌟 [Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동]
 # - 보안 자격증명 정보(Git Token/Maven Auth) 손실 방지 및 이중 환경 호환성 확보
@@ -588,7 +594,7 @@ Write-Info "    (WSL 심볼릭 링크가 Windows UNC 경로를 못 따라가 복
 Write-Info "  - Windows Terminal의 폰트/테마/단축키는 설치 시점에 WSL2 설정을 복사해 적용됩니다(실시간 공유 아님 — 재설치 스크립트로 갱신)."
 if ($userChoseOrca) {
     Write-Info "  - Orca는 에이전트 CLI가 있는 WSL2에서 'orca serve'로 실행되고, Windows GUI는 거기 페어링만 합니다."
-    Write-Info "    (자동/수동 페어링 방법은 방금 위 4.setup-orca.ps1 실행 결과에 안내되어 있습니다.)"
+    Write-Info "    (자동/수동 페어링 방법은 방금 위 tool.setup-orca.ps1 실행 결과에 안내되어 있습니다.)"
 }
 Write-Host ""
 Write-Host "  설치 성공을 확인하시려면 아래 도구들을 실행해 보세요:"

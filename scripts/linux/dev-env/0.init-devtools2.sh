@@ -74,6 +74,16 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# WSL2 환경 감지 시 binfmt.d 영구 설정 및 WSLInterop 등록 (Windows .exe Exec format error 예방)
+if grep -qi 'microsoft' /proc/version 2>/dev/null; then
+    mkdir -p /etc/binfmt.d /usr/lib/binfmt.d 2>/dev/null || true
+    echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf 2>/dev/null || true
+    echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf 2>/dev/null || true
+    if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ] && [ -w /proc/sys/fs/binfmt_misc/register ]; then
+        echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
+    fi
+fi
+
 print_sep
 print_step "[Step 0] 시스템 필수 패키지 설치 (unzip, tar, curl, wget, rsync, python3-pip)"
 print_sep
@@ -136,6 +146,11 @@ if command -v locale-gen >/dev/null 2>&1; then
 fi
 
 print_done "필수 패키지 및 로케일 설치 완료!"
+
+# AppImage(Ghostty, Orca 등) 실행 지원을 위한 FUSE 라이브러리 자동 설치
+if ! dpkg -s libfuse2 >/dev/null 2>&1 && ! dpkg -s libfuse2t64 >/dev/null 2>&1; then
+    apt-get install -y libfuse2t64 >/dev/null 2>&1 || apt-get install -y libfuse2 >/dev/null 2>&1 || true
+fi
 
 # 스크립트를 실제 호출한 사용자(관리자가 sudo로 실행한 경우 SUDO_USER를 우선 사용)
 INVOKER="${SUDO_USER:-${USER:-root}}"

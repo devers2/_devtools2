@@ -560,8 +560,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Success "배포판 가져오기 완료"
 
-# 7. 기본 로그인 사용자, hostname 및 Windows Interop 설정 (wsl.conf / hostname 수정)
-wsl -d $wslName -u root -e bash -c "echo 'devtools2' > /etc/hostname && echo -e '[user]\ndefault=$createdUsername\n\n[interop]\nenabled=true\nappendWindowsPath=true' > /etc/wsl.conf"
+# 7. 기본 로그인 사용자, hostname 및 Windows Interop 설정 (wsl.conf / hostname / binfmt.d 수정)
+wsl -d $wslName -u root -e bash -c "echo 'devtools2' > /etc/hostname && echo -e '[user]\ndefault=$createdUsername\n\n[interop]\nenabled=true\nappendWindowsPath=true' > /etc/wsl.conf && mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)"
 
 # 8. 임시 파일 삭제
 if (Test-Path $tempTarPath) {

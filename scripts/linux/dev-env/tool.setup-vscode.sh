@@ -45,8 +45,22 @@ fi
 if [ "$_do_vscode" = true ]; then
         if [ "${IS_WSL2:-false}" = true ]; then
             # binfmt_misc WSLInterop 복구 (Exec format error 예방)
-            if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ] && [ -w /proc/sys/fs/binfmt_misc/register ]; then
-                echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
+            if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
+                if [ "$(id -u)" -eq 0 ]; then
+                    echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || echo ':WSLInterop:M::MZ::/init:' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
+                elif command -v sudo >/dev/null 2>&1; then
+                    sudo sh -c 'echo ":WSLInterop:M::MZ::/init:PF" > /proc/sys/fs/binfmt_misc/register 2>/dev/null || echo ":WSLInterop:M::MZ::/init:" > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true' 2>/dev/null || true
+                fi
+            fi
+            # systemd-binfmt 재등록 보장을 위한 binfmt.d 설정
+            if [ ! -f /etc/binfmt.d/WSLInterop.conf ]; then
+                if [ "$(id -u)" -eq 0 ]; then
+                    mkdir -p /etc/binfmt.d /usr/lib/binfmt.d 2>/dev/null || true
+                    echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf 2>/dev/null || true
+                    echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf 2>/dev/null || true
+                elif command -v sudo >/dev/null 2>&1; then
+                    sudo sh -c 'mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ":WSLInterop:M::MZ::/init:PF" > /etc/binfmt.d/WSLInterop.conf && echo ":WSLInterop:M::MZ::/init:PF" > /usr/lib/binfmt.d/WSLInterop.conf' 2>/dev/null || true
+                fi
             fi
             _win_user="${WIN_USERPROFILE:-}"
             if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then

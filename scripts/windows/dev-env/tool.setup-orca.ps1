@@ -81,7 +81,7 @@ Write-Step "[Step 1] Orca 설치 의사 확인"
 if (-not (Prompt-Confirm "👉 Orca(멀티 에이전트 오케스트레이션 ADE)를 설치하시겠습니까?" "N")) {
     Write-Skip "Orca 설치를 건너뜁니다."
     Write-Host ""
-    return
+    return $false
 }
 
 # ==============================================================================
@@ -262,3 +262,4 @@ Write-Info "  참고: 계정 인증(예: Claude/Codex 로그인)은 WSL2 쪽에�
 Write-Info "    wsl -d $WslDistro -- /var/opt/_devtools2/modules/orca/orca account add --agent claude"
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host ""
+return $true

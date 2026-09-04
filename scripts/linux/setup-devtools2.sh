@@ -162,11 +162,12 @@ print_step "▶ [정리] 설치용 임시 sudo 권한 회수"
 # Step 1~4 진행 중 sudo 비밀번호를 반복 입력하지 않도록 했습니다.
 # 설치가 모두 끝난 지금 시점에는 더 이상 필요하지 않으므로 회수합니다.
 # (이 시점까지는 passwordless sudo가 살아있으므로 비밀번호 없이 회수 가능합니다.)
-if [ -f "/etc/sudoers.d/$USER" ]; then
-    if sudo rm -f "/etc/sudoers.d/$USER"; then
-        print_done "임시 passwordless sudo 권한을 회수했습니다. 이후 sudo 사용 시 비밀번호가 필요합니다."
+_target_user="${SUDO_USER:-${USER:-}}"
+if [ -n "$_target_user" ] && [ -f "/etc/sudoers.d/$_target_user" ]; then
+    if sudo rm -f "/etc/sudoers.d/$_target_user"; then
+        print_done "임시 passwordless sudo 권한($_target_user)을 회수했습니다. 이후 sudo 사용 시 비밀번호가 필요합니다."
     else
-        print_warn "임시 passwordless sudo 권한 회수에 실패했습니다. 수동으로 제거하세요: sudo rm -f /etc/sudoers.d/$USER"
+        print_warn "임시 passwordless sudo 권한 회수에 실패했습니다. 수동으로 제거하세요: sudo rm -f /etc/sudoers.d/$_target_user"
     fi
 fi
 

@@ -299,6 +299,9 @@ if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction Silent
 # ==============================================================================
 Write-Step "[Step 5] WSL Remote ($WslDistro) 확장 동기화"
 
+# WSL Interop (Windows .exe 실행) 활성 상태 보장 (Exec format error 예방)
+wsl -d $WslDistro -u root -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop || (mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true))"
+
 Write-Info "WSL Remote ($WslDistro): VS Code 확장 프로그램 동기화 중..."
 $rawLinuxVscode = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool.setup-vscode.sh"
 wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxVscode' -o /tmp/_dt2_vsc.sh && DT2_VSCODE_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 stdbuf -oL -eL bash /tmp/_dt2_vsc.sh; rm -f /tmp/_dt2_vsc.sh 2>/dev/null"
