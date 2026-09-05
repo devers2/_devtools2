@@ -400,7 +400,10 @@ echo ""
 print_subsep
 echo "🌐 8. 패키지 매니저(pip, npm) 고속 미러 서버 연동 중..."
 setup_pip_mirror
-setup_npm_mirror
+# npm은 이 스크립트 실행 시점(Step 3의 1/3)에 아직 설치되지 않았을 수 있고,
+# setup_npm_mirror가 npm 미설치/서버 폴백 시 return 1을 반환하는 정상 케이스가 있어
+# set -euo pipefail 환경에서 스크립트 전체가 종료되는 버그를 방지한다.
+setup_npm_mirror || true
 echo "[완료] pip 및 npm 미러 서버 설정 완료!"
 echo ""
 

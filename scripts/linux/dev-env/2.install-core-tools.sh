@@ -370,7 +370,9 @@ cd "$DEVTOOLS2/data/.npm-packages"
 # 임시 PATH 추가 (방금 설치한 Node.js 바이너리를 현재 셸 환경에 즉시 연동)
 export PATH="$DEVTOOLS2/modules/nodejs/node-v24/bin:$PATH"
 export NPM_CONFIG_USERCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
-setup_npm_mirror
+# setup_npm_mirror는 npmmirror 불가/폴백 시 return 1을 반환하는 정상 케이스가 있어
+# set -e 환경에서 스크립트가 중단되는 버그를 방지한다.
+setup_npm_mirror || true
 
 # ── 글로벌 npm 패키지 실시간 프로그래스 바 및 미러 서버 폴백 설치 헬퍼 ──────
 install_npm_packages_with_progress() {

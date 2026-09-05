@@ -265,7 +265,10 @@ check_mirror_available() {
         nc -z -w 2 "$host" "$port" >/dev/null 2>&1
         return $?
     elif command -v curl >/dev/null 2>&1; then
-        curl -s -m 2 -o /dev/null "http://${host}" >/dev/null 2>&1
+        # port 파라미터를 반드시 사용: 443이면 https://, 그 외는 http://host:port
+        local _scheme="http"
+        [ "$port" = "443" ] && _scheme="https"
+        curl -s -m 2 -o /dev/null "${_scheme}://${host}:${port}" >/dev/null 2>&1
         return $?
     elif command -v ping >/dev/null 2>&1; then
         ping -c 1 -W 2 "$host" >/dev/null 2>&1
