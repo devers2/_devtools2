@@ -8,6 +8,96 @@ local installed_cache = {} -- [lang] = true (설치됨) | nil (미설치/재시�
 local installing_parsers = {} -- [lang] = true (현재 백그라운드 설치 진행 중)
 
 -- =============================================================================
+-- 🛡️ [LazyVim tree-sitter-cli 동시 설치 충돌 방지 가드 패치]
+-- 최초 실행 시 nvim-treesitter build/config/FileType에서 동시 호출되어 발생하는
+-- Mason "Package is already installing" crash를 원천 차단하고 완료 대기를 보장합니다.
+-- =============================================================================
+local function apply_treesitter_cli_guard()
+  local ok_util, ts_util = pcall(require, 'lazyvim.util.treesitter')
+  if not (ok_util and ts_util and ts_util.ensure_treesitter_cli) then
+    return
+  end
+
+  if ts_util._cli_guard_applied then
+    return
+  end
+  ts_util._cli_guard_applied = true
+
+  local pending_callbacks = {}
+  local is_handling = false
+
+  ts_util.ensure_treesitter_cli = function(cb)
+    if vim.fn.executable('tree-sitter') == 1 then
+      return cb(true)
+    end
+
+    table.insert(pending_callbacks, cb)
+    if is_handling then
+      return
+    end
+    is_handling = true
+
+    local function resolve_all(success, err)
+      is_handling = false
+      local cbs = pending_callbacks
+      pending_callbacks = {}
+      for _, fn in ipairs(cbs) do
+        fn(success, err)
+      end
+    end
+
+    local ok_mason, mr = pcall(require, 'mason-registry')
+    if not ok_mason then
+      return resolve_all(false, 'mason.nvim을 찾을 수 없습니다.')
+    end
+
+    local function install_logic()
+      if vim.fn.executable('tree-sitter') == 1 then
+        return resolve_all(true)
+      end
+      if not mr.has_package('tree-sitter-cli') then
+        return resolve_all(false, 'tree-sitter-cli 패키지가 mason 레지스트리에 없습니다.')
+      end
+
+      local p = mr.get_package('tree-sitter-cli')
+      if p:is_installed() then
+        return resolve_all(true)
+      end
+
+      if p:is_installing() then
+        p:once('install:success', vim.schedule_wrap(function()
+          resolve_all(true)
+        end))
+        p:once('install:failed', vim.schedule_wrap(function()
+          resolve_all(false, 'tree-sitter-cli 설치 실패')
+        end))
+        return
+      end
+
+      LazyVim.info('Installing `tree-sitter-cli` with `mason.nvim`...')
+      p:install(nil, vim.schedule_wrap(function(success)
+        if success then
+          LazyVim.info('Installed `tree-sitter-cli` with `mason.nvim`.')
+          resolve_all(true)
+        else
+          resolve_all(false, 'Failed to install `tree-sitter-cli` with `mason.nvim`.')
+        end
+      end))
+    end
+
+    if mr.is_refreshing and mr.is_refreshing() then
+      mr.refresh(install_logic)
+    elseif mr.refresh then
+      mr.refresh(install_logic)
+    else
+      install_logic()
+    end
+  end
+end
+
+apply_treesitter_cli_guard()
+
+-- =============================================================================
 -- [treesitter-context 연동 헬퍼]
 -- nvim-treesitter-context 플러그인은 전역 enable/disable API만 제공하며,
 -- 버퍼별 제어 API가 없습니다. 따라서 버퍼 진입(BufEnter) 시점에 해당 버퍼의
