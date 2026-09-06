@@ -148,6 +148,21 @@ if ($vscodeAlreadyInstalled) {
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 }
 
+# PATH 갱신 및 code CLI 위치 확보 (기존 설치 환경 또는 PATH 미등록 대비)
+if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
+    $vscodeCandidates = @(
+        "$env:LOCALAPPDATA\Programs\Microsoft VS Code\bin",
+        "$env:ProgramFiles\Microsoft VS Code\bin",
+        "${env:ProgramFiles(x86)}\Microsoft VS Code\bin"
+    )
+    foreach ($cand in $vscodeCandidates) {
+        if (Test-Path $cand) {
+            $env:Path = "$cand;$env:Path"
+            break
+        }
+    }
+}
+
 # WSL Remote 필수 확장 (ms-vscode-remote.remote-wsl) 기본 설치
 if (Get-Command code -ErrorAction SilentlyContinue) {
     Write-Info "VSCode WSL Remote 필수 확장(ms-vscode-remote.remote-wsl) 기본 설치 중..."
@@ -252,6 +267,7 @@ if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction Silent
         foreach ($ext in $toInstall) {
             $idx++
             $installed = $false
+            if (Test-Path $extErrFile) { Remove-Item $extErrFile -Force -ErrorAction SilentlyContinue }
             Write-Host "  [$idx/$($toInstall.Count)] $ext ..." -ForegroundColor DarkGray -NoNewline
             for ($retry = 1; $retry -le 3; $retry++) {
                 if ($retry -gt 1) {
@@ -264,6 +280,7 @@ if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction Silent
                 } else {
                     Start-Sleep -Seconds 2
                 }
+            }
             if (-not $installed) {
                 Write-Host " ✗ (실패)" -ForegroundColor Red
                 $lastErr = if (Test-Path $extErrFile) {
