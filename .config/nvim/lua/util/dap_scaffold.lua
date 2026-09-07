@@ -52,7 +52,7 @@
 --   }
 --
 -- 🐍 [Python (FastAPI / Uvicorn / Django / 일반 스크립트)]
---   • type: "python"
+--   • type: "debugpy"
 --   • module (웹 프레임워크): 실행할 모듈명 (예: "uvicorn")
 --   • program (단일 스크립트): 실행할 파이썬 파일 경로 (예: "${workspaceFolder}/main.py")
 --   • python (가상환경): 사용할 Python 인터프리터 경로 (예: "${workspaceFolder}/.venv/bin/python3")
@@ -61,7 +61,7 @@
 --   • jinja / justMyCode: 템플릿 디버깅(true) 및 서드파티 라이브러리 스텝인 제외(false)
 --   [예시 - FastAPI]
 --   {
---     "type": "python",
+--     "type": "debugpy",
 --     "name": "Python: main:app (local)",
 --     "request": "launch",
 --     "module": "uvicorn",

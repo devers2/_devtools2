@@ -733,6 +733,9 @@ return {
             text = true,
           }, function(obj)
             vim.schedule(function()
+              if obj.code ~= 0 then
+                vim.notify('⚠️ mvnw process-resources 실패:\n' .. (obj.stderr or obj.stdout or ''), vim.log.levels.WARN, { title = 'Java Launch' })
+              end
               build_workspace_with_watchdog(on_done)
             end)
           end)
@@ -823,7 +826,7 @@ return {
       -- [스마트 프로세스 선제 정리 + Java Launch 프로필 주입] dap.run 핵심 함수 래핑
       -- 디버깅이 가동되기 직전(어댑터 작동 전)에 동일 프로젝트의 잔여 런타임 프로세스를 사전에 정리합니다.
       local orig_run = dap.run
-      local wrapped_java_adapters = {}
+      local java_adapter_wrapped = false
 
 
 
@@ -833,7 +836,8 @@ return {
         kill_debuggee_process(nil, function()
           if config and config.type == 'java' and config.request == 'launch' then
             local current_adapter = dap.adapters.java
-            if type(current_adapter) == 'function' and not wrapped_java_adapters[current_adapter] then
+            if type(current_adapter) == 'function' and not java_adapter_wrapped then
+              java_adapter_wrapped = true
               local orig_adapter = current_adapter
               local wrapped = function(cb, conf)
                 orig_adapter(function(adapter_result)
@@ -860,7 +864,6 @@ return {
                   cb(adapter_result)
                 end, conf)
               end
-              wrapped_java_adapters[wrapped] = true
               dap.adapters.java = wrapped
             end
             run_java_launch(config, run_opts, orig_run)
