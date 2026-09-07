@@ -447,6 +447,7 @@ vim.api.nvim_create_autocmd('BufWinEnter', {
     if _redirecting then return end
 
     local buf = args.buf
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
     local win = vim.api.nvim_get_current_win()
     local bt  = vim.bo[buf].buftype
     local ft  = vim.bo[buf].filetype

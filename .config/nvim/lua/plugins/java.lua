@@ -575,6 +575,9 @@ return {
         pattern = { '*.log', 'log' },
         callback = function(args)
           local buf = args.buf
+          if not buf or not vim.api.nvim_buf_is_valid(buf) then
+            return
+          end
           if vim.bo[buf].filetype == 'log' or (vim.api.nvim_buf_get_name(buf):match('%.([^.]+)$') or '') == 'log' then
             -- 자동 줄바꿈
             vim.wo.wrap = true
