@@ -157,7 +157,7 @@ return {
               if ($pid -ne %d -and $cmd) {
                 $match = $false
                 if ('%s' -ne '' -and $cmd -like '*%s*') { $match = $true }
-                if ('%s' -ne '' -and ($cmd -like '*%s*') -and ($cmd -match 'java|python|node|uvicorn|debugpy')) { $match = $true }
+                if ('%s' -ne '' -and ($cmd -like '*%s*') -and ($cmd -match 'java|python|node|uvicorn|debugpy|gunicorn|dlv|target')) { $match = $true }
                 if ($match -and ($cmd -notmatch 'jdtls|GradleDaemon|nvim|code|pwsh|language-server|vtsls|pyright|eslint')) {
                   $pids += $pid
                 }
@@ -399,6 +399,10 @@ return {
 
         if config.port and (type(config.port) == 'number' or type(config.port) == 'string') then
           return tostring(config.port)
+        end
+
+        if config.connect and type(config.connect) == 'table' and config.connect.port then
+          return tostring(config.connect.port)
         end
 
         -- 언어별 웹 모듈 기본 포트 폴백

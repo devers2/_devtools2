@@ -331,7 +331,7 @@ local function detect_default_entry(lang)
       -- cwd 기준 상대경로 추출 (상위 경로에 'cmd'가 포함되어도 안전)
       local abs = vim.fn.fnamemodify(cmd_mains[1], ':p')
       local cwd_normalized = vim.fn.fnamemodify(cwd, ':p')
-      local rel = abs:sub(#cwd_normalized + 1)
+      local rel = abs:sub(#cwd_normalized + 1):gsub('\\', '/')
       return rel
     end
     return 'main.go'
@@ -572,11 +572,12 @@ local function build_configuration(lang, answers)
       end
       return config
     else
+      local clean_q1 = q1:gsub('^[/\\]+', '')
       local config = {
         type = 'debugpy',
         name = display_name,
         request = 'launch',
-        program = '${workspaceFolder}/' .. q1,
+        program = '${workspaceFolder}/' .. clean_q1,
         python = python_bin,
         cwd = '${workspaceFolder}',
       }
@@ -586,17 +587,19 @@ local function build_configuration(lang, answers)
       return config
     end
   elseif lang == 'node' then
+    local clean_q1 = q1:gsub('^[/\\]+', '')
+    local clean_q2 = q2:gsub('^[/\\]+', ''):gsub('[/\\]+$', '')
     local display_name = 'Node: '
-      .. (q2 ~= '' and (q2 .. ' - ') or '')
-      .. q1
+      .. (clean_q2 ~= '' and (clean_q2 .. ' - ') or '')
+      .. clean_q1
       .. (q3 ~= '' and (' (' .. q3 .. ')') or '')
 
-    local cwd_val = q2 ~= '' and ('${workspaceFolder}/' .. q2) or '${workspaceFolder}'
+    local cwd_val = clean_q2 ~= '' and ('${workspaceFolder}/' .. clean_q2) or '${workspaceFolder}'
     local config = {
       type = 'node',
       name = display_name,
       request = 'launch',
-      program = '${workspaceFolder}/' .. (q2 ~= '' and (q2 .. '/') or '') .. q1,
+      program = '${workspaceFolder}/' .. (clean_q2 ~= '' and (clean_q2 .. '/') or '') .. clean_q1,
       cwd = cwd_val,
     }
     if q3 ~= '' then
@@ -604,18 +607,20 @@ local function build_configuration(lang, answers)
     end
     return config
   elseif lang == 'go' then
+    local clean_q1 = q1:gsub('^[/\\]+', '')
+    local clean_q2 = q2:gsub('^[/\\]+', ''):gsub('[/\\]+$', '')
     local display_name = 'Go: '
-      .. (q2 ~= '' and (q2 .. ' - ') or '')
-      .. q1
+      .. (clean_q2 ~= '' and (clean_q2 .. ' - ') or '')
+      .. clean_q1
       .. (q3 ~= '' and (' (' .. q3 .. ')') or '')
 
-    local cwd_val = q2 ~= '' and ('${workspaceFolder}/' .. q2) or '${workspaceFolder}'
+    local cwd_val = clean_q2 ~= '' and ('${workspaceFolder}/' .. clean_q2) or '${workspaceFolder}'
     local config = {
       type = 'go',
       name = display_name,
       request = 'launch',
       mode = 'auto',
-      program = '${workspaceFolder}/' .. (q2 ~= '' and (q2 .. '/') or '') .. q1,
+      program = '${workspaceFolder}/' .. (clean_q2 ~= '' and (clean_q2 .. '/') or '') .. clean_q1,
       cwd = cwd_val,
     }
     if q3 ~= '' then
@@ -623,14 +628,15 @@ local function build_configuration(lang, answers)
     end
     return config
   elseif lang == 'rust' then
+    local clean_q1 = q1:gsub('^[/\\]+', ''):gsub('%.exe$', '')
     local mode = (q2 == 'release') and 'release' or 'debug'
-    local display_name = 'Rust: ' .. q1 .. ' (' .. mode .. ')'
+    local display_name = 'Rust: ' .. clean_q1 .. ' (' .. mode .. ')'
 
     local config = {
       type = 'lldb',
       name = display_name,
       request = 'launch',
-      program = '${workspaceFolder}/target/' .. mode .. '/' .. q1,
+      program = '${workspaceFolder}/target/' .. mode .. '/' .. clean_q1,
       cwd = '${workspaceFolder}',
       stopOnEntry = false,
     }
