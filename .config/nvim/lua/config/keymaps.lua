@@ -33,7 +33,7 @@ end
 -- 프로젝트(디렉토리)별 마지막 사용 어태치 포트 읽기/쓰기 (디스크 영구 보존)
 local function get_last_attach_port(lang, default_port)
   local state = read_state()
-  local cwd = vim.fn.getcwd()
+  local cwd = vim.fn.getcwd():gsub('\\', '/'):gsub('/+$', '')
   local cwd_state = state[cwd] or {}
   -- 신규 attach_<lang>_port 우선, 기존 last_<lang>_port 하위 호환
   return cwd_state['attach_' .. lang .. '_port']
@@ -45,7 +45,7 @@ end
 local function save_last_attach_port(lang, port)
   vim.fn.mkdir(nvim_state_dir, 'p')
   local state = read_state()
-  local cwd = vim.fn.getcwd()
+  local cwd = vim.fn.getcwd():gsub('\\', '/'):gsub('/+$', '')
   state[cwd] = state[cwd] or {}
   state[cwd]['attach_' .. lang .. '_port'] = port
   local f_write = io.open(state_file, 'w')

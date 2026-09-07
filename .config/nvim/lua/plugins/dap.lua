@@ -65,6 +65,10 @@ return {
           or cmd_lower:find('ruff', 1, true)
           or cmd_lower:find('eslint', 1, true)
           or cmd_lower:find('tailwindcss', 1, true)
+          or cmd_lower:find('gopls', 1, true)
+          or cmd_lower:find('rust-analyzer', 1, true)
+          or cmd_lower:find('clangd', 1, true)
+          or cmd_lower:find('lua-language-server', 1, true)
         then
           return false
         end
@@ -155,10 +159,11 @@ return {
               $cmd = $_.CommandLine
               $pid = $_.ProcessId
               if ($pid -ne %d -and $cmd) {
+                $cmd_norm = $cmd -replace '\\','/'
                 $match = $false
                 if ('%s' -ne '' -and $cmd -like '*%s*') { $match = $true }
-                if ('%s' -ne '' -and ($cmd -like '*%s*') -and ($cmd -match 'java|python|node|uvicorn|debugpy|gunicorn|dlv|target')) { $match = $true }
-                if ($match -and ($cmd -notmatch 'jdtls|GradleDaemon|nvim|code|pwsh|language-server|vtsls|pyright|eslint')) {
+                if ('%s' -ne '' -and ($cmd_norm -like '*%s*') -and ($cmd -match 'java|python|node|uvicorn|debugpy|gunicorn|dlv|target')) { $match = $true }
+                if ($match -and ($cmd -notmatch 'jdtls|GradleDaemon|org\.gradle|equinox|nvim|code|pwsh|language-server|vtsls|pyright|basedpyright|ruff|eslint|tailwindcss|gopls|rust-analyzer|clangd|mason')) {
                   $pids += $pid
                 }
               }
@@ -363,6 +368,7 @@ return {
       -- (Remote Attach, Launch file, file:args, doctest 등)이 피커에 섞여 나와
       -- launch.json 단일 설정 시 불필요한 선택 팝업이 뜨거나 피커 목록을 오염시키는 것을 방지합니다.
       dap.configurations.java = {}
+      dap.configurations.kotlin = {}
       dap.configurations.python = {}
       dap.configurations.typescript = {}
       dap.configurations.javascript = {}
@@ -405,11 +411,17 @@ return {
         end
 
         if config.port and (type(config.port) == 'number' or type(config.port) == 'string') then
-          return tostring(config.port)
+          local p_str = vim.trim(tostring(config.port))
+          if p_str ~= '' then
+            return p_str
+          end
         end
 
         if config.connect and type(config.connect) == 'table' and config.connect.port then
-          return tostring(config.connect.port)
+          local p_str = vim.trim(tostring(config.connect.port))
+          if p_str ~= '' then
+            return p_str
+          end
         end
 
         -- 언어별 웹 모듈 기본 포트 폴백
@@ -500,6 +512,8 @@ return {
         local is_attach = session and session.config and session.config.request == 'attach'
         if not _dap_keep_process and not is_attach then
           kill_debuggee_process(session)
+        elseif session and session.id then
+          active_debug_pids[session.id] = nil
         end
         _dap_keep_process = false -- 플래그 초기화
       end
@@ -709,8 +723,16 @@ return {
           root = root .. '/'
         end
 
-        local gradlew = root .. 'gradlew'
-        local mvnw = root .. 'mvnw'
+        local is_win = (_G.OS_TYPE == _G.OS.WINDOWS) or (vim.fn.has('win32') == 1)
+        local gradlew = is_win and (root .. 'gradlew.bat') or (root .. 'gradlew')
+        local mvnw = is_win and (root .. 'mvnw.cmd') or (root .. 'mvnw')
+        -- bat/cmd 파일이 없는 경우 기본 파일명 폴백
+        if is_win and vim.fn.filereadable(gradlew) == 0 and vim.fn.filereadable(root .. 'gradlew') == 1 then
+          gradlew = root .. 'gradlew'
+        end
+        if is_win and vim.fn.filereadable(mvnw) == 0 and vim.fn.filereadable(root .. 'mvnw') == 1 then
+          mvnw = root .. 'mvnw'
+        end
         local has_gradlew = vim.fn.filereadable(gradlew) == 1
         local has_mvnw = vim.fn.filereadable(mvnw) == 1
 
@@ -786,12 +808,13 @@ return {
 
       -- ===========================================================================================
       -- [Java Launch 실행 래퍼: run_java_launch]
-      -- 1. mainClass 필수값 사전 검증 (누락 시 10초 사전 빌드 건너뛰고 즉시 오류 안내)
-      -- 2. args/vmArgs 타입 정규화 (배열 -> 공백 문자열 변환으로 어댑터 JsonSyntaxException 방지)
-      -- 3. Profile 주입: launch.json에 없으면 실행 시 입력받아 안전하게 주입
+      -- 1. mainClass 필수값 검증 (누락 시 _G.MAIN_CLASS 스마트 폴백, 없으면 즉시 오류 안내)
+      -- 2. args/vmArgs 타입 정규화 (배열 -> 공백 구분 문자열 변환으로 어댑터 JsonSyntaxException 방지)
+      -- 3. 사전 리소스 빌드 및 증분 빌드/초기화 워치독 파이프라인으로 체이닝 실행
+      --    (※ 런타임 프로필 팝업은 launch.json 0순위 표준 원칙에 따라 폐지되었으며, launch.json 설정을 0ms 즉시 존중합니다)
       -- ===========================================================================================
       local function run_java_launch(config, run_opts, run_next)
-        -- 1. mainClass 필수 검증 및 .nvim.lua 스마트 폴백: launch.json에 누락 시 _G.MAIN_CLASS 자동 주입
+        -- 1. mainClass 필수 검증 및 .nvim.lua 스마트 폴백
         if not config.mainClass or config.mainClass == '' then
           if _G.MAIN_CLASS and _G.MAIN_CLASS ~= '' then
             config.mainClass = _G.MAIN_CLASS
@@ -805,47 +828,12 @@ return {
           end
         end
 
+        -- 2. vscode-java-debug 규격상 String이어야 하므로 정규화
         config.args = normalize_str_arg(config.args)
         config.vmArgs = normalize_str_arg(config.vmArgs)
 
-        -- 2. 이미 launch.json 등의 config.args에 --spring.profiles.active가 설정되어 있으면 추가 질문 없이 바로 런치
-        local has_profile_arg = false
-        if type(config.args) == 'string' and config.args:find('%-%-spring%.profiles%.active') then
-          has_profile_arg = true
-        end
-
-        if has_profile_arg or (config.mainClass and TEST_RUNNER_CLASSES[config.mainClass]) then
-          launch_with_watchdogs(config, run_opts, run_next)
-          return
-        end
-
-        -- launch.json에 프로필이 없는 경우에만 실행 시 대화형으로 입력받음
-        vim.ui.input({
-          prompt = 'Profile (실행 프로필 / 예: local, dev / 비우면 미지정): ',
-          default = 'local',
-        }, function(profile_input)
-          if profile_input == nil then
-            return -- Esc로 취소 (실행하지 않음)
-          end
-          profile_input = vim.trim(profile_input)
-
-          if type(config.args) == 'string' then
-            config.args = config.args:gsub('%-%-spring%.profiles%.active=%S+%s*', ''):gsub('%s+$', '')
-            if config.args == '' then
-              config.args = nil
-            end
-          end
-
-          if profile_input ~= '' then
-            local spring_arg = '--spring.profiles.active=' .. profile_input
-            if not config.args or config.args == '' then
-              config.args = spring_arg
-            else
-              config.args = config.args .. ' ' .. spring_arg
-            end
-          end
-          launch_with_watchdogs(config, run_opts, run_next)
-        end)
+        -- 3. 사전 리소스 빌드 및 워치독 파이프라인 즉시 실행 (0ms 패스스루)
+        launch_with_watchdogs(config, run_opts, run_next)
       end
 
       -- [스마트 프로세스 선제 정리 + Java Launch 프로필 주입] dap.run 핵심 함수 래핑

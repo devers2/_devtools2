@@ -376,6 +376,18 @@ local function detect_default_submodule(lang)
         end
       end
     end
+
+    -- Maven 멀티모듈 pom.xml 감지 (<module>api</module>)
+    local pom_file = cwd .. '/pom.xml'
+    if vim.fn.filereadable(pom_file) == 1 then
+      local lines = vim.fn.readfile(pom_file)
+      for _, line in ipairs(lines) do
+        local mod = line:match('<module>%s*([%w_%-]+)%s*</module>')
+        if mod and mod ~= '' then
+          return mod
+        end
+      end
+    end
   end
   return ''
 end
@@ -549,7 +561,8 @@ local function build_configuration(lang, answers)
     return config
   elseif lang == 'python' then
     local cwd = vim.fn.getcwd()
-    local venv_name = q2 ~= '' and q2 or '.venv'
+    local clean_q2 = q2:gsub('^[/\\]+', ''):gsub('[/\\]+$', '')
+    local venv_name = clean_q2 ~= '' and clean_q2 or '.venv'
     local is_win = vim.fn.has('win32') == 1
     local python_bin = '${workspaceFolder}/' .. venv_name .. (is_win and '/Scripts/python.exe' or '/bin/python3')
 
