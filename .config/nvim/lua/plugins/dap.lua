@@ -402,7 +402,10 @@ return {
         end
 
         -- 언어별 웹 모듈 기본 포트 폴백
-        if config.type == 'python' and (config.module == 'uvicorn' or (config.name and config.name:find('FastAPI'))) then
+        if
+          (config.type == 'python' or config.type == 'debugpy')
+          and (config.module == 'uvicorn' or (config.name and config.name:find('FastAPI')))
+        then
           return '8000'
         end
         if config.type == 'java' and config.mainClass and not config.mainClass:find('Batch') and not config.mainClass:find('Test') then
