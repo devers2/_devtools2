@@ -115,7 +115,7 @@ return {
         return false
       end
 
-      local function kill_debuggee_process(session, on_done)
+      local function kill_debuggee_process(session, on_done, target_main_class)
         local cb = on_done or function() end
         local session_id = session and session.id or (dap.session() and dap.session().id)
         local direct_pid = session_id and active_debug_pids[session_id]
@@ -125,7 +125,7 @@ return {
         local root = (_G.PROJECT_ROOT and vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p')) or vim.fn.getcwd()
         root = root:gsub('\\', '/'):gsub('/+$', '')
         ---@diagnostic disable-next-line: undefined-field
-        local main_class = _G.MAIN_CLASS
+        local main_class = target_main_class or _G.MAIN_CLASS
 
         if _G.OS_TYPE == _G.OS.WINDOWS then
           -- Windows: Get-CimInstance Win32_Process 비동기 스캔 및 타겟 프로세스 종료
@@ -342,39 +342,65 @@ return {
       -- dap.configurations.java에 넣어두므로, 여기서 명시적으로 비워야 <leader>dd 피커에서 빠집니다.
       dap.configurations.java = {}
 
-      -- Python FastAPI launch 기본 구성 (수동 실행 시 DAP UI에 표시됨, 중복 등록 방지)
-      dap.configurations.python = dap.configurations.python or {}
-      local has_fastapi = false
-      for _, conf in ipairs(dap.configurations.python) do
-        if conf.name and conf.name:find('FastAPI') then
-          has_fastapi = true
-          break
-        end
-      end
-      if not has_fastapi then
-        table.insert(dap.configurations.python, {
-          type = 'python',
-          request = 'launch',
-          name = 'FastAPI 디버깅 실행 (기본: 8095)',
-          module = 'uvicorn',
-          args = {
-            'main:app',
-            '--reload',
-            '--port',
-            '8095',
-            '--host',
-            '0.0.0.0',
-          },
-          pythonPath = function()
-            return os.getenv('VIRTUAL_ENV') and (os.getenv('VIRTUAL_ENV') .. '/bin/python') or 'python'
-          end,
-        })
-      end
 
+
+      -- [모든 언어 공통 포트 감지 헬퍼]
+      -- args, vmArgs, env, port 필드에서 실행 포트를 안전하게 추출합니다.
+      local function extract_debuggee_port(config)
+        if not config then
+          return nil
+        end
+        local args_str = type(config.args) == 'string' and config.args
+          or (type(config.args) == 'table' and table.concat(config.args, ' ') or '')
+        local p = args_str:match('%-%-port[%s=]+(%d+)')
+          or args_str:match('%-p[%s=]+(%d+)')
+          or args_str:match('server%.port[%s=]+(%d+)')
+        if p then
+          return p
+        end
+
+        local vm_str = type(config.vmArgs) == 'string' and config.vmArgs
+          or (type(config.vmArgs) == 'table' and table.concat(config.vmArgs, ' ') or '')
+        p = vm_str:match('server%.port[%s=]+(%d+)') or vm_str:match('address=[%w_%.%*]*:(%d+)')
+        if p then
+          return p
+        end
+
+        if type(config.env) == 'table' then
+          local env_p = config.env.PORT or config.env.SERVER_PORT
+          if env_p then
+            return tostring(env_p)
+          end
+        end
+
+        if config.port and (type(config.port) == 'number' or type(config.port) == 'string') then
+          return tostring(config.port)
+        end
+
+        -- 언어별 웹 모듈 기본 포트 폴백
+        if config.type == 'python' and (config.module == 'uvicorn' or (config.name and config.name:find('FastAPI'))) then
+          return '8000'
+        end
+        if config.type == 'java' and config.mainClass and not config.mainClass:find('Batch') and not config.mainClass:find('Test') then
+          return '8080'
+        end
+
+        return nil
+      end
 
       -- 대신 디버깅 시작 시 nvim-dap-view가 자동으로 열리도록 설정
       dap.listeners.after.event_initialized['dapview_config'] = function(session)
         require('dap-view').open()
+
+        -- 디버깅 시작 안내 알림 (모든 언어 공통 포트 표기)
+        local conf = session and session.config or {}
+        local name = conf.name or conf.type or '디버그 세션'
+        local port = extract_debuggee_port(conf)
+        if port then
+          vim.notify(string.format('🚀 디버깅 시작: %s (포트: %s)', name, port), vim.log.levels.INFO, { title = 'DAP' })
+        else
+          vim.notify(string.format('🚀 디버깅 시작: %s', name), vim.log.levels.INFO, { title = 'DAP' })
+        end
 
         -- 디버깅 실행 시 로그/터미널 창 열림 보장 및 자동 스크롤:
         -- 1) 사용자가 이전에 로그 창을 :q로 닫았더라도 새 디버깅 시작 시 다시 열어줌
@@ -470,76 +496,7 @@ return {
         end,
       })
 
-      -- [Java Launch: Spring 프로필 주입]
-      -- 자바 launch 설정(setup_dap_main_class_configs가 자동 생성한 "Launch ..." 항목)을 실행할 때만
-      -- Spring 프로필을 물어보고 --spring.profiles.active=... 를 프로그램 인자에 주입합니다.
-      -- (테스트 러너 launch는 제외, Python 등 다른 언어는 애초에 이 조건에 안 걸립니다)
-      -- 프로젝트별 마지막 입력값은 command-palette(fzf)/setup-*.sh 와 완전히 동일한
-      -- ~/.devtools2/state.properties 파일 및 키 스킴(MD5(정규화된 cwd).gradle_run.profile)을
-      -- 공유합니다. 예전엔 ~/.nvim/state.json 이라는 별도 파일을 썼는데, 그러면
-      -- setup-goono-eln.sh가 미리 심어둔 기본값이나 fzf 쪽에서 입력한 값을 nvim이 전혀
-      -- 몰라서 <leader>dd 를 눌러도 기본값이 안 뜨는 불일치가 있었습니다(실측으로 발견).
-      local devtools2_state_file = _G.HOME_DIR .. '/.devtools2/state.properties'
 
-      -- bash 쪽 PROJ_KEY 계산과 완전히 동일한 방식(정규화한 cwd를 md5sum에 stdin으로 전달)을 재현합니다.
-      -- 실측으로 bash 결과와 Lua 결과가 정확히 일치함을 확인했습니다.
-      local function get_devtools2_proj_key()
-        local cwd = vim.fn.getcwd():gsub('\\', '/'):gsub('/$', '')
-        -- vim.fn.system(cmd, input)은 input을 stdin으로 전달 — bash의 `echo cwd | md5sum`과 동일합니다.
-        local output = vim.fn.system('md5sum', cwd)
-        if vim.v.shell_error ~= 0 or output == '' then
-          return nil
-        end
-        return output:match('^(%x+)')
-      end
-
-      local function get_last_spring_profile()
-        local proj_key = get_devtools2_proj_key()
-        if not proj_key then
-          return ''
-        end
-        local full_key = proj_key .. '.gradle_run.profile'
-        local f = io.open(devtools2_state_file, 'r')
-        if not f then
-          return ''
-        end
-        local content = f:read('*all')
-        f:close()
-        for line in content:gmatch('[^\r\n]+') do
-          local k, v = line:match('^([^=]+)=(.*)$')
-          if k == full_key then
-            return v or ''
-          end
-        end
-        return ''
-      end
-
-      local function save_last_spring_profile(profile)
-        local proj_key = get_devtools2_proj_key()
-        if not proj_key then
-          return
-        end
-        local full_key = proj_key .. '.gradle_run.profile'
-        vim.fn.mkdir(_G.HOME_DIR .. '/.devtools2', 'p')
-        local lines = {}
-        local f_read = io.open(devtools2_state_file, 'r')
-        if f_read then
-          local content = f_read:read('*all')
-          f_read:close()
-          for line in content:gmatch('[^\r\n]+') do
-            local k = line:match('^([^=]+)=')
-            if k ~= full_key then
-              table.insert(lines, line)
-            end
-          end
-        end
-        table.insert(lines, full_key .. '=' .. profile)
-        local f_write = io.open(devtools2_state_file, 'w')
-        if f_write then
-          f_write:write(table.concat(lines, '\n') .. '\n')
-          f_write:close()
-        end
-      end
 
       local TEST_RUNNER_CLASSES = {
         ['com.microsoft.java.test.runner.Launcher'] = true,
@@ -767,18 +724,19 @@ return {
 
       -- ===========================================================================================
       -- [Java Launch 실행 래퍼: run_java_launch]
-      -- 1. .nvim.lua의 `MAIN_CLASS` 자동 주입:
-      --    사용자가 대시보드나 비-자바 파일에서 디버깅을 실행하더라도 `.nvim.lua`에 `MAIN_CLASS`가 있으면
-      --    별도의 수동 파일 열기 없이 해당 메인 클래스로 즉시 디버깅을 진행합니다.
-      -- 2. Spring Profile 대화형 입력 + 중복 인자 누적 방지:
-      --    마지막으로 입력한 프로필을 자동 기억하여 기본값으로 제안합니다.
+      -- 1. mainClass 필수값 사전 검증 (누락 시 10초 사전 빌드 건너뛰고 즉시 오류 안내)
+      -- 2. args/vmArgs 타입 정규화 (배열 -> 공백 문자열 변환으로 어댑터 JsonSyntaxException 방지)
+      -- 3. Profile 주입: launch.json에 없으면 실행 시 입력받아 안전하게 주입
       -- ===========================================================================================
       local function run_java_launch(config, run_opts, run_next)
-        -- .nvim.lua에 MAIN_CLASS가 정의되어 있고 config에 mainClass가 없으면 자동 주입
-        ---@diagnostic disable-next-line: undefined-field
-        if not config.mainClass and _G.MAIN_CLASS then
-          ---@diagnostic disable-next-line: undefined-field
-          config.mainClass = _G.MAIN_CLASS
+        -- 1. mainClass 필수 검증: 누락 시 5~10초짜리 리소스 빌드/컴파일 사전 작업을 건너뛰고 즉시 안내
+        if not config.mainClass or config.mainClass == '' then
+          vim.notify(
+            '❌ [Java Launch 오류] mainClass가 지정되지 않았습니다.\n.vscode/launch.json 파일의 "mainClass" 항목을 확인해 주세요.',
+            vim.log.levels.ERROR,
+            { title = 'DAP' }
+          )
+          return
         end
 
         -- vscode-java-debug (com.microsoft.java.debug.core) 규격상 args와 vmArgs는 배열이 아닌 String이어야 합니다.
@@ -792,22 +750,26 @@ return {
           config.vmArgs = str ~= '' and str or nil
         end
 
-        if config.mainClass and TEST_RUNNER_CLASSES[config.mainClass] then
+        -- 2. 이미 launch.json 등의 config.args에 --spring.profiles.active가 설정되어 있으면 추가 질문 없이 바로 런치
+        local has_profile_arg = false
+        if type(config.args) == 'string' and config.args:find('%-%-spring%.profiles%.active') then
+          has_profile_arg = true
+        end
+
+        if has_profile_arg or (config.mainClass and TEST_RUNNER_CLASSES[config.mainClass]) then
           launch_with_watchdogs(config, run_opts, run_next)
           return
         end
 
+        -- launch.json에 프로필이 없는 경우에만 실행 시 대화형으로 입력받음
         vim.ui.input({
-          prompt = 'Spring Profile (예: local,dev / 비우면 미지정): ',
-          default = get_last_spring_profile(),
+          prompt = 'Profile (실행 프로필 / 예: local, dev / 비우면 미지정): ',
+          default = 'local',
         }, function(profile_input)
           if profile_input == nil then
             return -- Esc로 취소 (실행하지 않음)
           end
 
-          -- dap.configurations.java의 config 테이블은 LspAttach가 다시 발생하기 전까지 재사용되므로,
-          -- 이전 실행에서 주입했던 --spring.profiles.active=...를 지우지 않으면 같은 파일에서
-          -- 다른 프로필로 재실행할 때마다 계속 누적됩니다. 새로 판단하기 전에 먼저 제거합니다.
           if type(config.args) == 'string' then
             config.args = config.args:gsub('%-%-spring%.profiles%.active=%S+%s*', ''):gsub('%s+$', '')
             if config.args == '' then
@@ -816,7 +778,6 @@ return {
           end
 
           if profile_input ~= '' then
-            save_last_spring_profile(profile_input)
             local spring_arg = '--spring.profiles.active=' .. profile_input
             if not config.args or config.args == '' then
               config.args = spring_arg
@@ -876,7 +837,7 @@ return {
           end
 
           orig_run(config, run_opts)
-        end)
+        end, config and config.mainClass)
       end
 
 

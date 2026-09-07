@@ -168,10 +168,8 @@ local function attach_debug()
     require('dap').toggle_breakpoint()
   end, { desc = '브레이크포인트 설정/해제 (Toggle Breakpoint)' })
   -- [스마트 디버그 실행 (<leader>dd)]
-  -- 1. 활성 세션 존재 시: `dap.continue()` (다음 브레이크포인트까지 계속 실행)
-  -- 2. 대시보드/초기 화면이면서 Java 프로젝트(.nvim.lua의 MAIN_CLASS 또는 build.gradle/pom.xml 존재)인 경우:
-  --    자바 파일을 수동으로 열지 않아도 .nvim.lua의 MAIN_CLASS로 Spring Boot 디버깅을 즉시 런치합니다.
-  -- 3. 그 외 모든 경우(파이썬, JS/TS, 일반 파일): 표준 `dap.continue()`로 직행하여 각 언어별 DAP 실행
+  -- 1. 활성 세션 존재 시: `dap.continue()` (다음 브레이크포인트까지 계속 실행 또는 세션 메뉴)
+  -- 2. `.vscode/launch.json` 기반 통합 실행 (파일 부재 시 Main Class, Sub Module, Profile 3대 필수값 대화형 자동 생성 지원)
   vim.keymap.set('n', '<leader>dd', function()
     local dap = require('dap')
     if dap.session() then
@@ -179,27 +177,11 @@ local function attach_debug()
       return
     end
 
-    local ft = vim.bo.filetype
-    if ft == '' or ft == 'snacks_dashboard' or ft == 'alpha' or ft == 'dashboard' then
-      -- 대시보드 화면인 경우: .nvim.lua의 MAIN_CLASS 또는 Java 프로젝트인지 확인
-      ---@diagnostic disable-next-line: undefined-field
-      if
-        _G.MAIN_CLASS
-        or vim.fn.filereadable('build.gradle') == 1
-        or vim.fn.filereadable('pom.xml') == 1
-      then
-        dap.run({
-          type = 'java',
-          request = 'launch',
-          name = 'Java Launch (Spring Boot)',
-          ---@diagnostic disable-next-line: undefined-field
-          mainClass = _G.MAIN_CLASS,
-        })
-        return
+    require('util.dap_scaffold').ensure_launch_json(function(ok)
+      if ok then
+        dap.continue()
       end
-    end
-
-    dap.continue()
+    end)
   end, { desc = '디버그 실행 / 계속 (Run/Continue)' })
   vim.keymap.set('n', '<leader>dc', function()
     require('dap').run_to_cursor()
