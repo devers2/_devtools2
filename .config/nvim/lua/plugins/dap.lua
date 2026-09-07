@@ -28,7 +28,7 @@ return {
       -- 특정 언어나 MAIN_CLASS 변수 유무와 무관하게, 세션 종료 시 정확한 PID를 직접 강제 종료합니다.
       local active_debug_pids = {}
 
-      dap.listeners.before['event_process']['track_pid'] = function(session, body)
+      local function track_pid(session, body)
         if body and (body.systemProcessId or body.processId) then
           local pid = tonumber(body.systemProcessId or body.processId)
           if pid and pid > 0 then
@@ -37,14 +37,8 @@ return {
         end
       end
 
-      dap.listeners.before['event_processId']['track_pid'] = function(session, body)
-        if body and (body.systemProcessId or body.processId) then
-          local pid = tonumber(body.systemProcessId or body.processId)
-          if pid and pid > 0 then
-            active_debug_pids[session.id] = pid
-          end
-        end
-      end
+      dap.listeners.before['event_process']['track_pid'] = track_pid
+      dap.listeners.before['event_processId']['track_pid'] = track_pid
 
       -- [프로젝트 종속 디버기 프로세스 판별 헬퍼]
       -- IDE, LSP, Mason, 빌드 데몬(JDTLS, GradleDaemon)은 절대 건드리지 않고
@@ -75,11 +69,13 @@ return {
           return false
         end
 
+        local root_lower = root:lower()
+
         -- 2) Java / Spring Boot: MAIN_CLASS 일치 또는 프로젝트 경로 포함 java 런타임
         if main_class and main_class ~= '' and cmd:find(main_class, 1, true) then
           return true
         end
-        if (cmd:find('java', 1, true) or cmd:find('javaw', 1, true)) and root ~= '' and cmd:find(root, 1, true) then
+        if (cmd_lower:find('java', 1, true) or cmd_lower:find('javaw', 1, true)) and root ~= '' and cmd_lower:find(root_lower, 1, true) then
           return true
         end
 
@@ -92,7 +88,7 @@ return {
             or cmd_lower:find('gunicorn', 1, true)
           )
           and root ~= ''
-          and cmd:find(root, 1, true)
+          and cmd_lower:find(root_lower, 1, true)
         then
           return true
         end
@@ -107,7 +103,7 @@ return {
             or cmd_lower:find('next', 1, true)
           )
           and root ~= ''
-          and cmd:find(root, 1, true)
+          and cmd_lower:find(root_lower, 1, true)
         then
           return true
         end
@@ -119,7 +115,7 @@ return {
             or cmd_lower:find('__debug_bin', 1, true)
           )
           and root ~= ''
-          and cmd:find(root, 1, true)
+          and cmd_lower:find(root_lower, 1, true)
         then
           return true
         end
@@ -131,7 +127,7 @@ return {
             or cmd_lower:find('target/release', 1, true)
           )
           and root ~= ''
-          and cmd:find(root, 1, true)
+          and cmd_lower:find(root_lower, 1, true)
         then
           return true
         end
@@ -385,7 +381,11 @@ return {
 
         local vm_str = type(config.vmArgs) == 'string' and config.vmArgs
           or (type(config.vmArgs) == 'table' and table.concat(config.vmArgs, ' ') or '')
-        p = vm_str:match('server%.port[%s=]+(%d+)') or vm_str:match('address=[%w_%.%*]*:(%d+)')
+        -- address=host:port (신규) 또는 address=port (구형 JDWP 포트 단독 지정) 모두 처리
+        p = vm_str:match('server%.port[%s=]+(%d+)')
+          or vm_str:match('address=[%w_%.%*]*:(%d+)')
+          or vm_str:match('address=(%d+)%s*$')
+          or vm_str:match('address=(%d+)%s')
         if p then
           return p
         end
@@ -483,20 +483,15 @@ return {
       end
       -- 디버깅 종료 시 모든 디버그 UI가 자동으로 닫히고 프로세스를 정리하도록 설정
       -- _dap_keep_process == true 이면 2번(disconnect keep-alive) 선택이므로 프로세스는 종료하지 않음
-      dap.listeners.before.event_terminated['dapview_config'] = function()
+      local function on_session_ended()
         close_debug_ui()
         if not _dap_keep_process then
           kill_debuggee_process()
         end
-        _dap_keep_process = false  -- 플래그 초기화
+        _dap_keep_process = false -- 플래그 초기화
       end
-      dap.listeners.before.event_exited['dapview_config'] = function()
-        close_debug_ui()
-        if not _dap_keep_process then
-          kill_debuggee_process()
-        end
-        _dap_keep_process = false  -- 플래그 초기화
-      end
+      dap.listeners.before.event_terminated['dapview_config'] = on_session_ended
+      dap.listeners.before.event_exited['dapview_config'] = on_session_ended
 
       -- Console(dap-view-term) 창에서 포커스가 벗어나면 자동으로 맨 아래로 스크롤합니다.
       -- nvim-dap-view는 커서가 마지막 줄에 있을 때만 자동 스크롤하도록 이미 구현돼 있어서
@@ -752,6 +747,16 @@ return {
         end)
       end
 
+      -- vscode-java-debug (com.microsoft.java.debug.core) 규격상 args와 vmArgs는 배열이 아닌 String이어야 합니다.
+      -- 테이블(배열) 타입인 경우 문자열로 결합하여 JsonSyntaxException (Expected STRING but was BEGIN_ARRAY)을 방지합니다.
+      local function normalize_str_arg(val)
+        if type(val) == 'table' then
+          local str = table.concat(val, ' ')
+          return str ~= '' and str or nil
+        end
+        return val
+      end
+
       -- ===========================================================================================
       -- [Java Launch 실행 래퍼: run_java_launch]
       -- 1. mainClass 필수값 사전 검증 (누락 시 10초 사전 빌드 건너뛰고 즉시 오류 안내)
@@ -773,16 +778,8 @@ return {
           end
         end
 
-        -- vscode-java-debug (com.microsoft.java.debug.core) 규격상 args와 vmArgs는 배열이 아닌 String이어야 합니다.
-        -- 테이블(배열) 타입인 경우 문자열로 결합하여 JsonSyntaxException (Expected STRING but was BEGIN_ARRAY)을 방지합니다.
-        if type(config.args) == 'table' then
-          local str = table.concat(config.args, ' ')
-          config.args = str ~= '' and str or nil
-        end
-        if type(config.vmArgs) == 'table' then
-          local str = table.concat(config.vmArgs, ' ')
-          config.vmArgs = str ~= '' and str or nil
-        end
+        config.args = normalize_str_arg(config.args)
+        config.vmArgs = normalize_str_arg(config.vmArgs)
 
         -- 2. 이미 launch.json 등의 config.args에 --spring.profiles.active가 설정되어 있으면 추가 질문 없이 바로 런치
         local has_profile_arg = false
@@ -848,14 +845,8 @@ return {
                     if orig_enrich then
                       adapter_result.enrich_config = function(c, on_c)
                         orig_enrich(c, function(enriched)
-                          if type(enriched.args) == 'table' then
-                            local str = table.concat(enriched.args, ' ')
-                            enriched.args = str ~= '' and str or nil
-                          end
-                          if type(enriched.vmArgs) == 'table' then
-                            local str = table.concat(enriched.vmArgs, ' ')
-                            enriched.vmArgs = str ~= '' and str or nil
-                          end
+                          enriched.args = normalize_str_arg(enriched.args)
+                          enriched.vmArgs = normalize_str_arg(enriched.vmArgs)
                           on_c(enriched)
                         end)
                       end

@@ -15,21 +15,24 @@ local state_file = nvim_state_dir .. '/state.json'
 -- 디렉토리 생성
 vim.fn.mkdir(nvim_state_dir, 'p')
 
--- 프로젝트(디렉토리)별 마지막 사용 어태치 포트 읽기/쓰기 (디스크 영구 보존)
-local function get_last_attach_port(lang, default_port)
+-- state.json 안전 읽기 헬퍼
+local function read_state()
   local f = io.open(state_file, 'r')
   if not f then
-    return default_port
+    return {}
   end
   local content = f:read('*all')
   f:close()
   if not content or content == '' then
-    return default_port
+    return {}
   end
-  local ok, state = pcall(vim.json.decode, content)
-  if not ok or type(state) ~= 'table' then
-    return default_port
-  end
+  local ok, decoded = pcall(vim.json.decode, content)
+  return (ok and type(decoded) == 'table') and decoded or {}
+end
+
+-- 프로젝트(디렉토리)별 마지막 사용 어태치 포트 읽기/쓰기 (디스크 영구 보존)
+local function get_last_attach_port(lang, default_port)
+  local state = read_state()
   local cwd = vim.fn.getcwd()
   local cwd_state = state[cwd] or {}
   -- 신규 attach_<lang>_port 우선, 기존 last_<lang>_port 하위 호환
@@ -41,18 +44,7 @@ end
 
 local function save_last_attach_port(lang, port)
   vim.fn.mkdir(nvim_state_dir, 'p')
-  local f_read = io.open(state_file, 'r')
-  local state = {}
-  if f_read then
-    local content = f_read:read('*all')
-    if content and content ~= '' then
-      local ok_decode, decoded = pcall(vim.json.decode, content)
-      if ok_decode and type(decoded) == 'table' then
-        state = decoded
-      end
-    end
-    f_read:close()
-  end
+  local state = read_state()
   local cwd = vim.fn.getcwd()
   state[cwd] = state[cwd] or {}
   state[cwd]['attach_' .. lang .. '_port'] = port
@@ -190,7 +182,9 @@ local function attach_debug()
         return
       end
       local lang = 'java'
-      if choice:find('Python') then
+      if choice:find('Java') then
+        lang = 'java'
+      elseif choice:find('Python') then
         lang = 'python'
       elseif choice:find('Node') then
         lang = 'node'
@@ -209,7 +203,13 @@ _G.attach_debug = attach_debug
 vim.keymap.set(
   'n',
   '<leader>da',
-  attach_debug,
+  function()
+    if _G.attach_debug then
+      _G.attach_debug()
+    else
+      vim.notify('attach_debug 함수가 아직 초기화되지 않았습니다.', vim.log.levels.ERROR)
+    end
+  end,
   { desc = '포트 지정 디버그 연결 (Attach Debug)' }
 )
   vim.keymap.set('n', '<leader>db', function()

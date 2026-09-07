@@ -156,12 +156,22 @@ local function pretty_json(tbl, indent)
       module = 9,
       program = 10,
       python = 11,
-      args = 12,
-      cwd = 13,
-      env = 14,
-      stopOnEntry = 15,
-      jinja = 16,
-      justMyCode = 17,
+      runtimeExecutable = 12,
+      runtimeArgs = 13,
+      args = 14,
+      vmArgs = 15,
+      cwd = 16,
+      env = 17,
+      envFile = 18,
+      console = 19,
+      port = 20,
+      host = 21,
+      hostName = 22,
+      address = 23,
+      connect = 24,
+      stopOnEntry = 25,
+      jinja = 26,
+      justMyCode = 27,
     }
     table.sort(keys, function(a, b)
       local pa = priority_keys[a] or 99
@@ -318,7 +328,10 @@ local function detect_default_entry(lang)
     end
     local cmd_mains = vim.fn.globpath(cwd, 'cmd/*/main.go', false, true)
     if #cmd_mains > 0 then
-      local rel = cmd_mains[1]:gsub('.*/cmd/', 'cmd/')
+      -- cwd 기준 상대경로 추출 (상위 경로에 'cmd'가 포함되어도 안전)
+      local abs = vim.fn.fnamemodify(cmd_mains[1], ':p')
+      local cwd_normalized = vim.fn.fnamemodify(cwd, ':p')
+      local rel = abs:sub(#cwd_normalized + 1)
       return rel
     end
     return 'main.go'
@@ -353,7 +366,9 @@ local function detect_default_submodule(lang)
     if settings_file then
       local lines = vim.fn.readfile(settings_file)
       for _, line in ipairs(lines) do
-        local mod = line:match("include%s*['\":]+([%w_%-]+)")
+        -- Groovy DSL: include 'api', include ":api"
+        -- Kotlin DSL: include("api"), include(":api")
+        local mod = line:match("include%s*[%(]?%s*['\"][:]*([%w_%-]+)['\"]")
         if mod and mod ~= '' then
           return mod
         end
@@ -368,14 +383,17 @@ local function detect_python_venv_name()
   local cwd = vim.fn.getcwd()
   local is_win = vim.fn.has('win32') == 1
 
+  local function is_valid_venv(folder_name)
+    local dir = cwd .. '/' .. folder_name
+    local bin_path = is_win and (dir .. '/Scripts/python.exe') or (dir .. '/bin/python3')
+    local bin_alt = is_win and (dir .. '/Scripts/python.exe') or (dir .. '/bin/python')
+    return vim.fn.filereadable(bin_path) == 1 or vim.fn.filereadable(bin_alt) == 1
+  end
+
   -- 1) 표준 후보 디렉토리 (.venv, venv)
   local candidates = { '.venv', 'venv' }
   for _, name in ipairs(candidates) do
-    local bin_path = is_win and (cwd .. '/' .. name .. '/Scripts/python.exe')
-      or (cwd .. '/' .. name .. '/bin/python3')
-    local bin_alt = is_win and (cwd .. '/' .. name .. '/Scripts/python.exe')
-      or (cwd .. '/' .. name .. '/bin/python')
-    if vim.fn.filereadable(bin_path) == 1 or vim.fn.filereadable(bin_alt) == 1 then
+    if is_valid_venv(name) then
       return name
     end
   end
@@ -385,9 +403,7 @@ local function detect_python_venv_name()
   for _, path in ipairs(matches) do
     if vim.fn.isdirectory(path) == 1 then
       local folder_name = vim.fn.fnamemodify(path, ':t')
-      local bin_path = is_win and (path .. '/Scripts/python.exe') or (path .. '/bin/python3')
-      local bin_alt = is_win and (path .. '/Scripts/python.exe') or (path .. '/bin/python')
-      if vim.fn.filereadable(bin_path) == 1 or vim.fn.filereadable(bin_alt) == 1 then
+      if is_valid_venv(folder_name) then
         return folder_name
       end
     end
@@ -404,6 +420,8 @@ local function detect_default_param2(lang)
     return detect_python_venv_name()
   elseif lang == 'rust' then
     return 'debug'
+  elseif lang == 'node' or lang == 'go' then
+    return ''
   end
   return ''
 end
@@ -695,7 +713,9 @@ function M.ensure_launch_json(on_ready)
       end
 
       local lang = 'java'
-      if choice:find('Python') then
+      if choice:find('Java') then
+        lang = 'java'
+      elseif choice:find('Python') then
         lang = 'python'
       elseif choice:find('Node') then
         lang = 'node'
