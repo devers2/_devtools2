@@ -479,7 +479,7 @@ return {
       opts.jdtls.handlers = opts.jdtls.handlers or {}
       opts.jdtls.handlers['language/status'] = function(err, result)
         if result and result.message and type(result.message) == 'string' then
-          result.message = require('util.translator').translate_text(result.message)
+          result.message = require('util.translator').translate_message(result.message)
         end
         vim.api.nvim_command(string.format(':echohl Function | echo "%s" | echohl None',
           string.sub(result.message, 1, vim.v.echospace)))

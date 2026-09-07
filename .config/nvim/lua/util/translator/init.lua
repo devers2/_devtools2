@@ -679,13 +679,10 @@ function M.translate_message(text)
   return text
 end
 
-function M.translate_text(text)
-  return M.translate_message(text)
-end
 
 
 -- ===========================================================================================
--- [인터셉터 설치: 1. 메뉴(vim.ui.select)  2. LSP Progress  3. JDTLS Status  4. LSP Popups  5. 알림]
+-- [인터셉터 설치: 1. 메뉴(vim.ui.select)  2. LSP Progress  3. window/showMessage  4. vim.notify]
 -- ===========================================================================================
 
 function M.setup()
@@ -744,18 +741,8 @@ function M.setup()
     end
   end
 
-  -- ── 4. Java JDTLS 전용 language/status 핸들러 인터셉터 ──
-  local orig_lang_status = vim.lsp.handlers['language/status']
-  vim.lsp.handlers['language/status'] = function(err, result, ctx, config)
-    if M.enabled and result and result.message and type(result.message) == 'string' then
-      result.message = M.translate_message(result.message)
-    end
-    if orig_lang_status then
-      return orig_lang_status(err, result, ctx, config)
-    end
-  end
 
-  -- ── 5. 공식 LSP 서버 메시지 핸들러 (window/showMessage) ──
+  -- ── 4. 공식 LSP 서버 메시지 핸들러 (window/showMessage) ──
   local orig_show_msg = vim.lsp.handlers['window/showMessage']
   vim.lsp.handlers['window/showMessage'] = function(err, result, ctx, config)
     if M.enabled and result and result.message and type(result.message) == 'string' then
