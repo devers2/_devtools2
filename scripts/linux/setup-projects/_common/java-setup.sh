@@ -6,7 +6,7 @@
 #   Gradle 기반 Java / Spring Boot 프로젝트의 초기 개발 환경 구성을 표준화합니다.
 #   신규 프로젝트 스크립트 작성 시 단 한 번의 함수 호출(setup_gradle_spring_project)로
 #   Bitwarden 세션 확인, Git 저장소 클론, GitHub Packages(GPR) 토큰 설정,
-#   .nvim.lua 및 .vscode(settings.json, launch.json) 설정, command-palette 실행 프로필 저장,
+#   .nvim.lua 및 .vscode(settings.json, launch.json) 설정,
 #   VSCode 필수 Java 확장 프로그램 설치까지의 모든 과정을 자동화합니다.
 #
 # [사용 방법]
@@ -27,7 +27,7 @@
 #     --main-class <FQCN>        : Spring Boot 메인 클래스 전체 패키지 경로 (선택, 예: com.example.DemoApplication)
 #                                  (미지정 시 launch.json 및 .nvim.lua의 MAIN_CLASS 생략)
 #     --spring-profile <프로필>  : 기본 Spring Active Profile (선택, 예: local,dev 또는 0_DEVELOP,0_LOCAL,s2)
-#                                  (미지정 시 기본 프로필 저장을 건너뛰고 기본 인코딩 인자만 적용)
+#                                  (미지정 시 인코딩 인자만 적용됨)
 #     --vm-args <인자문자열>     : launch.json에 지정할 JVM 인자 (단일 문자열)
 #                                  (미지정 시 -Dfile.encoding=UTF-8 및 --spring-profile 기반 자동 조립)
 #     --app-name <이름>          : VSCode/DAP 런치 설정 및 콘솔 안내용 앱 명칭
@@ -136,7 +136,11 @@ EOF
     echo "✅ .vscode/settings.json 생성 완료"
 }
 
-# ── 3. .vscode/launch.json 생성 (DAP 및 VSCode 디버깅 런치 설정) ─────────────
+# ── 3. .vscode/launch.json 생성 (DAP 디버그 런치 설정 - IDE 공통) ───────────
+# 이 파일은 VS Code 전용이 아닌 DAP(Debug Adapter Protocol) 표준 형식으로,
+# Neovim(nvim-dap), VS Code, Cursor 등 DAP를 지원하는 모든 IDE에서 공통으로 사용됩니다.
+# 디렉토리명(.vscode/)은 관례상 유지하지만, 특정 에디터에 종속되지 않습니다.
+#
 # 인수:
 #   $1 = TARGET_DIR  (필수)
 #   $2 = APP_NAME    (필수, 예: GoonoELNApplication)
@@ -182,6 +186,8 @@ EOF
 }
 
 # ── 4. .vscode 통합 설정 (settings.json + launch.json) ────────────────────────
+# settings.json: IDE별(VS Code/Cursor 등) Java 런타임 경로 설정
+# launch.json  : DAP 표준 형식, IDE 공통 사용 (Neovim, VS Code, Cursor 등)
 setup_vscode_java() {
     local TARGET_DIR="$1"
     local JDK_VERSION="${2:-21}"
@@ -202,7 +208,7 @@ setup_vscode_java() {
 #   --repo-url        : Git 저장소 주소 (필수)
 #   --jdk-version     : Java 버전 (선택, 기본값: 21)
 #   --main-class      : 스프링 부트 Application 메인 클래스 FQCN (선택)
-#   --spring-profile  : 기본 Spring Active Profile (선택, 예: 0_DEVELOP,0_LOCAL,s2)
+#   --spring-profile  : launch.json vmArgs에 포함할 Spring Active Profile (선택, 예: 0_DEVELOP,0_LOCAL,s2)
 #   --vm-args         : 추가 JVM 인자 (선택, 미지정 시 인코딩 및 프로필 자동 구성)
 #   --app-name        : 런치 구성 이름 (선택, 기본값: mainClass 클래스명 또는 폴더명)
 #   --project-root    : .nvim.lua 상의 PROJECT_ROOT (선택, 기본값: ./)
@@ -296,15 +302,10 @@ setup_gradle_spring_project() {
     # 3. .nvim.lua 파일 생성
     setup_nvim_lua_java "$TARGET_DIR" "$JDK_VERSION" "$MAIN_CLASS" "$PROJECT_ROOT"
 
-    # 4. command-palette 실행 프로필 저장 (~/.devtools2/state.properties)
-    if [ -n "$SPRING_PROFILE" ]; then
-        save_devtools2_project_state "$TARGET_DIR" "gradle_run.profile" "$SPRING_PROFILE"
-    fi
-
-    # 5. .vscode 설정 생성 (settings.json, launch.json)
+    # 4. .vscode 설정 생성 (settings.json, launch.json)
     setup_vscode_java "$TARGET_DIR" "$JDK_VERSION" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS"
 
-    # 6. VSCode 필수 확장 프로그램 검사/설치
+    # 5. VSCode 필수 확장 프로그램 검사/설치
     install_vscode_extensions "${VSCODE_JAVA_EXTENSIONS[@]}"
 
     echo ""

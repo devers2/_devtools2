@@ -7,8 +7,8 @@
 #   신규 프로젝트 스크립트 작성 시 단 한 번의 함수 호출(setup_python_fastapi_project)로
 #   필요 Python 버전 자동 전환(py_switch.sh), Bitwarden 세션 확인, Git 저장소 클론,
 #   (선택) rclone SFTP 원격 디렉토리 마운트, Python 가상환경(venv) 생성 및 의존성 패키지 설치,
-#   .vscode(settings.json, launch.json), pyrightconfig.json 생성, VSCode 필수 Python 확장 설치,
-#   에디터별(VSCode / Neovim DAP) 실전 디버깅 가이드 출력까지의 전 과정을 자동화합니다.
+#   .vscode(settings.json, launch.json), pyrightconfig.json 생성, IDE 필수 Python 확장 설치까지의
+#   전 과정을 자동화합니다.
 #
 # [사용 방법]
 #   source "$DEVTOOLS2/scripts/linux/setup-projects/_common/common-setup.sh"
@@ -164,12 +164,15 @@ EOF
     echo "✅ .vscode/settings.json 생성 완료"
 }
 
-# ── 4. .vscode/launch.json 생성 (FastAPI uvicorn / gunicorn 디버깅 구성) ──────
+# ── 4. .vscode/launch.json 생성 (DAP 디버그 런치 설정 - IDE 공통) ──────────
+# 이 파일은 VS Code 전용이 아닌 DAP(Debug Adapter Protocol) 표준 형식으로,
+# Neovim(nvim-dap), VS Code, Cursor 등 DAP를 지원하는 모든 IDE에서 공통으로 사용됩니다.
+# 디렉토리명(.vscode/)은 관례상 유지하지만, 특정 에디터에 종속되지 않습니다.
 setup_vscode_python_launch_fastapi() {
     local TARGET_DIR="$1"
     local APP_NAME="$2"
     local MODULE="${3:-main:app}"
-    local PORT="${4:-8095}"
+    local PORT="${4:-8000}"
     local VENV_NAME="${5:-.venv}"
     local ENABLE_GUNICORN="${6:-true}"
 
@@ -262,7 +265,7 @@ EOF
 print_python_debugging_guide() {
     local TARGET_DIR="$1"
     local VENV_NAME="${2:-.venv}"
-    local PORT="${3:-8095}"
+    local PORT="${3:-8000}"
     local APP_NAME="${4:-FastAPI}"
 
     local PYTHON_INTERPRETER
@@ -274,7 +277,7 @@ print_python_debugging_guide() {
 
     echo ""
     echo "┌─────────────────────────────────────────────────────────────────────────────┐"
-    echo "│  💻  VSCode 디버깅 방법 ($APP_NAME)                                          │"
+    echo "│  💻  VS Code / Cursor 디버깅 방법 ($APP_NAME)                                │"
     echo "└─────────────────────────────────────────────────────────────────────────────┘"
     echo ""
     echo "  [필수] ① 프로젝트 폴더 열기: code $TARGET_DIR"
@@ -286,16 +289,17 @@ print_python_debugging_guide() {
     echo "     디버깅 주소: http://localhost:$PORT  │  .env 환경변수 자동 로드됨"
     echo ""
     echo "┌─────────────────────────────────────────────────────────────────────────────┐"
-    echo "│  📝  Neovim 디버깅 방법 (nvim-dap + nvim-dap-python + nvim-dap-view)        │"
+    echo "│  📝  Neovim 디버깅 방법 (nvim-dap + .vscode/launch.json)                    │"
     echo "└─────────────────────────────────────────────────────────────────────────────┘"
     echo ""
     echo "  [필수] ① 가상환경 활성화 후 nvim 실행:"
     echo "         → cd $TARGET_DIR"
     echo "         → source $VENV_NAME/bin/activate"
-    echo "         → nvim main.py"
+    echo "         → nvim ."
     echo "  [필수] ② 브레이크포인트 설정: <leader> d b"
-    echo "  [필수] ③ 디버그 시작: <leader> d a (포트: $PORT 확인 후 Enter)"
-    echo "  [필수] ④ 스텝 실행: <leader> d e (Over) │ <leader> d i (Into) │ <leader> d d (Continue)"
+    echo "  [필수] ③ 디버그 시작: <leader> d d  (.vscode/launch.json 자동 읽음)"
+    echo "         → 포트 $PORT 로 실행 시작 알림이 표시됩니다"
+    echo "  [필수] ④ 스텝 실행: <leader> d e (Over) │ <leader> d i (Into) │ <leader> d c (Continue)"
     echo "  [선택] ⑤ UI 확인: <leader> d v (DAP View) │ <leader> d r (REPL)"
     echo "  [필수] ⑥ 디버그 종료: <leader> d t (Terminate)"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -310,7 +314,7 @@ print_python_debugging_guide() {
 #   --venv-name        : 가상환경 폴더명 (선택, 기본값: .venv)
 #   --setup-venv-script: 전용 가상환경 스크립트 경로 (선택)
 #   --module           : FastAPI 앱 모듈 (선택, 기본값: main:app)
-#   --port             : 실행 포트 (선택, 기본값: 8095)
+#   --port             : 실행 포트 (선택, 기본값: 8000) → launch.json args에 반영됨
 #   --enable-gunicorn  : gunicorn 디버그 설정 포함 여부 (선택, 기본값: true)
 #   --sftp-user        : SFTP 접속 계정 (선택)
 #   --sftp-host        : SFTP 접속 호스트 (선택)
@@ -325,7 +329,7 @@ setup_python_fastapi_project() {
     local VENV_NAME=".venv"
     local SETUP_VENV_SCRIPT=""
     local MODULE="main:app"
-    local PORT="8095"
+    local PORT="8000"
     local ENABLE_GUNICORN="true"
     local SFTP_SPEC=""
     local SFTP_USER=""
