@@ -284,8 +284,12 @@ local function detect_default_entry(lang)
       return _G.MAIN_CLASS
     end
     local app_files = vim.fn.globpath(cwd, 'src/main/java/**/*Application.java', false, true)
+    if #app_files == 0 then
+      app_files = vim.fn.globpath(cwd, 'src/main/kotlin/**/*Application.kt', false, true)
+    end
     if #app_files > 0 then
-      local rel = app_files[1]:gsub('.*/src/main/java/', ''):gsub('%.java$', '')
+      local normalized = app_files[1]:gsub('\\', '/')
+      local rel = normalized:gsub('.*/src/main/[^/]+/', ''):gsub('%.java$', ''):gsub('%.kt$', '')
       return rel:gsub('/', '.')
     end
     return ''
