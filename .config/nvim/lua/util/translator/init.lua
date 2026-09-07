@@ -11,7 +11,7 @@ M.enabled = true
 local base_dict = require('util.translator.dict')
 
 -- 2. 런타임 동적 학습 캐시 (Git 형상관리 제외: _devtools2/data/translations/cache.json)
-local cache_dir = _G.DEVTOOLS2_DIR .. '/data/translations'
+local cache_dir = (_G.DEVTOOLS2_DIR or (vim.fn.stdpath('data') .. '/devtools2')) .. '/data/translations'
 local cache_file = cache_dir .. '/cache.json'
 
 M._runtime_cache = {}
@@ -334,8 +334,16 @@ function M.process_queue()
     return
   end
 
+  local python_cmd = (vim.fn.executable('python3') == 1 and 'python3')
+    or (vim.fn.executable('python') == 1 and 'python')
+    or nil
+  if not python_cmd then
+    M._is_processing = false
+    return
+  end
+
   local json_payload = vim.json.encode(batch)
-  pcall(vim.system, { 'python3', '-c', _python_trans_script }, {
+  pcall(vim.system, { python_cmd, '-c', _python_trans_script }, {
     stdin = json_payload,
     text = true,
   }, function(obj)

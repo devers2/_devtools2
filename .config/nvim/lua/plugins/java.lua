@@ -366,7 +366,7 @@ return {
               -- Gradle 8.x 데몬 실행 JDK: JDTLS 실행과 동일한 effective_jdk_home을 사용합니다.
               -- (컴파일 대상 JDK는 gradle.properties의 org.gradle.java.installations.paths로 별도 관리)
               java = {
-                home = effective_jdk_home,
+                home = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-21',
               },
             },
             maven = { enabled = true },
@@ -408,25 +408,7 @@ return {
           -- 빌드 구성 업데이트 상호작용 (해당 자동화가 RestartClassLoader 간섭을 유발함)
           configuration = {
             updateBuildConfiguration = 'interactive',
-            runtimes = (function()
-              local rt_list = {
-                { name = 'JavaSE-25', path = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-25' },
-                { name = 'JavaSE-21', path = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-21' },
-                { name = 'JavaSE-17', path = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-17' },
-                { name = 'JavaSE-1.8', path = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-1.8' },
-              }
-              local final_rt = {}
-              for _, rt in ipairs(rt_list) do
-                if rt.name == target_java_name then
-                  rt.default = true
-                  table.insert(final_rt, 1, rt) -- default를 맨 앞으로
-                else
-                  rt.default = false
-                  table.insert(final_rt, rt)
-                end
-              end
-              return final_rt
-            end)(),
+            runtimes = get_runtimes('JavaSE-21'),
           },
           -- DevTools 환경에서의 최적화 옵션 (사용자 스니펫 반영)
           eclipse = { downloadSources = true },
@@ -600,7 +582,7 @@ return {
             -- 다른 파일 타입 감지 플러그인이 텍스트 색상을 리셋하는 것을 막기 위해,
             -- 이벤트 처리가 완전히 끝난 후(syntax 분석 이후) 비동기적으로(schedule) 색상을 덧칠합니다.
             vim.schedule(function()
-              vim.cmd([[
+              vim.cmd([=[
                 " 구문 초기화
                 syntax clear
 
@@ -637,7 +619,7 @@ return {
                 highlight default link LogTag LogTag
                 highlight default link LogStart LogStart
                 highlight default link LogSession LogSession
-              ]])
+              ]=])
             end)
           end
         end,

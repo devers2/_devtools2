@@ -472,7 +472,7 @@ do
     vim.api.nvim_buf_clear_namespace(0, ns, 0, -1)
 
     -- 화면에 보이는 줄 범위만 가져옴 (0-indexed)
-    local top = vim.fn.line('w0') - 1
+    local top = math.max(0, vim.fn.line('w0') - 1)
     local bot = vim.fn.line('w$')       -- nvim_buf_get_lines의 end는 exclusive
     local lines = vim.api.nvim_buf_get_lines(0, top, bot, false)
     local sel_len = #selected
