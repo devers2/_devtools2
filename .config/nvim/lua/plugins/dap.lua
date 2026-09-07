@@ -833,24 +833,6 @@ return {
       local orig_run = dap.run
       local wrapped_java_adapters = {}
 
-      -- [통합 번역기 등록]
-      -- lua/util/translator 모듈을 통해 DAP 활성 세션 메뉴 정렬 및 한글화 적용
-      local translator = require('util.translator')
-
-      -- 1) DAP 활성 세션 메뉴 인터셉터 (4, 5번 Disconnect 항목 최상단 정렬 + 한글/영문 표시)
-      translator.register_interceptor({
-        name = 'dap_session',
-        translations = {
-          ['Disconnect (terminate = true)'] = { ko = '디버깅 및 서버 프로세스 강제 종료', priority = 1 },
-          ['Disconnect (terminate = false)'] = { ko = '디버거 연결만 끊기 - 서버 계속 실행', priority = 2 },
-          ['Restart session'] = { ko = '디버그 세션 재시작', priority = 3 },
-          ['Terminate session'] = { ko = '디버그 세션 종료', priority = 4 },
-          ['Pause a thread'] = { ko = '스레드 일시 정지', priority = 5 },
-          ['Start additional session'] = { ko = '추가 디버그 세션 시작', priority = 6 },
-          ['Do nothing'] = { ko = '아무 작업도 하지 않음 (취소)', priority = 7 },
-          ['Resume stopped thread'] = { ko = '멈춰있는 스레드 재개', priority = 0 },
-        },
-      })
 
 
       ---@diagnostic disable-next-line: duplicate-set-field

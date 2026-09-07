@@ -12,9 +12,8 @@
 --      짧은 단어, 특정 DAP Launch 설정 등)도 여기에 명시적으로 등록하면 100% 한글화됩니다.
 --
 -- 3. 등록 형식 가이드:
---    - 기본 형식: ['영문 원본'] = { ko = '한글 설명', priority = 10 }
---    - 축약 형식: ['영문 원본'] = { ko = '한글 설명' }
---    - priority (선택): 숫자가 작을수록 메뉴 상단에 우선 배치됩니다 (기본값: 90).
+--    - 기본 형식: ['영문 원본'] = { ko = '한글 설명' }
+--    - 축약 형식: ['영문 원본'] = '한글 설명'
 --
 -- 4. 🚫 [절대 번역 금지 / 영문 원본 고정 (Ignore List)]:
 --    - 특정 고유 명칭이나 플러그인 기능명을 영문 그대로 유지하고 싶을 때는 값을 `false`로 지정합니다.
@@ -27,46 +26,32 @@
 
 local M = {
   -- ── 1. DAP 디버그 활성 세션 및 스레드 메뉴 (<leader>ds 등) ──
-  -- priority가 낮은 순서(0, 1, 2...)대로 메뉴 상단에 우선 정렬됩니다.
-  ['Resume stopped thread'] = { ko = '멈춰있는 스레드 재개', priority = 0 },
-  ['Disconnect (terminate = true)'] = {
-    ko = '디버깅 및 서버 프로세스 강제 종료',
-    priority = 1,
-  },
-  ['Disconnect (terminate = false)'] = {
-    ko = '디버거 연결만 끊기 - 서버 계속 실행',
-    priority = 2,
-  },
-  ['Restart session'] = { ko = '디버그 세션 재시작', priority = 3 },
-  ['Terminate session'] = { ko = '디버그 세션 종료', priority = 4 },
-  ['Pause a thread'] = { ko = '스레드 일시 정지', priority = 5 },
-  ['Start additional session'] = { ko = '추가 디버그 세션 시작', priority = 6 },
-  ['Do nothing'] = { ko = '아무 작업도 하지 않음 (취소)', priority = 7 },
+  ['Resume stopped thread'] = { ko = '멈춰있는 스레드 재개' },
+  ['Disconnect (terminate = true)'] = { ko = '디버깅 및 서버 프로세스 강제 종료' },
+  ['Disconnect (terminate = false)'] = { ko = '디버거 연결만 끊기 - 서버 계속 실행' },
+  ['Restart session'] = { ko = '디버그 세션 재시작' },
+  ['Terminate session'] = { ko = '디버그 세션 종료' },
+  ['Pause a thread'] = { ko = '스레드 일시 정지' },
+  ['Start additional session'] = { ko = '추가 디버그 세션 시작' },
+  ['Do nothing'] = { ko = '아무 작업도 하지 않음 (취소)' },
 
   -- ── 2. LSP 코드 액션 (Code Actions) 및 리팩토링 메뉴 (<leader>ca 등) ──
-  ['Organize imports'] = { ko = 'Import 구문 정리', priority = 10 },
-  ['Extract method'] = { ko = '메서드 추출', priority = 11 },
-  ['Extract local variable'] = { ko = '로컬 변수 추출', priority = 12 },
-  ['Extract constant'] = { ko = '상수 추출', priority = 13 },
-  ['Extract interface'] = { ko = '인터페이스 추출', priority = 14 },
-  ['Add missing @Override annotation'] = {
-    ko = '누락된 @Override 어노테이션 추가',
-    priority = 15,
-  },
-  ['Generate Getters and Setters...'] = { ko = 'Getter / Setter 생성', priority = 16 },
-  ['Generate Constructors...'] = { ko = '생성자(Constructor) 생성', priority = 17 },
-  ['Generate hashCode() and equals()...'] = { ko = 'hashCode() 및 equals() 생성', priority = 18 },
-  ['Generate toString()...'] = { ko = 'toString() 메서드 생성', priority = 19 },
-  ['Surround with try/catch'] = { ko = 'try/catch 문으로 감싸기', priority = 20 },
-  ['Rename file to match type'] = {
-    ko = '타입 이름과 일치하도록 파일명 변경',
-    priority = 21,
-  },
-  ['Assign parameter to new field'] = { ko = '매개변수를 새 필드에 할당', priority = 22 },
-  ['Move type to new file'] = { ko = '타입을 새 파일로 이동', priority = 23 },
-  ['Change type of'] = { ko = '타입 변경', priority = 24 },
-  ['Create getter and setter for'] = { ko = 'Getter / Setter 생성', priority = 25 },
-
+  ['Organize imports'] = { ko = 'Import 구문 정리' },
+  ['Extract method'] = { ko = '메서드 추출' },
+  ['Extract local variable'] = { ko = '로컬 변수 추출' },
+  ['Extract constant'] = { ko = '상수 추출' },
+  ['Extract interface'] = { ko = '인터페이스 추출' },
+  ['Add missing @Override annotation'] = { ko = '누락된 @Override 어노테이션 추가' },
+  ['Generate Getters and Setters...'] = { ko = 'Getter / Setter 생성' },
+  ['Generate Constructors...'] = { ko = '생성자(Constructor) 생성' },
+  ['Generate hashCode() and equals()...'] = { ko = 'hashCode() 및 equals() 생성' },
+  ['Generate toString()...'] = { ko = 'toString() 메서드 생성' },
+  ['Surround with try/catch'] = { ko = 'try/catch 문으로 감싸기' },
+  ['Rename file to match type'] = { ko = '타입 이름과 일치하도록 파일명 변경' },
+  ['Assign parameter to new field'] = { ko = '매개변수를 새 필드에 할당' },
+  ['Move type to new file'] = { ko = '타입을 새 파일로 이동' },
+  ['Change type of'] = { ko = '타입 변경' },
+  ['Create getter and setter for'] = { ko = 'Getter / Setter 생성' },
   -- ── 3. Java / Gradle LSP 진행 상태 및 핵심 알림 ──
   ['Starting Java Language Server'] = { ko = 'Java 언어 서버 시작 중' },
   ['Synchronize Gradle project goono-eln with workspace project'] = {

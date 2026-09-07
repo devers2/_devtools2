@@ -18,7 +18,6 @@ M._runtime_cache = {}
 M._pending = {}
 M._queue = {}
 M._is_processing = false
-M._registered_interceptors = {}
 
 -- ===========================================================================================
 -- [런타임 동적 캐시 로드 및 저장]
@@ -684,32 +683,10 @@ function M.translate_text(text)
   return M.translate_message(text)
 end
 
--- ===========================================================================================
--- [우선순위(Priority) 조회 헬퍼]
--- ===========================================================================================
-function M.get_priority(raw_label)
-  for _, interceptor in ipairs(M._registered_interceptors) do
-    if interceptor.translations and interceptor.translations[raw_label] then
-      return interceptor.translations[raw_label].priority or interceptor.default_priority
-    end
-  end
-  if
-    base_dict[raw_label]
-    and type(base_dict[raw_label]) == 'table'
-    and base_dict[raw_label].priority
-  then
-    return base_dict[raw_label].priority
-  end
-  return 90
-end
 
 -- ===========================================================================================
--- [인터셉터 설치: 1. 메뉴  2. DAP  3. LSP Progress  4. JDTLS Status  5. LSP Popups  6. 알림]
+-- [인터셉터 설치: 1. 메뉴(vim.ui.select)  2. LSP Progress  3. JDTLS Status  4. LSP Popups  5. 알림]
 -- ===========================================================================================
-function M.register_interceptor(opts)
-  opts.default_priority = opts.default_priority or 90
-  table.insert(M._registered_interceptors, opts)
-end
 
 function M.setup()
   M.load_cache()
@@ -731,32 +708,10 @@ function M.setup()
           end
 
         if type(items) == 'table' and #items > 0 then
-          local decorated = {}
-          for idx, item in ipairs(items) do
-            local raw_label = format_item(item)
-            local display = M.translate_menu(raw_label)
-            local priority = M.get_priority(raw_label)
-
-            table.insert(decorated, {
-              original = item,
-              display = display,
-              priority = priority,
-              idx = idx,
-            })
-          end
-
-          table.sort(decorated, function(a, b)
-            if a.priority ~= b.priority then
-              return a.priority < b.priority
-            end
-            return a.idx < b.idx
-          end)
-
-          local new_items = {}
           local item_to_display = {}
-          for _, d in ipairs(decorated) do
-            table.insert(new_items, d.original)
-            item_to_display[d.original] = d.display
+          for _, item in ipairs(items) do
+            local raw_label = format_item(item)
+            item_to_display[item] = M.translate_menu(raw_label)
           end
 
           local custom_opts = vim.tbl_extend('force', select_opts, {
@@ -765,53 +720,13 @@ function M.setup()
             end,
           })
 
-          return orig_ui_select(new_items, custom_opts, on_choice)
+          return orig_ui_select(items, custom_opts, on_choice)
         end
 
         return orig_ui_select(items, select_opts, on_choice)
       end
     end)
   end
-
-  -- ── 2. dap.ui.pick_one 인터셉터 (DAP 세션 메뉴) ──
-  -- nvim-dap가 실제로 로드되었을 때만 래핑하도록 지연 처리하여 기동 속도 최적화
-  local function hook_dap_ui()
-    if package.loaded['dap.ui'] or package.loaded['dap'] then
-      local dap_ok, dap_ui = pcall(require, 'dap.ui')
-      if dap_ok and dap_ui and dap_ui.pick_one and not dap_ui._translator_wrapped then
-        dap_ui._translator_wrapped = true
-        local orig_pick_one = dap_ui.pick_one
-        dap_ui.pick_one = function(items, prompt, label_fn, cb)
-          if not M.enabled then
-            return orig_pick_one(items, prompt, label_fn, cb)
-          end
-          if prompt and items then
-            label_fn = label_fn or function(x)
-              return tostring(x)
-            end
-            for _, item in ipairs(items) do
-              local raw_label = label_fn(item)
-              item._custom_display = M.translate_menu(raw_label)
-            end
-            return orig_pick_one(items, prompt, function(x)
-              return x._custom_display or label_fn(x)
-            end, cb)
-          end
-          return orig_pick_one(items, prompt, label_fn, cb)
-        end
-      end
-    end
-  end
-
-  vim.api.nvim_create_autocmd('User', {
-    pattern = 'LazyLoad',
-    callback = function(event)
-      if event.data == 'nvim-dap' then
-        vim.schedule(hook_dap_ui)
-      end
-    end,
-  })
-  hook_dap_ui()
 
   -- ── 3. 공식 LSP Progress 핸들러 인터셉터 ($/progress) ──
   local orig_progress = vim.lsp.handlers['$/progress']
