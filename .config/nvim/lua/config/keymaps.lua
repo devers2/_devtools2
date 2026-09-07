@@ -8,23 +8,21 @@ vim.keymap.set('n', '<leader>fE', function()
   vim.ui.open(path)
 end, { desc = 'Open System Explorer' })
 
--- 프로젝트별 상태 관리를 위한 파일 경로 설정
+-- 프로젝트별 상태 관리를 위한 파일 경로 설정 (~/.nvim/state.json)
 local nvim_state_dir = _G.HOME_DIR .. '/.nvim'
 local state_file = nvim_state_dir .. '/state.json'
 
 -- 디렉토리 생성
 vim.fn.mkdir(nvim_state_dir, 'p')
 
--- 상태 읽기/쓰기 함수 (언어별 포트 분리 저장)
-local function get_last_debug_port(ft, default_port)
+-- 프로젝트(디렉토리)별 마지막 사용 어태치 포트 읽기/쓰기 (디스크 영구 보존)
+local function get_last_attach_port(lang, default_port)
   local f = io.open(state_file, 'r')
   if not f then
     return default_port
   end
   local content = f:read('*all')
   f:close()
-  -- save_last_debug_port와 동일하게 빈 내용 방어: 쓰기 도중 중단 등으로 파일이
-  -- 0바이트인 경우 vim.json.decode('')가 에러를 던지는 것을 방지합니다.
   if not content or content == '' then
     return default_port
   end
@@ -34,14 +32,14 @@ local function get_last_debug_port(ft, default_port)
   end
   local cwd = vim.fn.getcwd()
   local cwd_state = state[cwd] or {}
-  -- 자바의 경우 기존 last_debug_port 키 하위 호환 처리
-  if ft == 'java' and cwd_state.last_debug_port and not cwd_state.last_java_port then
-    return cwd_state.last_debug_port
-  end
-  return cwd_state['last_' .. ft .. '_port'] or default_port
+  -- 신규 attach_<lang>_port 우선, 기존 last_<lang>_port 하위 호환
+  return cwd_state['attach_' .. lang .. '_port']
+    or cwd_state['last_' .. lang .. '_port']
+    or (lang == 'java' and cwd_state.last_debug_port)
+    or default_port
 end
 
-local function save_last_debug_port(ft, port)
+local function save_last_attach_port(lang, port)
   vim.fn.mkdir(nvim_state_dir, 'p')
   local f_read = io.open(state_file, 'r')
   local state = {}
@@ -57,7 +55,7 @@ local function save_last_debug_port(ft, port)
   end
   local cwd = vim.fn.getcwd()
   state[cwd] = state[cwd] or {}
-  state[cwd]['last_' .. ft .. '_port'] = port
+  state[cwd]['attach_' .. lang .. '_port'] = port
   local f_write = io.open(state_file, 'w')
   if f_write then
     f_write:write(vim.json.encode(state))
@@ -65,105 +63,155 @@ local function save_last_debug_port(ft, port)
   end
 end
 
--- 현재 버퍼가 자바 환경인지 감지 (filetype=java 또는 jdtls LSP 활성화 여부)
-local function is_java_env()
-  if vim.bo.filetype == 'java' then
-    return true
-  end
-  local clients = vim.lsp.get_clients({ name = 'jdtls' })
-  if #clients > 0 then
-    return true
-  end
-  return false
-end
+-- 5대 메이저 언어별 표준 어태치(Attach) 사양 정의
+local ATTACH_SPECS = {
+  java = {
+    name = 'Java',
+    port = '5005',
+    prompt = 'Java Debug Port (JDWP): ',
+    build = function(port)
+      return {
+        type = 'java',
+        request = 'attach',
+        name = 'Java Attach: ' .. port,
+        hostName = '127.0.0.1',
+        port = port,
+      }
+    end,
+  },
+  python = {
+    name = 'Python',
+    port = '5678',
+    prompt = 'Python Debug Port (debugpy): ',
+    build = function(port)
+      return {
+        type = 'python',
+        request = 'attach',
+        name = 'Python Attach: ' .. port,
+        connect = { host = '127.0.0.1', port = port },
+        host = '127.0.0.1',
+        port = port,
+      }
+    end,
+  },
+  node = {
+    name = 'Node.js',
+    port = '9229',
+    prompt = 'Node.js Debug Port (V8 Inspector): ',
+    build = function(port)
+      return {
+        type = 'node',
+        request = 'attach',
+        name = 'Node.js Attach: ' .. port,
+        address = '127.0.0.1',
+        port = port,
+        cwd = '${workspaceFolder}',
+        restart = true,
+      }
+    end,
+  },
+  go = {
+    name = 'Go',
+    port = '2345',
+    prompt = 'Go Debug Port (Delve): ',
+    build = function(port)
+      return {
+        type = 'go',
+        request = 'attach',
+        name = 'Go Attach: ' .. port,
+        mode = 'remote',
+        host = '127.0.0.1',
+        port = port,
+      }
+    end,
+  },
+  rust = {
+    name = 'Rust',
+    port = '13000',
+    prompt = 'Rust Debug Port (CodeLLDB): ',
+    build = function(port)
+      return {
+        type = 'lldb',
+        request = 'attach',
+        name = 'Rust Attach: ' .. port,
+        host = '127.0.0.1',
+        port = port,
+        stopOnEntry = false,
+      }
+    end,
+  },
+}
 
--- Java: 어태치 모드 / Python: FastAPI 런치 모드 자동 분기
+-- 5대 메이저 언어 통합 순수 어태치(Attach) 실행 함수 (<leader>da)
 local function attach_debug()
   local dap = require('dap')
-  if is_java_env() then
-    -- Java: 포트 입력 후 어태치
-    local default_port = get_last_debug_port('java', '5005')
+  local dap_scaffold = require('util.dap_scaffold')
+  local detected_lang = dap_scaffold.detect_project_type()
+
+  local function proceed_attach(lang)
+    local spec = ATTACH_SPECS[lang]
+    if not spec then
+      vim.notify('지원하지 않는 언어입니다: ' .. tostring(lang), vim.log.levels.WARN, { title = 'DAP Attach' })
+      return
+    end
+
+    local default_port = get_last_attach_port(lang, spec.port)
     vim.ui.input({
-      prompt = 'Java Debug Port: ',
+      prompt = spec.prompt,
       default = default_port,
     }, function(input)
-      if input and input ~= '' then
-        local port = tonumber(input)
-        if port then
-          save_last_debug_port('java', tostring(port))
-          dap.run({
-            type = 'java',
-            request = 'attach',
-            name = 'Java Attach: ' .. port,
-            hostName = '127.0.0.1',
-            port = port,
-          })
-        else
-          vim.notify('포트는 숫자여야 합니다.', vim.log.levels.ERROR)
-        end
+      if not input or input == '' then
+        return
+      end
+      local port = tonumber(vim.trim(input))
+      if port and port > 0 then
+        save_last_attach_port(lang, tostring(port))
+        local config = spec.build(port)
+        dap.run(config)
+      else
+        vim.notify('포트는 올바른 숫자여야 합니다.', vim.log.levels.ERROR, { title = 'DAP Attach' })
       end
     end)
-  elseif vim.bo.filetype == 'python' then
-    -- Python: 포트 입력 후 FastAPI 런치
-    local default_port = get_last_debug_port('python', '8095')
-    vim.ui.input({
-      prompt = 'FastAPI Debug Port: ',
-      default = default_port,
-    }, function(input)
-      if input and input ~= '' then
-        local port = tonumber(input)
-        if port then
-          save_last_debug_port('python', tostring(port))
-          dap.run({
-            type = 'python',
-            request = 'launch',
-            name = 'FastAPI 디버깅 실행: ' .. port,
-              module = 'uvicorn',
-              args = {
-                'main:app',
-                '--reload',
-                '--port',
-                tostring(port),
-                '--host',
-                '0.0.0.0',
-              },
-              pythonPath = function()
-                local venv = os.getenv('VIRTUAL_ENV')
-                if venv then
-                  local win_py = venv .. '/Scripts/python.exe'
-                  local unix_py = venv .. '/bin/python'
-                  if vim.fn.filereadable(win_py) == 1 then
-                    return win_py
-                  elseif vim.fn.filereadable(unix_py) == 1 then
-                    return unix_py
-                  end
-                end
-                return 'python'
-              end,
-            })
-          else
-            vim.notify('포트는 숫자여야 합니다.', vim.log.levels.ERROR)
-          end
-        end
-      end)
-    else
-      vim.notify(
-        '현재 파일 타입('
-          .. vim.bo.filetype
-          .. ')은 attach/launch 디버깅을 지원하지 않습니다. (Java, Python만 지원)',
-        vim.log.levels.WARN
-      )
-    end
   end
-  _G.attach_debug = attach_debug
 
-  -- 사용자 지정 DAP 단축키 (한글 설명 + 영문 원본 명칭)
-  vim.keymap.set(
-    'n',
-    '<leader>da',
-    attach_debug,
-    { desc = '포트 지정 디버그 연결 (Attach/Launch Debug)' }
-  )
+  if detected_lang then
+    proceed_attach(detected_lang)
+  else
+    vim.ui.select({
+      '1. Java (JDWP 5005)',
+      '2. Python (debugpy 5678)',
+      '3. Node.js (Inspector 9229)',
+      '4. Go (Delve 2345)',
+      '5. Rust (CodeLLDB 13000)',
+    }, {
+      prompt = '어태치할 디버그 대상 언어를 선택해 주세요: ',
+    }, function(choice)
+      if not choice then
+        return
+      end
+      local lang = 'java'
+      if choice:find('Python') then
+        lang = 'python'
+      elseif choice:find('Node') then
+        lang = 'node'
+      elseif choice:find('Go') then
+        lang = 'go'
+      elseif choice:find('Rust') then
+        lang = 'rust'
+      end
+      proceed_attach(lang)
+    end)
+  end
+end
+_G.attach_debug = attach_debug
+
+-- 사용자 지정 DAP 단축키 (한글 설명 + 영문 원본 명칭)
+vim.keymap.set(
+  'n',
+  '<leader>da',
+  attach_debug,
+  { desc = '포트 지정 디버그 연결 (Attach Debug)' }
+)
   vim.keymap.set('n', '<leader>db', function()
     require('dap').toggle_breakpoint()
   end, { desc = '브레이크포인트 설정/해제 (Toggle Breakpoint)' })

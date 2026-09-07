@@ -12,7 +12,7 @@ return {
             vim.notify('attach_debug 함수가 아직 초기화되지 않았습니다.', vim.log.levels.ERROR)
           end
         end,
-        desc = 'Attach/Launch Debug (Input Port)',
+        desc = '포트 지정 디버그 연결 (Attach Debug)',
       },
     },
     opts = function(_, opts)
@@ -105,6 +105,30 @@ return {
             or cmd_lower:find('ts-node', 1, true)
             or cmd_lower:find('vite', 1, true)
             or cmd_lower:find('next', 1, true)
+          )
+          and root ~= ''
+          and cmd:find(root, 1, true)
+        then
+          return true
+        end
+
+        -- 5) Go: 현재 프로젝트 경로에서 실행 중인 dlv / go 디버그 바이너리
+        if
+          (
+            cmd_lower:find('dlv', 1, true)
+            or cmd_lower:find('__debug_bin', 1, true)
+          )
+          and root ~= ''
+          and cmd:find(root, 1, true)
+        then
+          return true
+        end
+
+        -- 6) Rust: 현재 프로젝트 경로의 target/debug 또는 target/release 바이너리
+        if
+          (
+            cmd_lower:find('target/debug', 1, true)
+            or cmd_lower:find('target/release', 1, true)
           )
           and root ~= ''
           and cmd:find(root, 1, true)
@@ -729,14 +753,18 @@ return {
       -- 3. Profile 주입: launch.json에 없으면 실행 시 입력받아 안전하게 주입
       -- ===========================================================================================
       local function run_java_launch(config, run_opts, run_next)
-        -- 1. mainClass 필수 검증: 누락 시 5~10초짜리 리소스 빌드/컴파일 사전 작업을 건너뛰고 즉시 안내
+        -- 1. mainClass 필수 검증 및 .nvim.lua 스마트 폴백: launch.json에 누락 시 _G.MAIN_CLASS 자동 주입
         if not config.mainClass or config.mainClass == '' then
-          vim.notify(
-            '❌ [Java Launch 오류] mainClass가 지정되지 않았습니다.\n.vscode/launch.json 파일의 "mainClass" 항목을 확인해 주세요.',
-            vim.log.levels.ERROR,
-            { title = 'DAP' }
-          )
-          return
+          if _G.MAIN_CLASS and _G.MAIN_CLASS ~= '' then
+            config.mainClass = _G.MAIN_CLASS
+          else
+            vim.notify(
+              '❌ [Java Launch 오류] mainClass가 지정되지 않았습니다.\n.vscode/launch.json 파일의 "mainClass" 항목 또는 .nvim.lua의 MAIN_CLASS를 확인해 주세요.',
+              vim.log.levels.ERROR,
+              { title = 'DAP' }
+            )
+            return
+          end
         end
 
         -- vscode-java-debug (com.microsoft.java.debug.core) 규격상 args와 vmArgs는 배열이 아닌 String이어야 합니다.
