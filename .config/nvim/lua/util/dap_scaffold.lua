@@ -332,6 +332,8 @@ local function detect_default_entry(lang)
       local abs = vim.fn.fnamemodify(cmd_mains[1], ':p')
       local cwd_normalized = vim.fn.fnamemodify(cwd, ':p')
       local rel = abs:sub(#cwd_normalized + 1):gsub('\\', '/')
+      -- ':p' modifier가 trailing slash를 붙이지 않는 엣지케이스 방어
+      rel = rel:gsub('^/', '')
       return rel
     end
     return 'main.go'
@@ -536,6 +538,7 @@ local function build_configuration(lang, answers)
       name = display_name,
       request = 'launch',
       mainClass = q1,
+      vmArgs = '-Dfile.encoding=UTF-8',
     }
     if q2 ~= '' then
       config.projectName = q2
@@ -545,6 +548,7 @@ local function build_configuration(lang, answers)
     end
     return config
   elseif lang == 'python' then
+    local cwd = vim.fn.getcwd()
     local venv_name = q2 ~= '' and q2 or '.venv'
     local is_win = vim.fn.has('win32') == 1
     local python_bin = '${workspaceFolder}/' .. venv_name .. (is_win and '/Scripts/python.exe' or '/bin/python3')
@@ -554,6 +558,7 @@ local function build_configuration(lang, answers)
       .. (q3 ~= '' and (' (' .. q3 .. ')') or '')
 
     local env_val = q3 ~= '' and { ENV = q3, PYTHON_ENV = q3 } or nil
+    local env_file_val = vim.fn.filereadable(cwd .. '/.env') == 1 and '${workspaceFolder}/.env' or nil
 
     if q1:find(':') then
       local config = {
@@ -570,6 +575,9 @@ local function build_configuration(lang, answers)
       if env_val then
         config.env = env_val
       end
+      if env_file_val then
+        config.envFile = env_file_val
+      end
       return config
     else
       local clean_q1 = q1:gsub('^[/\\]+', '')
@@ -583,6 +591,9 @@ local function build_configuration(lang, answers)
       }
       if env_val then
         config.env = env_val
+      end
+      if env_file_val then
+        config.envFile = env_file_val
       end
       return config
     end
@@ -631,12 +642,13 @@ local function build_configuration(lang, answers)
     local clean_q1 = q1:gsub('^[/\\]+', ''):gsub('%.exe$', '')
     local mode = (q2 == 'release') and 'release' or 'debug'
     local display_name = 'Rust: ' .. clean_q1 .. ' (' .. mode .. ')'
+    local is_win = vim.fn.has('win32') == 1
 
     local config = {
       type = 'lldb',
       name = display_name,
       request = 'launch',
-      program = '${workspaceFolder}/target/' .. mode .. '/' .. clean_q1,
+      program = '${workspaceFolder}/target/' .. mode .. '/' .. clean_q1 .. (is_win and '.exe' or ''),
       cwd = '${workspaceFolder}',
       stopOnEntry = false,
     }
@@ -655,8 +667,8 @@ function M.ensure_launch_json(on_ready)
   local cwd = vim.fn.getcwd()
   local launch_path = cwd .. '/.vscode/launch.json'
 
-  -- 1. 이미 파일이 존재하면 즉시 진행 (0ms)
-  if vim.fn.filereadable(launch_path) == 1 then
+  -- 1. 이미 유효한 파일이 존재하면 즉시 진행 (0ms)
+  if vim.fn.filereadable(launch_path) == 1 and (vim.fn.getfsize(launch_path) or 0) > 5 then
     on_ready(true)
     return
   end

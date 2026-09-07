@@ -156,12 +156,12 @@ local function attach_debug()
         return
       end
       local port = tonumber(vim.trim(input))
-      if port and port > 0 then
+      if port and port >= 1 and port <= 65535 then
         save_last_attach_port(lang, tostring(port))
         local config = spec.build(port)
         dap.run(config)
       else
-        vim.notify('포트는 올바른 숫자여야 합니다.', vim.log.levels.ERROR, { title = 'DAP Attach' })
+        vim.notify('포트는 1부터 65535 사이의 유효한 숫자여야 합니다.', vim.log.levels.ERROR, { title = 'DAP Attach' })
       end
     end)
   end

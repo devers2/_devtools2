@@ -120,12 +120,19 @@ setup_vscode_java_settings() {
         return 0
     fi
 
-    local JDK_PATH="${DEVTOOLS2_PATH}/modules/java/jdk-${JDK_VERSION}"
+    # JDK 1.8 특수 처리: --jdk-version 8 또는 1.8 전달 시 경로/이름 정규화
+    local JDK_REAL_VER="$JDK_VERSION"
+    local JDK_SE_NAME="JavaSE-${JDK_VERSION}"
+    if [ "$JDK_VERSION" = "8" ] || [ "$JDK_VERSION" = "1.8" ]; then
+        JDK_REAL_VER="1.8"
+        JDK_SE_NAME="JavaSE-1.8"
+    fi
+    local JDK_PATH="${DEVTOOLS2_PATH}/modules/java/jdk-${JDK_REAL_VER}"
     cat > "$VSCODE_DIR/settings.json" <<EOF
 {
   "java.configuration.runtimes": [
     {
-      "name": "JavaSE-${JDK_VERSION}",
+      "name": "${JDK_SE_NAME}",
       "path": "${JDK_PATH}",
       "default": true
     }

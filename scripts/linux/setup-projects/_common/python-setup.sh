@@ -223,6 +223,7 @@ setup_vscode_python_launch_fastapi() {
                "-b", "0.0.0.0:${PORT}", "${MODULE}", "--access-logfile", "-", "--error-logfile", "-"],
       "python": "\${workspaceFolder}/${VENV_NAME}/bin/python3",
       "cwd": "\${workspaceFolder}",
+      "env": { "PYTHONPATH": "\${workspaceFolder}" },
       "envFile": "\${workspaceFolder}/.env",
       "console": "integratedTerminal"
     }

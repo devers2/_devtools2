@@ -29,7 +29,7 @@ return {
       local active_debug_pids = {}
 
       local function track_pid(session, body)
-        if body and (body.systemProcessId or body.processId) then
+        if session and session.id and body and (body.systemProcessId or body.processId) then
           local pid = tonumber(body.systemProcessId or body.processId)
           if pid and pid > 0 then
             active_debug_pids[session.id] = pid
@@ -51,20 +51,20 @@ return {
 
         -- 1) 절대 종료 금지 필터: IDE, LSP 서버, Mason, 빌드 데몬, Neovim
         if
-          cmd:find('org.eclipse.equinox.launcher', 1, true)
-          or cmd:find('jdtls', 1, true)
-          or cmd:find('GradleDaemon', 1, true)
-          or cmd:find('org.gradle', 1, true)
-          or cmd:find('nvim', 1, true)
-          or cmd:find('mason', 1, true)
-          or cmd:find('language-server', 1, true)
-          or cmd:find('vtsls', 1, true)
-          or cmd:find('typescript-language-server', 1, true)
-          or cmd:find('pyright', 1, true)
-          or cmd:find('basedpyright', 1, true)
-          or cmd:find('ruff', 1, true)
-          or cmd:find('eslint', 1, true)
-          or cmd:find('tailwindcss', 1, true)
+          cmd_lower:find('org.eclipse.equinox.launcher', 1, true)
+          or cmd_lower:find('jdtls', 1, true)
+          or cmd_lower:find('gradledaemon', 1, true)
+          or cmd_lower:find('org.gradle', 1, true)
+          or cmd_lower:find('nvim', 1, true)
+          or cmd_lower:find('mason', 1, true)
+          or cmd_lower:find('language-server', 1, true)
+          or cmd_lower:find('vtsls', 1, true)
+          or cmd_lower:find('typescript-language-server', 1, true)
+          or cmd_lower:find('pyright', 1, true)
+          or cmd_lower:find('basedpyright', 1, true)
+          or cmd_lower:find('ruff', 1, true)
+          or cmd_lower:find('eslint', 1, true)
+          or cmd_lower:find('tailwindcss', 1, true)
         then
           return false
         end
@@ -271,7 +271,7 @@ return {
             if vim.api.nvim_win_is_valid(win) then
               local buf = vim.api.nvim_win_get_buf(win)
               local ft = vim.bo[buf].filetype
-              if ft == 'dap-view' or ft:find('dapui_') or ft == 'dap-repl' then
+              if ft:find('^dap%-view') or ft:find('dapui_') or ft == 'dap-repl' then
                 pcall(vim.api.nvim_win_close, win, true)
               end
             end
@@ -357,10 +357,17 @@ return {
         return true
       end
 
-      -- Java attach는 <leader>da(attach_debug)가 dap.run()을 직접 호출해서 처리합니다.
-      -- LazyVim의 extras/lang/java.lua가 자체적으로 "Debug (Attach) - Remote" 기본 attach 설정을
-      -- dap.configurations.java에 넣어두므로, 여기서 명시적으로 비워야 <leader>dd 피커에서 빠집니다.
+      -- [순수 launch.json 0순위 원칙 및 피커 오염 방지]
+      -- Attach는 <leader>da가 전담하고, Launch는 .vscode/launch.json이 0순위 표준입니다.
+      -- LazyVim의 언어별 extras(java, python, typescript 등)가 자체적으로 주입하는 기본 설정
+      -- (Remote Attach, Launch file, file:args, doctest 등)이 피커에 섞여 나와
+      -- launch.json 단일 설정 시 불필요한 선택 팝업이 뜨거나 피커 목록을 오염시키는 것을 방지합니다.
       dap.configurations.java = {}
+      dap.configurations.python = {}
+      dap.configurations.typescript = {}
+      dap.configurations.javascript = {}
+      dap.configurations.typescriptreact = {}
+      dap.configurations.javascriptreact = {}
 
 
 
@@ -486,11 +493,13 @@ return {
         end)
       end
       -- 디버깅 종료 시 모든 디버그 UI가 자동으로 닫히고 프로세스를 정리하도록 설정
-      -- _dap_keep_process == true 이면 2번(disconnect keep-alive) 선택이므로 프로세스는 종료하지 않음
-      local function on_session_ended()
+      -- 1. _dap_keep_process == true 이면 disconnect keep-alive 선택이므로 프로세스는 종료하지 않음
+      -- 2. session.config.request == 'attach' 이면 외부 프로세스에 연결했던 것이므로 외부 서버는 죽이지 않음
+      local function on_session_ended(session)
         close_debug_ui()
-        if not _dap_keep_process then
-          kill_debuggee_process()
+        local is_attach = session and session.config and session.config.request == 'attach'
+        if not _dap_keep_process and not is_attach then
+          kill_debuggee_process(session)
         end
         _dap_keep_process = false -- 플래그 초기화
       end
@@ -707,6 +716,15 @@ return {
 
         ---@diagnostic disable-next-line: undefined-field
         local java_ver = tonumber(_G.JDK_VERSION) or 21
+        -- [JAVA_HOME 결정 정책: jdk-21 고정 폴백]
+        -- ● processResources / process-resources 태스크는 리소스 파일 복사·필터링만 수행하며
+        --   자바 소스를 컴파일하지 않으므로, 실행 JDK 버전과 프로젝트 소스 호환성은 무관합니다.
+        -- ● Gradle / Maven 자체는 상위 JDK(jdk-21)로도 하위 버전(17, 8) 프로젝트를 빌드할 수
+        --   있으며, sourceCompatibility / targetCompatibility 는 ECJ(컴파일러)가 담당합니다.
+        -- ● 따라서 JDK_VERSION < 21 인 프로젝트에도 jdk-21로 processResources를 실행하는 것은
+        --   완전히 안전하며, 불필요한 JDK 분기 복잡도를 줄이기 위해 의도적으로 통일합니다.
+        -- ● jdk-25 이상처럼 21보다 높은 버전이 지정된 경우에만 해당 버전을 그대로 사용합니다.
+        ---@diagnostic disable-next-line: undefined-field
         local java_home = (java_ver >= 21) and (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-' .. java_ver)
           or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
 
@@ -758,6 +776,11 @@ return {
           local str = table.concat(val, ' ')
           return str ~= '' and str or nil
         end
+        -- 빈 문자열도 nil로 정규화: vscode-java-debug 어댑터는 ""를 받으면 처리가 불안정함
+        if type(val) == 'string' then
+          local trimmed = vim.trim(val)
+          return trimmed ~= '' and trimmed or nil
+        end
         return val
       end
 
@@ -804,6 +827,7 @@ return {
           if profile_input == nil then
             return -- Esc로 취소 (실행하지 않음)
           end
+          profile_input = vim.trim(profile_input)
 
           if type(config.args) == 'string' then
             config.args = config.args:gsub('%-%-spring%.profiles%.active=%S+%s*', ''):gsub('%s+$', '')
@@ -827,18 +851,23 @@ return {
       -- [스마트 프로세스 선제 정리 + Java Launch 프로필 주입] dap.run 핵심 함수 래핑
       -- 디버깅이 가동되기 직전(어댑터 작동 전)에 동일 프로젝트의 잔여 런타임 프로세스를 사전에 정리합니다.
       local orig_run = dap.run
-      local java_adapter_wrapped = false
+      local wrapped_adapters = setmetatable({}, { __mode = 'k' })
 
 
 
       ---@diagnostic disable-next-line: duplicate-set-field
       dap.run = function(config, run_opts)
-        -- 디버깅 실행 직전 기존 잔여 프로젝트 디버기 프로세스를 선제적으로 비동기 정리
+        -- Attach(외부 프로세스 연결) 요청 시에는 연결 대상인 외부 프로세스를 절대 선제 종료하지 않고 즉시 연결
+        if config and config.request == 'attach' then
+          orig_run(config, run_opts)
+          return
+        end
+
+        -- Launch(신규 실행) 요청 시에만 포트 충돌 방지를 위해 기존 잔여 프로세스를 선제적으로 비동기 정리
         kill_debuggee_process(nil, function()
           if config and config.type == 'java' and config.request == 'launch' then
             local current_adapter = dap.adapters.java
-            if type(current_adapter) == 'function' and not java_adapter_wrapped then
-              java_adapter_wrapped = true
+            if type(current_adapter) == 'function' and not wrapped_adapters[current_adapter] then
               local orig_adapter = current_adapter
               local wrapped = function(cb, conf)
                 orig_adapter(function(adapter_result)
@@ -859,6 +888,7 @@ return {
                   cb(adapter_result)
                 end, conf)
               end
+              wrapped_adapters[wrapped] = true
               dap.adapters.java = wrapped
             end
             run_java_launch(config, run_opts, orig_run)
@@ -914,5 +944,18 @@ return {
         position = 'below',
       },
     },
+  },
+  -- ─────────────────────────────────────────────────────────────────────
+  -- nvim-dap-python: 기본 내장 configuration(file, file:args, doctest 등) 주입 차단
+  -- 오직 .vscode/launch.json 또는 <leader>da 만으로 일관되게 디버깅 수행
+  -- ─────────────────────────────────────────────────────────────────────
+  {
+    'mfussenegger/nvim-dap-python',
+    optional = true,
+    config = function()
+      require('dap-python').setup('debugpy-adapter', { include_configs = false })
+      local dap = require('dap')
+      dap.configurations.python = {}
+    end,
   },
 }
