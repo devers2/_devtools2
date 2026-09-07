@@ -104,13 +104,17 @@ ensure_python_version() {
 
 # ── 2. Python 가상환경(venv) 구성 ─────────────────────────────────────────────
 # 인수:
-#   $1 = TARGET_DIR    (필수)
-#   $2 = VENV_NAME     (선택, 기본값: .venv)
-#   $3 = SETUP_SCRIPT  (선택, 프로젝트 내 커스텀 setup-venv.sh 경로)
+#   $1 = TARGET_DIR        (필수)
+#   $2 = VENV_NAME         (선택, 기본값: .venv)
+#   $3 = SETUP_SCRIPT      (선택, 프로젝트 내 커스텀 setup-venv.sh 경로)
+#   $4 = REQUIREMENTS_FILE (선택, 기본값: <target-dir>/requirements.txt)
+#                           경로가 다르거나 파일명이 다른 경우 절대경로 또는 상대경로로 지정
+#                           예: "$TARGET_DIR/requirements/base.txt"
 setup_venv_python() {
     local TARGET_DIR="$1"
     local VENV_NAME="${2:-.venv}"
     local SETUP_SCRIPT="${3:-$TARGET_DIR/setup-venv.sh}"
+    local REQUIREMENTS_FILE="${4:-$TARGET_DIR/requirements.txt}"
 
     if [ -z "$TARGET_DIR" ]; then
         echo "❌ setup_venv_python: TARGET_DIR가 지정되지 않았습니다."
@@ -121,20 +125,28 @@ setup_venv_python() {
     echo "⏳ Python 가상환경 설정을 진행합니다 ($VENV_NAME)..."
 
     if [ -f "$SETUP_SCRIPT" ]; then
+        # 프로젝트 전용 스크립트가 있으면 venv 생성 및 의존성 설치를 모두 위임
         echo "ℹ️  프로젝트 전용 가상환경 스크립트를 실행합니다: $SETUP_SCRIPT"
         # shellcheck disable=SC1090
         source "$SETUP_SCRIPT" "$TARGET_DIR"
-    elif [ -d "$TARGET_DIR/$VENV_NAME" ]; then
-        echo "ℹ️  가상환경 디렉토리가 이미 존재합니다: $TARGET_DIR/$VENV_NAME"
     else
-        echo "📦 Python 가상환경을 생성합니다: $TARGET_DIR/$VENV_NAME"
-        python3 -m venv "$TARGET_DIR/$VENV_NAME"
-        if [ -f "$TARGET_DIR/requirements.txt" ]; then
-            echo "📦 requirements.txt 패키지 설치 중..."
-            "$TARGET_DIR/$VENV_NAME/bin/pip" install --upgrade pip
-            "$TARGET_DIR/$VENV_NAME/bin/pip" install -r "$TARGET_DIR/requirements.txt"
+        # venv 생성 (없을 때만)
+        if [ ! -d "$TARGET_DIR/$VENV_NAME" ]; then
+            echo "📦 Python 가상환경을 생성합니다: $TARGET_DIR/$VENV_NAME"
+            python3 -m venv "$TARGET_DIR/$VENV_NAME"
+        else
+            echo "ℹ️  가상환경 디렉토리가 이미 존재합니다: $TARGET_DIR/$VENV_NAME"
         fi
-        echo "✅ 가상환경 생성 및 설정 완료!"
+
+        # requirements 파일 동기화 (venv 존재 여부와 무관하게 항상 실행)
+        # pip은 이미 설치된 패키지를 skip하므로 재실행해도 안전하며 멱등성이 보장됩니다.
+        if [ -f "$REQUIREMENTS_FILE" ]; then
+            echo "📦 패키지 동기화 중... ($REQUIREMENTS_FILE)"
+            "$TARGET_DIR/$VENV_NAME/bin/pip" install --upgrade pip -q
+            "$TARGET_DIR/$VENV_NAME/bin/pip" install -r "$REQUIREMENTS_FILE"
+        fi
+
+        echo "✅ 가상환경 설정 완료!"
     fi
 }
 
@@ -308,26 +320,29 @@ print_python_debugging_guide() {
 
 # ── 7. Python FastAPI 프로젝트 원클릭 표준 설정 함수 ─────────────────────────
 # 사용 가능한 명명 옵션:
-#   --target-dir       : 프로젝트 로컬 경로 (필수)
-#   --repo-url         : Git 저장소 주소 (필수)
-#   --python-version   : 필요 Python 버전 (선택, 기본값: 312)
-#   --venv-name        : 가상환경 폴더명 (선택, 기본값: .venv)
-#   --setup-venv-script: 전용 가상환경 스크립트 경로 (선택)
-#   --module           : FastAPI 앱 모듈 (선택, 기본값: main:app)
-#   --port             : 실행 포트 (선택, 기본값: 8000) → launch.json args에 반영됨
-#   --enable-gunicorn  : gunicorn 디버그 설정 포함 여부 (선택, 기본값: true)
-#   --sftp-user        : SFTP 접속 계정 (선택)
-#   --sftp-host        : SFTP 접속 호스트 (선택)
-#   --sftp-port        : SFTP 포트 (선택, 기본값: 22)
-#   --sftp-remote-path : SFTP 원격 마운트 경로 (선택)
-#   --sftp-local-path  : SFTP 로컬 마운트 경로 (선택)
-#   --app-name         : 앱 이름 (선택, 기본값: 폴더명)
+#   --target-dir        : 프로젝트 로컬 경로 (필수)
+#   --repo-url          : Git 저장소 주소 (필수)
+#   --python-version    : 필요 Python 버전 (선택, 기본값: 312)
+#   --venv-name         : 가상환경 폴더명 (선택, 기본값: .venv)
+#   --setup-venv-script : 전용 가상환경 스크립트 경로 (선택, 있으면 의존성 설치를 위임)
+#   --requirements-file : 의존성 파일 경로 (선택, 기본값: <target-dir>/requirements.txt)
+#                         경로나 파일명이 다른 경우 지정 (예: --requirements-file "$HOME/workspaces/myapp/requirements/base.txt")
+#   --module            : FastAPI 앱 모듈 (선택, 기본값: main:app)
+#   --port              : 실행 포트 (선택, 기본값: 8000) → launch.json args에 반영됨
+#   --enable-gunicorn   : gunicorn 디버그 설정 포함 여부 (선택, 기본값: true)
+#   --sftp-user         : SFTP 접속 계정 (선택)
+#   --sftp-host         : SFTP 접속 호스트 (선택)
+#   --sftp-port         : SFTP 포트 (선택, 기본값: 22)
+#   --sftp-remote-path  : SFTP 원격 마운트 경로 (선택)
+#   --sftp-local-path   : SFTP 로컬 마운트 경로 (선택)
+#   --app-name          : 앱 이름 (선택, 기본값: 폴더명)
 setup_python_fastapi_project() {
     local TARGET_DIR=""
     local REPO_URL=""
     local PYTHON_VERSION="312"
     local VENV_NAME=".venv"
     local SETUP_VENV_SCRIPT=""
+    local REQUIREMENTS_FILE=""
     local MODULE="main:app"
     local PORT="8000"
     local ENABLE_GUNICORN="true"
@@ -346,6 +361,7 @@ setup_python_fastapi_project() {
             --python-version)    PYTHON_VERSION="$2"; shift 2 ;;
             --venv-name)         VENV_NAME="$2"; shift 2 ;;
             --setup-venv-script) SETUP_VENV_SCRIPT="$2"; shift 2 ;;
+            --requirements-file) REQUIREMENTS_FILE="$2"; shift 2 ;;
             --module)            MODULE="$2"; shift 2 ;;
             --port)              PORT="$2"; shift 2 ;;
             --enable-gunicorn)   ENABLE_GUNICORN="$2"; shift 2 ;;
@@ -367,6 +383,7 @@ setup_python_fastapi_project() {
 
     [ -z "$APP_NAME" ] && APP_NAME="$(basename "$TARGET_DIR")"
     [ -z "$SETUP_VENV_SCRIPT" ] && SETUP_VENV_SCRIPT="$TARGET_DIR/setup-venv.sh"
+    [ -z "$REQUIREMENTS_FILE" ] && REQUIREMENTS_FILE="$TARGET_DIR/requirements.txt"
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "🚀 [$APP_NAME] Python FastAPI 프로젝트 설정을 시작합니다."
@@ -394,8 +411,8 @@ setup_python_fastapi_project() {
         }
     fi
 
-    # 4. Python 가상환경 설정
-    setup_venv_python "$TARGET_DIR" "$VENV_NAME" "$SETUP_VENV_SCRIPT"
+    # 4. Python 가상환경 설정 및 의존성 동기화
+    setup_venv_python "$TARGET_DIR" "$VENV_NAME" "$SETUP_VENV_SCRIPT" "$REQUIREMENTS_FILE"
 
     # 5. .vscode 및 pyright 설정 파일 생성
     echo ""
