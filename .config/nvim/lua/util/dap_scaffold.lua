@@ -56,7 +56,7 @@
 --   • module (웹 프레임워크): 실행할 모듈명 (예: "uvicorn")
 --   • program (단일 스크립트): 실행할 파이썬 파일 경로 (예: "${workspaceFolder}/main.py")
 --   • python (가상환경): 사용할 Python 인터프리터 경로 (예: "${workspaceFolder}/.venv/bin/python3")
---   • args: 실행 인자 및 포트 지정 (예: ["main:app", "--reload", "--port", "8000", "--host", "127.0.0.1"])
+--   • args: 실행 인자 및 포트 지정 (예: ["main:app", "--reload", "--port", "8000", "--host", "0.0.0.0"])
 --   • env: 환경 변수 지정 (예: { "ENV": "local", "PYTHON_ENV": "local" })
 --   • jinja / justMyCode: 템플릿 디버깅(true) 및 서드파티 라이브러리 스텝인 제외(false)
 --   [예시 - FastAPI]
@@ -65,7 +65,7 @@
 --     "name": "Python: main:app (local)",
 --     "request": "launch",
 --     "module": "uvicorn",
---     "args": ["main:app", "--reload", "--port", "8000", "--host", "127.0.0.1"],
+--     "args": ["main:app", "--reload", "--port", "8000", "--host", "0.0.0.0"],
 --     "python": "${workspaceFolder}/.venv/bin/python3",
 --     "cwd": "${workspaceFolder}",
 --     "env": { "ENV": "local" }
@@ -539,11 +539,11 @@ local function build_configuration(lang, answers)
 
     if q1:find(':') then
       local config = {
-        type = 'python',
+        type = 'debugpy',
         name = display_name,
         request = 'launch',
         module = 'uvicorn',
-        args = { q1, '--reload', '--port', '8000', '--host', '127.0.0.1' },
+        args = { q1, '--reload', '--port', '8000', '--host', '0.0.0.0' },
         python = python_bin,
         cwd = '${workspaceFolder}',
         jinja = true,
@@ -555,7 +555,7 @@ local function build_configuration(lang, answers)
       return config
     else
       local config = {
-        type = 'python',
+        type = 'debugpy',
         name = display_name,
         request = 'launch',
         program = '${workspaceFolder}/' .. q1,

@@ -85,7 +85,7 @@ local ATTACH_SPECS = {
     prompt = 'Python Debug Port (debugpy): ',
     build = function(port)
       return {
-        type = 'python',
+        type = 'debugpy',
         request = 'attach',
         name = 'Python Attach: ' .. port,
         connect = { host = '127.0.0.1', port = port },
