@@ -589,6 +589,91 @@ install_vscode_extensions() {
     done
 }
 
+# ── .vscode/launch.json 생성 및 지능형 병합 공통 모듈 ──────────────────────────
+# 기능:
+#   - 대상 디렉토리에 .vscode/launch.json 이 없으면 새로 생성 (version: 0.2.0, configurations: [...])
+#   - 이미 파일이 존재하면 JSON 파싱 후 동일한 name의 설정이 없을 때만 안전하게 추가(merge)
+#   - 단일 객체({...}) 또는 배열([ {...}, {...} ]) 모두 지원
+#   - Neovim(nvim-dap), VS Code, Cursor 등 모든 DAP 호환 IDE 공통 사용
+# 인수:
+#   $1 = TARGET_DIR   (필수, 대상 프로젝트 루트 디렉토리)
+#   $2 = CONFIGS_JSON (필수, JSON 문자열)
+#   $3 = OVERWRITE    (선택, 기본값: false. true 시 기존 설정을 덮어씀)
+setup_vscode_launch_json() {
+    local TARGET_DIR="$1"
+    local CONFIGS_JSON="$2"
+    local OVERWRITE="${3:-false}"
+
+    if [ -z "$TARGET_DIR" ] || [ -z "$CONFIGS_JSON" ]; then
+        echo "❌ setup_vscode_launch_json: TARGET_DIR 및 CONFIGS_JSON 은 필수 인자입니다."
+        return 1
+    fi
+
+    python3 -c "
+import json
+import os
+import sys
+
+target_dir = sys.argv[1]
+configs_raw = sys.argv[2]
+overwrite = sys.argv[3].lower() == 'true'
+
+vscode_dir = os.path.join(target_dir, '.vscode')
+os.makedirs(vscode_dir, exist_ok=True)
+launch_file = os.path.join(vscode_dir, 'launch.json')
+
+try:
+    new_configs = json.loads(configs_raw)
+    if isinstance(new_configs, dict):
+        new_configs = [new_configs]
+    elif not isinstance(new_configs, list):
+        raise ValueError('JSON은 객체({...}) 또는 배열([{...}]) 형태여야 합니다.')
+except Exception as e:
+    print(f'❌ [setup_vscode_launch_json] JSON 파싱 오류: {e}', file=sys.stderr)
+    sys.exit(1)
+
+existing_data = {'version': '0.2.0', 'configurations': []}
+file_existed = os.path.isfile(launch_file)
+
+if file_existed and not overwrite:
+    try:
+        with open(launch_file, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            if content:
+                existing_data = json.loads(content)
+                if 'configurations' not in existing_data or not isinstance(existing_data['configurations'], list):
+                    existing_data['configurations'] = []
+    except Exception:
+        existing_data = {'version': '0.2.0', 'configurations': []}
+
+    existing_names = {c.get('name') for c in existing_data.get('configurations', []) if isinstance(c, dict)}
+    added_count = 0
+    for cfg in new_configs:
+        if isinstance(cfg, dict):
+            name = cfg.get('name')
+            if name not in existing_names:
+                existing_data['configurations'].append(cfg)
+                existing_names.add(name)
+                added_count += 1
+else:
+    existing_data['configurations'] = [cfg for cfg in new_configs if isinstance(cfg, dict)]
+    added_count = len(existing_data['configurations'])
+
+with open(launch_file, 'w', encoding='utf-8') as f:
+    json.dump(existing_data, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+
+if not file_existed:
+    print(f'✅ .vscode/launch.json 생성 완료 ({len(new_configs)}개 디버그 설정 등록)')
+elif overwrite:
+    print(f'✅ .vscode/launch.json 갱신 완료 ({len(existing_data[\"configurations\"])}개 디버그 설정 재작성)')
+elif added_count > 0:
+    print(f'✅ .vscode/launch.json 갱신 완료 ({added_count}개 신규 디버그 설정 추가)')
+else:
+    print('ℹ️  .vscode/launch.json 에 동일한 디버그 설정이 이미 존재합니다.')
+" "$TARGET_DIR" "$CONFIGS_JSON" "$OVERWRITE"
+}
+
 # ── SFTP 마운트 옵션 통합 처리 헬퍼 ──────────────────────────────────────────
 # 기능:
 #   - --sftp "user@host[:port]" 단축 형식 또는 개별 변수를 파싱하여 setup_rclone_sftp_mount 호출

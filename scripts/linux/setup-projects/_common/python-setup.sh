@@ -30,7 +30,8 @@
 #     --setup-venv-script <경로> : 프로젝트 전용 venv 생성 스크립트 (기본값: <target-dir>/setup-venv.sh)
 #     --module <모듈:앱>         : FastAPI 실행 모듈 (기본값: main:app)
 #     --port <포트번호>          : 로컬 디버깅 및 서버 포트 (기본값: 8095)
-#     --enable-gunicorn <bool>   : launch.json에 gunicorn 디버그 설정 포함 여부 (기본값: true)
+#     --worker-script <스크립트> : 백그라운드 워커 스크립트 파일명 (선택, 예: handwriting_matching_worker.py)
+#     --enable-gunicorn <bool>   : launch.json에 gunicorn 디버그 설정 포함 여부 (기본값: false)
 #     --app-name <이름>          : 콘솔 안내용 앱 명칭 (기본값: 대상 폴더명)
 #
 #   ■ SFTP 마운트 선택 옵션 (원격 디렉토리 마운트가 필요 없는 프로젝트는 전부 생략 가능):
@@ -180,6 +181,97 @@ EOF
 # 이 파일은 VS Code 전용이 아닌 DAP(Debug Adapter Protocol) 표준 형식으로,
 # Neovim(nvim-dap), VS Code, Cursor 등 DAP를 지원하는 모든 IDE에서 공통으로 사용됩니다.
 # 디렉토리명(.vscode/)은 관례상 유지하지만, 특정 에디터에 종속되지 않습니다.
+#
+# 인수:
+#   $1 = TARGET_DIR      (필수)
+#   $2 = APP_NAME        (필수, 예: aiplus)
+#   $3 = MODULE          (선택, 기본값: main:app)
+#   $4 = PORT            (선택, 기본값: 8000)
+#   $5 = VENV_NAME       (선택, 기본값: .venv)
+#   $6 = WORKER_SCRIPT   (선택, 예: handwriting_matching_worker.py)
+#   $7 = ENABLE_GUNICORN (선택, 기본값: false)
+setup_vscode_python_launch() {
+    local TARGET_DIR="$1"
+    local APP_NAME="$2"
+    local MODULE="${3:-main:app}"
+    local PORT="${4:-8000}"
+    local VENV_NAME="${5:-.venv}"
+    local WORKER_SCRIPT="${6:-}"
+    local ENABLE_GUNICORN="${7:-false}"
+    local OVERWRITE="${8:-false}"
+
+    local CONFIGS_JSON
+    CONFIGS_JSON=$(python3 -c "
+import json, sys
+
+module = sys.argv[1]
+port = sys.argv[2]
+venv_name = sys.argv[3]
+worker_script = sys.argv[4]
+enable_gunicorn = sys.argv[5].lower() == 'true'
+
+python_path = f'\${{workspaceFolder}}/{venv_name}/bin/python3'
+
+configs = [
+    {
+        'name': '▶ FastAPI (uvicorn, debug)',
+        'type': 'debugpy',
+        'request': 'launch',
+        'module': 'uvicorn',
+        'args': [module, '--host', '0.0.0.0', '--port', str(port), '--reload'],
+        'jinja': True,
+        'python': python_path,
+        'cwd': '\${workspaceFolder}',
+        'env': {'PYTHONPATH': '\${workspaceFolder}'},
+        'envFile': '\${workspaceFolder}/.env',
+        'console': 'integratedTerminal'
+    }
+]
+
+if enable_gunicorn:
+    configs.append({
+        'name': '▶ FastAPI (gunicorn, start.sh 방식)',
+        'type': 'debugpy',
+        'request': 'launch',
+        'module': 'gunicorn',
+        'args': [
+            '-w', '1',
+            '-k', 'uvicorn.workers.UvicornWorker',
+            '-t', '600',
+            '-b', f'0.0.0.0:{port}',
+            module,
+            '--access-logfile', '-',
+            '--error-logfile', '-'
+        ],
+        'python': python_path,
+        'cwd': '\${workspaceFolder}',
+        'env': {'PYTHONPATH': '\${workspaceFolder}'},
+        'envFile': '\${workspaceFolder}/.env',
+        'console': 'integratedTerminal'
+    })
+
+if worker_script:
+    clean_worker = worker_script.strip().lstrip('/')
+    worker_name = clean_worker.split('/')[-1]
+    configs.append({
+        'name': f'▶ Worker ({worker_name})',
+        'type': 'debugpy',
+        'request': 'launch',
+        'program': f'\${{workspaceFolder}}/{clean_worker}',
+        'python': python_path,
+        'cwd': '\${workspaceFolder}',
+        'env': {'PYTHONPATH': '\${workspaceFolder}'},
+        'envFile': '\${workspaceFolder}/.env',
+        'console': 'integratedTerminal'
+    })
+
+print(json.dumps(configs))
+" "$MODULE" "$PORT" "$VENV_NAME" "$WORKER_SCRIPT" "$ENABLE_GUNICORN")
+
+    setup_vscode_launch_json "$TARGET_DIR" "$CONFIGS_JSON" "$OVERWRITE"
+}
+
+# 하위 호환성 래퍼 함수 (기존 파라미터 규격 유지)
 setup_vscode_python_launch_fastapi() {
     local TARGET_DIR="$1"
     local APP_NAME="$2"
@@ -187,72 +279,7 @@ setup_vscode_python_launch_fastapi() {
     local PORT="${4:-8000}"
     local VENV_NAME="${5:-.venv}"
     local ENABLE_GUNICORN="${6:-true}"
-
-    local VSCODE_DIR="$TARGET_DIR/.vscode"
-    mkdir -p "$VSCODE_DIR"
-
-    if [ -f "$VSCODE_DIR/launch.json" ]; then
-        echo "ℹ️  .vscode/launch.json 이 이미 존재합니다. 덮어쓰지 않습니다."
-        return 0
-    fi
-
-    if [ "$ENABLE_GUNICORN" = "true" ]; then
-        cat > "$VSCODE_DIR/launch.json" <<EOF
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "▶ FastAPI (uvicorn, debug)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "uvicorn",
-      "args": ["${MODULE}", "--host", "0.0.0.0", "--port", "${PORT}", "--reload"],
-      "jinja": true,
-      "python": "\${workspaceFolder}/${VENV_NAME}/bin/python3",
-      "cwd": "\${workspaceFolder}",
-      "env": { "PYTHONPATH": "\${workspaceFolder}" },
-      "envFile": "\${workspaceFolder}/.env",
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "▶ FastAPI (gunicorn, start.sh 방식)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "gunicorn",
-      "args": ["-w", "1", "-k", "uvicorn.workers.UvicornWorker", "-t", "600",
-               "-b", "0.0.0.0:${PORT}", "${MODULE}", "--access-logfile", "-", "--error-logfile", "-"],
-      "python": "\${workspaceFolder}/${VENV_NAME}/bin/python3",
-      "cwd": "\${workspaceFolder}",
-      "env": { "PYTHONPATH": "\${workspaceFolder}" },
-      "envFile": "\${workspaceFolder}/.env",
-      "console": "integratedTerminal"
-    }
-  ]
-}
-EOF
-    else
-        cat > "$VSCODE_DIR/launch.json" <<EOF
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "▶ FastAPI (uvicorn, debug)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "uvicorn",
-      "args": ["${MODULE}", "--host", "0.0.0.0", "--port", "${PORT}", "--reload"],
-      "jinja": true,
-      "python": "\${workspaceFolder}/${VENV_NAME}/bin/python3",
-      "cwd": "\${workspaceFolder}",
-      "env": { "PYTHONPATH": "\${workspaceFolder}" },
-      "envFile": "\${workspaceFolder}/.env",
-      "console": "integratedTerminal"
-    }
-  ]
-}
-EOF
-    fi
-    echo "✅ .vscode/launch.json 생성 완료"
+    setup_vscode_python_launch "$TARGET_DIR" "$APP_NAME" "$MODULE" "$PORT" "$VENV_NAME" "" "$ENABLE_GUNICORN"
 }
 
 # ── 5. pyrightconfig.json 생성 ────────────────────────────────────────────────
@@ -330,7 +357,8 @@ print_python_debugging_guide() {
 #                         경로나 파일명이 다른 경우 지정 (예: --requirements-file "$HOME/workspaces/myapp/requirements/base.txt")
 #   --module            : FastAPI 앱 모듈 (선택, 기본값: main:app)
 #   --port              : 실행 포트 (선택, 기본값: 8000) → launch.json args에 반영됨
-#   --enable-gunicorn   : gunicorn 디버그 설정 포함 여부 (선택, 기본값: true)
+#   --worker-script     : 백그라운드 워커 스크립트 파일명 (선택, 예: handwriting_matching_worker.py)
+#   --enable-gunicorn   : gunicorn 디버그 설정 포함 여부 (선택, 기본값: false)
 #   --sftp-user         : SFTP 접속 계정 (선택)
 #   --sftp-host         : SFTP 접속 호스트 (선택)
 #   --sftp-port         : SFTP 포트 (선택, 기본값: 22)
@@ -346,7 +374,8 @@ setup_python_fastapi_project() {
     local REQUIREMENTS_FILE=""
     local MODULE="main:app"
     local PORT="8000"
-    local ENABLE_GUNICORN="true"
+    local WORKER_SCRIPT=""
+    local ENABLE_GUNICORN="false"
     local SFTP_SPEC=""
     local SFTP_USER=""
     local SFTP_HOST=""
@@ -365,6 +394,7 @@ setup_python_fastapi_project() {
             --requirements-file) REQUIREMENTS_FILE="$2"; shift 2 ;;
             --module)            MODULE="$2"; shift 2 ;;
             --port)              PORT="$2"; shift 2 ;;
+            --worker-script|--worker) WORKER_SCRIPT="$2"; shift 2 ;;
             --enable-gunicorn)   ENABLE_GUNICORN="$2"; shift 2 ;;
             --sftp)              SFTP_SPEC="$2"; shift 2 ;;
             --sftp-user)         SFTP_USER="$2"; shift 2 ;;
@@ -393,6 +423,7 @@ setup_python_fastapi_project() {
     echo "   Python    : $PYTHON_VERSION"
     echo "   가상환경  : $VENV_NAME"
     echo "   실행 포트 : $PORT ($MODULE)"
+    [ -n "$WORKER_SCRIPT" ] && echo "   워커      : $WORKER_SCRIPT"
     [ -n "$SFTP_SPEC" ] && echo "   SFTP 마운트: $SFTP_SPEC"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
@@ -419,7 +450,7 @@ setup_python_fastapi_project() {
     echo ""
     echo "⏳ VSCode 설정 파일 및 pyrightconfig.json 생성 중..."
     setup_vscode_python_settings "$TARGET_DIR" "$VENV_NAME"
-    setup_vscode_python_launch_fastapi "$TARGET_DIR" "$APP_NAME" "$MODULE" "$PORT" "$VENV_NAME" "$ENABLE_GUNICORN"
+    setup_vscode_python_launch "$TARGET_DIR" "$APP_NAME" "$MODULE" "$PORT" "$VENV_NAME" "$WORKER_SCRIPT" "$ENABLE_GUNICORN"
     setup_pyright_config "$TARGET_DIR" "$VENV_NAME"
 
     # 6. VSCode 필수 확장 프로그램 검사/설치

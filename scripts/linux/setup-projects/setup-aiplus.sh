@@ -34,7 +34,9 @@ setup_python_fastapi_project \
     --repo-url "https://github.com/Placelink-HUB/aiplus.git" \
     --python-version "312" \
     --venv-name "venv_math" \
+    --module "main:app" \
     --port 8095 \
+    --worker-script "handwriting_matching_worker.py" \
     --sftp-user "namupia" \
     --sftp-host "aiplus.im" \
     --sftp-port 222 \

@@ -159,14 +159,6 @@ setup_vscode_java_launch() {
     local MAIN_CLASS="$3"
     local VM_ARGS="${4:--Dfile.encoding=UTF-8}"
 
-    local VSCODE_DIR="$TARGET_DIR/.vscode"
-    mkdir -p "$VSCODE_DIR"
-
-    if [ -f "$VSCODE_DIR/launch.json" ]; then
-        echo "ℹ️  .vscode/launch.json 이 이미 존재합니다. 덮어쓰지 않습니다."
-        return 0
-    fi
-
     # ⚠️ 주의사항:
     # 1. projectName은 일부러 지정하지 않습니다.
     #    VSCode Java 확장이 실제로 등록하는 프로젝트 이름은 settings.gradle의 rootProject.name과
@@ -175,21 +167,22 @@ setup_vscode_java_launch() {
     # 2. vmArgs는 반드시 단일 공백 구분 문자열(String)이어야 합니다!
     #    배열(["-D..."])로 선언할 경우 Neovim DAP 및 JDTLS Debug Server에서
     #    JsonSyntaxException: Expected STRING but was BEGIN_ARRAY at path $.vmArgs 크래시가 발생합니다.
-    cat > "$VSCODE_DIR/launch.json" <<EOF
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "type": "java",
-      "name": "${APP_NAME}",
-      "request": "launch",
-      "mainClass": "${MAIN_CLASS}",
-      "vmArgs": "${VM_ARGS}"
-    }
-  ]
-}
-EOF
-    echo "✅ .vscode/launch.json 생성 완료!"
+    local CONFIG_JSON
+    CONFIG_JSON=$(python3 -c "
+import json, sys
+app_name = sys.argv[1]
+main_class = sys.argv[2]
+vm_args = sys.argv[3]
+print(json.dumps([{
+    'type': 'java',
+    'name': app_name,
+    'request': 'launch',
+    'mainClass': main_class,
+    'vmArgs': vm_args
+}]))
+" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS")
+
+    setup_vscode_launch_json "$TARGET_DIR" "$CONFIG_JSON"
 }
 
 # ── 4. .vscode 통합 설정 (settings.json + launch.json) ────────────────────────

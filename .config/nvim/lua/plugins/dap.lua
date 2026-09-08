@@ -387,6 +387,7 @@ return {
           or (type(config.args) == 'table' and table.concat(config.args, ' ') or '')
         local p = args_str:match('%-%-port[%s=]+(%d+)')
           or args_str:match('%-p[%s=]+(%d+)')
+          or args_str:match('%-b[%s=]+[%w_%.%*]*:(%d+)')
           or args_str:match('server%.port[%s=]+(%d+)')
         if p then
           return p
