@@ -704,19 +704,21 @@ return {
       end
 
       -- ===========================================================================================
-      -- [Java Launch 전 자동 리소스 빌드: run_project_prebuild] ⚠️ AI 수정 주의: 필수 로직!
+      -- [Java Launch 표준 사전 빌드 태스크: run_java_prelaunch_task] ⚠️ 절대 삭제 금지 (IDE 표준 필수 파이프라인)
       -- ===========================================================================================
-      -- 1. 배경 및 원인:
-      --    JDTLS의 `java/buildWorkspace`는 Eclipse 내장 컴파일러(ECJ)로 `.java` → `.class` 컴파일만 수행합니다.
-      --    하지만 Spring Boot 프로젝트(예: Goono-ELN)는 `build.gradle`의 `processResources` 태스크를 통해
-      --    `src/main/resources/config/@build-0_LOCAL.yml` 파일 생성 및 `${build.project.basepath}` 치환 등을 수행합니다.
-      --    이 과정이 누락되면 스프링 기동 시 `IllegalArgumentException: Could not resolve placeholder 'build.project.basepath'`
-      --    크래시가 발생하므로, DAP 디버깅 실행 직전에 반드시 `gradlew processResources`를 먼저 비동기로 실행해야 합니다.
+      -- 1. 표준성 및 필수 배경 (VS Code preLaunchTask / IntelliJ Before Launch 동등 기능):
+      --    - IntelliJ의 "Before launch: process-resources" 및 VS Code의 "preLaunchTask"와 동일한 공식 표준 동작입니다.
+      --    - JDTLS의 `java/buildWorkspace`는 Eclipse 내장 컴파일러(ECJ)로 `.java` → `.class` 컴파일만 수행하므로,
+      --      Gradle/Maven 빌드 도구가 관리하는 리소스 필터링, 프로필 생성, 템플릿 치환(processResources / process-resources)을
+      --      스스로 실행하지 못합니다.
+      --    - 따라서 Gradle 및 Maven 기반의 모든 Java/Spring Boot 프로젝트가 리소스 누락 없이 정상 기동되려면,
+      --      디버깅 시작 직전에 표준 빌드 도구의 리소스 라이프사이클 태스크를 선행 실행하는 것이 표준이자 필수입니다.
       --
-      -- 2. Neovim 0.12 표준 비동기 API:
-      --    `vim.system`을 사용하여 에디터 UI 멈춤(블로킹) 없이 백그라운드에서 빌드 후 증분 빌드 워치독으로 체이닝합니다.
+      -- 2. 동작 방식 (Neovim 0.12 비동기 vim.system):
+      --    - gradlew가 있으면 `gradlew processResources`, mvnw가 있으면 `mvnw process-resources`를 비동기 실행합니다.
+      --    - 에디터 UI 블로킹 없이 리소스 처리를 완료한 후, JDTLS 증분 컴파일 워치독(`build_workspace_with_watchdog`)으로 체이닝됩니다.
       -- ===========================================================================================
-      local function run_project_prebuild(on_done)
+      local function run_java_prelaunch_task(on_done)
         ---@diagnostic disable-next-line: undefined-field
         local root = (_G.PROJECT_ROOT and vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p')) or vim.fn.getcwd()
         if not root:match('/$') then
@@ -784,7 +786,7 @@ return {
       end
 
       local function launch_with_watchdogs(config, run_opts, run_next)
-        run_project_prebuild(function(should_launch)
+        run_java_prelaunch_task(function(should_launch)
           if should_launch then
             run_with_init_watchdog(config, run_opts, run_next)
           end
