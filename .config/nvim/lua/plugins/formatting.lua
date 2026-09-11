@@ -208,6 +208,24 @@ return {
         injected = {
           options = {
             ignore_errors = true,
+            -- ⚠️ [ktlint 버그 우회] Markdown 코드펜스 내 kotlin 블록을 injected 포맷팅 대상에서 제외
+            --
+            -- 증상: ```kotlin 코드펜스를 저장하면 코드펜스 내부 코드가 통째로 삭제됨.
+            --
+            -- 원인: ktlint가 파싱 실패 시 exit code 0 + stdout 빈 출력을 반환하는 버그.
+            --   다른 모든 포맷터(Prettier, Ruff, StyLua, sql-formatter)는 파싱 실패 시
+            --   exit code 1 이상을 반환하여 conform이 에러로 처리 → 코드 보존.
+            --   ktlint만 유일하게 exit 0을 반환하므로 conform이 빈 stdout을 성공 결과로 오인,
+            --   코드펜스 내용을 빈 문자열로 교체 → 코드 블록 전체 삭제.
+            --
+            --   * kotlin 단독 파일(.kt, .kts) 저장 시 ktlint 실행은 영향 없음 (정상 유지)
+            --   * Markdown 내 다른 언어(python, js, ts, sql 등) 코드펜스 포맷팅도 정상 유지
+            --
+            -- TODO: ktlint가 파싱 실패 시 exit code 1+를 반환하도록 수정되면
+            --   아래 lang_to_formatters 블록을 제거하여 원복하세요.
+            lang_to_formatters = {
+              kotlin = {}, -- ktlint 파싱 실패 exit code 0 버그 → injected 대상 제외
+            },
           },
         },
 
