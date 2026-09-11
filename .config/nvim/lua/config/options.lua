@@ -186,6 +186,9 @@ vim.opt.tabstop = 2
 vim.opt.softtabstop = 2
 vim.opt.expandtab = true
 
+-- 주석 및 텍스트 작성 중 textwidth 초과 시 자동 줄바꿈('c', 't') 기본 비활성화
+vim.opt.formatoptions:remove({ 'c', 't' })
+
 --[[
 - 단축키 시퀀스 대기 시간 설정 (기본값 1000ms -> 300ms)
 - <Leader>(Space) 키를 눌렀을 때 which-key 메뉴가 더 빨리 나타나도록 함

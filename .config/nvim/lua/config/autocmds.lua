@@ -546,3 +546,16 @@ do
     end,
   })
 end
+
+-- =========================================================================
+-- [주석 및 텍스트 자동 강제 줄바꿈 방지]
+-- 주석(Javadoc, JSDoc 등) 작성 중 textwidth 초과 시 자동으로 줄바꿈되는 현상('c', 't')을 차단합니다.
+-- (Enter나 o 입력 시 주석 문자(*) 자동 이어붙이기 'r', 'o' 기능은 편리하므로 유지)
+-- =========================================================================
+vim.api.nvim_create_autocmd('FileType', {
+  group = vim.api.nvim_create_augroup('user_no_comment_wrap', { clear = true }),
+  pattern = '*',
+  callback = function()
+    vim.opt_local.formatoptions:remove({ 'c', 't' })
+  end,
+})

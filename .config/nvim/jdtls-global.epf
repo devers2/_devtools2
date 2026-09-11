@@ -1,2 +1,6 @@
 file_export_version=3.0
 /instance/org.eclipse.jdt.core/org.eclipse.jdt.core.compiler.codegen.methodParameters=generate
+/instance/org.eclipse.jdt.core/org.eclipse.jdt.core.formatter.comment.format_javadoc_comments=false
+/instance/org.eclipse.jdt.core/org.eclipse.jdt.core.formatter.comment.format_block_comments=false
+/instance/org.eclipse.jdt.core/org.eclipse.jdt.core.formatter.comment.format_line_comments=false
+/instance/org.eclipse.jdt.core/org.eclipse.jdt.core.formatter.join_lines_in_comments=false

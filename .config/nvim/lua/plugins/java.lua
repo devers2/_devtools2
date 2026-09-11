@@ -342,6 +342,13 @@ return {
 
       opts.settings = {
         java = {
+          -- [주석 가독성 보존] 포맷터 실행 시 주석(Javadoc, 블록, 라인) 자동 rewrap 비활성화
+          -- 코드는 기존 스타일대로 정상 포맷팅하되, 주석은 작성자가 줄바꿈한 형태 그대로 100% 보존합니다.
+          format = {
+            comments = {
+              enabled = false,
+            },
+          },
           -- [버그 방지] Inlay Hints 파라미터 이름 표시 기능 비활성화
           -- 최신 JDTLS에서 구버전 JDK(rt.jar) 라이브러리의 클래스를 스캔하다가
           -- Java Model Exception (code 969) 크래시를 유발하는 고질적 버그 방지
