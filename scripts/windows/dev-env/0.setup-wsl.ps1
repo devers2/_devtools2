@@ -596,6 +596,9 @@ if (-not $skipDownload) {
     wsl -d $wslName -u root -- bash -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)"
 
     Write-Success "WSL2 시스템 환경 및 사용자($createdUsername) 구성 완료!"
+
+    # 4) /etc/wsl.conf 의 [user] default=$createdUsername 및 systemd 설정을 즉시 적용하기 위해 배포판 종료(terminate)
+    wsl --terminate $wslName 2>$null
 }
 
 # 9. Windows 사용자 프로필에 .wslconfig (네트워크 미러링) 자동 설정

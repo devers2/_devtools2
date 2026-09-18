@@ -405,8 +405,14 @@ Write-Step "[Step 2] WSL2 내부 개발도구 디렉터리 및 권한 초기화"
 
 # WSL2 기본 사용자 계정 확인 (0.init-devtools2.sh에 SUDO_USER로 전달하여 소유권 설정 및 설치용 임시 권한 부여)
 $wslUser = ((wsl -d $wslDistro -- whoami 2>$null) -replace "`0", "").Trim()
-if ([string]::IsNullOrEmpty($wslUser)) {
-    $wslUser = $env:USERNAME.ToLower()
+if ([string]::IsNullOrEmpty($wslUser) -or $wslUser -eq "root") {
+    # /etc/wsl.conf 의 [user] default 설정값 조회 시도 (재기동 지연 대응)
+    $confUser = ((wsl -d $wslDistro -u root -- bash -c "grep -E '^\s*default\s*=' /etc/wsl.conf 2>/dev/null | cut -d'=' -f2" 2>$null) -replace "`0", "").Trim()
+    if (-not [string]::IsNullOrEmpty($confUser) -and $confUser -ne "root") {
+        $wslUser = $confUser
+    } elseif ([string]::IsNullOrEmpty($wslUser)) {
+        $wslUser = $env:USERNAME.ToLower()
+    }
 }
 Write-Info "WSL2 사용자 계정 감지: $wslUser"
 
@@ -489,21 +495,21 @@ if ($interopCheck -ne "OK") {
 Write-Step "[Step 3] WSL2 개발 환경 빌드 및 패키지 일괄 설치"
 
 Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
-wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh"
+wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh"
 $envExit = $LASTEXITCODE
-wsl -d $wslDistro -- rm -f /tmp/_dt2_1.sh 2>$null
+wsl -d $wslDistro -u $wslUser -- rm -f /tmp/_dt2_1.sh 2>$null
 if ($envExit -ne 0) { Revoke-WslTempSudo; Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, Ghostty)"
-wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh"
+wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh"
 $coreExit = $LASTEXITCODE
-wsl -d $wslDistro -- rm -f /tmp/_dt2_2.sh 2>$null
+wsl -d $wslDistro -u $wslUser -- rm -f /tmp/_dt2_2.sh 2>$null
 if ($coreExit -ne 0) { Revoke-WslTempSudo; Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
-wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh"
+wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh"
 $cliExit = $LASTEXITCODE
-wsl -d $wslDistro -- rm -f /tmp/_dt2_3.sh 2>$null
+wsl -d $wslDistro -u $wslUser -- rm -f /tmp/_dt2_3.sh 2>$null
 if ($cliExit -ne 0) { Revoke-WslTempSudo; Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
 
 
@@ -557,7 +563,9 @@ if (-not (Test-Path $winGradleDir)) {
     New-Item -ItemType Directory -Path $winGradleDir -Force | Out-Null
 }
 
-$wslUser = (wsl -d $wslDistro -- bash -c "whoami" 2>$null).Trim()
+if ([string]::IsNullOrEmpty($wslUser) -or $wslUser -eq "root") {
+    $wslUser = ((wsl -d $wslDistro -- bash -c "whoami" 2>$null) -replace "`0", "").Trim()
+}
 $wslUncRoot = if (Test-Path "\\wsl$\$wslDistro") { "\\wsl$\$wslDistro" } else { "\\wsl.localhost\$wslDistro" }
 $wslGradleProps = "$wslUncRoot\home\$wslUser\.gradle\gradle.properties"
 $winGradleProps = "$winGradleDir\gradle.properties"
