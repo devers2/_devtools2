@@ -556,7 +556,8 @@ if (-not $skipDownload) {
     Write-Info "사용자 계정($createdUsername) 생성 및 wsl.conf(systemd=true 포함) 구성 중..."
 
     # 1) 일반 사용자 계정 생성 (sudo, adm, users 그룹 등록) 및 비밀번호 설정
-    wsl -d $wslName -u root -- bash -c "useradd -m -s /bin/bash -G sudo,adm,users '$createdUsername' && echo '$createdUsername:$plainPassword' | chpasswd"
+    wsl -d $wslName -u root -- bash -c "id -u '$createdUsername' >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,adm,users '$createdUsername'"
+    Write-Output "${createdUsername}:${plainPassword}" | wsl -d $wslName -u root -- chpasswd
     $plainPassword = $null
 
     # 2) hostname 및 /etc/wsl.conf 설정 (default user, systemd=true, interop 포함)

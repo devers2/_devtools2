@@ -100,7 +100,7 @@ Write-Host "  [스캔 1/5] 실행 중인 프로세스..." -ForegroundColor DarkG
 try {
     Get-CimInstance Win32_Process -Filter "Name like 'AutoHotkey%'" -ErrorAction SilentlyContinue |
     ForEach-Object {
-        $cmd  = $_.CommandLine ?? ""
+        $cmd  = if ($_.CommandLine) { $_.CommandLine } else { "" }
         $ahkFile = if ($cmd -match '"([^"]+\.ahk)"') { $Matches[1] }
                    elseif ($cmd -match '(\S+\.ahk)') { $Matches[1] }
                    else { "" }
@@ -219,7 +219,7 @@ Write-Host "  [스캔 5/5] 로컬 AHK 파일..." -ForegroundColor DarkGray
                 FilePath   = $_.FullName
                 FileStatus = Get-AhkFileStatus $_.FullName
                 IsDotfiles = Is-DotfilesItem $_.FullName
-                Purpose    = Guess-AhkPurpose $_.Name $_.FullName ($content ?? "")
+                Purpose    = Guess-AhkPurpose $_.Name $_.FullName (if ($content) { $content } else { "" })
                 AhkPath    = $_.FullName
             })
         }
