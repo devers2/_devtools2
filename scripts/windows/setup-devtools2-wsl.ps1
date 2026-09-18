@@ -269,7 +269,7 @@ Get-ChildItem -Path $_startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue |
 
 # 3. Startup 폴더의 .lnk 중 AutoHotkey.exe + \\wsl.localhost\$wslDistro 경로를 인수로
 #    가진 바로가기만 선택적으로 제거 (다른 용도의 .lnk 는 절대 건드리지 않음)
-$_wslUncPattern = [regex]::Escape("\\wsl.localhost\$wslDistro")
+$_wslUncPattern = "(\\\\wsl\.localhost|\\\\wsl\$\\)$wslDistro"
 $_wshShell = New-Object -ComObject WScript.Shell
 Get-ChildItem -Path $_startupDir -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
     try {
@@ -509,6 +509,20 @@ if ($cliExit -ne 0) { Revoke-WslTempSudo; Write-Fail "CLI 유틸리티 설치 �
 
 Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
 
+# ==============================================================================
+# Windows 호스트 연동을 위한 %DEVTOOLS2% 경로 단일 1회 확정 및 등록
+# ==============================================================================
+# WSL 내부 /var/opt/_devtools2 에 접근 가능한 최적의 UNC 경로(\\wsl$ 또는 \\wsl.localhost)를
+# 1회 탐지하여 프로세스 및 사용자 환경 변수에 등록합니다.
+# 이후 실행되는 모든 서브스크립트(VSCode, Zed, AHK, Terminal 등)는 이 경로를 즉시 재사용합니다.
+$wslDevtools2Root = Get-WslDevtools2Path $wslDistro
+if (Test-Path $wslDevtools2Root) {
+    $env:DEVTOOLS2 = $wslDevtools2Root
+    [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
+    Write-Success "Windows 호스트 연동용 %DEVTOOLS2% 경로 확정 완료: $wslDevtools2Root"
+} else {
+    Write-Warn "WSL2 _devtools2 디렉터리 UNC 경로를 확인할 수 없습니다: $wslDevtools2Root"
+}
 
 # ==============================================================================
 # [Step 4] Windows 호스트 전용 개발도구 연동
@@ -544,8 +558,8 @@ if (-not (Test-Path $winGradleDir)) {
 }
 
 $wslUser = (wsl -d $wslDistro -- bash -c "whoami" 2>$null).Trim()
-if ([string]::IsNullOrEmpty($wslUser)) { $wslUser = $env:USERNAME.ToLower() }
-$wslGradleProps = "\\wsl.localhost\$wslDistro\home\$wslUser\.gradle\gradle.properties"
+$wslUncRoot = if (Test-Path "\\wsl$\$wslDistro") { "\\wsl$\$wslDistro" } else { "\\wsl.localhost\$wslDistro" }
+$wslGradleProps = "$wslUncRoot\home\$wslUser\.gradle\gradle.properties"
 $winGradleProps = "$winGradleDir\gradle.properties"
 
 if (Test-Path $wslGradleProps) {

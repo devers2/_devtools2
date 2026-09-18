@@ -585,3 +585,41 @@ function Restore-ConsoleQuickEdit {
     return $false
 }
 
+# ==============================================================================
+# WSL2 UNC 공유 경로 탐색 헬퍼 (\\wsl.localhost 및 \\wsl$ 호환)
+# ==============================================================================
+# Windows 11/10 관리자 권한 세션이나 환경에 따라 \\wsl.localhost 가 인식되지 않고
+# \\wsl$ 만 인식되는 경우가 빈번합니다. 실제 접근 가능한 UNC 루트를 찾아 반환합니다.
+function Get-WslUncRoot {
+    param([string]$Distro)
+    if ([string]::IsNullOrEmpty($Distro)) { return "" }
+    $candidates = @("\\wsl$\$Distro", "\\wsl.localhost\$Distro")
+    foreach ($cand in $candidates) {
+        if (Test-Path $cand) {
+            return $cand
+        }
+    }
+    # 접근 확인이 안 되더라도 관리자 권한 호환성이 더 높은 \\wsl$ 를 기본값으로 반환
+    return "\\wsl$\$Distro"
+}
+
+# WSL 내부의 _devtools2 디렉터리 경로 반환 (\\wsl$ 및 \\wsl.localhost 자동 탐지)
+function Get-WslDevtools2Path {
+    param([string]$Distro)
+    if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) {
+        return $env:DEVTOOLS2
+    }
+    if (-not [string]::IsNullOrEmpty($Distro)) {
+        $candidates = @(
+            "\\wsl$\$Distro\var\opt\_devtools2",
+            "\\wsl.localhost\$Distro\var\opt\_devtools2"
+        )
+        foreach ($cand in $candidates) {
+            if (Test-Path $cand) {
+                return $cand
+            }
+        }
+    }
+    return "\\wsl$\$Distro\var\opt\_devtools2"
+}
+

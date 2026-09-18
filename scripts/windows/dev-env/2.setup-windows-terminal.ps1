@@ -112,8 +112,11 @@ if ($WslDistroDetected -eq "") {
         $WslDistroDetected = ($distroList[0] -replace "`0", "").Trim()
     }
 }
-$WslRoot = if ($WslDistroDetected -ne "") { "\\wsl.localhost\$WslDistroDetected" } else { "" }
-$DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } elseif ($WslRoot -ne "") { "$WslRoot\var\opt\_devtools2" } else { "" }
+$DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) {
+    $env:DEVTOOLS2
+} elseif ($WslDistroDetected -ne "") {
+    Get-WslDevtools2Path $WslDistroDetected
+} else { "" }
 
 $UserFontsDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
 $FontRegPath  = "HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"

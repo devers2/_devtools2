@@ -198,8 +198,12 @@ if ($WslDistro -eq "") {
     Write-Host "  지정된 배포판: $WslDistro" -ForegroundColor White
 }
 
-$WslRoot = "\\wsl.localhost\$WslDistro"
-$DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { "$WslRoot\var\opt\_devtools2" }
+# 마스터 스크립트에서 확정된 %DEVTOOLS2% 경로 우선 재사용, 단독 실행 시 공용 헬퍼로 자동 탐지
+$DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) {
+    $env:DEVTOOLS2
+} else {
+    Get-WslDevtools2Path $WslDistro
+}
 
 if (-not (Test-Path $DevTools2Wsl)) {
     Write-Fail "WSL2 에서 '_devtools2' 폴더를 찾을 수 없습니다: $DevTools2Wsl"

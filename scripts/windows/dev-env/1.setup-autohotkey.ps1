@@ -271,7 +271,11 @@ if (-not $installAhk) {
     } catch {}
 
     # %DEVTOOLS2% 환경 변수 연동
-    $wslDevtools2Root = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) { $env:DEVTOOLS2 } else { "\\wsl.localhost\$WslDistro\var\opt\_devtools2" }
+    $wslDevtools2Root = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) {
+        $env:DEVTOOLS2
+    } else {
+        Get-WslDevtools2Path $WslDistro
+    }
     [Environment]::SetEnvironmentVariable("DEVTOOLS2", $wslDevtools2Root, "User")
     $env:DEVTOOLS2 = $wslDevtools2Root
 
