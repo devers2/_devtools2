@@ -487,10 +487,21 @@ if (-not $skipDownload) {
     # ── 2. WSL2 내부 기본 사용자 계정 및 비밀번호 설정 ─────────────────────
     Write-Step "[Step 3-2] WSL2 기본 사용자 계정 설정"
     Write-Host "  WSL2 내부에서 사용할 기본 사용자 계정과 비밀번호를 설정합니다." -ForegroundColor White
-    Write-Host ""
-    Write-Host "👉 사용자 이름(Username) 입력 [기본값: $windowsUser]: " -ForegroundColor Yellow -NoNewline
-    $createdUsername = if ([string]::IsNullOrWhiteSpace($inputUser)) { $windowsUser } else { $inputUser.Trim() }
-    $createdUsername = $createdUsername.Trim([char]0xFEFF).Trim()
+    $createdUsername = ""
+    while ([string]::IsNullOrEmpty($createdUsername)) {
+        Write-Host "👉 사용자 이름(Username) 입력 [기본값: $windowsUser]: " -ForegroundColor Yellow -NoNewline
+        $inputUser = Read-Host
+        $candidate = if ([string]::IsNullOrWhiteSpace($inputUser)) { $windowsUser } else { $inputUser.Trim() }
+        $candidate = $candidate.Trim([char]0xFEFF).Trim().ToLower()
+
+        # 리눅스 계정명 규칙 검증: 영문 소문자, 숫자, 하이픈(-), 밑줄(_)
+        if ($candidate -match '^[a-z_][a-z0-9_-]*$') {
+            $createdUsername = $candidate
+        } else {
+            Write-Warn "사용자 계정명은 영문 소문자, 숫자, 하이픈(-), 밑줄(_)만 사용할 수 있습니다. (입력값: '$candidate')"
+            Write-Host ""
+        }
+    }
     Write-Success "사용자 계정명: $createdUsername"
 
     $plainPassword = ""
