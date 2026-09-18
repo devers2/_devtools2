@@ -28,9 +28,9 @@
 #   .\setup-devtools2-wsl.ps1
 # ==============================================================================
 
-# --- 한글 깨짐 방지: 출력 인코딩을 UTF-8 로 설정
-$OutputEncoding = [System.Text.Encoding]::UTF8
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+# --- 한글 깨짐 방지: 출력 인코딩을 UTF-8 NoBOM 으로 설정
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 # --- 윈도우 PowerShell 기본 파란색 프로그레스바 팝업 끄기 (텍스트 깨짐 및 커서 겹침 방지)
 $ProgressPreference = 'SilentlyContinue'

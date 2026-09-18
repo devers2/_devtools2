@@ -21,9 +21,9 @@
 # ------------------------------------------------------------------------------
 # ==============================================================================
 
-# --- 한글 깨짐 방지: 출력 인코딩을 UTF-8 로 설정
-$OutputEncoding = [System.Text.Encoding]::UTF8
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+# --- 한글 깨짐 방지: 출력 인코딩을 UTF-8 NoBOM 으로 설정
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 # --- 윈도우 PowerShell 기본 파란색 프로그레스바 팝업 끄기 (텍스트 깨짐 및 커서 겹침 방지)
 $ProgressPreference = 'SilentlyContinue'
@@ -461,18 +461,21 @@ if (-not $skipDownload) {
     # 사용자에게 선택지 제시 (최신 버전 = 1번 = 기본 선택)
     Write-Host "  설치할 Ubuntu 버전을 선택하세요:" -ForegroundColor White
     $versionChoices = @()
-    $isFirst = $true
+    $vIdx = 1
     foreach ($ver in $versionMap.Keys) {
         $cn = $versionMap[$ver]
         $cnCapital = (Get-Culture).TextInfo.ToTitleCase($cn)
-        $label = if ($isFirst) {
+        $label = if ($vIdx -eq 1) {
             "Ubuntu $ver LTS ($cnCapital - 최신 LTS 권장)"
         } else {
             "Ubuntu $ver LTS ($cnCapital)"
         }
+        $color = if ($vIdx -eq 1) { "Cyan" } else { "White" }
+        Write-Host ("    {0}) {1}" -f $vIdx, $label) -ForegroundColor $color
         $versionChoices += $label
-        $isFirst = $false
+        $vIdx++
     }
+    Write-Host ""
     $versionIdx = Prompt-Choice "👉 번호를 입력하세요" $versionChoices 1
 
     $selectedVer = @($versionMap.Keys)[$versionIdx - 1]
@@ -486,8 +489,8 @@ if (-not $skipDownload) {
     Write-Host "  WSL2 내부에서 사용할 기본 사용자 계정과 비밀번호를 설정합니다." -ForegroundColor White
     Write-Host ""
     Write-Host "👉 사용자 이름(Username) 입력 [기본값: $windowsUser]: " -ForegroundColor Yellow -NoNewline
-    $inputUser = [Console]::ReadLine()
     $createdUsername = if ([string]::IsNullOrWhiteSpace($inputUser)) { $windowsUser } else { $inputUser.Trim() }
+    $createdUsername = $createdUsername.Trim([char]0xFEFF).Trim()
     Write-Success "사용자 계정명: $createdUsername"
 
     $plainPassword = ""
@@ -555,10 +558,25 @@ if (-not $skipDownload) {
     Write-Step "[Step 3-5] 기본 계정 및 시스템 환경 구성"
     Write-Info "사용자 계정($createdUsername) 생성 및 wsl.conf(systemd=true 포함) 구성 중..."
 
-    # 1) 일반 사용자 계정 생성 (sudo, adm, users 그룹 등록) 및 비밀번호 설정
+    # 1) 일반 사용자 계정 생성 (sudo, adm, users 그룹 등록)
     wsl -d $wslName -u root -- bash -c "id -u '$createdUsername' >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,adm,users '$createdUsername'"
+    $userAddExit = $LASTEXITCODE
+    if ($userAddExit -ne 0) {
+        Write-Fail "사용자 계정($createdUsername) 생성 실패 (종료 코드: $userAddExit)"
+        Pause-Script
+        exit 1
+    }
+
+    # 2) 사용자 비밀번호 설정 (NoBOM 인코딩 보장 및 chpasswd 표준입력 전달)
+    $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
     Write-Output "${createdUsername}:${plainPassword}" | wsl -d $wslName -u root -- chpasswd
+    $chpasswdExit = $LASTEXITCODE
     $plainPassword = $null
+    if ($chpasswdExit -ne 0) {
+        Write-Fail "사용자 비밀번호 설정(chpasswd) 실패 (종료 코드: $chpasswdExit)"
+        Pause-Script
+        exit 1
+    }
 
     # 2) hostname 및 /etc/wsl.conf 설정 (default user, systemd=true, interop 포함)
     wsl -d $wslName -u root -- bash -c "echo '$wslName' > /etc/hostname && echo -e '[user]\ndefault=$createdUsername\n\n[interop]\nenabled=true\nappendWindowsPath=true\n\n[boot]\nsystemd=true' > /etc/wsl.conf"
