@@ -12,9 +12,12 @@
 #    폴백을 뺀 것뿐입니다(순수 단순화). 반면 ps1은 로컬 NoBOM 파일을 PowerShell 5.1이 직접
 #    읽으면 한글 등이 깨질 위험이 있어 애초에 로컬을 볼 수조차 없습니다 — ps1은 위 1번 원칙대로
 #    항상 온라인에서 새로 가져와 실행해야 합니다.
-# 5. [절대 원칙] Ubuntu 새 창 설치(wsl --install) 유지:
-#    Canonical/Microsoft 공식 새 창 인스톨러 및 계정 생성 흐름을 절대 wsl --import 나 외부 다운로드로
-#    변경하지 마십시오. 임의 변경 시 기본 사용자(UID >= 1000) 등록이 누락되어 root 로그인 버그가 발생합니다.
+# 5. [절대 원칙] 기존 배포판 보호 & rootfs 직접 Import 방식 유지:
+#    기존에 PC에 설치되어 있는 다른 Ubuntu 배포판(Ubuntu, Ubuntu-22.04 등)을
+#    절대 조회·해제(unregister)·이동하지 마십시오. 이 스크립트는 Canonical 공식
+#    Ubuntu WSL rootfs 이미지를 직접 다운로드하여 'wsl --import'로 단번에
+#    devtools2 전용 배포판을 생성합니다. 사용자 계정은 useradd + chpasswd로
+#    내부에서 직접 설정합니다.
 # ------------------------------------------------------------------------------
 # ==============================================================================
 
@@ -394,21 +397,87 @@ if (Test-Path $existingVhdx) {
 }
 
 if (-not $skipDownload) {
-    # ── 1. Ubuntu 배포판 버전 선택 ──────────────────────────────────────────
+    # ── 1. Ubuntu 배포판 버전 선택 (동적 탐지) ─────────────────────────────
+    # cloud-images.ubuntu.com/wsl/releases/ 에서 사용 가능한 LTS 버전을
+    # 런타임에 자동 탐지합니다. 각 버전의 /current/ 디렉터리에서 rootfs
+    # 파일명을 파싱하여 codename(noble, jammy 등)을 추출합니다.
+    # --------------------------------------------------------------------------
     Write-Step "[Step 3-1] Ubuntu 배포판 버전 선택"
-    Write-Host "  설치할 Ubuntu 버전을 선택하세요:" -ForegroundColor White
-    $versionChoices = @(
-        "Ubuntu-24.04 LTS (Noble - 최신 LTS 권장)",
-        "Ubuntu-22.04 LTS (Jammy - 22.04 LTS)"
-    )
-    $versionIdx = Prompt-Choice "👉 번호를 입력하세요" $versionChoices 1
-    if ($versionIdx -eq 2) {
-        $ubuntuVer = "22.04"
-        $ubuntuCodename = "jammy"
-    } else {
-        $ubuntuVer = "24.04"
-        $ubuntuCodename = "noble"
+    Write-Info "설치 가능한 Ubuntu LTS 버전을 확인하는 중..."
+
+    $availableVersions = @()
+    try {
+        $releasesHtml = Invoke-RestMethod -Uri "https://cloud-images.ubuntu.com/wsl/releases/" -TimeoutSec 15 -ErrorAction Stop
+        # HTML 디렉터리 목록에서 "22.04/", "24.04/" 같은 버전 링크 추출
+        # Apache 버전(2.4, 3.2 등)을 제외하기 위해 >= 20.00 필터 적용
+        $versionMatches = [regex]::Matches($releasesHtml, 'href="(\d+\.\d+)/"')
+        foreach ($m in $versionMatches) {
+            $ver = $m.Groups[1].Value
+            if ([double]$ver -ge 20.0) {
+                $availableVersions += $ver
+            }
+        }
+        # 최신 버전이 맨 앞에 오도록 내림차순 정렬
+        $availableVersions = $availableVersions | Sort-Object { [System.Version]($_ + ".0") } -Descending
+    } catch {
+        Write-Warn "온라인 버전 목록 조회에 실패했습니다. 기본 버전(24.04, 22.04)을 사용합니다."
+        $availableVersions = @("24.04", "22.04")
     }
+
+    if ($availableVersions.Count -eq 0) {
+        Write-Warn "사용 가능한 Ubuntu 버전을 찾을 수 없습니다. 기본 버전(24.04, 22.04)을 사용합니다."
+        $availableVersions = @("24.04", "22.04")
+    }
+
+    # 각 버전의 codename 을 rootfs 파일명에서 동적으로 추출
+    # 예: ubuntu-noble-wsl-amd64-wsl.rootfs.tar.gz → "noble"
+    $versionMap = [ordered]@{}
+    foreach ($ver in $availableVersions) {
+        $codename = $null
+        try {
+            $currentHtml = Invoke-RestMethod -Uri "https://cloud-images.ubuntu.com/wsl/releases/$ver/current/" -TimeoutSec 10 -ErrorAction Stop
+            $codenameMatch = [regex]::Match($currentHtml, 'ubuntu-([a-z]+)-wsl-')
+            if ($codenameMatch.Success) {
+                $codename = $codenameMatch.Groups[1].Value
+            }
+        } catch {
+            # codename 조회 실패 시 무시 — 아래에서 폴백 처리
+        }
+        # 잘 알려진 LTS codename 폴백 매핑
+        if ([string]::IsNullOrEmpty($codename)) {
+            $knownCodenames = @{
+                "24.04" = "noble"; "22.04" = "jammy"; "20.04" = "focal"
+                "26.04" = "euphoric"; "28.04" = "unknown"
+            }
+            if ($knownCodenames.ContainsKey($ver)) {
+                $codename = $knownCodenames[$ver]
+            } else {
+                $codename = "unknown"
+            }
+        }
+        $versionMap[$ver] = $codename
+    }
+
+    # 사용자에게 선택지 제시 (최신 버전 = 1번 = 기본 선택)
+    Write-Host "  설치할 Ubuntu 버전을 선택하세요:" -ForegroundColor White
+    $versionChoices = @()
+    $isFirst = $true
+    foreach ($ver in $versionMap.Keys) {
+        $cn = $versionMap[$ver]
+        $cnCapital = (Get-Culture).TextInfo.ToTitleCase($cn)
+        $label = if ($isFirst) {
+            "Ubuntu $ver LTS ($cnCapital - 최신 LTS 권장)"
+        } else {
+            "Ubuntu $ver LTS ($cnCapital)"
+        }
+        $versionChoices += $label
+        $isFirst = $false
+    }
+    $versionIdx = Prompt-Choice "👉 번호를 입력하세요" $versionChoices 1
+
+    $selectedVer = @($versionMap.Keys)[$versionIdx - 1]
+    $ubuntuVer = $selectedVer
+    $ubuntuCodename = $versionMap[$selectedVer]
     $installedDistroDesc = "Ubuntu $ubuntuVer LTS ($ubuntuCodename)"
     Write-Info "선택된 Ubuntu 버전: $installedDistroDesc"
 
