@@ -443,32 +443,119 @@ end, { desc = 'ESLint: Close Result Window & Clear Diagnostics' })
 -- ============================================================
 -- [유니코드 변환] <leader>\ 그룹
 -- ============================================================
--- <leader>\a : 유니코드 디코딩  \uXXXX → 실제 문자  (예: \u00E0 → à)
--- <leader>\A : 유니코드 인코딩  실제 문자 → \uXXXX  (예: à → \u00E0)
+-- <leader>\a : 유니코드 디코딩  \uXXXX → 실제 문자  (예: \u00E0 → à, \uC804 → 전)
+-- <leader>\A : 유니코드 인코딩  실제 문자 → \uXXXX  (예: à → \u00E0, 전 → \uC804)
 -- ============================================================
+-- ⚠️ [유지보수 가이드 및 주의사항]
+-- 1. 운영체제(OS) 호환성:
+--    - Vim Ex 명령(:%s/...) 대신 nvim_buf_get_lines / nvim_buf_set_lines를 사용합니다.
+--    - 줄바꿈 문자(Windows의 CRLF, Linux/macOS의 LF)가 Lua 테이블의 각 줄로 자동 분리되어
+--      OS별 개행 차이나 vim cmd 이스케이프 계층에 구애받지 않고 100% 동일하게 동작합니다.
+-- 2. 백슬래시(\) 보존 원칙:
+--    - `C:\경로\파일.txt`처럼 경로 구분자(\) 바로 뒤에 비ASCII 문자가 오는 경우,
+--      인코드 시 `C:\\uACBD...`가 되며 디코드 시 원래의 `C:\경로...`로 완벽 복원되어야 합니다.
+--    - 따라서 `\\u`를 `\u`로 강제 축약(normalize)하는 코드를 절대 추가하지 마세요!
+--      (강제 축약 시 `C:\경로`의 `\`가 제거되어 `C:경로`가 되는 치명적인 버그가 발생함)
+-- 3. 유니코드 이스케이프 포맷(\uXXXX) 원칙:
+--    - 표준 유니코드 이스케이프 \u는 엄격히 16진수 4자리(%x%x%x%x)입니다.
+--    - 5자리 이상을 허용하면 `\uAC00FF`('가' + 'FF')처럼 뒤에 16진수 알파벳이 이어지는 일반 텍스트가 깨집니다.
+--    - U+FFFF를 초과하는 문자(이모지 등)는 JSON/JS/Java 표준인 UTF-16 서로게이트 페어(\uD83D\uDE80)로
+--      인코드/디코드하여 모든 텍스트 및 이모지를 손실 없이 처리합니다.
+-- ============================================================
+
+-- UTF-16 서로게이트 페어 헬퍼 함수 (이모지 등 U+10000 ~ U+10FFFF 문자 지원)
+local function to_surrogates(cp)
+  cp = cp - 0x10000
+  local high = 0xD800 + math.floor(cp / 0x400)
+  local low = 0xDC00 + (cp % 0x400)
+  return high, low
+end
+
+local function from_surrogates(high, low)
+  return 0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)
+end
+
 vim.keymap.set('n', '<leader>\\a', function()
-  -- \uXXXX 형식의 유니코드 이스케이프 시퀀스를 실제 유니코드 문자로 변환
-  local ok, _ = pcall(vim.cmd, [[%s/\\u\([0-9a-fA-F]\{4\}\)/\=nr2char(str2nr(submatch(1), 16))/ge]])
-  if ok then
-    vim.notify(
-      '유니코드 디코딩이 완료되었습니다.',
-      vim.log.levels.INFO,
-      { title = '유니코드 변환' }
-    )
+  -- \uXXXX 형식의 유니코드 이스케이프를 실제 유니코드 문자로 변환
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local changed = false
+
+  for i, line in ipairs(lines) do
+    -- 1. UTF-16 서로게이트 페어 디코딩 (\uD800~\uDBFF 뒤에 \uDC00~\uDFFF 연속 등장 시 결합)
+    local decoded = line:gsub('\\u([dD][89a-bA-B]%x%x)\\u([dD][c-fC-F]%x%x)', function(h_hex, l_hex)
+      local high = tonumber(h_hex, 16)
+      local low = tonumber(l_hex, 16)
+      return vim.fn.nr2char(from_surrogates(high, low))
+    end)
+    -- 2. 표준 BMP \uXXXX (4자리 16진수) 디코딩
+    decoded = decoded:gsub('\\u(%x%x%x%x)', function(hex)
+      return vim.fn.nr2char(tonumber(hex, 16))
+    end)
+
+    if decoded ~= line then
+      lines[i] = decoded
+      changed = true
+    end
   end
+
+  if changed then
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+  end
+
+  vim.notify(
+    changed and '유니코드 디코딩이 완료되었습니다.' or '변환할 유니코드 이스케이프가 없습니다.',
+    vim.log.levels.INFO,
+    { title = '유니코드 변환' }
+  )
 end, { desc = 'Unicode: Decode \\uXXXX → char (전체 버퍼)' })
 
 vim.keymap.set('n', '<leader>\\A', function()
-  -- ASCII 범위를 벗어난 문자(한글, 특수문자 등)를 \uXXXX 이스케이프 시퀀스로 변환
-  local ok, _ = pcall(vim.cmd, [[%s/[^\x00-\x7F]/\=printf('\\u%04X', char2nr(submatch(0)))/ge]])
-  if ok then
-    vim.notify(
-      '유니코드 인코딩이 완료되었습니다.',
-      vim.log.levels.INFO,
-      { title = '유니코드 변환' }
-    )
+  -- ASCII 범위를 벗어난 문자(한글, 특수문자, 이모지 등)를 \uXXXX 이스케이프 시퀀스로 변환
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local changed = false
+
+  for i, line in ipairs(lines) do
+    local result = {}
+    local pos = 1
+    local len = #line
+
+    while pos <= len do
+      local byte = line:byte(pos)
+      if byte < 0x80 then
+        -- ASCII 문자(0x00~0x7F, 일반 영문, 숫자, 백슬래시 등): 그대로 유지
+        table.insert(result, line:sub(pos, pos))
+        pos = pos + 1
+      else
+        -- 비ASCII 문자: UTF-8 코드포인트 추출 후 \uXXXX 시퀀스로 변환
+        local codepoint = vim.fn.char2nr(line:sub(pos))
+        local char = vim.fn.nr2char(codepoint)
+        if codepoint > 0xFFFF then
+          -- U+FFFF 초과 문자(이모지 등): 표준 UTF-16 서로게이트 페어 2쌍(\uXXXX\uXXXX)으로 인코딩
+          local high, low = to_surrogates(codepoint)
+          table.insert(result, string.format('\\u%04X\\u%04X', high, low))
+        else
+          -- 일반 BMP 문자(한글, CJK, 라틴 확장 등): 표준 4자리 \uXXXX로 인코딩
+          table.insert(result, string.format('\\u%04X', codepoint))
+        end
+        pos = pos + #char
+        changed = true
+      end
+    end
+
+    lines[i] = table.concat(result)
   end
+
+  if changed then
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+  end
+
+  vim.notify(
+    changed and '유니코드 인코딩이 완료되었습니다.' or '변환할 비ASCII 문자가 없습니다.',
+    vim.log.levels.INFO,
+    { title = '유니코드 변환' }
+  )
 end, { desc = 'Unicode: Encode char → \\uXXXX (전체 버퍼)' })
+
 
 -- =========================================================================
 -- [스마트 Home 키: VS Code 스타일 토글 이동]
