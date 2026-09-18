@@ -88,6 +88,16 @@ print_step "▶ [Step 0] DevTools2 저장소 및 시스템 초기화 (sudo 권�
 run_remote_script_sudo "$RAW_BASE/0.init-devtools2.sh"
 print_done "[Step 0] 초기화 완료."
 
+# [Step 0]에서 임시 부여된 passwordless sudo 권한이 설치 도중 오류 등으로 중단되어도
+# 안전하게 회수되도록 EXIT 트랩 등록
+cleanup_temp_sudoers() {
+    local target="${SUDO_USER:-${USER:-}}"
+    if [ -n "$target" ] && [ -f "/etc/sudoers.d/$target" ]; then
+        sudo rm -f "/etc/sudoers.d/$target" 2>/dev/null || true
+    fi
+}
+trap cleanup_temp_sudoers EXIT
+
 # ==============================================================================
 # [Step 1] 환경 변수 주입 (~/.bashrc)
 # ==============================================================================

@@ -403,56 +403,39 @@ if (-not $distroReady) {
 # ==============================================================================
 Write-Step "[Step 2] WSL2 내부 개발도구 디렉터리 및 권한 초기화"
 
-# WSL sudo 권한 획득을 위한 비밀번호 입력
-Write-Host ""
-Write-Host "┌──────────────────────────────────────────────────────────────────────────┐" -ForegroundColor Yellow
-Write-Host "│ 🔑  WSL2 sudo 관리자 권한 실행을 위한 비밀번호 입력                      │" -ForegroundColor Yellow
-Write-Host "├──────────────────────────────────────────────────────────────────────────┤" -ForegroundColor Yellow
-Write-Host "│  WSL2 내부의 시스템 패키지(apt) 및 개발 환경 설정을 위해                 │" -ForegroundColor White
-Write-Host "│  Ubuntu 설치 시 생성했던 계정의 비밀번호 입력이 필요합니다.              │" -ForegroundColor White
-Write-Host "└──────────────────────────────────────────────────────────────────────────┘" -ForegroundColor Yellow
-Write-Host ""
+# WSL2 기본 사용자 계정 확인 (0.init-devtools2.sh에 SUDO_USER로 전달하여 소유권 설정 및 설치용 임시 권한 부여)
+$wslUser = ((wsl -d $wslDistro -- whoami 2>$null) -replace "`0", "").Trim()
+if ([string]::IsNullOrEmpty($wslUser)) {
+    $wslUser = $env:USERNAME.ToLower()
+}
+Write-Info "WSL2 사용자 계정 감지: $wslUser"
 
-$wslTmpForPw = "\\wsl.localhost\$wslDistro\tmp\.wsl_pw_tmp"
-$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-
-while ($true) {
-    $wslPassword = Prompt-Password "👉 비밀번호(password) 입력: "
-    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($wslPassword)
-    $plainPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-
-    # 비밀번호 뒤에 줄바꿈을 추가해야 sudo -S 가 안정적으로 읽음
-    [System.IO.File]::WriteAllText($wslTmpForPw, ($plainPassword + "`n"), $utf8NoBom)
-    $plainPassword = $null
-
-    # sudo -k 후 비밀번호 검증
-    wsl -d $wslDistro -- bash -c "sudo -k; cat /tmp/.wsl_pw_tmp | sudo -S -v 2>/dev/null"
-    if ($LASTEXITCODE -eq 0) {
-        Write-Success "비밀번호 인증 성공"
-        Write-Host ""
-        break
-    } else {
-        Remove-Item $wslTmpForPw -Force -ErrorAction SilentlyContinue
-        Write-Fail "비밀번호가 올바르지 않습니다. 다시 입력해주세요."
-        Write-Host ""
+# 임시 권한 회수 헬퍼 함수 (설치 완료 또는 비정상 중단 시 /etc/sudoers.d/$wslUser 회수)
+function Revoke-WslTempSudo {
+    if (-not [string]::IsNullOrEmpty($wslUser)) {
+        $check = ((wsl -d $wslDistro -u root -- bash -c "test -f /etc/sudoers.d/$wslUser && echo EXISTS || echo NONE" 2>$null) -replace "`0", "").Trim()
+        wsl -d $wslDistro -u root -- bash -c "rm -f /etc/sudoers.d/$wslUser /tmp/.wsl_pw_tmp" 2>$null
+        if ($check -eq "EXISTS") {
+            Write-Success "WSL2 임시 passwordless sudo 권한($wslUser)을 안전하게 회수했습니다. (이후 sudo 사용 시 비밀번호 필요)"
+        }
     }
 }
 
 # WSL2 저장소 초기화 및 깃 클론 (0.init-devtools2.sh 실행)
-# ── 비밀번호와 스크립트를 분리 실행: sudo 인증 캐시 문제로 비밀번호가 bash stdin으로 노출되는 것 방지
-# sudo -k 로 캐시를 초기화한 뒤 스크립트를 WSL 임시 파일로 먼저 저장하고, 별도로 sudo -S 실행
+# ── Windows 호스트에서는 'wsl -u root'로 비밀번호 입력 없이 안전하게 관리자 권한 실행 가능.
+# ── 평문 비밀번호 파일(/tmp/.wsl_pw_tmp) 불필요 및 SUDO_USER 환경변수로 대상 사용자 전달
 Write-SubStep "▶ WSL2 저장소 초기화 및 Git 클론 실행 (0.init-devtools2.sh)"
 $wslTmpScript = "/tmp/_dt2_init.sh"
 
 wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/0.init-devtools2.sh' -o $wslTmpScript && chmod +x $wslTmpScript"
 
-# sudo -k 로 캐시 초기화 후 비밀번호 stdin → sudo -S bash /tmp/script 실행 (비밀번호가 bash stdin으로 유입되지 않음)
-# 이 호출이 비밀번호 파일의 마지막 사용처이므로, 성공/실패 여부와 무관하게(세미콜론 연결)
-# WSL 안의 평문 비밀번호 임시 파일을 즉시 제거한다.
-wsl -d $wslDistro -- bash -c "sudo -k; cat /tmp/.wsl_pw_tmp | sudo -S bash $wslTmpScript; rm -f $wslTmpScript /tmp/.wsl_pw_tmp"
+# root 권한으로 초기화 스크립트 실행 (SUDO_USER=$wslUser 전달하여 올바른 사용자에게 임시 sudoers 부여)
+wsl -d $wslDistro -u root -- env SUDO_USER=$wslUser bash $wslTmpScript
+$initExit = $LASTEXITCODE
+wsl -d $wslDistro -u root -- rm -f $wslTmpScript /tmp/.wsl_pw_tmp 2>$null
 
-if ($LASTEXITCODE -ne 0) {
+if ($initExit -ne 0) {
+    Revoke-WslTempSudo
     Write-Fail "0.init-devtools2.sh 초기화 실패"
     Pause-Script
     exit 1
@@ -509,19 +492,19 @@ Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
 wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh"
 $envExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_1.sh 2>$null
-if ($envExit -ne 0) { Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
+if ($envExit -ne 0) { Revoke-WslTempSudo; Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, Ghostty)"
 wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh"
 $coreExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_2.sh 2>$null
-if ($coreExit -ne 0) { Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
+if ($coreExit -ne 0) { Revoke-WslTempSudo; Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
 wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh"
 $cliExit = $LASTEXITCODE
 wsl -d $wslDistro -- rm -f /tmp/_dt2_3.sh 2>$null
-if ($cliExit -ne 0) { Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
+if ($cliExit -ne 0) { Revoke-WslTempSudo; Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
 
 
 Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
@@ -578,6 +561,12 @@ if (Test-Path $wslGradleProps) {
 } else {
     Write-Warn "WSL2 경로에 gradle.properties 파일이 존재하지 않아 연동을 건너뜁니다: $wslGradleProps"
 }
+
+# ==============================================================================
+# [정리] 설치 과정 편의를 위해 [Step 2]에서 부여했던 임시 passwordless sudo 권한 회수
+# ==============================================================================
+Write-Step "[정리] WSL2 설치용 임시 sudo 권한 회수"
+Revoke-WslTempSudo
 
 # ==============================================================================
 # 전체 설치 완료

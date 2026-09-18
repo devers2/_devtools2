@@ -856,5 +856,9 @@
   "cSpell.ignoreRegExpList": [
     "[\\uAC00-\\uD7A3]+"
   ],
-  "cSpell.userWords": ["venv", "pyproject"]
+  "cSpell.userWords": [
+    "venv",
+    "pyproject"
+  ],
+  "editor.unicodeHighlight.nonBasicASCII": false
 }
