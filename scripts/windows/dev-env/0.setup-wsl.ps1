@@ -292,158 +292,15 @@ if ($registeredDistros -contains $wslName) {
     Write-Success "기존 배포판 사용 준비 완료. 다음 단계로 진행합니다."
 } else {
 
-# 5. 임시 설치를 위한 base Ubuntu 가 등록되어 있는지 확인
-# (Ubuntu, Ubuntu-24.04, Ubuntu-22.04 등 우분투 계열 배포판 스캔)
-$distroId = $registeredDistros | Where-Object { $_ -match "^Ubuntu" } | Select-Object -First 1
-$isBaseRegistered = -not [string]::IsNullOrEmpty($distroId)
-
-# WSL2 초기 일반 사용자(non-root, UID >= 1000) 계정이 실제로 정상 생성되었는지 검증
-function Test-WslUserAccountConfigured {
-    param([string]$distro)
-    if ([string]::IsNullOrEmpty($distro)) { return $false }
-
-    try {
-        $whoamiResult = wsl -d $distro -e whoami 2>$null
-        $uidResult = wsl -d $distro -e id -u 2>$null
-
-        if ($LASTEXITCODE -eq 0 -and $whoamiResult -and $uidResult) {
-            $uName = $whoamiResult.Trim()
-            $uidStr = $uidResult.Trim()
-            $uid = 0
-            [int]::TryParse($uidStr, [ref]$uid) | Out-Null
-
-            # root가 아니고 UID가 1000 이상인 일반 사용자 계정이 준비된 경우만 통과
-            if ($uName -and $uName -ne "root" -and $uid -ge 1000 -and $uName -notmatch "error" -and $uName -notmatch "Wsl/Service") {
-                return $true
-            }
-        }
-    } catch {}
-
-    return $false
-}
-
-$isUserConfigured = $false
-$createdUsername = ""
-if ($isBaseRegistered) {
-    if (Test-WslUserAccountConfigured -distro $distroId) {
-        $createdUsername = (wsl -d $distroId -e whoami 2>$null).Trim()
-        $isUserConfigured = $true
-    }
-}
-
-if (-not $isBaseRegistered) {
-    # --------------------------------------------------------------------------
-    # Phase 1: WSL2 기본 설치 (최초 실행 및 버전 선택)
-    # --------------------------------------------------------------------------
-    Write-Step "[Step 2] Ubuntu 배포판 버전 선택 및 설치 진행"
-    
-    Write-Host "  설치할 Ubuntu 버전을 선택하세요:" -ForegroundColor White
-    Write-Host "    1) Ubuntu        (최신 LTS - 권장)" -ForegroundColor White
-    Write-Host "    2) Ubuntu-24.04  (24.04 LTS)" -ForegroundColor White
-    Write-Host "    3) Ubuntu-22.04  (22.04 LTS)" -ForegroundColor White
-
-    $versionIdx = Prompt-Choice "👉 번호를 입력하세요" @("Ubuntu (최신 LTS - 권장)", "Ubuntu-24.04 (24.04 LTS)", "Ubuntu-22.04 (22.04 LTS)") 1
-    switch ($versionIdx) {
-        1 { $distroId = "Ubuntu" }
-        2 { $distroId = "Ubuntu-24.04" }
-        3 { $distroId = "Ubuntu-22.04" }
-    }
-
-    Write-Info "선택된 배포판: $distroId"
-    Write-Warn "설치 중 또는 완료 후 새 창이 열리며 Ubuntu 초기 사용자 설정(Username/Password)이 진행됩니다."
-    Write-Host ""
-
-    # =========================================================================
-    # ⚠️ [설계 원칙 - 절대 수정 금지] Canonical/Microsoft 공식 새 창 설치 방식 유지
-    # -------------------------------------------------------------------------
-    # wsl --install 은 Microsoft가 새 창을 띄워 공식 계정 설정 마법사를 진행합니다.
-    # wsl --import 등 외부 다운로드를 쓰면 새 창 계정 생성 마법사가 뜨지 않고
-    # root 계정으로 잘못 진입하는 심각한 사이드 이펙트가 발생하므로,
-    # 반드시 아래의 공식 Start-Process 방식을 유지해야 합니다.
-    # =========================================================================
-    Start-Process wsl.exe -ArgumentList "--install -d $distroId --web-download"
-    # 프로세스 시작을 위해 1초 대기
-    Start-Sleep -Seconds 1
-}
-
-# --------------------------------------------------------------------------
-# 사용자 계정 설정 대기 루프 (설정이 아직 완료되지 않은 경우 실행)
-# --------------------------------------------------------------------------
-if (-not $isUserConfigured) {
-    Write-Step "[Step 2-1] WSL2 초기 사용자 설정 완료 대기"
-    
-    # 이미 배포판은 등록되었으나 계정이 없는 경우, 사용자 설정을 위해 배포판 창을 직접 띄움
-    if ($isBaseRegistered) {
-        Write-Info "기본 배포판($distroId)이 감지되었으나 사용자 설정이 완료되지 않았습니다."
-        Write-Info "사용자 설정을 위해 배포판($distroId) 창을 실행합니다..."
-        try {
-            Start-Process wsl.exe -ArgumentList "-d $distroId" -ErrorAction SilentlyContinue
-        } catch {
-            Write-Warn "배포판 실행에 실패했습니다. 수동으로 실행해 주세요."
-        }
-    }
-
-    $loopCount = 0
-    while (-not $isUserConfigured) {
-        Write-Host ""
-        Write-Host "===========================================================================" -ForegroundColor Yellow
-        Write-Host " 📢 WSL2 초기 사용자 설정 대기 중 (인스턴스: $distroId)" -ForegroundColor Yellow
-        Write-Host "===========================================================================" -ForegroundColor Yellow
-        Write-Host "  1. 새로 열린 리눅스(Ubuntu) 창에서 사용자 이름(Username)과 비밀번호를 설정해 주세요."
-        Write-Host "  2. 사용자 계정 생성이 완전히 완료된 후, 해당 리눅스 창을 닫아주세요."
-        Write-Host "  3. 계정 생성이 정상 완료되었다면, 아래에서 엔터(Enter)를 입력하여 다음 단계를 진행합니다."
-        Write-Host "===========================================================================" -ForegroundColor Yellow
-        Write-Host "  (※ 창이 자동으로 열리지 않았다면 시작 메뉴에서 $distroId 를 실행해 주세요.)" -ForegroundColor Gray
-        Write-Host ""
-        
-        Write-Host "👉 계정 생성을 완료한 후 엔터(Enter) 키를 누르세요: " -ForegroundColor Yellow -NoNewline
-        [void][System.Console]::ReadLine()
-        
-        # 1) wsl --list에서 배포판이 실제로 등록되었는지 재확인 (특히 최초 설치 시)
-        $registeredDistros = (wsl --list --quiet 2>$null) -replace "`0", "" |
-            Where-Object { $_.Trim() -ne "" } |
-            ForEach-Object { $_.Trim() }
-            
-        $actualDistroId = $registeredDistros | Where-Object { $_ -match "^Ubuntu" } | Select-Object -First 1
-        
-        if (-not [string]::IsNullOrEmpty($actualDistroId)) {
-            $distroId = $actualDistroId
-            
-            # whoami 및 id -u(UID >= 1000) 검증으로 일반 사용자 계정 생성 완료 여부 엄격 확인
-            if (Test-WslUserAccountConfigured -distro $distroId) {
-                $createdUsername = (wsl -d $distroId -e whoami 2>$null).Trim()
-                $isUserConfigured = $true
-                Write-Success "WSL2 사용자 설정이 완료되었습니다! (사용자 계정: $createdUsername)"
-            } else {
-                Write-Warn "아직 Ubuntu 설치/다운로드 중이거나 초기 사용자 계정(Username/Password) 설정이 완료되지 않았습니다."
-                Write-Warn "우측 Ubuntu 창에서 계정 생성을 완전히 마친 후(일반 사용자 계정 생성 필수) 다시 엔터를 눌러주세요."
-            }
-        } else {
-            Write-Warn "아직 Ubuntu 배포판이 등록되지 않았습니다."
-            Write-Warn "설치 창에서 다운로드 및 설치가 완료될 때까지 기다린 후 계정을 생성해 주세요."
-        }
-        
-        $loopCount++
-        # 혹시 너무 오랫동안 감지가 안 될 경우를 대비해 배포판 수동 실행 안내 혹은 자동 재실행 시도
-        if ($loopCount -gt 0 -and -not $isUserConfigured -and -not [string]::IsNullOrEmpty($distroId)) {
-            Write-Info "배포판($distroId) 창이 닫혀있다면 백그라운드/수동 실행을 재시도합니다..."
-            try { Start-Process wsl.exe -ArgumentList "-d $distroId" -ErrorAction SilentlyContinue } catch {}
-        }
-    }
-}
-
-# --------------------------------------------------------------------------
-# Phase 2: 'devtools2'로 마이그레이션 및 WSL 설정 (재부팅 후 또는 배포판 감지 시)
-# --------------------------------------------------------------------------
-Write-Step "[Step 3] devtools2 인스턴스 마이그레이션 및 설정"
-
 # ==============================================================================
-# 설치 경로 결정 - 개발자 드라이브(Dev Drive / ReFS) 자동 감지 및 사용자 선택
+# [Step 2] 설치 경로 결정 - 개발자 드라이브(Dev Drive / ReFS) 자동 감지 및 사용자 선택
 # ------------------------------------------------------------------------------
 # 같은 PC의 여러 Windows 사용자가 드라이브를 공유할 수 있으므로,
 # 파일 충돌 방지를 위해 경로에 Windows 계정명($env:USERNAME)을 포함합니다.
 # (배포판 이름 'devtools2'는 고정 유지 - WSL 등록은 사용자별로 독립적)
 # ==============================================================================
+Write-Step "[Step 2] WSL2 가상 머신 설치 경로 결정"
+
 $windowsUser = $env:USERNAME.ToLower()
 
 # 모든 드라이브를 순회하여 개발자 드라이브(ReFS 포맷) 자동 감지
@@ -460,13 +317,11 @@ try {
         }
     }
 } catch {
-    # WMI 조회 실패 시 빈 목록으로 폴백 (설치에는 영향 없음)
     $devDrives = @()
 }
 
 $cDriveDefault = Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName"
 
-# 안내 배너
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "  📂 WSL2 가상 머신 설치 드라이브 선택" -ForegroundColor DarkCyan
@@ -476,8 +331,7 @@ Write-Host "  💡 개발자 드라이브(Dev Drive / ReFS)에 설치하면 WSL2
 Write-Host "     크게 향상됩니다. 가능하다면 개발자 드라이브를 선택하는 것을 권장합니다." -ForegroundColor Yellow
 Write-Host ""
 
-# 선택 목록 구성
-$choices = @()   # 각 항목: @{ Label=; Path= }
+$choices = @()
 
 if ($devDrives.Count -gt 0) {
     Write-Host "  ✅ 감지된 개발자 드라이브 (권장):" -ForegroundColor Green
@@ -506,91 +360,167 @@ Write-Host ""
 Write-Success "선택 완료: $selectedLabel"
 Write-Info    "WSL2 가상 머신 설치 경로: $wslInstallPath"
 Write-Host ""
-Write-Info "Ubuntu($distroId)를 '$wslName'으로 마이그레이션(Export/Import)합니다..."
 
-# 1. 사용자 계정명 확인
-if ([string]::IsNullOrEmpty($createdUsername)) {
-    Write-Info "설정된 사용자 계정 정보를 읽어오는 중..."
-    try {
-        $whoamiResult = wsl -d $distroId -e whoami 2>$null
-        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($whoamiResult)) {
-            $createdUsername = $whoamiResult.Trim()
+# ==============================================================================
+# [Step 3] 가상 머신 존재 확인 또는 공식 RootFS 직접 Import 생성
+# ------------------------------------------------------------------------------
+# ⚠️ [보안 및 안정성 원칙]
+# - 기존에 PC에 설치되어 있던 다른 Ubuntu 배포판(Ubuntu, Ubuntu-22.04 등)을
+#   절대 조회하거나 해제(unregister)하지 않습니다.
+# - Canonical 공식 Ubuntu WSL 경량 rootfs 이미지를 다운로드하여 지정된 경로에
+#   'wsl --import'로 직접 단번에 배포판을 생성합니다.
+# ==============================================================================
+$existingVhdx = Join-Path $wslInstallPath "ext4.vhdx"
+$skipDownload = $false
+$installedDistroDesc = "Ubuntu"
+
+if (Test-Path $existingVhdx) {
+    Write-Host ""
+    Write-Success "지정된 경로에 기존 WSL2 가상 디스크(ext4.vhdx)가 발견되었습니다:"
+    Write-Host "   $existingVhdx" -ForegroundColor Cyan
+    Write-Host ""
+    $useExisting = Prompt-Confirm "기존 가상 디스크를 '$wslName' 배포판으로 즉시 재등록하여 사용하시겠습니까?" $true
+    if ($useExisting) {
+        Write-Info "기존 가상 디스크를 '$wslName'으로 등록 중..."
+        wsl --import $wslName $wslInstallPath $existingVhdx --vhd
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "기존 가상 디스크 재등록 완료!"
+            $skipDownload = $true
+            $installedDistroDesc = "Ubuntu (기존 가상 디스크 재등록)"
+        } else {
+            Write-Warn "기존 가상 디스크 재등록에 실패했습니다. 새로운 배포판 설치를 진행합니다."
         }
-    } catch {}
+    }
 }
 
-if ([string]::IsNullOrEmpty($createdUsername) -or $createdUsername -match "error" -or $createdUsername -match "실패" -or $createdUsername -match "Wsl/Service") {
-    $createdUsername = "ubuntu"
-}
-Write-Success "생성된 사용자 계정 확인: $createdUsername"
+if (-not $skipDownload) {
+    # ── 1. Ubuntu 배포판 버전 선택 ──────────────────────────────────────────
+    Write-Step "[Step 3-1] Ubuntu 배포판 버전 선택"
+    Write-Host "  설치할 Ubuntu 버전을 선택하세요:" -ForegroundColor White
+    $versionChoices = @(
+        "Ubuntu-24.04 LTS (Noble - 최신 LTS 권장)",
+        "Ubuntu-22.04 LTS (Jammy - 22.04 LTS)"
+    )
+    $versionIdx = Prompt-Choice "👉 번호를 입력하세요" $versionChoices 1
+    if ($versionIdx -eq 2) {
+        $ubuntuVer = "22.04"
+        $ubuntuCodename = "jammy"
+    } else {
+        $ubuntuVer = "24.04"
+        $ubuntuCodename = "noble"
+    }
+    $installedDistroDesc = "Ubuntu $ubuntuVer LTS ($ubuntuCodename)"
+    Write-Info "선택된 Ubuntu 버전: $installedDistroDesc"
 
-# 2. 임시 tar 백업 파일 생성
-$tempTarPath = Join-Path $env:TEMP "wsl_temp_$($wslName).tar"
+    # ── 2. WSL2 내부 기본 사용자 계정 및 비밀번호 설정 ─────────────────────
+    Write-Step "[Step 3-2] WSL2 기본 사용자 계정 설정"
+    Write-Host "  WSL2 내부에서 사용할 기본 사용자 계정과 비밀번호를 설정합니다." -ForegroundColor White
+    Write-Host ""
+    Write-Host "👉 사용자 이름(Username) 입력 [기본값: $windowsUser]: " -ForegroundColor Yellow -NoNewline
+    $inputUser = [Console]::ReadLine()
+    $createdUsername = if ([string]::IsNullOrWhiteSpace($inputUser)) { $windowsUser } else { $inputUser.Trim() }
+    Write-Success "사용자 계정명: $createdUsername"
 
-# 3. 배포판 내보내기 (Export) - wsl.exe가 자체 진행률(MB)을 출력하므로 직접 실행
-Write-Info "배포판을 백업 파일로 내보내는 중... ($distroId -> $tempTarPath)"
-Write-Info "(몇 분 정도 소요될 수 있습니다)"
-wsl --export $distroId $tempTarPath
-if ($LASTEXITCODE -ne 0) {
-    Write-Fail "배포판 내보내기(Export)에 실패했습니다. (종료 코드: $LASTEXITCODE)"
-    if (Test-Path $tempTarPath) { Remove-Item $tempTarPath -Force }
-    Pause-Script
-    exit 1
-}
-Write-Success "배포판 내보내기 완료"
+    $plainPassword = ""
+    while ([string]::IsNullOrEmpty($plainPassword)) {
+        $pw1 = Prompt-Password "👉 비밀번호(Password) 입력: "
+        $bstr1 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw1)
+        $plain1 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr1)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr1)
 
-# 4. 기존 임시 배포판 제거 (Unregister)
-Write-Info "임시 설치된 기본 배포판을 해제합니다..."
-wsl --unregister $distroId
+        $pw2 = Prompt-Password "👉 비밀번호(Password) 확인: "
+        $bstr2 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw2)
+        $plain2 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr2)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr2)
 
-# 5. 최종 경로 폴더 준비
-if (-not (Test-Path $wslInstallPath)) {
-    New-Item -ItemType Directory -Path $wslInstallPath -Force | Out-Null
-}
+        if ($plain1 -eq $plain2 -and -not [string]::IsNullOrEmpty($plain1)) {
+            $plainPassword = $plain1
+            Write-Success "비밀번호 설정 확인 완료"
+        } else {
+            Write-Fail "비밀번호가 일치하지 않거나 비어있습니다. 다시 입력해 주세요."
+            Write-Host ""
+        }
+    }
 
-# 6. 새로운 이름/경로로 가져오기 (Import) - 마찬가지로 직접 실행
-Write-Info "배포판을 '$wslName' 이름으로 가져오는 중... ($wslInstallPath)"
-Write-Info "(몇 분 정도 소요될 수 있습니다)"
-wsl --import $wslName $wslInstallPath $tempTarPath
-if ($LASTEXITCODE -ne 0) {
-    Write-Fail "배포판 가져오기(Import)에 실패했습니다. (종료 코드: $LASTEXITCODE)"
-    Write-Warn "데이터 보존을 위해 백업 파일($tempTarPath)을 유지합니다. 원인 파악 후 'wsl --import $wslName $wslInstallPath $tempTarPath'로 직접 시도하세요."
-    Pause-Script
-    exit 1
-}
-Write-Success "배포판 가져오기 완료"
+    # ── 3. Canonical 공식 Ubuntu WSL RootFS 다운로드 (미러 및 원본 폴백 지원) ──
+    Write-Step "[Step 3-3] Ubuntu WSL RootFS 다운로드"
+    $isArm64 = ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64)
+    $arch = if ($isArm64) { "arm64" } else { "amd64" }
+    $rootfsFileName = "ubuntu-$ubuntuCodename-wsl-$arch-wsl.rootfs.tar.gz"
 
-# 7. 기본 로그인 사용자, hostname 및 Windows Interop 설정 (wsl.conf / hostname / binfmt.d 수정)
-wsl -d $wslName -u root -e bash -c "echo 'devtools2' > /etc/hostname && echo -e '[user]\ndefault=$createdUsername\n\n[interop]\nenabled=true\nappendWindowsPath=true' > /etc/wsl.conf && mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)"
+    # 우선순위 미러 및 공식 CDN URL 목록 (다중 URL 자동 폴백 지원)
+    $rootfsUrls = @(
+        "https://cloud-images.ubuntu.com/wsl/releases/$ubuntuVer/current/$rootfsFileName",
+        "https://cloud-images.ubuntu.com/wsl/$ubuntuCodename/current/$rootfsFileName"
+    )
 
-# 8. 임시 파일 삭제
-if (Test-Path $tempTarPath) {
-    Remove-Item $tempTarPath -Force
+    $tempTarPath = Join-Path $env:TEMP "ubuntu-$ubuntuCodename-wsl-$arch.rootfs.tar.gz"
+    $downloadOk = Download-WithProgress -Urls $rootfsUrls -DestinationPath $tempTarPath -Description "Ubuntu $ubuntuVer LTS ($arch)"
+
+    if (-not $downloadOk -or -not (Test-Path $tempTarPath)) {
+        Write-Fail "Ubuntu RootFS 다운로드에 실패했습니다. 네트워크 연결 상태를 확인해 주세요."
+        Pause-Script
+        exit 1
+    }
+
+    # ── 4. 지정 경로에 WSL2 배포판 직접 Import ─────────────────────────────
+    Write-Step "[Step 3-4] WSL2 배포판 직접 생성 (wsl --import)"
+    if (-not (Test-Path $wslInstallPath)) {
+        New-Item -ItemType Directory -Path $wslInstallPath -Force | Out-Null
+    }
+
+    Write-Info "배포판을 '$wslName' 이름으로 생성 중... ($wslInstallPath)"
+    Write-Info "(압축 해제 및 가상 디스크 생성에 약 10~30초 소요됩니다)"
+    wsl --import $wslName $wslInstallPath $tempTarPath --version 2
+    $importExit = $LASTEXITCODE
+    Remove-Item $tempTarPath -Force -ErrorAction SilentlyContinue
+
+    if ($importExit -ne 0) {
+        Write-Fail "배포판 가져오기(Import) 실패 (종료 코드: $importExit)"
+        Pause-Script
+        exit 1
+    }
+    Write-Success "WSL2 배포판 '$wslName' 생성 완료!"
+
+    # ── 5. 기본 계정 생성 및 시스템 설정 초기화 (root 권한 1회 설정) ─────────
+    Write-Step "[Step 3-5] 기본 계정 및 시스템 환경 구성"
+    Write-Info "사용자 계정($createdUsername) 생성 및 wsl.conf(systemd=true 포함) 구성 중..."
+
+    # 1) 일반 사용자 계정 생성 (sudo, adm, users 그룹 등록) 및 비밀번호 설정
+    wsl -d $wslName -u root -- bash -c "useradd -m -s /bin/bash -G sudo,adm,users '$createdUsername' && echo '$createdUsername:$plainPassword' | chpasswd"
+    $plainPassword = $null
+
+    # 2) hostname 및 /etc/wsl.conf 설정 (default user, systemd=true, interop 포함)
+    wsl -d $wslName -u root -- bash -c "echo '$wslName' > /etc/hostname && echo -e '[user]\ndefault=$createdUsername\n\n[interop]\nenabled=true\nappendWindowsPath=true\n\n[boot]\nsystemd=true' > /etc/wsl.conf"
+
+    # 3) Windows Interop 핸들러 등록
+    wsl -d $wslName -u root -- bash -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)"
+
+    Write-Success "WSL2 시스템 환경 및 사용자($createdUsername) 구성 완료!"
 }
 
 # 9. Windows 사용자 프로필에 .wslconfig (네트워크 미러링) 자동 설정
 #    WSL2 내부 포트(8881, 8080, 5005 등)를 Windows 호스트 localhost에서 별도 포트포워딩 없이 바로 접속 가능하도록 동기화
 Write-Info "Windows-WSL2 네트워크 포트 직통 연결(mirrored)을 위한 .wslconfig 설정 확인 중..."
 $wslConfigFile = Join-Path $env:USERPROFILE ".wslconfig"
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
 if (Test-Path $wslConfigFile) {
     $existing = Get-Content $wslConfigFile -Raw -ErrorAction SilentlyContinue
     if ($existing -notmatch "networkingMode\s*=\s*mirrored") {
         if ($existing -match "\[wsl2\]") {
-            Add-Content -Path $wslConfigFile -Value "`nnetworkingMode=mirrored`nautoProxy=true" -Encoding UTF8
+            $updated = $existing + "`nnetworkingMode=mirrored`nautoProxy=true`n"
         } else {
-            Add-Content -Path $wslConfigFile -Value "`n[wsl2]`nnetworkingMode=mirrored`nautoProxy=true" -Encoding UTF8
+            $updated = $existing + "`n[wsl2]`nnetworkingMode=mirrored`nautoProxy=true`n"
         }
+        [System.IO.File]::WriteAllText($wslConfigFile, $updated, $utf8NoBom)
         Write-Success ".wslconfig 에 네트워크 미러링(networkingMode=mirrored) 설정이 추가되었습니다."
     } else {
         Write-Success ".wslconfig (networkingMode=mirrored) 설정이 이미 적용되어 있습니다."
     }
 } else {
-    $defaultWslConfig = @"
-[wsl2]
-networkingMode=mirrored
-autoProxy=true
-"@
-    Set-Content -Path $wslConfigFile -Value $defaultWslConfig -Encoding UTF8
+    $defaultWslConfig = "[wsl2]`r`nnetworkingMode=mirrored`r`nautoProxy=true`r`n"
+    [System.IO.File]::WriteAllText($wslConfigFile, $defaultWslConfig, $utf8NoBom)
     Write-Success "새 .wslconfig (networkingMode=mirrored) 파일 생성 완료!"
 }
 
@@ -603,7 +533,7 @@ if (-not (Test-Path $devtools2Dir)) {
     New-Item -ItemType Directory -Path $devtools2Dir -Force | Out-Null
 }
 $distroSaveFile = Join-Path $devtools2Dir "wsl_distro"
-Set-Content -Path $distroSaveFile -Value "WSL_DISTRO=$wslName" -Encoding UTF8
+[System.IO.File]::WriteAllText($distroSaveFile, "WSL_DISTRO=$wslName`n", $utf8NoBom)
 
 # --------------------------------------------------------------------------
 # [Step 4] 완료
@@ -612,7 +542,7 @@ Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🎉 WSL2 설치 및 환경 설정 완료!" -ForegroundColor Green
 Write-Host ""
-Write-Host "  설치된 배포판 : Ubuntu ($distroId)" -ForegroundColor White
+Write-Host "  설치된 배포판 : $installedDistroDesc" -ForegroundColor White
 Write-Host "  인스턴스 이름 : $wslName" -ForegroundColor White
 Write-Host "  설치 경로     : $wslInstallPath" -ForegroundColor White
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
