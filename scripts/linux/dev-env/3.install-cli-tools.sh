@@ -60,9 +60,11 @@ mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODU
 
 # rclone 구성 파일 디렉터리 사전 확보 ($DEVTOOLS2/modules/rclone/.config — git 미추적 영역)
 mkdir -p "$MODULES_DIR/rclone/.config"
+chmod 700 "$MODULES_DIR/rclone/.config"
 if [ -d "$DEVTOOLS2/.config/rclone" ]; then
     if [ -f "$DEVTOOLS2/.config/rclone/rclone.conf" ]; then
         mv -f "$DEVTOOLS2/.config/rclone/rclone.conf" "$MODULES_DIR/rclone/.config/rclone.conf" 2>/dev/null || true
+        chmod 600 "$MODULES_DIR/rclone/.config/rclone.conf" 2>/dev/null || true
     fi
     rm -rf "$DEVTOOLS2/.config/rclone" 2>/dev/null || true
 fi

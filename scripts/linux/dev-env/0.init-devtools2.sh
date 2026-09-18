@@ -249,10 +249,52 @@ fi
 echo "[작업] $DEVTOOLS2 및 하위 항목의 소유권을 $INVOKER:$DEVTOOLS2_GROUP 으로 설정합니다..."
 chown -R "$INVOKER:$DEVTOOLS2_GROUP" "$DEVTOOLS2"
 
-# 4) 디렉토리 권한(2775, SGID) 및 파일 권한(664) 설정
-echo "[작업] 디렉토리와 파일 퍼미션을 조정합니다 (디렉토리: 2775, 파일: group-writable 유지, 실행권한 보존)..."
-find "$DEVTOOLS2" -type d -exec chmod 2775 {} +
-find "$DEVTOOLS2" -type f -exec chmod a+r,u+w,g+w {} +
+# 4) 디렉토리 및 파일 퍼미션 조정 (그룹 협업 허용, others 접근 차단, 민감 자격증명 격리)
+echo "[작업] 디렉토리와 파일 퍼미션을 조정합니다 (그룹 협업 보장, others 차단, 민감 정보 보호)..."
+
+# 4-1) 기본 디렉토리 권한: 2770 (소유자 및 devers 그룹 rwx + SGID, others 접근 차단)
+# devers 그룹 소속 사용자 간에는 파일 공유 및 공동 작업이 가능하며, 외부 사용자(others)의 접근은 완전히 격리합니다.
+find "$DEVTOOLS2" -type d -exec chmod 2770 {} +
+
+# 4-2) 일반 파일 권한: 소유자/그룹 읽기/쓰기 허용, others 접근 차단 (a+r 금지)
+# rclone.conf, SSH 키, 토큰 등 보안 민감 파일은 이 일괄 변경에서 제외하여 권한 완화를 방지합니다.
+find "$DEVTOOLS2" -type f \
+    ! -name "rclone.conf" \
+    ! -name "*.key" \
+    ! -name "*.pem" \
+    ! -name "id_rsa*" \
+    ! -name "id_ed25519*" \
+    ! -name ".bw_session*" \
+    ! -name ".env*" \
+    -exec chmod u+rw,g+rw,o-rwx {} +
+
+# 4-3) 스크립트 및 바이너리 실행 권한 보존/부여
+find "$DEVTOOLS2" -type f \( -perm /111 -o -name "*.sh" -o -name "*.bash" \) \
+    ! -name "rclone.conf" \
+    ! -name "*.key" \
+    ! -name "*.pem" \
+    ! -name "id_rsa*" \
+    ! -name "id_ed25519*" \
+    -exec chmod u+x,g+x {} +
+
+# 4-4) 보안 민감 파일 권한 강제 (rclone.conf, SSH 개인키, 인증 토큰 등: 600 / 디렉터리: 700)
+# rclone.conf 는 SSH/SFTP 비밀번호가 난독화(rclone obscure)되어 있어 누구든 rclone reveal 로
+# 평문 비밀번호를 즉시 복호화할 수 있으므로, 반드시 소유자 전용 600 권한으로 엄격히 격리합니다.
+find "$DEVTOOLS2" -type f \( \
+    -name "rclone.conf" -o \
+    -name "*.key" -o \
+    -name "*.pem" -o \
+    -name "id_rsa*" -o \
+    -name "id_ed25519*" -o \
+    -name ".bw_session*" -o \
+    -name ".env*" \
+\) -exec chmod 600 {} + 2>/dev/null || true
+
+# rclone 설정 디렉터리가 존재하는 경우 700으로 제한
+if [ -d "$DEVTOOLS2/modules/rclone/.config" ]; then
+    chmod 700 "$DEVTOOLS2/modules/rclone/.config"
+    [ -f "$DEVTOOLS2/modules/rclone/.config/rclone.conf" ] && chmod 600 "$DEVTOOLS2/modules/rclone/.config/rclone.conf"
+fi
 
 # 4-1) 사용자에게 passwordless sudo 권한을 부여하여 후속 패키지 설치 단계에서 암호 입력을 생략함
 if [ "$INVOKER" != "root" ]; then

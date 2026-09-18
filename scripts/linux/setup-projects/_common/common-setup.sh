@@ -411,8 +411,9 @@ PYEOF
     else
         RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
     fi
-    # rclone.conf 디렉터리가 없으면 생성
+    # rclone.conf 디렉터리가 없으면 생성 (소유자 전용 접근)
     mkdir -p "$(dirname "$RCLONE_CONF")"
+    chmod 700 "$(dirname "$RCLONE_CONF")"
 
     if "$RCLONE_BIN" config show "$SERVICE_NAME" --config "$RCLONE_CONF" >/dev/null 2>&1; then
         echo "⚠️  기존 Rclone 리모트 ($SERVICE_NAME) 설정 삭제 후 재생성합니다..."
@@ -431,6 +432,8 @@ PYEOF
         fi
     fi
     "$RCLONE_BIN" "${RCLONE_ARGS[@]}" >/dev/null 2>&1
+    # rclone.conf 에 SSH/SFTP 비밀번호(obscure 난독화)가 저장되므로 소유자 전용 600 으로 보호
+    chmod 600 "$RCLONE_CONF" 2>/dev/null || true
     echo "✅ Rclone 리모트 설정 완료! (config: $RCLONE_CONF)"
 
     # ── 7. systemd user 서비스 파일 생성 및 등록 ─────────────────────────────
