@@ -115,15 +115,21 @@ if ($WslDistro -eq "") {
 }
 
 # WSL2 쪽 Orca(orca serve 헤드리스)가 먼저 설치되어 있어야 이 스크립트의 나머지 단계가
-# 의미가 있습니다(tool.setup-orca.sh). 없으면 뒤에서 "시작 시도 실패 → 존재하지도
-# 않는 파일을 실행하라"는 혼란스러운 메시지로 이어지므로, 여기서 명확하게 먼저 안내합니다.
+# 의미가 있습니다(tool.setup-orca.sh). 없으면 WSL2 내부의 tool.setup-orca.sh를
+# DT2_ORCA_CHOICE=y 로 자동 실행하여 헤드리스 백엔드를 먼저 구축합니다.
 [string]$orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f /var/opt/_devtools2/modules/orca/orca-linux.AppImage -o -f /var/opt/_devtools2/modules/orca/orca-linux-arm64.AppImage && echo FOUND")
 if ($orcaAppImageCheck.Trim() -ne "FOUND") {
-    Write-Fail "WSL2 쪽에 Orca가 설치되어 있지 않습니다."
-    Write-Info "  먼저 WSL2에서 tool.setup-orca.sh 를 실행해 Orca 설치 질문에 'y'로 답해주세요"
-    Write-Info "  (보통은 setup-devtools2-wsl.ps1 마스터 스크립트를 통해 자동으로 순서대로 진행됩니다)."
-    Read-Host "계속하려면 엔터를 누르세요"
-    return
+    Write-Info "WSL2 ($WslDistro) 내부에 Orca 헤드리스 서버가 설치되어 있지 않습니다."
+    Write-Info "  → WSL2용 tool.setup-orca.sh 를 자동 실행하여 서버를 먼저 구축합니다..."
+    $rawLinuxOrca = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool.setup-orca.sh"
+    wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxOrca' -o /tmp/_dt2_orca.sh && DT2_ORCA_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 bash /tmp/_dt2_orca.sh; rm -f /tmp/_dt2_orca.sh 2>/dev/null"
+
+    $orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f /var/opt/_devtools2/modules/orca/orca-linux.AppImage -o -f /var/opt/_devtools2/modules/orca/orca-linux-arm64.AppImage && echo FOUND")
+    if ($orcaAppImageCheck.Trim() -ne "FOUND") {
+        Write-Fail "WSL2 Orca 서버 설치에 실패했습니다."
+        Read-Host "계속하려면 엔터를 누르세요"
+        return
+    }
 }
 
 # ==============================================================================
@@ -157,12 +163,13 @@ try {
 
 if ($orcaInstalled) {
     Write-Skip "Orca 데스크톱 앱이 이미 설치되어 있습니다."
+} else {
     Write-Host "  Orca 데스크톱 앱을 winget으로 설치합니다..." -ForegroundColor White
     $p = Start-Process winget -ArgumentList "install --id StablyAI.Orca --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\orca_install.log" -RedirectStandardError "$env:TEMP\orca_install_err.log"
     Wait-ProcessWithSpinner -Process $p -Message "Orca 데스크톱 앱 설치 진행 중"
     # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
     if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
-        Write-Success "Orca 데스크톱 앱 설치/확인 완료"
+        Write-Success "Orca 데스크톱 앱 설치 완료"
     } else {
         Write-Warn "Orca winget 설치 실패(종료 코드: $($p.ExitCode)). 수동 설치: https://www.onorca.dev/"
     }

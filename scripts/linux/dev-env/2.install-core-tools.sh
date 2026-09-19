@@ -237,18 +237,13 @@ cd "$DEVTOOLS2/modules/gradle"
 if [ -d "$DEVTOOLS2/modules/gradle/gradle-9" ]; then
     echo "   ⏭️ [건너뜀] gradle-9 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/gradle/gradle-9'"
 else
-    echo -n "   📥 Gradle 다운로드 중..."
-    wget -q https://services.gradle.org/distributions/gradle-9.4.1-bin.zip &
-    show_spinner $!
-    echo " 완료"
-
-    echo -n "   📦 Gradle 압축 해제 중..."
-    unzip -q gradle-9.4.1-bin.zip &
-    show_spinner $!
-    echo " 완료"
-
-    mv gradle-9.4.1 gradle-9
-    rm -f gradle-9.4.1-bin.zip
+    echo -n "   📦 Gradle 9.4.1 다운로드 및 설치 중..."
+    if safe_download_and_extract "https://services.gradle.org/distributions/gradle-9.4.1-bin.zip" "$DEVTOOLS2/modules/gradle"; then
+        [ -d "$DEVTOOLS2/modules/gradle/gradle-9.4.1" ] && mv -f "$DEVTOOLS2/modules/gradle/gradle-9.4.1" "$DEVTOOLS2/modules/gradle/gradle-9"
+        echo " 완료"
+    else
+        echo " ❌ Gradle 설치 실패" >&2
+    fi
 fi
 
 echo "✅ Gradle 설치 완료"
@@ -619,25 +614,25 @@ else
             rm -f "$DEVTOOLS2/modules/ghostty/ghostty"
         fi
         echo -n "   📦 Ghostty $GHOSTTY_VERSION AppImage 다운로드 중..."
-        curl -Ls \
-            "https://github.com/pkgforge-dev/ghostty-appimage/releases/download/v${GHOSTTY_VERSION}/Ghostty-${GHOSTTY_VERSION}-${ARCH}.AppImage" \
-            -o ghostty &
-        show_spinner $!
-        echo " 완료"
-        chmod +x ghostty
+        _gh_url="https://github.com/pkgforge-dev/ghostty-appimage/releases/download/v${GHOSTTY_VERSION}/Ghostty-${GHOSTTY_VERSION}-${ARCH}.AppImage"
+        if safe_download_binary "$_gh_url" "$DEVTOOLS2/modules/ghostty/ghostty" 755; then
+            echo " 완료"
 
-        # 설정 파일 경로 심볼릭 링크 생성
-        _ghostty_symlink_script="$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh"
-        if [ -f "$_ghostty_symlink_script" ]; then
-            "$_ghostty_symlink_script" "$DEVTOOLS2/.config/ghostty" "$HOME/.config/ghostty"
+            # 설정 파일 경로 심볼릭 링크 생성
+            _ghostty_symlink_script="$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh"
+            if [ -f "$_ghostty_symlink_script" ]; then
+                "$_ghostty_symlink_script" "$DEVTOOLS2/.config/ghostty" "$HOME/.config/ghostty"
+            else
+                curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/cmd/create-symbolic-link.sh" \
+                    | bash -s -- "$DEVTOOLS2/.config/ghostty" "$HOME/.config/ghostty"
+            fi
+
+            # 최신 버전으로 설치 성공한 경우에만 이력 업데이트
+            if [ "$GHOSTTY_VERSION" != "$GHOSTTY_PINNED" ]; then
+                update_pinned_version "ghostty" "$GHOSTTY_VERSION"
+            fi
         else
-            curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/cmd/create-symbolic-link.sh" \
-                | bash -s -- "$DEVTOOLS2/.config/ghostty" "$HOME/.config/ghostty"
-        fi
-
-        # 최신 버전으로 설치한 경우 이력 업데이트
-        if [ "$GHOSTTY_VERSION" != "$GHOSTTY_PINNED" ]; then
-            update_pinned_version "ghostty" "$GHOSTTY_VERSION"
+            echo " ❌ Ghostty 다운로드 실패" >&2
         fi
     fi
 

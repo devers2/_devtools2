@@ -30,8 +30,9 @@ IS_WSL2=false
 if grep -qi 'microsoft' /proc/version 2>/dev/null; then
     IS_WSL2=true
     # /etc/wsl.conf Interop 설정 보장 (Windows .exe 실행 보장)
-    if [ -w /etc/wsl.conf ] || [ "$(id -u)" -eq 0 ]; then
-        grep -q "\[interop\]" /etc/wsl.conf 2>/dev/null || printf "\n[interop]\nenabled=true\nappendWindowsPath=true\n" >> /etc/wsl.conf
+    if [ -w /etc/wsl.conf ] || [ "$(id -u)" -eq 0 ] || command -v sudo >/dev/null 2>&1; then
+        set_wsl_conf_key "interop" "enabled" "true" "/etc/wsl.conf"
+        set_wsl_conf_key "interop" "appendWindowsPath" "true" "/etc/wsl.conf"
     fi
     # binfmt_misc WSLInterop 복구 (Exec format error 예방)
     if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
@@ -159,54 +160,91 @@ export userprofile="$WIN_USERPROFILE"
 EOF
 fi
 
+# 환경별 추가 도구(Ghostty, Zed, win32yank) 경로를 env.sh에 직접 통합
+if [ "$IS_WSL2" = false ]; then
+    cat << 'EOF' >> "$_DEVTOOLS2_ENV_TMP"
+[ -d "$DEVTOOLS2/modules/ghostty" ] && export PATH="$DEVTOOLS2/modules/ghostty:$PATH"
+[ -d "$DEVTOOLS2/modules/zed/bin" ] && export PATH="$DEVTOOLS2/modules/zed/bin:$PATH"
+EOF
+else
+    cat << 'EOF' >> "$_DEVTOOLS2_ENV_TMP"
+[ -d "$DEVTOOLS2/modules/win32yank" ] && export PATH="$DEVTOOLS2/modules/win32yank:$PATH"
+EOF
+fi
+
 echo "# === DEVTOOLS2 환경 변수 끝 ===" >>"$_DEVTOOLS2_ENV_TMP"
 echo "" >>"$_DEVTOOLS2_ENV_TMP"
 
-# 새 블록이 완전히 준비된 지금 시점에만 기존 블록을 지우고 한 번에 이어붙인다.
-sed -i '/# === DEVTOOLS2 환경 변수 시작 ===/,/# === DEVTOOLS2 환경 변수 끝 ===/d' ~/.bashrc
-cat "$_DEVTOOLS2_ENV_TMP" >>~/.bashrc
+# 1) ~/.config/devtools2/env.sh 독립 환경 파일 생성
+mkdir -p "$HOME/.config/devtools2"
+_TARGET_ENV="$HOME/.config/devtools2/env.sh"
+cat "$_DEVTOOLS2_ENV_TMP" > "$_TARGET_ENV"
+chmod 644 "$_TARGET_ENV"
 rm -f "$_DEVTOOLS2_ENV_TMP"
 trap - EXIT
+print_done "독립 환경 설정 파일 생성 완료: $_TARGET_ENV"
 
-# 환경별 도구 PATH 동적 등록 (ensure_path_in_bashrc 활용 - 멱등성 및 중복 방지)
-if [ "$IS_WSL2" = false ]; then
-    # 네이티브 리눅스: Ghostty 터미널 에뮬레이터
-    if [ -d "$DEVTOOLS2/modules/ghostty" ]; then
-        ensure_path_in_bashrc "$DEVTOOLS2/modules/ghostty"
+# 2) systemd 사용자 서비스 및 데스크톱 앱 연동용 ~/.config/environment.d/devtools2.conf 생성
+mkdir -p "$HOME/.config/environment.d"
+cat <<EOF > "$HOME/.config/environment.d/devtools2.conf"
+DEVTOOLS2=$DEVTOOLS2
+NODE_HOME=$DEVTOOLS2/modules/nodejs/node-v24
+JAVA_HOME=$DEVTOOLS2/modules/java/jdk-21
+GRADLE_HOME=$DEVTOOLS2/modules/gradle/gradle-9
+PYTHON_HOME=$DEVTOOLS2/modules/python/python-314
+PYTHONUSERBASE=$DEVTOOLS2/data/python
+NEOVIM_HOME=$DEVTOOLS2/modules/neovim/nvim
+NPM_CONFIG_PREFIX=$DEVTOOLS2/data/.npm-packages
+NODE_PATH=$DEVTOOLS2/data/.npm-packages/lib/node_modules
+RCLONE_CONFIG=$DEVTOOLS2/modules/rclone/.config/rclone.conf
+PATH=$DEVTOOLS2/data/.npm-packages/bin:$DEVTOOLS2/modules/java/jdk-21/bin:$DEVTOOLS2/modules/gradle/gradle-9/bin:$DEVTOOLS2/modules/nodejs/node-v24/bin:$DEVTOOLS2/modules/python/python-314/bin:$DEVTOOLS2/data/python/bin:$DEVTOOLS2/modules/neovim/nvim/bin:$DEVTOOLS2/scripts/linux/cmd:$DEVTOOLS2/modules/ripgrep:$DEVTOOLS2/modules/fd:$DEVTOOLS2/modules/fzf:$DEVTOOLS2/modules/lazygit:$DEVTOOLS2/modules/bitwarden:$DEVTOOLS2/modules/orca:\${PATH}
+EOF
+chmod 644 "$HOME/.config/environment.d/devtools2.conf"
+print_done "systemd 사용자 환경 설정 생성 완료: ~/.config/environment.d/devtools2.conf"
+
+# 3) ~/.bashrc 정리 및 맨 위 로더 주입
+# 기존에 ~/.bashrc 끝에 들어가 있던 거대 블록 삭제
+sed -i '/# === DEVTOOLS2 환경 변수 시작 ===/,/# === DEVTOOLS2 환경 변수 끝 ===/d' ~/.bashrc 2>/dev/null || true
+
+# 비대화형 가드([ -z "$PS1" ] && return 등)보다 앞선 파일 맨 처음에 로더 주입
+_LOADER_LINE='[ -f "$HOME/.config/devtools2/env.sh" ] && . "$HOME/.config/devtools2/env.sh"'
+if ! grep -qF "devtools2/env.sh" ~/.bashrc 2>/dev/null; then
+    if [ -f ~/.bashrc ]; then
+        _TMP_RC=$(mktemp)
+        echo "# === DEVTOOLS2 환경 변수 로더 (대화형/비대화형 공통) ===" > "$_TMP_RC"
+        echo "$_LOADER_LINE" >> "$_TMP_RC"
+        echo "" >> "$_TMP_RC"
+        cat ~/.bashrc >> "$_TMP_RC"
+        mv -f "$_TMP_RC" ~/.bashrc
+    else
+        echo "# === DEVTOOLS2 환경 변수 로더 (대화형/비대화형 공통) ===" > ~/.bashrc
+        echo "$_LOADER_LINE" >> ~/.bashrc
     fi
-    # 네이티브 리눅스: Zed 에디터
-    if [ -d "$DEVTOOLS2/modules/zed/bin" ]; then
-        ensure_path_in_bashrc "$DEVTOOLS2/modules/zed/bin"
-    fi
-else
-    # WSL2: Windows 클립보드 연동 도구 win32yank
-    if [ -d "$DEVTOOLS2/modules/win32yank" ]; then
-        ensure_path_in_bashrc "$DEVTOOLS2/modules/win32yank"
-    fi
+    print_done "~/.bashrc 맨 앞에 환경 로더를 등록했습니다 (비대화형 셸 지원)."
 fi
-echo ""
 
 print_subsep
-print_step "[Step 2] 로그인 쉘 연동 설정 (~/.bash_profile)"
-# Ubuntu(DGX) 등 특정 환경에서 SSH 접속 시 .bashrc가 자동 로드되지 않는 문제 해결.
-PROFILE_FILES=("$HOME/.bash_profile" "$HOME/.profile")
-SOURCE_STR='if [ -f ~/.bashrc ]; then . ~/.bashrc; fi'
+print_step "[Step 2] 로그인 쉘 연동 설정 (~/.profile)"
+# 4) ~/.profile 연동
+if [ -f "$HOME/.profile" ]; then
+    if ! grep -qF "devtools2/env.sh" "$HOME/.profile" 2>/dev/null; then
+        echo -e "\n# === DEVTOOLS2 환경 변수 로더 ===\n$_LOADER_LINE" >> "$HOME/.profile"
+        print_done "~/.profile 에 환경 로더를 등록했습니다."
+    fi
+fi
 
-for P_FILE in "${PROFILE_FILES[@]}"; do
-    if [ -f "$P_FILE" ]; then
-        if ! grep -qF ". ~/.bashrc" "$P_FILE" && ! grep -qF "bashrc" "$P_FILE"; then
-            echo -e "\n# Load .bashrc for login shells\n$SOURCE_STR" >>"$P_FILE"
-            echo "[성공] $P_FILE 에 .bashrc 로드 로직을 추가했습니다."
-        fi
+# 5) ~/.bash_profile 정리 (.profile 가림 방지)
+# Ubuntu 등에서는 ~/.bash_profile 이 존재하면 기본 ~/.profile (~/.local/bin PATH 등)을 읽지 않음.
+if [ -f "$HOME/.bash_profile" ]; then
+    if grep -qF "Load .bashrc for login shells" "$HOME/.bash_profile" 2>/dev/null; then
+        rm -f "$HOME/.bash_profile"
+        print_info "Ubuntu 기본 ~/.profile 을 우선하도록 자동 생성되었던 ~/.bash_profile 을 정리했습니다."
     else
-        # .bash_profile이 아예 없는 환경(Ubuntu 등)에서는 새로 생성한다.
-        if [[ "$P_FILE" == "$HOME/.bash_profile" ]]; then
-            echo -e "# Load .bashrc for login shells\n$SOURCE_STR" >"$P_FILE"
-            echo "[성공] $P_FILE 을 생성하고 .bashrc 로드 로직을 추가했습니다."
+        if ! grep -qF ". ~/.profile" "$HOME/.bash_profile" 2>/dev/null; then
+            echo -e "\n# Load ~/.profile to preserve default PATH\n[ -f ~/.profile ] && . ~/.profile" >> "$HOME/.bash_profile"
         fi
     fi
-done
-echo ""
+fi
 
 print_subsep
 print_step "[Step 3] 에디터(Neovim, Zed) 설정: 심볼릭 링크 생성 및 권한 검사"

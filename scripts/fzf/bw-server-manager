@@ -296,11 +296,39 @@ elif [[ "$ACTION" == *"SFTP 마운트"* ]]; then
         if ! ps -p 1 -o comm= 2>/dev/null | grep -q systemd && ! systemctl is-system-running &>/dev/null; then
             echo "⚠️  WSL에서 systemd가 활성화되어 있지 않습니다."
             if ! grep -q "systemd=true" /etc/wsl.conf 2>/dev/null; then
-                echo "⏳ /etc/wsl.conf 파일에 [boot] systemd=true 설정을 추가합니다..."
-                if [ -w /etc/wsl.conf ]; then
-                    printf "\n[boot]\nsystemd=true\n" >> /etc/wsl.conf
+                echo "⏳ /etc/wsl.conf 파일에 [boot] systemd=true 설정을 안전하게 병합합니다..."
+                if ! type set_wsl_conf_key >/dev/null 2>&1 && [ -f "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh" ]; then
+                    source "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh" 2>/dev/null || true
+                fi
+                if type set_wsl_conf_key >/dev/null 2>&1; then
+                    set_wsl_conf_key "boot" "systemd" "true" "/etc/wsl.conf"
                 else
-                    sudo bash -c 'printf "\n[boot]\nsystemd=true\n" >> /etc/wsl.conf'
+                    sudo python3 -c '
+import sys, os
+f = "/etc/wsl.conf"
+lines = open(f, "r", encoding="utf-8", errors="replace").readlines() if os.path.exists(f) else []
+found_boot, updated = False, False
+new_lines = []
+in_boot = False
+for line in lines:
+    s = line.strip()
+    if s.startswith("[") and s.endswith("]"):
+        if in_boot and not updated:
+            new_lines.append("systemd=true\n")
+            updated = True
+        in_boot = (s.lower() == "[boot]")
+        if in_boot: found_boot = True
+    elif in_boot and s.startswith("systemd="):
+        line = "systemd=true\n"
+        updated = True
+    new_lines.append(line)
+if in_boot and not updated:
+    new_lines.append("systemd=true\n")
+elif not found_boot:
+    if new_lines and not new_lines[-1].endswith("\n"): new_lines[-1] += "\n"
+    new_lines.append("\n[boot]\nsystemd=true\n")
+open(f, "w", encoding="utf-8").writelines(new_lines)
+'
                 fi
             fi
             echo ""

@@ -366,6 +366,91 @@ restore_npm_mirror() {
     fi
 }
 
+# ─────────────────────────────────────────────────────────────────
+# ⚙️ WSL 설정 관리 유틸리티 (/etc/wsl.conf 섹션별 키 안전 병합)
+# ─────────────────────────────────────────────────────────────────
+# 기존 파일 내용(주석, 다른 섹션, 다른 키)을 100% 보존하면서
+# [section] 아래 key=value 설정을 안전하게 upsert(추가 또는 갱신)합니다.
+# 사용법: set_wsl_conf_key <section> <key> <value> [wsl_conf_path]
+set_wsl_conf_key() {
+    local section="$1"
+    local key="$2"
+    local value="$3"
+    local conf_file="${4:-/etc/wsl.conf}"
 
+    if [ -z "$section" ] || [ -z "$key" ]; then
+        echo "❌ set_wsl_conf_key 오류: 섹션명과 키는 필수입니다." >&2
+        return 1
+    fi
 
+    local conf_dir
+    conf_dir=$(dirname "$conf_file")
+    if [ ! -d "$conf_dir" ]; then
+        if [ "$(id -u)" -eq 0 ]; then
+            mkdir -p "$conf_dir"
+        elif command -v sudo >/dev/null 2>&1; then
+            sudo mkdir -p "$conf_dir"
+        fi
+    fi
+
+    local py_script='
+import sys, os
+
+conf_file, section, key, val = sys.argv[1:5]
+lines = []
+if os.path.exists(conf_file):
+    try:
+        with open(conf_file, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception as e:
+        sys.stderr.write(f"wsl.conf 읽기 실패: {e}\n")
+        sys.exit(1)
+
+sec_header = f"[{section}]".lower()
+in_sec = False
+sec_found = False
+key_updated = False
+new_lines = []
+
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        if in_sec and not key_updated:
+            new_lines.append(f"{key}={val}\n")
+            key_updated = True
+        in_sec = (stripped.lower() == sec_header)
+        if in_sec:
+            sec_found = True
+    elif in_sec and "=" in stripped and not stripped.startswith("#") and not stripped.startswith(";"):
+        k = stripped.split("=", 1)[0].strip()
+        if k.lower() == key.lower():
+            line = f"{key}={val}\n"
+            key_updated = True
+    new_lines.append(line)
+
+if in_sec and not key_updated:
+    new_lines.append(f"{key}={val}\n")
+    key_updated = True
+elif not sec_found:
+    if new_lines and not new_lines[-1].endswith("\n"):
+        new_lines[-1] += "\n"
+    if new_lines and new_lines[-1].strip() != "":
+        new_lines.append("\n")
+    new_lines.append(f"[{section}]\n{key}={val}\n")
+
+content = "".join(new_lines)
+try:
+    with open(conf_file, "w", encoding="utf-8") as f:
+        f.write(content)
+except Exception as e:
+    sys.stderr.write(f"wsl.conf 쓰기 실패: {e}\n")
+    sys.exit(1)
+'
+
+    if [ -w "$conf_file" ] || [ ! -e "$conf_file" -a -w "$conf_dir" ] || [ "$(id -u)" -eq 0 ]; then
+        python3 -c "$py_script" "$conf_file" "$section" "$key" "$value"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo python3 -c "$py_script" "$conf_file" "$section" "$key" "$value"
+    fi
+}
 

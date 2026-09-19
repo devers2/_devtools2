@@ -284,13 +284,40 @@ setup_rclone_sftp_mount() {
             fi
 
             if [ "$NEEDS_SYSTEMD" = true ]; then
-                echo "⏳ /etc/wsl.conf 에 systemd 활성화 설정을 추가합니다... (sudo 필요)"
-                if grep -q '\[boot\]' "$WSL_CONF" 2>/dev/null; then
-                    # [boot] 섹션이 이미 있으면 그 아래에 systemd=true 삽입
-                    sudo sed -i '/^\[boot\]/a systemd=true' "$WSL_CONF"
+                echo "⏳ /etc/wsl.conf 에 systemd 활성화 설정을 안전하게 병합합니다... (sudo 필요)"
+                if ! type set_wsl_conf_key >/dev/null 2>&1 && [ -f "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh" ]; then
+                    source "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh" 2>/dev/null || true
+                fi
+                if type set_wsl_conf_key >/dev/null 2>&1; then
+                    set_wsl_conf_key "boot" "systemd" "true" "$WSL_CONF"
                 else
-                    # [boot] 섹션 자체가 없으면 파일 끝에 추가
-                    printf '\n[boot]\nsystemd=true\n' | sudo tee -a "$WSL_CONF" > /dev/null
+                    sudo python3 -c '
+import sys, os
+f = sys.argv[1]
+lines = open(f, "r", encoding="utf-8", errors="replace").readlines() if os.path.exists(f) else []
+# upsert [boot] systemd=true
+found_boot, updated = False, False
+new_lines = []
+in_boot = False
+for line in lines:
+    s = line.strip()
+    if s.startswith("[") and s.endswith("]"):
+        if in_boot and not updated:
+            new_lines.append("systemd=true\n")
+            updated = True
+        in_boot = (s.lower() == "[boot]")
+        if in_boot: found_boot = True
+    elif in_boot and s.startswith("systemd="):
+        line = "systemd=true\n"
+        updated = True
+    new_lines.append(line)
+if in_boot and not updated:
+    new_lines.append("systemd=true\n")
+elif not found_boot:
+    if new_lines and not new_lines[-1].endswith("\n"): new_lines[-1] += "\n"
+    new_lines.append("\n[boot]\nsystemd=true\n")
+open(f, "w", encoding="utf-8").writelines(new_lines)
+' "$WSL_CONF"
                 fi
                 echo "✅ /etc/wsl.conf 에 systemd=true 추가 완료!"
             else

@@ -240,12 +240,8 @@ EOF
             fi
 
             if [ "$_NEEDS_SYSTEMD" = true ]; then
-                echo "   ⏳ /etc/wsl.conf 에 systemd 활성화 설정을 추가합니다... (sudo 필요)"
-                if grep -q '\[boot\]' "$_WSL_CONF" 2>/dev/null; then
-                    sudo sed -i '/^\[boot\]/a systemd=true' "$_WSL_CONF"
-                else
-                    printf '\n[boot]\nsystemd=true\n' | sudo tee -a "$_WSL_CONF" > /dev/null
-                fi
+                echo "   ⏳ /etc/wsl.conf 에 systemd 활성화 설정을 안전하게 병합합니다... (sudo 필요)"
+                set_wsl_conf_key "boot" "systemd" "true" "$_WSL_CONF"
                 echo "   ✅ /etc/wsl.conf 에 systemd=true 추가 완료!"
             else
                 echo "   ℹ️  /etc/wsl.conf 에는 이미 systemd=true 가 설정되어 있습니다."

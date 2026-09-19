@@ -83,8 +83,13 @@ install_tool() {
 
     echo -n "   📦 $TARGET_DIR 압축 해제 중..."
     tar -xf "$FILE_NAME" &
-    show_spinner $!
-    wait $! 2>/dev/null || true
+    local _tar_pid=$!
+    show_spinner $_tar_pid
+    if ! wait $_tar_pid 2>/dev/null; then
+        echo " ❌ 압축 해제 실패" >&2
+        rm -f "$FILE_NAME"
+        return 1
+    fi
     echo " 완료"
 
     # 폴더 이름 정리 (패턴 매칭으로 이동 후 정리)
@@ -290,4 +295,88 @@ EOF
         fi
     fi
     echo ""
+}
+
+
+# ─────────────────────────────────────────────────────────────────
+# 📥 안전한 공용 다운로드 유틸리티 (HTTP 에러 검출 및 원자적 처리)
+# ─────────────────────────────────────────────────────────────────
+# 1) 압축 아카이브(tar.gz, zip) 안전 다운로드 및 압축 해제
+#    성공 시 0, 실패 시 1 반환 (실패 시 대상 디렉터리 오염 방지)
+safe_download_and_extract() {
+    local url="$1"
+    local target_dir="$2"
+    local strip_count="${3:-0}"
+
+    if [ -z "$url" ] || [ -z "$target_dir" ]; then
+        echo "❌ safe_download_and_extract 오류: URL과 대상 디렉터리는 필수입니다." >&2
+        return 1
+    fi
+
+    local tmp_archive
+    tmp_archive=$(mktemp "/tmp/dt2_dl_XXXXXX")
+    trap 'rm -f "$tmp_archive"' RETURN
+
+    if ! curl -fsSL "$url" -o "$tmp_archive"; then
+        echo "❌ 다운로드 실패 (HTTP 에러 또는 연결 오류): $url" >&2
+        return 1
+    fi
+
+    if [ ! -s "$tmp_archive" ]; then
+        echo "❌ 다운로드 실패 (빈 파일): $url" >&2
+        return 1
+    fi
+
+    mkdir -p "$target_dir"
+    local strip_opt=""
+    [ "$strip_count" -gt 0 ] && strip_opt="--strip-components=$strip_count"
+
+    if [[ "$url" == *.zip ]]; then
+        if ! unzip -q -o "$tmp_archive" -d "$target_dir"; then
+            echo "❌ zip 압축 해제 실패: $url" >&2
+            return 1
+        fi
+    else
+        if ! tar -xzf "$tmp_archive" -C "$target_dir" $strip_opt; then
+            echo "❌ tar.gz 압축 해제 실패: $url" >&2
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# 2) 단일 바이너리/스크립트 파일 안전 다운로드
+#    성공 시 0, 실패 시 1 반환 (원자적 교체 지원)
+safe_download_binary() {
+    local url="$1"
+    local target_file="$2"
+    local chmod_mode="${3:-755}"
+
+    if [ -z "$url" ] || [ -z "$target_file" ]; then
+        echo "❌ safe_download_binary 오류: URL과 대상 파일 경로는 필수입니다." >&2
+        return 1
+    fi
+
+    local target_dir
+    target_dir=$(dirname "$target_file")
+    mkdir -p "$target_dir"
+
+    local tmp_file
+    tmp_file=$(mktemp "/tmp/dt2_bin_XXXXXX")
+    trap 'rm -f "$tmp_file"' RETURN
+
+    if ! curl -fsSL "$url" -o "$tmp_file"; then
+        echo "❌ 바이너리 다운로드 실패 (HTTP 에러 또는 연결 오류): $url" >&2
+        return 1
+    fi
+
+    if [ ! -s "$tmp_file" ]; then
+        echo "❌ 다운로드 실패 (빈 파일): $url" >&2
+        return 1
+    fi
+
+    chmod "$chmod_mode" "$tmp_file"
+    mv -f "$tmp_file" "$target_file"
+    return 0
 }

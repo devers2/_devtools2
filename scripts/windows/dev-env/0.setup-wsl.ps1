@@ -589,8 +589,62 @@ if (-not $skipDownload) {
         exit 1
     }
 
-    # 2) hostname 및 /etc/wsl.conf 설정 (default user, systemd=true, interop 포함)
-    wsl -d $wslName -u root -- bash -c "echo '$wslName' > /etc/hostname && echo -e '[user]\ndefault=$createdUsername\n\n[interop]\nenabled=true\nappendWindowsPath=true\n\n[boot]\nsystemd=true' > /etc/wsl.conf"
+    # 2) hostname 및 /etc/wsl.conf 설정 (기존 설정 보존하며 default user, systemd=true, interop 섹션 병합)
+    wsl -d $wslName -u root -- bash -c "echo '$wslName' > /etc/hostname"
+    $mergeWslConfPy = @"
+import sys, os
+
+conf_file = "/etc/wsl.conf"
+settings = [
+    ("user", "default", sys.argv[1]),
+    ("interop", "enabled", "true"),
+    ("interop", "appendWindowsPath", "true"),
+    ("boot", "systemd", "true"),
+]
+
+lines = []
+if os.path.exists(conf_file):
+    try:
+        with open(conf_file, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        pass
+
+for sec, k, v in settings:
+    sec_header = f"[{sec}]".lower()
+    in_sec = False
+    sec_found = False
+    key_updated = False
+    new_lines = []
+    for line in lines:
+        s = line.strip()
+        if s.startswith("[") and s.endswith("]"):
+            if in_sec and not key_updated:
+                new_lines.append(f"{k}={v}\n")
+                key_updated = True
+            in_sec = (s.lower() == sec_header)
+            if in_sec:
+                sec_found = True
+        elif in_sec and "=" in s and not s.startswith("#") and not s.startswith(";"):
+            if s.split("=", 1)[0].strip().lower() == k.lower():
+                line = f"{k}={v}\n"
+                key_updated = True
+        new_lines.append(line)
+    if in_sec and not key_updated:
+        new_lines.append(f"{k}={v}\n")
+        key_updated = True
+    elif not sec_found:
+        if new_lines and not new_lines[-1].endswith("\n"):
+            new_lines[-1] += "\n"
+        if new_lines and new_lines[-1].strip() != "":
+            new_lines.append("\n")
+        new_lines.append(f"[{sec}]\n{k}={v}\n")
+    lines = new_lines
+
+with open(conf_file, "w", encoding="utf-8") as f:
+    f.writelines(lines)
+"@
+    wsl -d $wslName -u root -- python3 -c "$mergeWslConfPy" "$createdUsername"
 
     # 3) Windows Interop 핸들러 등록
     wsl -d $wslName -u root -- bash -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)"

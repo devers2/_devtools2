@@ -293,11 +293,13 @@ else
     else
         _fzf_url="https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz"
     fi
-    curl -sL "$_fzf_url" | tar xz -C "$MODULES_DIR/fzf" &
-    show_spinner $!
-    echo " 완료"
-    if [ "$FZF_VERSION" != "$FZF_PINNED" ]; then
-        update_pinned_version "fzf" "$FZF_VERSION"
+    if safe_download_and_extract "$_fzf_url" "$MODULES_DIR/fzf"; then
+        echo " 완료"
+        if [ "$FZF_VERSION" != "$FZF_PINNED" ]; then
+            update_pinned_version "fzf" "$FZF_VERSION"
+        fi
+    else
+        echo " ❌ fzf 다운로드/설치 실패" >&2
     fi
 fi
 
@@ -337,11 +339,13 @@ else
     else
         _lg_url="https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
     fi
-    curl -sL "$_lg_url" | tar xz -C "$MODULES_DIR/lazygit" &
-    show_spinner $!
-    echo " 완료"
-    if [ "$LAZYGIT_VERSION" != "$LAZYGIT_PINNED" ]; then
-        update_pinned_version "lazygit" "$LAZYGIT_VERSION"
+    if safe_download_and_extract "$_lg_url" "$MODULES_DIR/lazygit"; then
+        echo " 완료"
+        if [ "$LAZYGIT_VERSION" != "$LAZYGIT_PINNED" ]; then
+            update_pinned_version "lazygit" "$LAZYGIT_VERSION"
+        fi
+    else
+        echo " ❌ lazygit 다운로드/설치 실패" >&2
     fi
 fi
 
@@ -381,11 +385,13 @@ else
     else
         _rg_url="https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep-${RIPGREP_VERSION}-x86_64-unknown-linux-musl.tar.gz"
     fi
-    curl -sL "$_rg_url" | tar xz -C "$MODULES_DIR/ripgrep" --strip-components=1 &
-    show_spinner $!
-    echo " 완료"
-    if [ "$RIPGREP_VERSION" != "$RIPGREP_PINNED" ]; then
-        update_pinned_version "ripgrep" "$RIPGREP_VERSION"
+    if safe_download_and_extract "$_rg_url" "$MODULES_DIR/ripgrep" 1; then
+        echo " 완료"
+        if [ "$RIPGREP_VERSION" != "$RIPGREP_PINNED" ]; then
+            update_pinned_version "ripgrep" "$RIPGREP_VERSION"
+        fi
+    else
+        echo " ❌ ripgrep 다운로드/설치 실패" >&2
     fi
 fi
 
@@ -425,11 +431,13 @@ else
     else
         _fd_url="https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-x86_64-unknown-linux-musl.tar.gz"
     fi
-    curl -sL "$_fd_url" | tar xz -C "$MODULES_DIR/fd" --strip-components=1 &
-    show_spinner $!
-    echo " 완료"
-    if [ "$FD_VERSION" != "$FD_PINNED" ]; then
-        update_pinned_version "fd" "$FD_VERSION"
+    if safe_download_and_extract "$_fd_url" "$MODULES_DIR/fd" 1; then
+        echo " 완료"
+        if [ "$FD_VERSION" != "$FD_PINNED" ]; then
+            update_pinned_version "fd" "$FD_VERSION"
+        fi
+    else
+        echo " ❌ fd-find 다운로드/설치 실패" >&2
     fi
 fi
 
@@ -470,11 +478,14 @@ else
     else
         _sg_url="https://github.com/ast-grep/ast-grep/releases/download/${ASTGREP_VERSION}/app-x86_64-unknown-linux-gnu.zip"
     fi
-    (curl -sLf "$_sg_url" -o /tmp/ast-grep.zip && unzip -qo /tmp/ast-grep.zip -d "$MODULES_DIR/ast-grep" && (cd "$MODULES_DIR/ast-grep" && ([ -f ast-grep ] && [ ! -f sg ] && ln -sf ast-grep sg || true) && ([ -f sg ] && [ ! -f ast-grep ] && ln -sf sg ast-grep || true)) && rm -f /tmp/ast-grep.zip) &
-    show_spinner $!
-    echo " 완료"
-    if [ "$ASTGREP_VERSION" != "$ASTGREP_PINNED" ]; then
-        update_pinned_version "ast_grep" "$ASTGREP_VERSION"
+    if safe_download_and_extract "$_sg_url" "$MODULES_DIR/ast-grep"; then
+        (cd "$MODULES_DIR/ast-grep" && ([ -f ast-grep ] && [ ! -f sg ] && ln -sf ast-grep sg || true) && ([ -f sg ] && [ ! -f ast-grep ] && ln -sf sg ast-grep || true))
+        echo " 완료"
+        if [ "$ASTGREP_VERSION" != "$ASTGREP_PINNED" ]; then
+            update_pinned_version "ast_grep" "$ASTGREP_VERSION"
+        fi
+    else
+        echo " ❌ ast-grep 다운로드/설치 실패" >&2
     fi
 fi
 
@@ -512,16 +523,19 @@ else
     if [ "$IS_ARM64" = true ]; then
         # ARM64용은 GitHub 클라이언트 릴리즈 주소를 직접 이용
         _bw_url="https://github.com/bitwarden/clients/releases/download/cli-v${BITWARDEN_ARM_VERSION}/bw-linux-${BITWARDEN_ARM_VERSION}.zip"
-        if [ "$BITWARDEN_ARM_VERSION" != "$BITWARDEN_ARM_PINNED" ]; then
-            update_pinned_version "bitwarden_arm" "$BITWARDEN_ARM_VERSION"
-        fi
     else
         # x86_64용 공식 다이렉트 다운로드 주소 (항상 최신)
         _bw_url="https://vault.bitwarden.com/download/?app=cli&platform=linux"
     fi
-    (curl -sL "$_bw_url" -o /tmp/bw.zip && unzip -qo /tmp/bw.zip -d "$MODULES_DIR/bitwarden" && rm -f /tmp/bw.zip) &
-    show_spinner $!
-    echo " 완료"
+    if safe_download_and_extract "$_bw_url" "$MODULES_DIR/bitwarden"; then
+        chmod +x "$MODULES_DIR/bitwarden/bw" 2>/dev/null || true
+        echo " 완료"
+        if [ "$IS_ARM64" = true ] && [ "$BITWARDEN_ARM_VERSION" != "$BITWARDEN_ARM_PINNED" ]; then
+            update_pinned_version "bitwarden_arm" "$BITWARDEN_ARM_VERSION"
+        fi
+    else
+        echo " ❌ Bitwarden CLI 다운로드/설치 실패" >&2
+    fi
 fi
 
 # ─────────────────────────────────────────────────────────────────
@@ -613,15 +627,15 @@ if [ "$IS_WSL2" = true ]; then
             rm -f "$MODULES_DIR/win32yank/win32yank.exe"
         fi
         mkdir -p "$MODULES_DIR/win32yank"
-        (curl -sL "https://github.com/equalsraf/win32yank/releases/download/v${WIN32YANK_VERSION}/win32yank-x64.zip" -o /tmp/win32yank.zip && \
-         unzip -qo /tmp/win32yank.zip -d /tmp/win32yank_tmp && \
-         mv -f /tmp/win32yank_tmp/win32yank.exe "$MODULES_DIR/win32yank/win32yank.exe" && \
-         chmod +x "$MODULES_DIR/win32yank/win32yank.exe" && \
-         rm -rf /tmp/win32yank.zip /tmp/win32yank_tmp) &
-        show_spinner $!
-        echo " 완료"
-        if [ "$WIN32YANK_VERSION" != "$WIN32YANK_PINNED" ]; then
-            update_pinned_version "win32yank" "$WIN32YANK_VERSION"
+        _wy_url="https://github.com/equalsraf/win32yank/releases/download/v${WIN32YANK_VERSION}/win32yank-x64.zip"
+        if safe_download_and_extract "$_wy_url" "$MODULES_DIR/win32yank"; then
+            chmod +x "$MODULES_DIR/win32yank/win32yank.exe" 2>/dev/null || true
+            echo " 완료"
+            if [ "$WIN32YANK_VERSION" != "$WIN32YANK_PINNED" ]; then
+                update_pinned_version "win32yank" "$WIN32YANK_VERSION"
+            fi
+        else
+            echo " ❌ win32yank 다운로드/설치 실패" >&2
         fi
     fi
 
