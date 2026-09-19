@@ -159,13 +159,13 @@ Write-Host ""
 
 if (-not (Test-Path $WslZedConfig)) {
     Write-Warn "WSL2에 Zed 설정 폴더가 없습니다. 기본 폴더를 생성합니다..."
-    wsl -d $WslDistro -- bash -c 'mkdir -p $DEVTOOLS2/.config/zed'
+    wsl -d $WslDistro -- bash -c 'mkdir -p ${DEVTOOLS2:-/var/opt/_devtools2}/.config/zed'
 }
 if (-not (Test-Path "$WslZedConfig\settings.json")) {
-    wsl -d $WslDistro -- bash -c 'echo "{}" > $DEVTOOLS2/.config/zed/settings.json'
+    wsl -d $WslDistro -- bash -c 'echo "{}" > ${DEVTOOLS2:-/var/opt/_devtools2}/.config/zed/settings.json'
 }
 if (-not (Test-Path "$WslZedConfig\keymap.json")) {
-    wsl -d $WslDistro -- bash -c 'echo "[]" > $DEVTOOLS2/.config/zed/keymap.json'
+    wsl -d $WslDistro -- bash -c 'echo "[]" > ${DEVTOOLS2:-/var/opt/_devtools2}/.config/zed/keymap.json'
 }
 
 if (Test-Path $WinZedDir) {

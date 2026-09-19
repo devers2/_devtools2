@@ -48,14 +48,11 @@
 # ── PAT 인증 관련 함수들이 공유하는 기본 Bitwarden 아이템 이름 ─────────────────
 BW_DEFAULT_PAT_ITEM="${BW_DEFAULT_PAT_ITEM:-github.com-main}"
 
-# ── OS 판별 (Windows / WSL / macOS / Linux) ──────────────────────────────────
+# ── OS 판별 (Windows / WSL / Linux) ─────────────────────────────────────────
 IS_WINDOWS=false
-IS_MAC=false
 IS_WSL=false
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
     IS_WINDOWS=true
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-    IS_MAC=true
 elif grep -qi microsoft /proc/version 2>/dev/null; then
     IS_WSL=true
 fi
@@ -75,10 +72,6 @@ copy_to_clipboard() {
             printf "%s" "$text" | clip.exe
             return 0
         fi
-    fi
-    if $IS_MAC && command -v pbcopy &>/dev/null; then
-        printf "%s" "$text" | pbcopy
-        return 0
     fi
     if command -v wl-copy &>/dev/null; then
         printf "%s" "$text" | wl-copy
@@ -236,15 +229,21 @@ except:
 # 출력: 폴더 ID 목록 (공백 구분) → 일치 없으면 빈 문자열
 bw_get_folder_ids() {
     local _FOLDER_NAME="$1"
-    local _FOLDERS_JSON
+    local _FOLDERS_JSON _ERR_FILE _RC
+    _ERR_FILE=$(mktemp)
 
-    _FOLDERS_JSON=$(bw list folders </dev/null 2>&1)
+    _FOLDERS_JSON=$(bw list folders </dev/null 2>"$_ERR_FILE")
+    _RC=$?
 
-    if echo "$_FOLDERS_JSON" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
-        echo "❌ Bitwarden 세션이 만료되었습니다." >&2
-        rm -f "$_BW_SESSION_FILE"
+    if [ $_RC -ne 0 ]; then
+        if grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE" "$_ERR_FILE"; then
+            echo "❌ Bitwarden 세션이 만료되었습니다." >&2
+            rm -f "$_BW_SESSION_FILE"
+        fi
+        rm -f "$_ERR_FILE"
         return 1
     fi
+    rm -f "$_ERR_FILE"
 
     # ⚠️ 폴더명을 파이썬 소스에 문자열로 직접 이어붙이지 않고 sys.argv로 전달합니다.
     # (bw_find_item_by_name / bw_get_fields와 동일한 안전한 패턴 — 폴더명에 따옴표 등
@@ -281,12 +280,19 @@ bw_get_items_by_folder_name() {
     fi
 
     for _FID in $_FOLDER_IDS; do
-        _ITEMS=$(bw list items --folderid "$_FID" </dev/null 2>&1)
-        if echo "$_ITEMS" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
-            echo "❌ Bitwarden 세션이 만료되었습니다." >&2
-            rm -f "$_BW_SESSION_FILE"
+        local _ERR_FILE _RC
+        _ERR_FILE=$(mktemp)
+        _ITEMS=$(bw list items --folderid "$_FID" </dev/null 2>"$_ERR_FILE")
+        _RC=$?
+        if [ $_RC -ne 0 ]; then
+            if grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE" "$_ERR_FILE"; then
+                echo "❌ Bitwarden 세션이 만료되었습니다." >&2
+                rm -f "$_BW_SESSION_FILE"
+            fi
+            rm -f "$_ERR_FILE"
             return 1
         fi
+        rm -f "$_ERR_FILE"
         if [ -n "$_ITEMS" ] && [ "$_ITEMS" != "[]" ]; then
             _RAW="${_RAW}${_ITEMS}"$'\n---ITEM_SPLIT---\n'
         fi
@@ -384,13 +390,19 @@ PYEOF
 # 반환: 0 = 성공, 1 = 세션 만료
 _bw_search_raw() {
     local _ITEM_NAME="$1"
-    local _RAW
-    _RAW=$(bw list items --search "$_ITEM_NAME" </dev/null 2>&1)
-    if echo "$_RAW" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
-        echo "❌ Bitwarden 세션이 만료되었습니다. 다시 실행해주세요." >&2
-        rm -f "$_BW_SESSION_FILE"
+    local _RAW _ERR_FILE _RC
+    _ERR_FILE=$(mktemp)
+    _RAW=$(bw list items --search "$_ITEM_NAME" </dev/null 2>"$_ERR_FILE")
+    _RC=$?
+    if [ $_RC -ne 0 ]; then
+        if grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE" "$_ERR_FILE"; then
+            echo "❌ Bitwarden 세션이 만료되었습니다. 다시 실행해주세요." >&2
+            rm -f "$_BW_SESSION_FILE"
+        fi
+        rm -f "$_ERR_FILE"
         return 1
     fi
+    rm -f "$_ERR_FILE"
     printf "%s" "$_RAW"
 }
 
@@ -545,7 +557,7 @@ bw_save_git_credentials() {
     # ── 기존 credential 확인 ──────────────────────────────────────────────────
     local _existing_line=""
     if [ -f ~/.git-credentials ]; then
-        _existing_line=$(grep "@${_cred_host}" ~/.git-credentials 2>/dev/null | head -1 || echo "")
+        _existing_line=$(grep -E "@${_cred_host}(/|:|$)" ~/.git-credentials 2>/dev/null | head -1 || echo "")
     fi
 
     local _save_ans
@@ -579,7 +591,7 @@ bw_save_git_credentials() {
     trap 'rm -f "$_tmp_creds"' EXIT INT TERM
     (umask 077 && touch ~/.git-credentials)
     chmod 600 ~/.git-credentials 2>/dev/null || true
-    grep -v "@${_cred_host}" ~/.git-credentials > "$_tmp_creds" 2>/dev/null || true
+    grep -v -E "@${_cred_host}(/|:|$)" ~/.git-credentials > "$_tmp_creds" 2>/dev/null || true
     echo "$_cred_line" >> "$_tmp_creds"
     chmod 600 "$_tmp_creds"
     mv "$_tmp_creds" ~/.git-credentials

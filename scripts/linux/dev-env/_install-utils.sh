@@ -330,11 +330,10 @@ EOF
         fi
     else
         if [ -f "$GRADLE_DEBUG_FILE" ]; then
-            rm -f "$GRADLE_DEBUG_FILE"
-            print_info "이전에 설치된 Attach 모드 설정을 삭제했습니다: $GRADLE_DEBUG_FILE"
+            print_info "기존 Gradle DAP Attach 설정을 유지합니다 (변경 없음): $GRADLE_DEBUG_FILE"
         else
-            print_skip "Gradle DAP Attach 전역 설정을 나중에 추가하려면"
-            echo "      $GRADLE_DEBUG_FILE 파일을 직접 생성하세요."
+            print_skip "Gradle DAP Attach 전역 설정을 건너뜁니다."
+            echo "      나중에 추가하려면 $GRADLE_DEBUG_FILE 파일을 직접 생성하세요."
         fi
     fi
     echo ""

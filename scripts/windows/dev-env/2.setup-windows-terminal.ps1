@@ -347,21 +347,12 @@ if (-not (Test-Path $settingsPath)) {
         $settings.profiles.defaults | Add-Member -NotePropertyName colorScheme -NotePropertyValue "Kanagawa" -Force
         Write-Success "기본 폰트($fontFace, 11.5pt) / 투명도(97) / Kanagawa 테마 적용 완료 (profiles.defaults)"
 
-        # ── ALT+c / ALT+h fzf 스크립트 실행 단축키 (sendInput, 이미 있으면 교체) ─
-        if (-not $settings.actions) {
-            $settings | Add-Member -NotePropertyName actions -NotePropertyValue @() -Force
+        # ── ALT+c / ALT+h 단축키: TUI(nvim/lazygit) 입력 누출 방지를 위해 터미널 sendInput 대신
+        #    셸(readline bind -x)에서 전담 처리하므로, Windows Terminal 잔존 sendInput 액션을 정리합니다.
+        if ($settings.actions) {
+            $settings.actions = @($settings.actions | Where-Object { $_.keys -notin @("alt+c", "alt+h") })
         }
-        $actionsList = @($settings.actions | Where-Object { $_.keys -notin @("alt+c", "alt+h") })
-        $actionsList += [PSCustomObject]@{
-            command = [PSCustomObject]@{ action = "sendInput"; input = '$DEVTOOLS2/scripts/fzf/command-palette' + "`n" }
-            keys    = "alt+c"
-        }
-        $actionsList += [PSCustomObject]@{
-            command = [PSCustomObject]@{ action = "sendInput"; input = '$DEVTOOLS2/scripts/fzf/bw-server-manager' + "`n" }
-            keys    = "alt+h"
-        }
-        $settings.actions = $actionsList
-        Write-Success "ALT+c(command-palette) / ALT+h(bw-server-manager) 단축키 등록 완료"
+        Write-Success "ALT+c / ALT+h 단축키는 셸(readline bind -x) 전담으로 정리되었습니다."
 
         # UTF-8 NoBOM으로 저장 (프로젝트 전역 인코딩 원칙과 동일)
         $json = $settings | ConvertTo-Json -Depth 100

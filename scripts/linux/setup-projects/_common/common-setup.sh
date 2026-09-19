@@ -537,44 +537,6 @@ ensure_project_repo() {
     fi
 }
 
-# ── command-palette / devtools2 프로젝트 실행 프로필 저장 ─────────────────────
-# 기능:
-#   - 대상 프로젝트 디렉토리 경로를 MD5 해시(PROJ_KEY)하여 ~/.devtools2/state.properties 에 저장
-#   - command-palette(fzf) 및 Neovim 디버깅 프로필 기본값으로 자동 연동됨
-# 인수:
-#   $1 = TARGET_DIR (필수, 예: $HOME/workspaces/goono/Goono-ELN)
-#   $2 = PROP_KEY   (필수, 예: "gradle_run.profile")
-#   $3 = PROP_VAL   (필수, 예: "0_DEVELOP,0_LOCAL,s2")
-save_devtools2_project_state() {
-    local TARGET_DIR="$1"
-    local PROP_KEY="$2"
-    local PROP_VAL="$3"
-
-    if [ -z "$TARGET_DIR" ] || [ -z "$PROP_KEY" ] || [ -z "$PROP_VAL" ]; then
-        return 0
-    fi
-
-    echo "⚙️  command-palette 실행 프로필 저장 중 (~/.devtools2/state.properties)..."
-    local DEVTOOLS2_USER_DIR="$HOME/.devtools2"
-    mkdir -p "$DEVTOOLS2_USER_DIR"
-    local STATE_FILE="$DEVTOOLS2_USER_DIR/state.properties"
-
-    local NORM_CWD
-    NORM_CWD=$(echo "$TARGET_DIR" | tr '\\' '/' | sed 's/\/$//')
-    local PROJ_KEY
-    PROJ_KEY=$(echo -n "$NORM_CWD" | md5sum | awk '{print $1}')
-    local FULL_KEY="${PROJ_KEY}.${PROP_KEY}"
-
-    touch "$STATE_FILE"
-    local TMP_STATE
-    TMP_STATE=$(mktemp)
-    grep -v "^${FULL_KEY}=" "$STATE_FILE" > "$TMP_STATE" 2>/dev/null || true
-    echo "${FULL_KEY}=${PROP_VAL}" >> "$TMP_STATE"
-    mv "$TMP_STATE" "$STATE_FILE"
-    echo "✅ 실행 프로필 저장 완료 ($STATE_FILE)"
-    echo "   Key  : $FULL_KEY"
-    echo "   Value: $PROP_VAL"
-}
 
 # ── VSCode 필수 확장 프로그램 자동 검사 및 설치 ──────────────────────────────
 # 기능:

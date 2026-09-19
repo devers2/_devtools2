@@ -92,7 +92,11 @@ if [ "$_do_vscode" = true ]; then
                 print_skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다: $(command -v code)"
             else
                 _vscode_tmp="/tmp/vscode_install_$$.deb"
-                if download_with_progress "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" "$_vscode_tmp" "VSCode .deb 패키지"; then
+                _deb_os="linux-deb-x64"
+                if [ "${IS_ARM64:-false}" = "true" ] || [ "$(uname -m 2>/dev/null)" = "aarch64" ]; then
+                    _deb_os="linux-deb-arm64"
+                fi
+                if download_with_progress "https://code.visualstudio.com/sha/download?build=stable&os=${_deb_os}" "$_vscode_tmp" "VSCode .deb 패키지"; then
                     echo -n "   📦 VSCode 패키지 설치 중..."
                     (sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true) &
                     show_spinner $!
@@ -132,7 +136,7 @@ if [ "$_do_vscode" = true ]; then
                 [ -z "$ext" ] && continue
                 _ext_idx=$((_ext_idx + 1))
                 ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
-                if echo "$_INSTALLED_EXTS" | grep -qF "$ext_lower"; then
+                if echo "$_INSTALLED_EXTS" | grep -qxF "$ext_lower"; then
                     echo "   ⏭️  [${_ext_idx}/${_ext_total}] [건너뜀] $ext (이미 설치됨)"
                     _vscode_skip_count=$((_vscode_skip_count + 1))
                 else

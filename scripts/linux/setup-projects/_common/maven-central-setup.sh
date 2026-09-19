@@ -52,18 +52,12 @@ _mc_decode_base64_to_file() {
     mkdir -p "$(dirname "$_dst")"
     chmod 700 "$(dirname "$_dst")" 2>/dev/null || true
 
-    # macOS(BSD) base64는 -D, GNU base64는 -d를 사용 (플랫폼별 분기)
-    local _is_mac=false
-    [[ "$OSTYPE" == darwin* ]] && _is_mac=true
-
     # ⚠️ 실패 시 기존 secring.gpg가 삭제되거나 손상되지 않도록 임시 파일에 디코딩 후 원자적 교체
     local _tmp_dst
     _tmp_dst=$(umask 077 && mktemp "$(dirname "$_dst")/secring.tmp.XXXXXX" 2>/dev/null || mktemp)
     local _decoded=false
 
-    if $_is_mac && printf '%s' "$_b64" | base64 -D >"$_tmp_dst" 2>/dev/null; then
-        _decoded=true
-    elif printf '%s' "$_b64" | base64 -d >"$_tmp_dst" 2>/dev/null; then
+    if printf '%s' "$_b64" | base64 -d >"$_tmp_dst" 2>/dev/null; then
         _decoded=true
     fi
 

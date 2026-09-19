@@ -208,9 +208,10 @@ if [ -d "$TARGET_DIR" ] && [ -d "$TARGET_DIR/.git" ]; then
 else
     # 디렉터리가 없거나 .git 저장소가 아니면 신규 클론 진행
     if [ -d "$TARGET_DIR" ] && [ -n "$(ls -A "$TARGET_DIR" 2>/dev/null)" ]; then
-        # .git 없는 잔여 파일 정리
-        print_warn "Git 저장소가 아닌 잔여 디렉터리를 제거합니다: $TARGET_DIR"
-        rm -rf "$TARGET_DIR"
+        _target_bak="${TARGET_DIR}.bak.$(date +%Y%m%d%H%M%S)"
+        print_warn "Git 저장소가 아닌 기존 디렉터리가 감지되었습니다: $TARGET_DIR"
+        print_info "데이터 및 모듈 보호를 위해 백업 폴더로 안전하게 이동합니다: $_target_bak"
+        mv "$TARGET_DIR" "$_target_bak"
     fi
 
     echo "[작업] DevTools2 포터블 개발 환경 클론 중..."

@@ -392,7 +392,7 @@ if (-not $installAhk) {
         # 작업 스케줄러에 등록된 설정(RunLevel)대로 즉시 기동하여 관리자 권한 원치 않는 상속 방지
         schtasks.exe /Run /TN "$taskName" 2>$null | Out-Null
     } elseif ($ahkExe -and (Test-Path $ahkExe) -and $ahkDest -and (Test-Path $ahkDest)) {
-        if ($runAsAdmin) {
+        if ($ahkRunLevel -eq 1) {
             Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -Verb RunAs -WindowStyle Hidden -ErrorAction SilentlyContinue
         } else {
             Start-Process -FilePath $ahkExe -ArgumentList "`"$ahkDest`"" -WindowStyle Hidden

@@ -106,7 +106,6 @@ export PIP_CONFIG_FILE="$HOME/.pip/pip.conf"
 
 # 한글 파일명 및 문자 깨짐 방지 (UTF-8 로케일 & Git gettext 한국어 활성화)
 export LANG="ko_KR.UTF-8"
-export LC_ALL="ko_KR.UTF-8"
 export LANGUAGE="ko_KR:ko"
 
 # 시스템 코어 PATH (기본 공통 도구)
