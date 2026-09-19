@@ -64,6 +64,10 @@ prompt_input() { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
 # 사용법: prompt_read my_var "선택하세요 [y/N]: "
 prompt_read() {
     local _pr_var="$1"; shift
+    if [ "${DT2_NONINTERACTIVE:-0}" = "1" ] || [ ! -t 0 ] && [ ! -c /dev/tty ]; then
+        eval "$_pr_var=\"\""
+        return 0
+    fi
     stty sane 2>/dev/null || true
     prompt_input "$@"
     IFS= read -r "$_pr_var" </dev/tty || true
@@ -74,13 +78,21 @@ prompt_read() {
 # ── Yes/No 확인 프롬프트 헬퍼 ─────────────────────────────────────────
 # prompt_confirm <prompt_message> [default: N|Y]
 # 반환: 0(참) = 'y'/'Y', 1(거짓) = 그 외
-# 사용법:
-#   if prompt_confirm "👉 Gradle bootRun DAP Attach 모드 전역 설정을 추가할까요?" "N"; then ...
-#   if prompt_confirm "👉 AutoHotKey를 설치하시겠습니까?" "Y"; then ...
 prompt_confirm() {
     local _msg="$1"
     local _def="${2:-N}"
     local _ans=""
+
+    # 비대화형 모드(DT2_NONINTERACTIVE=1 또는 tty 부재) 시 기본값 즉시 적용
+    if [ "${DT2_NONINTERACTIVE:-0}" = "1" ] || [ ! -t 0 ] && [ ! -c /dev/tty ]; then
+        print_info "비대화형 모드: ${_msg} → 기본값($_def) 자동 선택"
+        if [ "$_def" = "Y" ] || [ "$_def" = "y" ]; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+
     if [ "$_def" = "Y" ] || [ "$_def" = "y" ]; then
         prompt_read _ans "${_msg} [${_C_DEFAULT}Y${_C_RESET}${_C_YELLOW}${_C_BOLD}/n]:"
         _ans=$(echo "${_ans:-y}" | tr '[:upper:]' '[:lower:]')
@@ -381,7 +393,7 @@ set_wsl_conf_key() {
     if [ ! -d "$conf_dir" ]; then
         if [ "$(id -u)" -eq 0 ]; then
             mkdir -p "$conf_dir"
-        elif command -v sudo >/dev/null 2>&1; then
+        elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
             sudo mkdir -p "$conf_dir"
         fi
     fi
@@ -442,7 +454,7 @@ except Exception as e:
 
     if [ -w "$conf_file" ] || [ ! -e "$conf_file" -a -w "$conf_dir" ] || [ "$(id -u)" -eq 0 ]; then
         python3 -c "$py_script" "$conf_file" "$section" "$key" "$value"
-    elif command -v sudo >/dev/null 2>&1; then
+    elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
         sudo python3 -c "$py_script" "$conf_file" "$section" "$key" "$value"
     fi
 }
@@ -458,7 +470,7 @@ ensure_wsl_interop() {
     local _interop_val=':WSLInterop:M::MZ::/init:PF'
     if [ -w /proc/sys/fs/binfmt_misc/register ]; then
         echo "$_interop_val" > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
-    elif command -v sudo >/dev/null 2>&1; then
+    elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
         sudo sh -c "echo '$_interop_val' > /proc/sys/fs/binfmt_misc/register" 2>/dev/null || true
     fi
 
@@ -467,7 +479,7 @@ ensure_wsl_interop() {
             mkdir -p /etc/binfmt.d /usr/lib/binfmt.d
             echo "$_interop_val" > /etc/binfmt.d/WSLInterop.conf 2>/dev/null || true
             echo "$_interop_val" > /usr/lib/binfmt.d/WSLInterop.conf 2>/dev/null || true
-        elif command -v sudo >/dev/null 2>&1; then
+        elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
             sudo sh -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo '$_interop_val' > /etc/binfmt.d/WSLInterop.conf && echo '$_interop_val' > /usr/lib/binfmt.d/WSLInterop.conf" 2>/dev/null || true
         fi
     fi

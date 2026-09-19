@@ -1,0 +1,150 @@
+name: DevTools2 CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  # ── 1. 정적 구문 분석 및 인코딩/BOM 검사 ─────────────────────────────────
+  static-analysis:
+    name: Static Analysis & Script Parsing
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: BOM & Line Ending Inspection
+        shell: pwsh
+        run: |
+          Write-Host "=== UTF-8 BOM 및 인코딩 검사 ==="
+          $bomFiles = @()
+          Get-ChildItem -Recurse -File -Include *.sh, *.bash, *.ps1, *.json, *.toml, *.conf | ForEach-Object {
+              $bytes = Get-Content -Path $_.FullName -AsByteStream -TotalCount 3 -ErrorAction SilentlyContinue
+              if ($bytes -and $bytes.Count -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+                  $bomFiles += $_.FullName
+              }
+          }
+          if ($bomFiles.Count -gt 0) {
+              Write-Error "UTF-8 BOM이 포함된 파일 발견:`n$($bomFiles -join "`n")"
+              exit 1
+          }
+          Write-Host "✓ 모든 스크립트 및 설정 파일이 UTF-8 NoBOM 입니다."
+
+      - name: PowerShell 7 Syntax & ScriptBlock Parse Test
+        shell: pwsh
+        run: |
+          Write-Host "=== PowerShell 7 구문 파싱 검사 ==="
+          $failed = $false
+          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
+              try {
+                  $null = [scriptblock]::Create((Get-Content $_.FullName -Raw))
+                  $errors = $null
+                  $null = [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors)
+                  if ($errors.Count -gt 0) {
+                      Write-Error "[$($_.Name)] Parser 에러 발견: $($errors | Out-String)"
+                      $failed = $true
+                  } else {
+                      Write-Host "  ✓ $($_.Name) 파싱 통과"
+                  }
+              } catch {
+                  Write-Error "[$($_.Name)] ScriptBlock 파싱 실패: $_"
+                  $failed = $true
+              }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Windows PowerShell 5.1 Parse Test
+        shell: powershell
+        run: |
+          Write-Host "=== Windows PowerShell 5.1 구문 파싱 검사 ==="
+          $failed = $false
+          Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
+              try {
+                  $code = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
+                  $null = [scriptblock]::Create($code)
+                  $errors = $null
+                  $null = [System.Management.Automation.Language.Parser]::ParseInput($code, $_.FullName, [ref]$null, [ref]$errors)
+                  if ($errors.Count -gt 0) {
+                      Write-Error "[$($_.Name)] PS 5.1 Parser 에러: $($errors | Out-String)"
+                      $failed = $true
+                  } else {
+                      Write-Host "  ✓ $($_.Name) PS 5.1 파싱 통과"
+                  }
+              } catch {
+                  Write-Error "[$($_.Name)] PS 5.1 ScriptBlock 파싱 실패: $_"
+                  $failed = $true
+              }
+          }
+          if ($failed) { exit 1 }
+
+  # ── 2. Bash 스크립트 구문 검사 (bash -n & ShellCheck) ──────────────────────
+  bash-lint:
+    name: Bash Syntax & ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Bash -n Syntax Check
+        run: |
+          echo "=== bash -n 구문 검증 ==="
+          find . -type f \( -name "*.sh" -o -name "*.bash" \) | while read -r file; do
+              bash -n "$file" || { echo "❌ 구문 오류: $file"; exit 1; }
+              echo "  ✓ $file 구문 정상"
+          done
+
+      - name: Run ShellCheck
+        run: |
+          echo "=== ShellCheck 정적 분석 (경고/오류 검출) ==="
+          find . -type f \( -name "*.sh" -o -name "*.bash" \) | while read -r file; do
+              shellcheck -S warning -e SC1090,SC1091 "$file" || echo "⚠️  ShellCheck 발견: $file"
+          done
+
+  # ── 3. Ubuntu 24.04 컨테이너 무인 설치 및 doctor 검증 ──────────────────────
+  container-install-test:
+    name: Ubuntu 24.04 Clean Container Install & Doctor Test
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:24.04
+    steps:
+      - name: Install Minimal Bootstrap Packages
+        run: |
+          apt-get update && apt-get install -y sudo curl git ca-certificates
+
+      - name: Create Test User with sudo
+        run: |
+          useradd -m -s /bin/bash tester
+          echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester
+          chmod 0440 /etc/sudoers.d/tester
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Run Full Unattended Installation (DT2_NONINTERACTIVE=1)
+        run: |
+          chown -R tester:tester /__w/
+          su - tester -c "
+            export DT2_NONINTERACTIVE=1
+            export DT2_VERSION_MODE=pinned
+            export DT2_DUPLICATE_MODE=skip
+            export DT2_ORCA_CHOICE=n
+            export DT2_VSCODE_CHOICE=n
+            export DT2_ZED_CHOICE=n
+            export DT2_REF=${{ github.sha }}
+            bash /__w/_devtools2/_devtools2/repo/scripts/linux/setup-devtools2.sh
+          "
+
+      - name: Execute Doctor Verification Script
+        run: |
+          su - tester -c "
+            export DEVTOOLS2=/var/opt/_devtools2
+            bash /var/opt/_devtools2/scripts/linux/dev-env/doctor.sh
+          "

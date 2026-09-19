@@ -63,10 +63,20 @@ fi
 
 DEVTOOLS2_GROUP=devers
 
-# 공통 모듈 로드 - GitHub raw URL에서 스트리밍 source (캐시 우회 헤더 포함)
-_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
-# shellcheck disable=SC1090
-source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+# 공통 모듈 로드 (로컬 우선 탐색 후 원격 스트리밍)
+DT2_REF="${DT2_REF:-main}"
+_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF}/scripts/linux/dev-env"
+_SCRIPT_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+if [ -f "$_SCRIPT_DIR/_common.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$_SCRIPT_DIR/_common.sh"
+elif [ -f "${DEVTOOLS2:-}/scripts/linux/dev-env/_common.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$DEVTOOLS2/scripts/linux/dev-env/_common.sh"
+else
+    # shellcheck disable=SC1090
+    source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+fi
 
 # 루트 권한 체크
 if [ "$(id -u)" -ne 0 ]; then
@@ -165,9 +175,33 @@ if [ -d "$TARGET_DIR" ] && [ -d "$TARGET_DIR/.git" ]; then
     print_sep
     print_info "이미 유효한 Git 개발도구 저장소($TARGET_DIR)가 존재합니다."
     print_info "설치 스크립트는 멱등성이 보장되므로 그대로 이어서 진행합니다."
-    print_info ""
-    print_info "💡 저장소 파일(scripts/, assets/ 등)을 최신화하려면 아래 명령을 직접 실행하세요:"
-    print_info "   cd $TARGET_DIR && git pull"
+
+    # ── 커밋 일치 확인 및 자동 맞춤 (작업 트리가 깨끗할 때) ──
+    _target_ref="${DT2_REF:-main}"
+    if [ -n "$_target_ref" ] && [ "$_target_ref" != "main" ]; then
+        _current_head=$(git -C "$TARGET_DIR" rev-parse HEAD 2>/dev/null || true)
+        if [ "$_current_head" != "$_target_ref" ]; then
+            _is_clean=false
+            if git -C "$TARGET_DIR" diff --quiet 2>/dev/null && git -C "$TARGET_DIR" diff --staged --quiet 2>/dev/null; then
+                _is_clean=true
+            fi
+            if [ "$_is_clean" = true ]; then
+                print_info "로컬 저장소 커밋을 원격 실행 커밋(${_target_ref:0:7})으로 동기화합니다..."
+                if sudo -u "$INVOKER" git -C "$TARGET_DIR" fetch --quiet origin 2>/dev/null && \
+                   sudo -u "$INVOKER" git -C "$TARGET_DIR" checkout --quiet "$_target_ref" 2>/dev/null; then
+                    print_done "로컬 저장소 커밋 동기화 완료: ${_target_ref:0:7}"
+                else
+                    print_warn "로컬 저장소 커밋 동기화 실패 (네트워크 또는 권한 확인 필요)"
+                fi
+            else
+                print_warn "⚠️  로컬 저장소에 미커밋 변경 사항이 있어 자동 커밋 동기화를 건너뜁니다."
+                print_warn "   현재 로컬 커밋: ${_current_head:0:7}, 실행 원격 커밋: ${_target_ref:0:7}"
+                print_warn "   설정 파일이나 도구 버전 불일치를 방지하려면 수동으로 커밋을 맞춰주세요."
+            fi
+        else
+            print_info "로컬 저장소 커밋이 실행 원격 커밋과 일치합니다: ${_target_ref:0:7}"
+        fi
+    fi
     print_sep
     echo ""
     DEVTOOLS2="$TARGET_DIR"
@@ -249,14 +283,20 @@ fi
 echo "[작업] $DEVTOOLS2 및 하위 항목의 소유권을 $INVOKER:$DEVTOOLS2_GROUP 으로 설정합니다..."
 chown -R "$INVOKER:$DEVTOOLS2_GROUP" "$DEVTOOLS2"
 
-# 4) 디렉토리 및 파일 퍼미션 조정 (그룹 협업 허용, others 접근 차단, 민감 자격증명 격리)
-echo "[작업] 디렉토리와 파일 퍼미션을 조정합니다 (그룹 협업 보장, others 차단, 민감 정보 보호)..."
+# 4) 디렉토리 및 파일 퍼미션 조정 (공유 영역 한정 2770, others 접근 차단, 민감 정보 보호)
+echo "[작업] 디렉토리와 파일 퍼미션을 조정합니다 (공유 영역 선별 2770, others 차단, 민감 정보 보호)..."
 
-# 4-1) 기본 디렉토리 권한: 2770 (소유자 및 devers 그룹 rwx + SGID, others 접근 차단)
-# devers 그룹 소속 사용자 간에는 파일 공유 및 공동 작업이 가능하며, 외부 사용자(others)의 접근은 완전히 격리합니다.
-find "$DEVTOOLS2" -type d -exec chmod 2770 {} +
+# 4-1) 기본 디렉토리 권한: 전체 트리는 표준 755/750 적용
+find "$DEVTOOLS2" -type d -exec chmod 750 {} +
 
-# 4-2) 일반 파일 권한: 소유자/그룹 읽기/쓰기 허용, others 접근 차단 (a+r 금지)
+# 4-2) 실제 쓰기 공유가 필요한 런타임/캐시 디렉터리(data, modules)에만 2770 (SGID) 한정 적용
+for _shared_dir in "$DEVTOOLS2/data" "$DEVTOOLS2/modules"; do
+    if [ -d "$_shared_dir" ]; then
+        find "$_shared_dir" -type d -exec chmod 2770 {} + 2>/dev/null || true
+    fi
+done
+
+# 4-3) 일반 파일 권한: 소유자/그룹 읽기/쓰기 허용, others 접근 차단 (a+r 금지)
 # rclone.conf, SSH 키, 토큰 등 보안 민감 파일은 이 일괄 변경에서 제외하여 권한 완화를 방지합니다.
 find "$DEVTOOLS2" -type f \
     ! -name "rclone.conf" \
@@ -268,7 +308,7 @@ find "$DEVTOOLS2" -type f \
     ! -name ".env*" \
     -exec chmod u+rw,g+rw,o-rwx {} +
 
-# 4-3) 스크립트 및 바이너리 실행 권한 보존/부여
+# 4-4) 스크립트 및 바이너리 실행 권한 보존/부여
 find "$DEVTOOLS2" -type f \( -perm /111 -o -name "*.sh" -o -name "*.bash" \) \
     ! -name "rclone.conf" \
     ! -name "*.key" \

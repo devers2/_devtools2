@@ -207,12 +207,28 @@ Get-ChildItem -Path $_startupDir -Filter "*.lnk" -ErrorAction SilentlyContinue |
 Get-ChildItem -Path $_startupDir -Filter "*devtools2*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 Write-Info "AutoHotkey Startup 항목 사전 정리 완료 (개인 AHK 스크립트 보존)"
 
-# 서브스크립트 GitHub raw URL 기준 상수
-# 로컬/온라인 실행 여부와 무관하게 항상 GitHub main 최신 버전 기준으로 실행됩니다.
-$RAW_WIN   = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env"
-$RAW_LINUX = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
+# ── 커밋 고정(Commit Pinning): 설치 도중 main 브랜치 푸시로 인한 스크립트 불일치 방지 ──
+if (-not $env:DT2_REF) {
+    try {
+        $apiResp = Invoke-RestMethod -Uri "https://api.github.com/repos/devers2/_devtools2/commits/main" -Headers @{ "User-Agent" = "PowerShell" } -TimeoutSec 10 -ErrorAction Stop
+        if ($apiResp -and $apiResp.sha) {
+            $env:DT2_REF = $apiResp.sha
+            Write-Info "설치 커밋 고정 완료: $($env:DT2_REF)"
+        } else {
+            $env:DT2_REF = "main"
+        }
+    } catch {
+        $env:DT2_REF = "main"
+        Write-Warn "GitHub API 커밋 SHA 조회 실패 → 'main' 브랜치 기본값 사용"
+    }
+}
+$DT2_REF = $env:DT2_REF
 
-Write-Info "서브스크립트는 항상 GitHub main 브랜치 최신 버전으로 실행됩니다. (캐시 우회 포함)"
+# 서브스크립트 GitHub raw URL 기준 상수 (고정된 커밋 SHA 기반)
+$RAW_WIN   = "https://raw.githubusercontent.com/devers2/_devtools2/$DT2_REF/scripts/windows/dev-env"
+$RAW_LINUX = "https://raw.githubusercontent.com/devers2/_devtools2/$DT2_REF/scripts/linux/dev-env"
+
+Write-Info "서브스크립트는 고정된 커밋($($DT2_REF.Substring(0, [Math]::Min(7, $DT2_REF.Length)))) 기준으로 원격 스트리밍 실행됩니다."
 
 # ==============================================================================
 # [Step 0-1] 순정 Windows 감지: WSL2 필수 선택적 기능 활성화 및 점검
@@ -358,8 +374,8 @@ $wslTmpScript = "/tmp/_dt2_init.sh"
 
 wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/0.init-devtools2.sh' -o $wslTmpScript && chmod +x $wslTmpScript"
 
-# root 권한으로 초기화 스크립트 실행 (SUDO_USER=$wslUser 전달하여 올바른 사용자에게 임시 sudoers 부여)
-wsl -d $wslDistro -u root -- env SUDO_USER=$wslUser bash $wslTmpScript
+# root 권한으로 초기화 스크립트 실행 (SUDO_USER=$wslUser, DT2_REF=$DT2_REF 전달)
+wsl -d $wslDistro -u root -- env SUDO_USER=$wslUser DT2_REF=$DT2_REF bash $wslTmpScript
 $initExit = $LASTEXITCODE
 wsl -d $wslDistro -u root -- rm -f $wslTmpScript /tmp/.wsl_pw_tmp 2>$null
 
@@ -418,19 +434,19 @@ if ($interopCheck -ne "OK") {
 Write-Step "[Step 3] WSL2 개발 환경 빌드 및 패키지 일괄 설치"
 
 Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
-wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_1.sh"
+wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_REF='$DT2_REF' bash -l /tmp/_dt2_1.sh"
 $envExit = $LASTEXITCODE
 wsl -d $wslDistro -u $wslUser -- rm -f /tmp/_dt2_1.sh 2>$null
 if ($envExit -ne 0) { Revoke-WslTempSudo; Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, Ghostty)"
-wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_2.sh"
+wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_REF='$DT2_REF' bash -l /tmp/_dt2_2.sh"
 $coreExit = $LASTEXITCODE
 wsl -d $wslDistro -u $wslUser -- rm -f /tmp/_dt2_2.sh 2>$null
 if ($coreExit -ne 0) { Revoke-WslTempSudo; Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
 Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
-wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 bash -l /tmp/_dt2_3.sh"
+wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_REF='$DT2_REF' bash -l /tmp/_dt2_3.sh"
 $cliExit = $LASTEXITCODE
 wsl -d $wslDistro -u $wslUser -- rm -f /tmp/_dt2_3.sh 2>$null
 if ($cliExit -ne 0) { Revoke-WslTempSudo; Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }

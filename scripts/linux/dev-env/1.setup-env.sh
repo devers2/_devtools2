@@ -20,17 +20,27 @@ if [ ! -f "$DEVTOOLS2/scripts/linux/dev-env/1.setup-env.sh" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
 
-# 공통 모듈 로드 - GitHub raw URL에서 스트리밍 source (캐시 우회 헤더 포함)
-_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
-# shellcheck disable=SC1090
-source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+# 공통 모듈 로드 (로컬 우선 탐색 후 원격 스트리밍)
+DT2_REF="${DT2_REF:-main}"
+_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF}/scripts/linux/dev-env"
+_SCRIPT_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+if [ -f "$_SCRIPT_DIR/_common.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$_SCRIPT_DIR/_common.sh"
+elif [ -f "${DEVTOOLS2:-}/scripts/linux/dev-env/_common.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$DEVTOOLS2/scripts/linux/dev-env/_common.sh"
+else
+    # shellcheck disable=SC1090
+    source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+fi
 
 # WSL2 환경 감지: /proc/version에 'microsoft' 문자열이 포함되어 있으면 WSL2로 판단한다.
 IS_WSL2=false
 if grep -qi 'microsoft' /proc/version 2>/dev/null; then
     IS_WSL2=true
     # /etc/wsl.conf Interop 설정 보장 (Windows .exe 실행 보장)
-    if [ -w /etc/wsl.conf ] || [ "$(id -u)" -eq 0 ] || command -v sudo >/dev/null 2>&1; then
+    if [ -w /etc/wsl.conf ] || [ "$(id -u)" -eq 0 ] || (command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null); then
         set_wsl_conf_key "interop" "enabled" "true" "/etc/wsl.conf"
         set_wsl_conf_key "interop" "appendWindowsPath" "true" "/etc/wsl.conf"
     fi
@@ -262,7 +272,7 @@ print_subsep
 print_step "[Step 4] 에디터(Neovim, Zed) 설정: 심볼릭 링크 생성 및 권한 검사"
 echo ""
 # 공통 심볼릭 링크 유틸리티 스크립트 — 로컬에 없으면 GitHub에서 직접 스트리밍 실행
-_SYMLINK_RAW="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/cmd/create-symbolic-link.sh"
+_SYMLINK_RAW="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/scripts/linux/cmd/create-symbolic-link.sh"
 CMD_SYMLINK="$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh"
 if [ -f "$CMD_SYMLINK" ]; then
     chmod +x "$CMD_SYMLINK" 2>/dev/null || true
@@ -424,7 +434,15 @@ mkdir -p "$HOME/.gradle"
 
 # 비표준 경로(DEVTOOLS2)의 JDK를 Gradle이 인식할 수 있도록 사용자 전역 설정에 주입한다.
 # - org.gradle.java.installations.paths : 툴체인 탐색 경로 (컴파일용 JDK 8 등 비표준 경로 명시 필수)
-GRADLE_INSTALLS_VAL="$DEVTOOLS2/modules/java/jdk-1.8,$DEVTOOLS2/modules/java/jdk-17,$DEVTOOLS2/modules/java/jdk-21,$DEVTOOLS2/modules/java/jdk-25"
+_detected_jdks=""
+if [ -d "$DEVTOOLS2/modules/java" ]; then
+    _detected_jdks=$(find "$DEVTOOLS2/modules/java" -mindepth 1 -maxdepth 1 -type d -name "jdk-*" 2>/dev/null | sort -V | paste -sd, - || true)
+fi
+if [ -n "$_detected_jdks" ]; then
+    GRADLE_INSTALLS_VAL="$_detected_jdks"
+else
+    GRADLE_INSTALLS_VAL="$DEVTOOLS2/modules/java/jdk-1.8,$DEVTOOLS2/modules/java/jdk-17,$DEVTOOLS2/modules/java/jdk-21,$DEVTOOLS2/modules/java/jdk-25"
+fi
 
 inject_gradle_property() {
     local prop_key="$1"

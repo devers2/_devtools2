@@ -22,14 +22,32 @@ if [ ! -f "$DEVTOOLS2/scripts/linux/dev-env/3.install-cli-tools.sh" ]; then
     DEVTOOLS2="/var/opt/_devtools2"
 fi
 
-# 공통 모듈 로드 - GitHub raw URL에서 스트리밍 source (캐시 우회 헤더 포함)
-_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
-# shellcheck disable=SC1090
-source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+# 공통 모듈 로드 (로컬 우선 탐색 후 원격 스트리밍)
+DT2_REF="${DT2_REF:-main}"
+_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF}/scripts/linux/dev-env"
+_SCRIPT_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+if [ -f "$_SCRIPT_DIR/_common.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$_SCRIPT_DIR/_common.sh"
+elif [ -f "${DEVTOOLS2:-}/scripts/linux/dev-env/_common.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$DEVTOOLS2/scripts/linux/dev-env/_common.sh"
+else
+    # shellcheck disable=SC1090
+    source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+fi
 
 # 공통 설치 유틸리티 로드
-# shellcheck disable=SC1090
-source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_install-utils.sh") || { print_error "_install-utils.sh 로드 실패 - 네트워크 연결을 확인하세요."; exit 1; }
+if [ -f "$_SCRIPT_DIR/_install-utils.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$_SCRIPT_DIR/_install-utils.sh"
+elif [ -f "${DEVTOOLS2:-}/scripts/linux/dev-env/_install-utils.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$DEVTOOLS2/scripts/linux/dev-env/_install-utils.sh"
+else
+    # shellcheck disable=SC1090
+    source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_install-utils.sh") || { print_error "_install-utils.sh 로드 실패 - 네트워크 연결을 확인하세요."; exit 1; }
+fi
 
 # DEVTOOLS2 기본 폴더 및 필수 서브 디렉토리 존재/권한 확보
 if [ ! -d "$DEVTOOLS2" ]; then

@@ -59,11 +59,26 @@ run_remote_script_sudo() {
         "$url" | sudo bash "$@"
 }
 
-RAW_BASE="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
+# ── 커밋 고정(Commit Pinning): 설치 도중 main 브랜치 푸시로 인한 스크립트 불일치 방지 ──
+if [ -z "${DT2_REF:-}" ]; then
+    print_info "GitHub main 브랜치의 최신 커밋 SHA 조회 중..."
+    _api_resp=$(curl -fsSL --max-time 10 https://api.github.com/repos/devers2/_devtools2/commits/main 2>/dev/null || true)
+    _commit_sha=$(echo "$_api_resp" | grep -m1 '"sha":' 2>/dev/null | cut -d'"' -f4 || true)
+    if [ -n "$_commit_sha" ]; then
+        DT2_REF="$_commit_sha"
+        print_info "설치 커밋 고정 완료: $DT2_REF"
+    else
+        DT2_REF="main"
+        print_warn "GitHub API 커밋 SHA 조회 실패 → 'main' 브랜치 기본값 사용"
+    fi
+fi
+export DT2_REF
+
+RAW_BASE="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF}/scripts/linux/dev-env"
 
 print_banner "🌟 DevTools2 Linux 네이티브 개발 환경 통합 설치 자동화"
 
-print_info "서브스크립트는 항상 GitHub main 브랜치 최신 버전으로 실행됩니다. (캐시 우회)"
+print_info "서브스크립트는 고정된 커밋(${DT2_REF:0:7}) 기준으로 원격 스트리밍 실행됩니다."
 
 # 로컬 파일 실행 감지 안내 (bash <(curl ...) 또는 curl ... | bash 로 스트리밍 실행하면
 # $0가 실제 파일이 아니라서(/dev/fd/* 또는 bash) 이 블록 자체가 스킵됨)
@@ -89,8 +104,15 @@ run_remote_script_sudo "$RAW_BASE/0.init-devtools2.sh"
 print_done "[Step 0] 초기화 완료."
 
 # [Step 0]에서 임시 부여된 passwordless sudo 권한이 설치 도중 오류 등으로 중단되어도
-# 안전하게 회수되도록 EXIT/INT/TERM 트랩 등록
+# 안전하게 회수되도록 EXIT/INT/TERM 트랩 등록 및 백그라운드 sudo 갱신
+_sudo_loop_pid=""
+if command -v sudo >/dev/null 2>&1; then
+    ( while kill -0 "$$" 2>/dev/null; do sudo -n true 2>/dev/null || true; sleep 50; done ) &
+    _sudo_loop_pid=$!
+fi
+
 cleanup_temp_sudoers() {
+    [ -n "$_sudo_loop_pid" ] && kill "$_sudo_loop_pid" 2>/dev/null || true
     local target="${SUDO_USER:-${USER:-$(id -un 2>/dev/null || true)}}"
     if [ -n "$target" ] && [ -f "/etc/sudoers.d/$target" ]; then
         sudo rm -f "/etc/sudoers.d/$target" 2>/dev/null || true
@@ -182,6 +204,16 @@ if [ -n "$_target_user" ] && [ -f "/etc/sudoers.d/$_target_user" ]; then
     else
         print_warn "임시 passwordless sudo 권한 회수에 실패했습니다. 수동으로 제거하세요: sudo rm -f /etc/sudoers.d/$_target_user"
     fi
+fi
+
+# ==============================================================================
+# [Step 6] 전체 환경 상태 진단 (doctor.sh)
+# ==============================================================================
+print_step "▶ [Step 6] 전체 환경 상태 진단 (doctor.sh)"
+if [ -f "/var/opt/_devtools2/scripts/linux/dev-env/doctor.sh" ]; then
+    bash "/var/opt/_devtools2/scripts/linux/dev-env/doctor.sh" || print_warn "일부 진단 항목에 경고/오류가 있습니다."
+else
+    run_remote_script "$RAW_BASE/doctor.sh" || print_warn "doctor.sh 실행 실패"
 fi
 
 # ==============================================================================

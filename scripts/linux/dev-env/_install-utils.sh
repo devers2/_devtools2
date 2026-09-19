@@ -105,10 +105,12 @@ install_tool() {
 }
 
 # ─────────────────────────────────────────────────────────────────
-# 📄 TOML 유틸리티 함수 (tool-versions.toml 연동)
+# 📄 TOML 및 머신 상태(data/state) 유틸리티 함수
 # ─────────────────────────────────────────────────────────────────
 TOOL_VERSIONS_TOML="$DEVTOOLS2/scripts/linux/dev-env/tool-versions.toml"
-_TOML_RAW_URL="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool-versions.toml"
+_TOML_RAW_URL="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/scripts/linux/dev-env/tool-versions.toml"
+STATE_DIR="$DEVTOOLS2/data/state"
+STATE_FILE="$STATE_DIR/installed-tools.json"
 
 # 로컬에 없으면 GitHub에서 직접 스트리밍하여 TOML 콘텐츠를 읽는 함수
 _read_toml() {
@@ -119,27 +121,56 @@ _read_toml() {
     fi
 }
 
-# 지정한 키의 최종 설치 버전 (배열의 첫 번째 값)을 반환합니다.
+# 지정한 키의 설치된 버전(로컬 머신 상태 우선 → 없으면 tool-versions.toml 기본값)을 반환합니다.
 get_pinned_version() {
     local key="$1"
+    # 1순위: 머신별 로컬 상태 파일 (data/state/installed-tools.json)
+    if [ -f "$STATE_FILE" ]; then
+        local local_ver
+        local_ver=$(python3 -c "import json, sys; d=json.load(open('$STATE_FILE')); print(d.get('$key', ''))" 2>/dev/null || true)
+        if [ -n "$local_ver" ]; then
+            echo "$local_ver"
+            return 0
+        fi
+    fi
+
+    # 2순위: tool-versions.toml 기본 고정 버전
     _read_toml \
         | grep -E "^${key} = \[" 2>/dev/null \
         | grep -oE '"[^"]+"' | head -1 | tr -d '"'
 }
 
-# 지정한 키의 버전 배열 앞에 새 버전을 추가합니다 (이미 있으면 건너뜀).
+# 머신별 설치 버전 상태를 data/state/installed-tools.json 에 격리 기록합니다.
+# (Git 형상관리 대상인 tool-versions.toml 은 건드리지 않아 작업 트리 무결성을 보장합니다)
 update_pinned_version() {
     local key="$1" new_ver="$2"
-    # 로컬 TOML이 없으면 업데이트 불가
-    if [ ! -f "$TOOL_VERSIONS_TOML" ]; then
-        echo "   ⚠️  [tool-versions.toml] 로컬 파일이 없어 버전 이력 업데이트를 건너뜁니다."
-        return 0
+    mkdir -p "$STATE_DIR" 2>/dev/null || true
+    python3 -c "
+import json, os
+path = '$STATE_FILE'
+data = {}
+if os.path.exists(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+data['$key'] = '$new_ver'
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+" 2>/dev/null || true
+    echo "   📝 [머신 상태: data/state] ${key} 버전 기록: \"${new_ver}\""
+}
+
+# tool-versions.toml 에서 지원하는 Adoptium JDK 메이저 버전 목록을 내림차순(예: "25 21 17 8")으로 반환합니다.
+get_supported_jdk_versions() {
+    local jdks
+    jdks=$(_read_toml | grep -E '^jdk[0-9]+ = \[' 2>/dev/null | grep -oE 'jdk[0-9]+' | sed 's/^jdk//' | sort -rn | tr '\n' ' ' | sed 's/ *$//' || true)
+    if [ -n "$jdks" ]; then
+        echo "$jdks"
+    else
+        echo "25 21 17 8"
     fi
-    if grep -E "^${key} = \[" "$TOOL_VERSIONS_TOML" 2>/dev/null | grep -qF "\"${new_ver}\""; then
-        return 0
-    fi
-    sed -i "s|^\(${key} = \[\)\(.*\)\]\$|\1\"${new_ver}\", \2]|" "$TOOL_VERSIONS_TOML"
-    echo "   📝 [tool-versions.toml] ${key} 버전 이력 추가: \"${new_ver}\""
 }
 
 # GitHub 최신 릴리즈 태그를 반환합니다. 실패 시 빈 문자열 반환.
@@ -163,15 +194,16 @@ _resolve_action() {
     if [ "$is_installed" = false ]; then
         echo "install"; return
     fi
-    case "$DUPLICATE_MODE" in
-        remove)
+    local mode="${DUPLICATE_MODE:-${DT2_DUPLICATE_MODE:-skip}}"
+    case "$mode" in
+        remove|reinstall)
             echo "reinstall"
             ;;
         individual)
-            # ⚠️ 이 함수의 결과는 모든 호출부에서 $(_resolve_action ...)로 캡처됩니다.
-            # 안내 메시지/프롬프트를 stdout에 그대로 출력하면 최종 반환값("reinstall"/
-            # "skip")에 섞여 들어가 호출부의 case 분기가 깨지고, 동시에 프롬프트 문구도
-            # 화면에 안 보인 채 read만 기다리는 상태가 됩니다. stderr로 분리합니다.
+            if [ "${DT2_NONINTERACTIVE:-0}" = "1" ] || [ ! -t 0 ] && [ ! -c /dev/tty ]; then
+                echo "skip"
+                return
+            fi
             echo "" >&2
             echo "   ⚠️  ${tool_name}이(가) 이미 설치되어 있습니다." >&2
             printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "   삭제 후 재설치하시겠습니까? [y/${_C_DEFAULT}N${_C_RESET}]: " >&2
@@ -197,6 +229,17 @@ _fmts() { [ "$1" = true ] && echo '✅ 설치됨' || echo '⬜ 미설치'; }
 # (2.install-core-tools.sh / 3.install-cli-tools.sh 공용)
 # ─────────────────────────────────────────────────────────────────
 _select_version_mode() {
+    if [ -n "${DT2_VERSION_MODE:-}" ]; then
+        VERSION_MODE="$DT2_VERSION_MODE"
+        print_info "환경변수(DT2_VERSION_MODE) 설정 적용됨: $VERSION_MODE"
+        return 0
+    fi
+    if [ "${DT2_NONINTERACTIVE:-0}" = "1" ] || [ ! -t 0 ] && [ ! -c /dev/tty ]; then
+        VERSION_MODE="pinned"
+        print_info "비대화형 모드: 기본 고정(TOML) 버전으로 자동 진행됩니다."
+        return 0
+    fi
+
     print_question "❓ 적용할 버전 선택 방식을 선택하세요:"
     echo ""
     print_option "1" "모든 도구 최신 버전으로 설치 (온라인 최신 릴리스)"

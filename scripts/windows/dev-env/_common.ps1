@@ -76,6 +76,10 @@ function Prompt-Confirm {
         [string]$Message,
         [string]$Default = "N"
     )
+    if ($env:DT2_NONINTERACTIVE -eq "1") {
+        Write-Info "비대화형 모드: $Message → 기본값($Default) 자동 선택"
+        return ($Default -eq "Y" -or $Default -eq "y")
+    }
     Write-Host ""
     if ($Default -eq "Y" -or $Default -eq "y") {
         Write-Host "$Message [" -ForegroundColor Yellow -NoNewline
@@ -112,6 +116,10 @@ function Prompt-Choice {
         [string[]]$Options,
         [int]     $Default = 1   # 1-based 기본 선택 번호
     )
+    if ($env:DT2_NONINTERACTIVE -eq "1") {
+        Write-Info "비대화형 모드: $Message → 기본값($Default) 자동 선택"
+        return $Default
+    }
     $result = 0
     do {
         Write-Host ""
@@ -143,7 +151,7 @@ function Prompt-Choice {
 # 현재 포그라운드 콘솔 창의 키보드가 한글 입력 모드인지 실시간으로 검사합니다.
 if (-not ([System.Management.Automation.PSTypeName]'DevTools2.ImeHelper').Type) {
     try {
-        Add-Type -TypeDefinition @"
+        Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 
@@ -176,7 +184,7 @@ namespace DevTools2 {
         }
     }
 }
-"@ -ErrorAction SilentlyContinue
+'@ -ErrorAction SilentlyContinue
     } catch {}
 }
 
@@ -493,7 +501,7 @@ function Download-WithProgress {
 # ==============================================================================
 if (-not ([System.Management.Automation.PSTypeName]'DevTools2.ConsoleHelper').Type) {
     try {
-        Add-Type -TypeDefinition @"
+        Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 
@@ -563,7 +571,7 @@ namespace DevTools2 {
         }
     }
 }
-"@ -ErrorAction SilentlyContinue
+'@ -ErrorAction SilentlyContinue
     } catch {}
 }
 

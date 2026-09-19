@@ -27,8 +27,17 @@ if [ -z "${IS_WSL+x}" ]; then
     fi
 fi
 
-# 지원하는 JDK 및 파이썬 버전 목록 (신규 버전 추가 시 목록에만 버전을 추가하면 됨)
-SUPPORTED_JDK_VERSIONS=("25" "21" "17" "8")
+# 지원하는 JDK 및 파이썬 버전 목록 (tool-versions.toml 단일 원천 연동)
+SUPPORTED_JDK_VERSIONS=()
+_tv_toml="${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/tool-versions.toml"
+if [ -f "$_tv_toml" ]; then
+    while IFS= read -r _ver; do
+        [ -n "$_ver" ] && SUPPORTED_JDK_VERSIONS+=("$_ver")
+    done < <(grep -E '^jdk[0-9]+ = \[' "$_tv_toml" 2>/dev/null | grep -oE 'jdk[0-9]+' | sed 's/^jdk//' | sort -rn || true)
+fi
+if [ ${#SUPPORTED_JDK_VERSIONS[@]} -eq 0 ]; then
+    SUPPORTED_JDK_VERSIONS=("25" "21" "17" "8")
+fi
 SUPPORTED_PY_VERSIONS=("314" "312")
 
 # 홈 디렉토리 판별 (Windows의 경우 USERPROFILE도 고려)

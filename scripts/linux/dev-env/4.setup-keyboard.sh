@@ -29,10 +29,20 @@ if [ ! -f "$DEVTOOLS2/scripts/linux/dev-env/4.setup-keyboard.sh" ]; then
 fi
 
 # ── 색상 헬퍼 로드 (온라인 전용) ──────────────────────────────────────────────────
-# 공통 모듈 로드 - GitHub raw URL에서 스트리밍 source (캐시 우회 헤더 포함)
-_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env"
-# shellcheck disable=SC1090
-source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+# 공통 모듈 로드 (로컬 우선 탐색 후 원격 스트리밍)
+DT2_REF="${DT2_REF:-main}"
+_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF}/scripts/linux/dev-env"
+_SCRIPT_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+if [ -f "$_SCRIPT_DIR/_common.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$_SCRIPT_DIR/_common.sh"
+elif [ -f "${DEVTOOLS2:-}/scripts/linux/dev-env/_common.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$DEVTOOLS2/scripts/linux/dev-env/_common.sh"
+else
+    # shellcheck disable=SC1090
+    source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+fi
 
 # ── 루트 권한 체크 ─────────────────────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then
@@ -157,7 +167,7 @@ if [ -f "$KEYD_CONF_SRC" ]; then
     print_info "로컬 설정 파일 복사: $KEYD_CONF_SRC → $KEYD_CONF_DEST"
     cp -f "$KEYD_CONF_SRC" "$KEYD_CONF_DEST"
     print_success "keyd 설정 파일 배포 완료."
-elif curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/main/.config/keyd/default.conf" -o "$KEYD_CONF_DEST" 2>/dev/null; then
+elif curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/.config/keyd/default.conf" -o "$KEYD_CONF_DEST" 2>/dev/null; then
     print_info "GitHub 원격에서 최신 default.conf 다운로드 완료 → $KEYD_CONF_DEST"
     print_success "keyd 설정 파일 원격 배포 완료."
 else
