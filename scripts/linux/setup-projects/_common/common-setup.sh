@@ -620,6 +620,8 @@ setup_vscode_launch_json() {
     python3 -c "
 import json
 import os
+import re
+import shutil
 import sys
 
 target_dir = sys.argv[1]
@@ -630,14 +632,22 @@ vscode_dir = os.path.join(target_dir, '.vscode')
 os.makedirs(vscode_dir, exist_ok=True)
 launch_file = os.path.join(vscode_dir, 'launch.json')
 
+def parse_jsonc(raw_text):
+    # 1) 문자열 리터럴을 보존하면서 주석(/* ... */, // ...) 제거
+    pattern = re.compile(r'(/\*.*?\*/|//[^\r\n]*)|(\"(?:\\.|[^\"\\])*\")', re.DOTALL)
+    no_comments = pattern.sub(lambda m: '' if m.group(1) else m.group(2), raw_text)
+    # 2) 닫는 괄호 앞의 후행 콤마(trailing comma) 제거: , ] -> ] 및 , } -> }
+    clean_text = re.sub(r',\s*([\]}])', r'\1', no_comments)
+    return json.loads(clean_text)
+
 try:
-    new_configs = json.loads(configs_raw)
+    new_configs = parse_jsonc(configs_raw)
     if isinstance(new_configs, dict):
         new_configs = [new_configs]
     elif not isinstance(new_configs, list):
         raise ValueError('JSON은 객체({...}) 또는 배열([{...}]) 형태여야 합니다.')
 except Exception as e:
-    print(f'❌ [setup_vscode_launch_json] JSON 파싱 오류: {e}', file=sys.stderr)
+    print(f'❌ [setup_vscode_launch_json] 신규 설정 JSON 파싱 오류: {e}', file=sys.stderr)
     sys.exit(1)
 
 existing_data = {'version': '0.2.0', 'configurations': []}
@@ -647,12 +657,21 @@ if file_existed and not overwrite:
     try:
         with open(launch_file, 'r', encoding='utf-8') as f:
             content = f.read().strip()
-            if content:
-                existing_data = json.loads(content)
-                if 'configurations' not in existing_data or not isinstance(existing_data['configurations'], list):
-                    existing_data['configurations'] = []
-    except Exception:
-        existing_data = {'version': '0.2.0', 'configurations': []}
+        if content:
+            existing_data = parse_jsonc(content)
+            if not isinstance(existing_data, dict):
+                raise ValueError('launch.json 최상위는 객체({ ... }) 형태여야 합니다.')
+            if 'configurations' not in existing_data or not isinstance(existing_data['configurations'], list):
+                existing_data['configurations'] = []
+    except Exception as parse_err:
+        # ⚠️ 파싱 실패 시 기존 사용자 설정을 보호하기 위해 덮어쓰지 않고 중단 및 백업
+        bak_file = launch_file + '.bak'
+        try:
+            shutil.copy2(launch_file, bak_file)
+            print(f'⚠️ [경고] 기존 {launch_file} 파싱 실패 ({parse_err}). 설정을 보호하기 위해 {bak_file} 로 백업하고 덮어쓰기를 중단합니다.', file=sys.stderr)
+        except Exception:
+            print(f'⚠️ [경고] 기존 {launch_file} 파싱 실패 ({parse_err}). 설정을 보호하기 위해 덮어쓰기를 중단합니다.', file=sys.stderr)
+        sys.exit(0)
 
     existing_names = {c.get('name') for c in existing_data.get('configurations', []) if isinstance(c, dict)}
     added_count = 0
@@ -666,6 +685,13 @@ if file_existed and not overwrite:
 else:
     existing_data['configurations'] = [cfg for cfg in new_configs if isinstance(cfg, dict)]
     added_count = len(existing_data['configurations'])
+
+# 기존 파일이 존재하면 덮어쓰기 전 안전 백업 (.bak) 생성
+if file_existed:
+    try:
+        shutil.copy2(launch_file, launch_file + '.bak')
+    except Exception:
+        pass
 
 with open(launch_file, 'w', encoding='utf-8') as f:
     json.dump(existing_data, f, indent=2, ensure_ascii=False)

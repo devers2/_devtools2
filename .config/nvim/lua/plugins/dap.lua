@@ -29,6 +29,10 @@ return {
       local active_debug_pids = {}
 
       local function track_pid(session, body)
+        -- Attach(외부 프로세스 연결) 세션인 경우 외부 프로세스이므로 추적/종료 대상에서 제외
+        if session and session.config and session.config.request == 'attach' then
+          return
+        end
         if session and session.id and body and (body.systemProcessId or body.processId) then
           local pid = tonumber(body.systemProcessId or body.processId)
           if pid and pid > 0 then
@@ -141,7 +145,18 @@ return {
 
       local function kill_debuggee_process(session, on_done, target_main_class)
         local cb = on_done or function() end
-        local session_id = session and session.id or (dap.session() and dap.session().id)
+        local cur_session = session or dap.session()
+
+        -- Attach(외부 프로세스 연결) 세션인 경우 외부 프로세스는 절대 종료하지 않고 리턴
+        if cur_session and cur_session.config and cur_session.config.request == 'attach' then
+          if cur_session.id and active_debug_pids[cur_session.id] then
+            active_debug_pids[cur_session.id] = nil
+          end
+          cb()
+          return
+        end
+
+        local session_id = cur_session and cur_session.id
         local direct_pid = session_id and active_debug_pids[session_id]
 
         local my_pid = vim.uv.os_getpid()
@@ -150,6 +165,47 @@ return {
         root = root:gsub('\\', '/'):gsub('/+$', '')
         ---@diagnostic disable-next-line: undefined-field
         local main_class = target_main_class or _G.MAIN_CLASS
+
+        -- [PID 정밀 종료 우선]
+        -- 디버거가 실행한 명확한 프로세스 ID(direct_pid)가 확인된 경우,
+        -- 다른 터미널/프로세스 오탐 방지를 위해 해당 PID만 정밀 종료합니다.
+        if direct_pid and direct_pid > 0 and direct_pid ~= my_pid then
+          if session_id then
+            active_debug_pids[session_id] = nil
+          end
+          if _G.OS_TYPE == _G.OS.WINDOWS then
+            local cmd = string.format('Stop-Process -Id %d -Force -ErrorAction SilentlyContinue', direct_pid)
+            pcall(vim.system, { 'powershell.exe', '-NoProfile', '-Command', cmd }, { text = true }, function()
+              vim.schedule(function()
+                vim.notify(
+                  string.format('디버깅 프로세스(PID: %d)를 종료했습니다.', direct_pid),
+                  vim.log.levels.INFO,
+                  { title = 'DAP 프로세스 정리' }
+                )
+                cb()
+              end)
+            end)
+          else
+            pcall(vim.system, { 'kill', '-9', tostring(direct_pid) }, {}, function()
+              vim.schedule(function()
+                vim.notify(
+                  string.format('디버깅 프로세스(PID: %d)를 종료했습니다.', direct_pid),
+                  vim.log.levels.INFO,
+                  { title = 'DAP 프로세스 정리' }
+                )
+                cb()
+              end)
+            end)
+          end
+          return
+        end
+
+        -- direct_pid가 없는 경우(dap.run 선제 정리 등)에 한해 프로젝트 경로/메인클래스 기반 프로세스 스캔 수행
+        -- 단, root나 main_class가 둘 다 없으면 오탐 방지를 위해 스캔하지 않음
+        if (not root or root == '') and (not main_class or main_class == '') then
+          cb()
+          return
+        end
 
         if _G.OS_TYPE == _G.OS.WINDOWS then
           -- Windows: Get-CimInstance Win32_Process 비동기 스캔 및 타겟 프로세스 종료
@@ -168,19 +224,15 @@ return {
                 }
               }
             }
-            if (%s -gt 0) { $pids += %s }
             $pids = $pids | Select-Object -Unique
             foreach ($p in $pids) {
               Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
             }
             $pids -join ','
-          ]=], my_pid, main_class or '', main_class or '', root, root, tostring(direct_pid or 0), tostring(direct_pid or 0))
+          ]=], my_pid, main_class or '', main_class or '', root, root)
 
           pcall(vim.system, { 'powershell.exe', '-NoProfile', '-Command', pwsh_cmd }, { text = true }, function(obj)
             vim.schedule(function()
-              if direct_pid and session_id then
-                active_debug_pids[session_id] = nil
-              end
               local killed = (obj.stdout or ''):gsub('%s+', '')
               if killed ~= '' then
                 vim.notify(
@@ -197,10 +249,6 @@ return {
           pcall(vim.system, { 'ps', '-eo', 'pid,args' }, { text = true }, function(obj)
             vim.schedule(function()
               local to_kill = {}
-              if direct_pid and direct_pid > 0 and direct_pid ~= my_pid then
-                to_kill[direct_pid] = true
-              end
-
               local out = obj.stdout or ''
               for line in out:gmatch('[^\r\n]+') do
                 local pid_str, cmd = line:match('^%s*(%d+)%s+(.*)$')
@@ -220,9 +268,6 @@ return {
                 vim.list_extend(kill_args, pids_list)
                 pcall(vim.system, kill_args, {}, function()
                   vim.schedule(function()
-                    if direct_pid and session_id then
-                      active_debug_pids[session_id] = nil
-                    end
                     vim.notify(
                       string.format('기존 디버깅 프로세스(PID: %s)를 정리했습니다.', table.concat(pids_list, ', ')),
                       vim.log.levels.INFO,
@@ -232,9 +277,6 @@ return {
                   end)
                 end)
               else
-                if direct_pid and session_id then
-                  active_debug_pids[session_id] = nil
-                end
                 cb()
               end
             end)
@@ -292,17 +334,25 @@ return {
 
       local orig_terminate = dap.terminate
       dap.terminate = function(...)
+        local session = dap.session()
+        local is_attach = session and session.config and session.config.request == 'attach'
         _dap_keep_process = false
         close_debug_ui()
-        kill_debuggee_process()
+        if not is_attach then
+          kill_debuggee_process(session)
+        elseif session and session.id then
+          active_debug_pids[session.id] = nil
+        end
         return orig_terminate(...)
       end
 
       local orig_disconnect = dap.disconnect
       dap.disconnect = function(opts, cb)
         opts = opts or {}
-        if opts.terminateDebuggee == true then
-          -- 1번: 디버깅 UI + 프로세스 모두 종료
+        local session = dap.session()
+        local is_attach = session and session.config and session.config.request == 'attach'
+        if opts.terminateDebuggee == true and not is_attach then
+          -- 1번: 디버깅 UI + 프로세스 모두 종료 (단, attach 세션은 프로세스 유지)
           _dap_keep_process = false
           close_debug_ui()
           dap.terminate(nil, nil, cb)

@@ -218,6 +218,19 @@ get_pids_by_port() {
             | awk '{print $NF}' \
             | grep -E '^[0-9]+$' \
             | sort -u)
+    elif $IS_MAC; then
+        if command -v lsof &>/dev/null; then
+            pids=$(lsof -ti :"$port" 2>/dev/null | sort -u)
+        fi
+    else
+        # Linux / WSL2: lsof, ss, fuser 순차 시도
+        if command -v lsof &>/dev/null; then
+            pids=$(lsof -ti :"$port" 2>/dev/null | sort -u)
+        elif command -v ss &>/dev/null; then
+            pids=$(ss -ltnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u)
+        elif command -v fuser &>/dev/null; then
+            pids=$(fuser "$port/tcp" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' | sort -u)
+        fi
     fi
 
     echo "$pids"
@@ -351,20 +364,22 @@ check_and_resolve_port_conflict() {
         exit 0
     fi
 
-    # 3단계: 기존 프로세스 중지
+    # 3단계: 기존 프로세스 중지 (해당 포트를 점유한 PID만 정확히 타겟팅하여 종료)
     echo ""
-    echo "🔪 기존 프로세스 중지 시도 중..."
-    if $IS_WINDOWS; then
-        local win_pids
-        win_pids=$(netstat -ano 2>/dev/null | grep -E ":${detected_port}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
-        for pid in $win_pids; do
-            taskkill /f /pid "$pid" &>/dev/null
-        done
+    echo "🔪 포트 $detected_port 점유 프로세스 중지 시도 중..."
+    local target_pids
+    target_pids=$(get_pids_by_port "$detected_port")
+    if [[ -n "$target_pids" ]]; then
+        kill_pids "$target_pids"
     else
-        # Linux / WSL2 / macOS: 멈춤 없는 안전한 프로세스명 기반 종료
-        pkill -f "bootRun" &>/dev/null
-        pkill -f "GoonoELNApplication" &>/dev/null
-        pkill -f "spring.profiles.active" &>/dev/null
+        # PID를 직접 찾지 못한 경우의 폴백
+        if $IS_WINDOWS; then
+            local win_pids
+            win_pids=$(netstat -ano 2>/dev/null | grep -E ":${detected_port}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
+            kill_pids "$win_pids"
+        elif command -v fuser &>/dev/null; then
+            fuser -k -9 "$detected_port/tcp" &>/dev/null || true
+        fi
     fi
 
     # 포트 해제 대기 및 확인
@@ -876,12 +891,17 @@ elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
         exit 0
     fi
 
-    echo "📋 포트 $PORT 상태:"
+    echo "📋 포트 $PORT 점유 프로세스 확인:"
     echo "─────────────────────────────────────────"
-    echo "  ⚠️ 포트 $PORT 가 현재 활성화(LISTEN)되어 있습니다."
+    target_pids=$(get_pids_by_port "$PORT")
+    if [[ -n "$target_pids" ]]; then
+        print_pids_info "$target_pids"
+    else
+        echo "  ⚠️ 포트 $PORT 가 현재 활성화(LISTEN)되어 있습니다."
+    fi
     echo "─────────────────────────────────────────"
     echo ""
-    read -p "⚠️  포트 $PORT 관련 프로세스를 종료하시겠습니까? (y/N): " CONFIRM
+    read -p "⚠️  위 포트 $PORT 점유 프로세스를 종료하시겠습니까? (y/N): " CONFIRM
     if [[ "${CONFIRM,,}" != "y" ]]; then
         echo "❌ 취소되었습니다."
         exit 0
@@ -889,23 +909,19 @@ elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
 
     echo ""
     echo "🔪 포트 $PORT 점유 프로세스 해제 중..."
-    if $IS_WINDOWS; then
-        # ⚠️ 함수 밖(최상위 스크립트 레벨)이라 local을 쓰면 매번 에러가 출력되므로 제거
-        win_pids=$(netstat -ano 2>/dev/null | grep -E ":${PORT}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
-        kill_pids "$win_pids"
-    elif $IS_MAC; then
-        mac_pids=$(lsof -ti :"$PORT" 2>/dev/null)
-        if [[ -n "$mac_pids" ]]; then
-            kill_pids "$mac_pids"
-        fi
+    if [[ -n "$target_pids" ]]; then
+        kill_pids "$target_pids"
     else
-        # Linux / WSL2: 멈춤 없는 안전 프로세스 종료
-        pkill -f "bootRun" &>/dev/null
-        pkill -f "java" &>/dev/null
-        if command -v fuser &>/dev/null; then
-            fuser -k -9 "$PORT/tcp" &>/dev/null
+        # get_pids_by_port 로 PID를 직접 특정하지 못한 경우의 폴백
+        if $IS_WINDOWS; then
+            win_pids=$(netstat -ano 2>/dev/null | grep -E ":${PORT}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
+            kill_pids "$win_pids"
+        elif $IS_MAC; then
+            mac_pids=$(lsof -ti :"$PORT" 2>/dev/null)
+            [[ -n "$mac_pids" ]] && kill_pids "$mac_pids"
+        elif command -v fuser &>/dev/null; then
+            fuser -k -9 "$PORT/tcp" &>/dev/null || true
         fi
-        echo "  ✅ 포트 $PORT 점유 프로세스 중지 명령 전송 완료"
     fi
 
     sleep 0.5
