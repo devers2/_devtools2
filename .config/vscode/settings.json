@@ -125,15 +125,6 @@
   /* 터미널 및 디버그 설정 */
   "terminal.integrated.env.windows": {
     /*
-     * [환경 변수 PATH 설정]
-     * - VS Code 터미널 전용 PATH: 기존 시스템 PATH(${env:PATH}) 뒤에 포터블 도구들의 bin 경로를 추가한다.
-     * - 시스템 환경 변수(Windows PATH)를 수정하지 않고도 VS Code 내장 터미널에서만 추가한 경로들의 도구를 즉시 실행할 수 있다.
-     * - 현재 PATH 에 추가된 java, gradle, node 를 환경 변수 설정없이 바로 사용할 수 있다.
-     * ※ 처리 주체가 VS Code 자체이므로 사용자 지정 환경 변수(${env:USERPROFILE})를 사용할 수 있다.
-     */
-    "PATH": "${env:PATH};${env:DEVTOOLS2}/modules/java/jdk-25/bin;${env:DEVTOOLS2}/modules/gradle/gradle-9/bin;${env:DEVTOOLS2}/modules/nodejs/node-v24;",
-
-    /*
      * [로케일(Locale) 및 인코딩 설정]
      * LANG / LC_ALL 환경 변수를 ko_KR.UTF-8로 설정하여 크로스 플랫폼 도구(Node.js, Gradle 등)가 한글 경로 및 메시지를 UTF-8 기반으로 처리하도록 강제한다.
      * (한글 깨짐 및 로케일 오류 방지)

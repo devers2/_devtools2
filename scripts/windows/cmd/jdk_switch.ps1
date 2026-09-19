@@ -44,6 +44,18 @@ try {
     if (-not (Test-Path $TARGET_PATH)) {
         throw "해당 경로가 존재하지 않습니다: $TARGET_PATH"
     }
+
+    # ⚠️ Windows용 바이너리(java.exe) 존재 여부 검증 (WSL 리눅스 전용 바이너리의 윈도우 환경변수 오염 방지)
+    $javaExe = Join-Path $TARGET_PATH "bin\java.exe"
+    if (-not (Test-Path $javaExe)) {
+        Write-Host ""
+        Write-Host "[경고] 해당 경로에 Windows용 java.exe가 존재하지 않습니다." -ForegroundColor Yellow
+        Write-Host "       대상 경로: $TARGET_PATH" -ForegroundColor DarkGray
+        Write-Host "       현재 DevTools2 개발 환경은 WSL2 Linux 기반으로 동작합니다." -ForegroundColor Cyan
+        Write-Host "       JDK 버전 전환은 WSL2 터미널 내부에서 명령 팔레트(Alt+c) 또는 jdk_switch.sh를 사용해 주세요." -ForegroundColor White
+        Write-Host ""
+        exit 0
+    }
 }
 catch {
     Write-Host "[Error] 해당 JDK 경로를 찾을 수 없습니다." -ForegroundColor Red
