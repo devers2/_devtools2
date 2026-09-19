@@ -172,58 +172,70 @@ echo "📝 로그 파일: $LOG_FILE"
 echo ""
 
 echo "---------------------------------------------------------------------------"
-# 1. JAVA 포터블 설치
+# ── Adoptium Temurin JDK 설치 공용 헬퍼 함수 ───────────────────────
+install_adoptium_jdk() {
+    local major="$1"
+    local dest_dir="$2"
+    local target_path="$DEVTOOLS2/modules/java/$dest_dir"
+
+    if [ -d "$target_path" ]; then
+        echo "   ⏭️ [건너뜀] JDK $major 설치 디렉토리($dest_dir)가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$target_path'"
+        return 0
+    fi
+
+    local jdk_arch="$([ "$IS_ARM64" = true ] && echo 'aarch64' || echo 'x64')"
+    local pinned_ver
+    pinned_ver=$(get_pinned_version "jdk${major}")
+
+    echo "   📦 JDK $major 다운로드 및 압축 해제..."
+    local dl_url=""
+    local checksum=""
+    local actual_ver=""
+
+    # 1순위: Adoptium API를 통해 같은 메이저의 최신 패치 및 체크섬 조회
+    local meta
+    meta=$(fetch_adoptium_release "$major" "$jdk_arch")
+    if [ -n "$meta" ]; then
+        actual_ver=$(echo "$meta" | cut -d'|' -f1)
+        dl_url=$(echo "$meta" | cut -d'|' -f2)
+        checksum=$(echo "$meta" | cut -d'|' -f3)
+        echo "   🔍 Adoptium API 최신 패치: $actual_ver"
+    fi
+
+    # 2순위: API 조회 실패 시 tool-versions.toml 고정 버전으로 폴백
+    if [ -z "$dl_url" ]; then
+        actual_ver="${pinned_ver:-default}"
+        if [ "$major" = "8" ]; then
+            local ver_nodash="${actual_ver//-/}"
+            dl_url="https://github.com/adoptium/temurin8-binaries/releases/download/${actual_ver}/OpenJDK8U-jdk_${jdk_arch}_linux_hotspot_${ver_nodash}.tar.gz"
+        else
+            local ver_enc="${actual_ver//+/%2B}"
+            local ver_us="${actual_ver//[+-]/_}"
+            dl_url="https://github.com/adoptium/temurin${major}-binaries/releases/download/${ver_enc}/OpenJDK${major}U-jdk_${jdk_arch}_linux_hotspot_${ver_us}.tar.gz"
+        fi
+        checksum="${dl_url}.sha256.txt"
+    fi
+
+    if safe_download_and_extract "$dl_url" "$target_path" 1 "$checksum"; then
+        echo "   ✅ JDK $major ($dest_dir) 설치 완료"
+        if [ -n "$actual_ver" ] && [ "$actual_ver" != "$pinned_ver" ]; then
+            update_pinned_version "jdk${major}" "$actual_ver"
+        fi
+    else
+        echo "   ❌ JDK $major 설치 실패" >&2
+        return 1
+    fi
+}
+
+# 1. JAVA 포터블 설치 (Adoptium Eclipse Temurin JDK 8, 17, 21, 25)
 echo "☕ 1. JAVA 포터블 설치 중..."
 mkdir -p "$DEVTOOLS2/modules/java"
 cd "$DEVTOOLS2/modules/java"
 
-# JDK 1.8
-if [ -d "$DEVTOOLS2/modules/java/jdk-1.8" ]; then
-    echo "   ⏭️ [건너뜀] JDK 1.8 설치 디렉토리 jdk-1.8이 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/java/jdk-1.8'"
-else
-    echo "   📦 JDK 1.8 다운로드 및 압축 해제..."
-    install_tool \
-        'https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u482-b08/OpenJDK8U-jdk_{ARCH}_linux_hotspot_8u482b08.tar.gz' \
-        'x64' \
-        'aarch64' \
-        'jdk-1.8'
-fi
-
-# JDK 17
-if [ -d "$DEVTOOLS2/modules/java/jdk-17" ]; then
-    echo "   ⏭️ [건너뜀] JDK 17 설치 디렉토리 jdk-17이 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/java/jdk-17'"
-else
-    echo "   📦 JDK 17 다운로드 및 압축 해제..."
-    install_tool \
-        'https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.18%2B8/OpenJDK17U-jdk_{ARCH}_linux_hotspot_17.0.18_8.tar.gz' \
-        'x64' \
-        'aarch64' \
-        'jdk-17'
-fi
-
-# JDK 21
-if [ -d "$DEVTOOLS2/modules/java/jdk-21" ]; then
-    echo "   ⏭️ [건너뜀] JDK 21 설치 디렉토리 jdk-21이 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/java/jdk-21'"
-else
-    echo "   📦 JDK 21 다운로드 및 압축 해제..."
-    install_tool \
-        'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.10%2B7/OpenJDK21U-jdk_{ARCH}_linux_hotspot_21.0.10_7.tar.gz' \
-        'x64' \
-        'aarch64' \
-        'jdk-21'
-fi
-
-# JDK 25
-if [ -d "$DEVTOOLS2/modules/java/jdk-25" ]; then
-    echo "   ⏭️ [건너뜀] JDK 25 설치 디렉토리 jdk-25이 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/java/jdk-25'"
-else
-    echo "   📦 JDK 25 다운로드 및 압축 해제..."
-    install_tool \
-        'https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.2%2B10/OpenJDK25U-jdk_{ARCH}_linux_hotspot_25.0.2_10.tar.gz' \
-        'x64' \
-        'aarch64' \
-        'jdk-25'
-fi
+install_adoptium_jdk 8 "jdk-1.8"
+install_adoptium_jdk 17 "jdk-17"
+install_adoptium_jdk 21 "jdk-21"
+install_adoptium_jdk 25 "jdk-25"
 
 echo "✅ JAVA 설치 완료 ($ARCH)"
 echo ""
@@ -234,12 +246,17 @@ echo "🐘 2. Gradle 포터블 설치 중..."
 mkdir -p "$DEVTOOLS2/modules/gradle"
 cd "$DEVTOOLS2/modules/gradle"
 
+GRADLE_PINNED=$(get_pinned_version "gradle")
+GRADLE_VERSION="${GRADLE_PINNED:-9.7.1}"
+
 if [ -d "$DEVTOOLS2/modules/gradle/gradle-9" ]; then
     echo "   ⏭️ [건너뜀] gradle-9 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/gradle/gradle-9'"
 else
-    echo -n "   📦 Gradle 9.4.1 다운로드 및 설치 중..."
-    if safe_download_and_extract "https://services.gradle.org/distributions/gradle-9.4.1-bin.zip" "$DEVTOOLS2/modules/gradle"; then
-        [ -d "$DEVTOOLS2/modules/gradle/gradle-9.4.1" ] && mv -f "$DEVTOOLS2/modules/gradle/gradle-9.4.1" "$DEVTOOLS2/modules/gradle/gradle-9"
+    echo -n "   📦 Gradle $GRADLE_VERSION 다운로드 및 설치 중..."
+    _gradle_url="https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+    _gradle_sha="${_gradle_url}.sha256"
+    if safe_download_and_extract "$_gradle_url" "$DEVTOOLS2/modules/gradle" 0 "$_gradle_sha"; then
+        [ -d "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" ] && mv -f "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" "$DEVTOOLS2/modules/gradle/gradle-9"
         echo " 완료"
     else
         echo " ❌ Gradle 설치 실패" >&2
@@ -542,27 +559,34 @@ echo "💤 5. Neovim 포터블 설치 중..."
 mkdir -p "$DEVTOOLS2/modules/neovim"
 cd "$DEVTOOLS2/modules/neovim"
 
+NEOVIM_PINNED=$(get_pinned_version "neovim")
+NEOVIM_VERSION="${NEOVIM_PINNED:-v0.12.5}"
+_nvim_arch="$([ "$IS_ARM64" = true ] && echo 'arm64' || echo 'x86_64')"
+_nvim_url="https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/nvim-linux-${_nvim_arch}.tar.gz"
+_nvim_sha="${_nvim_url}.sha256sum"
+
 if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
-    # 사용자에게 선택 입력 요청
     if prompt_confirm "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까?" "N"; then
         echo "   🗑️  기존 디렉토리 삭제 중..."
         rm -rf "$DEVTOOLS2/modules/neovim/nvim"
-        echo "   📦 Neovim stable 다운로드 및 압축 해제..."
-        install_tool \
-            'https://github.com/neovim/neovim/releases/download/stable/nvim-linux-{ARCH}.tar.gz' \
-            'x86_64' \
-            'arm64' \
-            'nvim'
+        echo "   📦 Neovim $NEOVIM_VERSION 다운로드 및 압축 해제..."
+        if safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "$_nvim_sha"; then
+            echo "   ✅ Neovim $NEOVIM_VERSION 설치 완료"
+        else
+            echo "   ⚠️  체크섬 검증 또는 다운로드 실패. 체크섬 검증 없이 재시도합니다..."
+            safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1
+        fi
     else
         echo "   ⏭️ [건너뜀] neovim 디렉토리가 이미 존재합니다."
     fi
 else
-    echo "   📦 Neovim stable 다운로드 및 압축 해제..."
-    install_tool \
-        'https://github.com/neovim/neovim/releases/download/stable/nvim-linux-{ARCH}.tar.gz' \
-        'x86_64' \
-        'arm64' \
-        'nvim'
+    echo "   📦 Neovim $NEOVIM_VERSION 다운로드 및 압축 해제..."
+    if safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "$_nvim_sha"; then
+        echo "   ✅ Neovim $NEOVIM_VERSION 설치 완료"
+    else
+        echo "   ⚠️  체크섬 검증 또는 다운로드 실패. 체크섬 검증 없이 재시도합니다..."
+        safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1
+    fi
 fi
 
 echo "✅ Neovim 설치 완료 ($ARCH)"

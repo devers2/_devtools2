@@ -299,14 +299,56 @@ EOF
 
 
 # ─────────────────────────────────────────────────────────────────
-# 📥 안전한 공용 다운로드 유틸리티 (HTTP 에러 검출 및 원자적 처리)
+# 🔒 SHA256 체크섬 검증 유틸리티
+# ─────────────────────────────────────────────────────────────────
+# 인수: $1 = 대상 파일 경로, $2 = 64자리 16진수 SHA256 또는 .sha256 파일 URL
+verify_sha256() {
+    local target_file="$1"
+    local checksum_spec="$2"
+
+    [ -z "$checksum_spec" ] && return 0
+
+    if [ ! -f "$target_file" ]; then
+        echo "❌ verify_sha256 오류: 검증 대상 파일이 존재하지 않습니다: $target_file" >&2
+        return 1
+    fi
+
+    local expected_hash=""
+    if [[ "$checksum_spec" =~ ^[0-9a-fA-F]{64}$ ]]; then
+        expected_hash="$checksum_spec"
+    elif [[ "$checksum_spec" =~ ^https?:// ]]; then
+        local raw_cs
+        raw_cs=$(curl -fsSL --max-time 15 "$checksum_spec" 2>/dev/null || true)
+        expected_hash=$(echo "$raw_cs" | grep -oE '[0-9a-fA-F]{64}' | head -1 || true)
+        if [ -z "$expected_hash" ]; then
+            echo "⚠️  체크섬 URL에서 유효한 SHA256 해시를 찾을 수 없습니다: $checksum_spec" >&2
+            return 1
+        fi
+    fi
+
+    if [ -n "$expected_hash" ]; then
+        local actual_hash
+        actual_hash=$(sha256sum "$target_file" 2>/dev/null | awk '{print $1}')
+        if [ "${expected_hash,,}" != "${actual_hash,,}" ]; then
+            echo "❌ SHA256 체크섬 불일치! (예상: $expected_hash, 실제: $actual_hash)" >&2
+            return 1
+        fi
+        echo "   🔒 SHA256 무결성 검증 성공 ($actual_hash)"
+    fi
+    return 0
+}
+
+# ─────────────────────────────────────────────────────────────────
+# 📥 안전한 공용 다운로드 유틸리티 (HTTP 에러 검출, 체크섬 검증 및 원자적 처리)
 # ─────────────────────────────────────────────────────────────────
 # 1) 압축 아카이브(tar.gz, zip) 안전 다운로드 및 압축 해제
 #    성공 시 0, 실패 시 1 반환 (실패 시 대상 디렉터리 오염 방지)
+#    인수: $1 = URL, $2 = 대상 디렉터리, $3 = strip_count(기본 0), $4 = sha256_or_url(선택)
 safe_download_and_extract() {
     local url="$1"
     local target_dir="$2"
     local strip_count="${3:-0}"
+    local checksum_spec="${4:-}"
 
     if [ -z "$url" ] || [ -z "$target_dir" ]; then
         echo "❌ safe_download_and_extract 오류: URL과 대상 디렉터리는 필수입니다." >&2
@@ -325,6 +367,12 @@ safe_download_and_extract() {
     if [ ! -s "$tmp_archive" ]; then
         echo "❌ 다운로드 실패 (빈 파일): $url" >&2
         return 1
+    fi
+
+    if [ -n "$checksum_spec" ]; then
+        if ! verify_sha256 "$tmp_archive" "$checksum_spec"; then
+            return 1
+        fi
     fi
 
     mkdir -p "$target_dir"
@@ -347,11 +395,13 @@ safe_download_and_extract() {
 }
 
 # 2) 단일 바이너리/스크립트 파일 안전 다운로드
-#    성공 시 0, 실패 시 1 반환 (원자적 교체 지원)
+#    성공 시 0, 실패 시 1 반환 (원자적 교체 및 체크섬 검증 지원)
+#    인수: $1 = URL, $2 = 대상 파일, $3 = 권한모드(기본 755), $4 = sha256_or_url(선택)
 safe_download_binary() {
     local url="$1"
     local target_file="$2"
     local chmod_mode="${3:-755}"
+    local checksum_spec="${4:-}"
 
     if [ -z "$url" ] || [ -z "$target_file" ]; then
         echo "❌ safe_download_binary 오류: URL과 대상 파일 경로는 필수입니다." >&2
@@ -376,7 +426,41 @@ safe_download_binary() {
         return 1
     fi
 
+    if [ -n "$checksum_spec" ]; then
+        if ! verify_sha256 "$tmp_file" "$checksum_spec"; then
+            return 1
+        fi
+    fi
+
     chmod "$chmod_mode" "$tmp_file"
     mv -f "$tmp_file" "$target_file"
     return 0
+}
+
+# ─────────────────────────────────────────────────────────────────
+# ☕ Adoptium Eclipse Temurin JDK 릴리즈 메타데이터 조회 헬퍼
+# 인수: $1 = 메이저 버전 (8, 17, 21, 25), $2 = 아키텍처 ("x64" 또는 "aarch64")
+# 출력: release_name|download_url|checksum (파이프 구분)
+fetch_adoptium_release() {
+    local feature_ver="$1"
+    local arch="$2"
+    local py_script='
+import sys, urllib.request, json
+ver, arch = sys.argv[1:3]
+url = f"https://api.adoptium.net/v3/assets/latest/{ver}/hotspot?os=linux&architecture={arch}&image_type=jdk"
+req = urllib.request.Request(url, headers={"User-Agent": "curl/7.81.0"})
+try:
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read().decode())
+        if isinstance(data, list) and len(data) > 0:
+            rel = data[0].get("release_name", "")
+            pkg = data[0].get("binary", {}).get("package", {})
+            link = pkg.get("link", "")
+            chk = pkg.get("checksum", "")
+            if rel and link:
+                print(f"{rel}|{link}|{chk}")
+except Exception:
+    pass
+'
+    python3 -c "$py_script" "$feature_ver" "$arch" 2>/dev/null || true
 }

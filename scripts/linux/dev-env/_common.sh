@@ -294,12 +294,13 @@ setup_apt_mirror() {
     if [ -n "$selected_mirror" ]; then
         if [ -f /etc/apt/sources.list ]; then
             [ ! -f /etc/apt/sources.list.bak_dt2 ] && cp /etc/apt/sources.list /etc/apt/sources.list.bak_dt2 2>/dev/null || true
-            sed -i -E "s#(archive|security|kr\.archive)\.ubuntu\.com#${selected_mirror}#g" /etc/apt/sources.list 2>/dev/null || true
+            # security.ubuntu.com 은 치환에서 제외하여 보안 패치를 공식 Canonical 서버로부터 즉시 수신
+            sed -i -E "s#(archive|kr\.archive)\.ubuntu\.com#${selected_mirror}#g" /etc/apt/sources.list 2>/dev/null || true
         fi
         if [ -d /etc/apt/sources.list.d ]; then
             find /etc/apt/sources.list.d/ -type f -name "*.sources" -o -name "*.list" 2>/dev/null | while read -r src_file; do
                 [ ! -f "${src_file}.bak_dt2" ] && cp "$src_file" "${src_file}.bak_dt2" 2>/dev/null || true
-                sed -i -E "s#(archive|security|kr\.archive)\.ubuntu\.com#${selected_mirror}#g" "$src_file" 2>/dev/null || true
+                sed -i -E "s#(archive|kr\.archive)\.ubuntu\.com#${selected_mirror}#g" "$src_file" 2>/dev/null || true
             done
         fi
     fi
@@ -318,17 +319,16 @@ restore_apt_mirror() {
     fi
 }
 
-# Python pip 카카오 고속 미러 설정 (1순위 카카오 -> 2순위 공식 pypi.org)
+# Python pip 카카오 고속 미러 설정 (1순위 카카오 HTTPS -> 2순위 공식 pypi.org)
 setup_pip_mirror() {
     if check_mirror_available "mirror.kakao.com"; then
         mkdir -p "$HOME/.pip" "$HOME/.config/pip"
         cat << 'EOF' > "$HOME/.pip/pip.conf"
 [global]
-index-url = http://mirror.kakao.com/pypi/simple
-trusted-host = mirror.kakao.com
+index-url = https://mirror.kakao.com/pypi/simple
 EOF
         cp -f "$HOME/.pip/pip.conf" "$HOME/.config/pip/pip.conf" 2>/dev/null || true
-        print_info "한국 카카오 PyPI 고속 미러 서버를 pip 저장소로 적용했습니다."
+        print_info "한국 카카오 PyPI 고속 미러 서버(HTTPS)를 pip 저장소로 적용했습니다."
     fi
 }
 

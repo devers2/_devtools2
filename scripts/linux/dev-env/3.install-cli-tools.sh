@@ -521,8 +521,8 @@ else
         rm -f "$MODULES_DIR/bitwarden/bw"
     fi
     if [ "$IS_ARM64" = true ]; then
-        # ARM64용은 GitHub 클라이언트 릴리즈 주소를 직접 이용
-        _bw_url="https://github.com/bitwarden/clients/releases/download/cli-v${BITWARDEN_ARM_VERSION}/bw-linux-${BITWARDEN_ARM_VERSION}.zip"
+        # ARM64용은 GitHub 클라이언트 릴리즈 주소를 직접 이용 (ARM64 공식 바이너리)
+        _bw_url="https://github.com/bitwarden/clients/releases/download/cli-v${BITWARDEN_ARM_VERSION}/bw-linux-arm64-${BITWARDEN_ARM_VERSION}.zip"
     else
         # x86_64용 공식 다이렉트 다운로드 주소 (항상 최신)
         _bw_url="https://vault.bitwarden.com/download/?app=cli&platform=linux"
