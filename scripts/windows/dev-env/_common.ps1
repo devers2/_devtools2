@@ -623,3 +623,111 @@ function Get-WslDevtools2Path {
     return "\\wsl$\$Distro\var\opt\_devtools2"
 }
 
+# ==============================================================================
+# WSL2 배포판 이름 자동 감지 헬퍼
+# ==============================================================================
+# 1) 명시적으로 인수가 주어진 경우 해당 이름 반환
+# 2) $env:USERPROFILE\.devtools2\wsl_distro 파일에서 저장된 배포판 이름 추출
+# 3) wsl -l -q 에서 첫 번째 배포판 이름 감지
+# 4) 위 방법 모두 실패 시 기본값 "devtools2" 반환
+function Resolve-WslDistro {
+    param([string]$Distro = "")
+    if (-not [string]::IsNullOrWhiteSpace($Distro)) {
+        return $Distro.Trim()
+    }
+    # 1) .devtools2\wsl_distro 파일 확인
+    $distroSave = Join-Path $env:USERPROFILE ".devtools2\wsl_distro"
+    if (Test-Path $distroSave) {
+        $saved = Get-Content $distroSave -Raw -ErrorAction SilentlyContinue
+        if ($saved -match "WSL_DISTRO\s*=\s*(.+)") {
+            $val = $matches[1].Trim()
+            if ($val) { return $val }
+        }
+    }
+    # 2) wsl -l -q 명령으로 설치된 배포판 조회
+    try {
+        $distroList = @(wsl -l -q 2>$null) | Where-Object { $_ -match "\S" }
+        if ($distroList.Count -gt 0) {
+            $val = ($distroList[0] -replace "`0", "").Trim()
+            if ($val) { return $val }
+        }
+    } catch {}
+    # 3) 기본 배포판 이름 폴백
+    return "devtools2"
+}
+
+# ==============================================================================
+# 심볼릭 링크 및 파일 관리 공용 헬퍼 (dangling 링크 안전 처리 및 백업 지원)
+# ==============================================================================
+function Remove-FileOrSymlink {
+    param([string]$Path)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if ($null -ne $item) {
+        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        return $true
+    }
+    $cmdCheck = cmd.exe /c "if exist `"$Path`" echo exists" 2>$null
+    if ($cmdCheck -match 'exists') {
+        cmd.exe /c "del /f /q `"$Path`"" 2>$null | Out-Null
+        return $true
+    }
+    return $false
+}
+
+function New-SymlinkIdempotent {
+    param(
+        [string]$LinkPath,
+        [string]$TargetPath,
+        [string]$Description = ""
+    )
+    $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
+
+    if (-not (Test-Path $TargetPath)) {
+        Write-Warn "$label 대상 경로가 존재하지 않아 심볼릭 링크를 건너뜁니다: $TargetPath"
+        return $false
+    }
+
+    $removed = Remove-FileOrSymlink -Path $LinkPath
+    if ($removed) {
+        Write-Info "$label 기존 항목 제거 완료: $LinkPath"
+    }
+
+    Write-Info "$label 심볼릭 링크 생성 중..."
+    $result = cmd.exe /c "mklink `"$LinkPath`" `"$TargetPath`"" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "$label 심볼릭 링크 생성 실패: $result"
+        return $false
+    }
+    Write-Success "$label 심볼릭 링크 생성 완료"
+    return $true
+}
+
+function Backup-AndLink {
+    param(
+        [string]$LinkPath,
+        [string]$TargetPath,
+        [string]$Description = ""
+    )
+    $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
+
+    $item = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+    if ($null -ne $item) {
+        $isLink = $item.Attributes -band [System.IO.FileAttributes]::ReparsePoint
+        if (-not $isLink) {
+            $backupPath = "$LinkPath.bak"
+            if (-not (Test-Path $backupPath)) {
+                Move-Item -LiteralPath $LinkPath -Destination $backupPath -Force
+                Write-Info "기존 $label 을(를) $(Split-Path $backupPath -Leaf)으로 백업했습니다."
+            } else {
+                Remove-Item -LiteralPath $LinkPath -Force
+            }
+        } else {
+            Remove-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+        }
+    } else {
+        Remove-FileOrSymlink -Path $LinkPath | Out-Null
+    }
+
+    return New-SymlinkIdempotent -LinkPath $LinkPath -TargetPath $TargetPath -Description $label
+}
+

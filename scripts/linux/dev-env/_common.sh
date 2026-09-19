@@ -447,3 +447,29 @@ except Exception as e:
     fi
 }
 
+# ==============================================================================
+# WSL Interop (binfmt_misc) 핸들러 등록 공용 헬퍼
+# ==============================================================================
+# Windows .exe 바이너리 실행 시 Exec format error 방지
+ensure_wsl_interop() {
+    [ "${IS_WSL2:-false}" != true ] && return 0
+    [ -f /proc/sys/fs/binfmt_misc/WSLInterop ] && return 0
+
+    local _interop_val=':WSLInterop:M::MZ::/init:PF'
+    if [ -w /proc/sys/fs/binfmt_misc/register ]; then
+        echo "$_interop_val" > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo sh -c "echo '$_interop_val' > /proc/sys/fs/binfmt_misc/register" 2>/dev/null || true
+    fi
+
+    if [ ! -f /etc/binfmt.d/WSLInterop.conf ]; then
+        if [ "$(id -u)" -eq 0 ]; then
+            mkdir -p /etc/binfmt.d /usr/lib/binfmt.d
+            echo "$_interop_val" > /etc/binfmt.d/WSLInterop.conf 2>/dev/null || true
+            echo "$_interop_val" > /usr/lib/binfmt.d/WSLInterop.conf 2>/dev/null || true
+        elif command -v sudo >/dev/null 2>&1; then
+            sudo sh -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo '$_interop_val' > /etc/binfmt.d/WSLInterop.conf && echo '$_interop_val' > /usr/lib/binfmt.d/WSLInterop.conf" 2>/dev/null || true
+        fi
+    fi
+}
+

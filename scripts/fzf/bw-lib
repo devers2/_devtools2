@@ -690,3 +690,69 @@ bw_git_clone_interactive() {
 
     bw_git_clone "$_REPO_URL" "$_TARGET_DIR" "$_BW_ITEM_NAME"
 }
+
+# ── Bitwarden 서버 항목 JSON 파싱 공용 헬퍼 ─────────────────────────────────────
+# 복수 폴더 청크(---ITEM_SPLIT--- 구분) 데이터를 파이썬으로 안전하게 파싱하여 fzf 형식으로 출력
+# 출력 형식: [표시]\t[itemID]\t[username]\t[uri]\t[has_key]
+bw_parse_server_items() {
+    local raw_data="$1"
+    [ -z "$raw_data" ] && return 0
+
+    python3 -c '
+import sys, json, re
+
+raw_all = sys.stdin.read()
+chunks = raw_all.split("---ITEM_SPLIT---")
+
+all_items = []
+for chunk in chunks:
+    chunk = chunk.strip()
+    if not chunk:
+        continue
+    start_idx = chunk.find("[")
+    end_idx = chunk.rfind("]")
+    if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+        try:
+            items = json.loads(chunk[start_idx:end_idx+1], strict=False)
+            if isinstance(items, list):
+                all_items.extend(items)
+        except Exception:
+            pass
+
+if not all_items:
+    sys.exit(0)
+
+for item in all_items:
+    if not isinstance(item, dict):
+        continue
+    name     = item.get("name", "이름없음")
+    item_id  = item.get("id", "")
+
+    login = item.get("login")
+    if not isinstance(login, dict):
+        login = {}
+
+    username = login.get("username") or ""
+    uris     = login.get("uris") or []
+
+    raw_uri = ""
+    if isinstance(uris, list) and len(uris) > 0:
+        first_uri = uris[0]
+        if isinstance(first_uri, dict):
+            raw_uri = first_uri.get("uri") or ""
+
+    notes = item.get("notes") or ""
+    if not isinstance(notes, str):
+        notes = ""
+
+    clean_uri = re.sub(r"^[a-z]+://", "", raw_uri)
+    has_key = "KEY" if re.search(r"BEGIN .* PRIVATE KEY", notes) else ""
+
+    display = f"{name} | {username}@{clean_uri}"
+    if has_key:
+        display += " 🔑"
+
+    print(f"{display}\t{item_id}\t{username}\t{clean_uri}\t{has_key}")
+' <<< "$raw_data"
+}
+

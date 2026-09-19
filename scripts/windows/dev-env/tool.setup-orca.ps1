@@ -89,30 +89,8 @@ if (-not (Prompt-Confirm "👉 Orca(멀티 에이전트 오케스트레이션 AD
 # ==============================================================================
 Write-Step "[Step 2] WSL2 배포판 감지"
 
-if ($WslDistro -eq "") {
-    $devtools2Dir  = Join-Path $env:USERPROFILE ".devtools2"
-    $devtools2File = if (Test-Path $devtools2Dir -PathType Container) { Join-Path $devtools2Dir "wsl_distro" } else { $devtools2Dir }
-    if (Test-Path $devtools2File) {
-        $saved = Get-Content $devtools2File | Where-Object { $_ -match "^WSL_DISTRO=" } | Select-Object -First 1
-        if ($saved) {
-            $WslDistro = ($saved -split "=", 2)[1].Trim()
-            Write-Host "  .devtools2 에서 읽은 배포판: $WslDistro" -ForegroundColor White
-        }
-    }
-
-    if ($WslDistro -eq "") {
-        $distroList = (wsl --list --quiet 2>$null) | Where-Object { $_ -ne "" }
-        if ($distroList.Count -eq 0) {
-            Write-Fail "WSL2 배포판을 찾을 수 없습니다. WSL2 를 먼저 설치해주세요."
-            Read-Host "계속하려면 엔터를 누르세요"
-            return
-        }
-        $WslDistro = $distroList[0] -replace "`0", "" | ForEach-Object { $_.Trim() }
-        Write-Host "  자동 감지된 배포판: $WslDistro" -ForegroundColor White
-    }
-} else {
-    Write-Host "  지정된 배포판: $WslDistro" -ForegroundColor White
-}
+$WslDistro = Resolve-WslDistro $WslDistro
+Write-Host "  적용 대상 WSL 배포판: $WslDistro" -ForegroundColor White
 
 # WSL2 쪽 Orca(orca serve 헤드리스)가 먼저 설치되어 있어야 이 스크립트의 나머지 단계가
 # 의미가 있습니다(tool.setup-orca.sh). 없으면 WSL2 내부의 tool.setup-orca.sh를

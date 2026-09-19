@@ -805,3 +805,127 @@ if [ -f "$_CURRENT_MODULE_DIR/python-setup.sh" ]; then
     # shellcheck disable=SC1091
     source "$_CURRENT_MODULE_DIR/python-setup.sh"
 fi
+
+# ==============================================================================
+# s2 라이브러리 프로젝트 공통 설정 헬퍼 (s2-util, s2-support, s2-build-support)
+# ==============================================================================
+setup_s2_library_project() {
+    local project_name="$1"
+    if [ -z "$project_name" ]; then
+        echo "❌ 프로젝트 이름이 지정되지 않았습니다."
+        return 1
+    fi
+
+    local target_dir="$HOME/workspaces/s2/$project_name"
+    local repo_url="https://github.com/devers2/${project_name}.git"
+
+    echo "🚀 [$project_name] 프로젝트 설정을 시작합니다."
+    echo "   대상 경로: $target_dir"
+
+    # 1. Bitwarden 세션 확보
+    echo "⏳ Bitwarden 상태 확인 중..."
+    if command -v bw_ensure_session &>/dev/null; then
+        bw_ensure_session || return 1
+    fi
+
+    # 2. 깃 클론
+    if [ -d "$target_dir/.git" ]; then
+        echo "ℹ️  이미 깃 저장소가 존재합니다. 클론 단계를 건너뜁니다."
+    else
+        if command -v bw_git_clone_interactive &>/dev/null; then
+            bw_git_clone_interactive "$repo_url" "$target_dir" || return 1
+        else
+            git clone "$repo_url" "$target_dir" || return 1
+        fi
+    fi
+
+    # 2-1. GitHub Packages 의존성 설정
+    if command -v setup_gpr_gradle_properties &>/dev/null; then
+        setup_gpr_gradle_properties "$target_dir"
+    fi
+
+    # 3. .nvim.lua 설정 파일 생성
+    echo "⚙️  .nvim.lua 설정 파일 생성 중..."
+    if [ -f "$target_dir/.nvim.lua" ]; then
+        echo "ℹ️  .nvim.lua 이 이미 존재합니다. 덮어쓰지 않습니다."
+    else
+        cat > "$target_dir/.nvim.lua" <<'EOF'
+PROJECT_ROOT = "./"
+JDK_VERSION = 17
+EOF
+        echo "✅ .nvim.lua 생성 완료!"
+    fi
+
+    # 4. .vscode/settings.json 생성
+    echo "⚙️  .vscode 설정 파일 생성 중..."
+    local vscode_dir="$target_dir/.vscode"
+    mkdir -p "$vscode_dir"
+
+    local jdk17_path="${DEVTOOLS2}/modules/java/jdk-17"
+    local jdk25_path="${DEVTOOLS2}/modules/java/jdk-25"
+
+    if [ -f "$vscode_dir/settings.json" ]; then
+        echo "ℹ️  .vscode/settings.json 이 이미 존재합니다. 덮어쓰지 않습니다."
+    else
+        cat > "$vscode_dir/settings.json" <<EOF
+{
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-17",
+      "path": "${jdk17_path}",
+      "default": true
+    },
+    {
+      "name": "JavaSE-25",
+      "path": "${jdk25_path}"
+    }
+  ],
+  "java.import.gradle.java.home": "${jdk25_path}"
+}
+EOF
+        echo "✅ .vscode/settings.json 생성 완료"
+    fi
+
+    # 5. Maven Central 배포용 설정
+    if command -v setup_maven_central_publishing &>/dev/null; then
+        setup_maven_central_publishing "$target_dir"
+    fi
+
+    # 6. VSCode Java 확장 프로그램 확인/설치
+    echo ""
+    echo "⏳ [Step 6] VSCode Java 확장 프로그램을 확인/설치합니다..."
+    local vscode_bin=""
+    for _bin in code code-insiders; do
+        if command -v "$_bin" &>/dev/null; then
+            vscode_bin="$_bin"
+            break
+        fi
+    done
+
+    local required_exts=(
+        "redhat.java"
+        "vscjava.vscode-java-debug"
+        "vscjava.vscode-java-dependency"
+    )
+
+    if [ -z "$vscode_bin" ]; then
+        echo "⚠️  VSCode(code) 명령어를 찾을 수 없습니다. 확장 설치를 건너뜁니다."
+    else
+        local installed_exts
+        installed_exts=$("$vscode_bin" --list-extensions 2>/dev/null || echo "")
+        for _ext in "${required_exts[@]}"; do
+            if echo "$installed_exts" | grep -qi "^${_ext}$"; then
+                echo "   ✅ 이미 설치됨: $_ext"
+            else
+                echo "   📦 설치 중: $_ext ..."
+                "$vscode_bin" --install-extension "$_ext" --force 2>/dev/null && \
+                    echo "   ✅ 설치 완료: $_ext" || \
+                    echo "   ⚠️  설치 실패: $_ext"
+            fi
+        done
+    fi
+
+    echo ""
+    echo "🎉 [$project_name] 프로젝트 설정이 성공적으로 완료되었습니다!"
+    echo "📁 프로젝트 위치: $target_dir"
+}

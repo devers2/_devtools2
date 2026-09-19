@@ -12,18 +12,19 @@ elif [ -f "${DEVTOOLS2}/scripts/fzf/bw-lib" ]; then
 fi
 # bw-lib 없어도 다른 기능은 계속 동작하도록 에러 없이 진행
 
-# 1. 현재 작업 환경 분석 및 OS 판별
+# 1. 현재 작업 환경 분석 및 OS 판별 (IS_WINDOWS, IS_MAC, IS_WSL 은 bw-lib 에서 기본 제공)
 CWD=$(pwd)
-IS_WINDOWS=false
-IS_MAC=false
-IS_WSL=false
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-    IS_WINDOWS=true
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-    IS_MAC=true
-elif [[ "$OSTYPE" == linux-gnu* ]] && grep -qi microsoft /proc/version 2>/dev/null; then
-    # WSL: 리눅스 커널이지만 interop으로 Windows 클립보드(clip.exe/powershell.exe)에 접근 가능
-    IS_WSL=true
+if [ -z "${IS_WSL+x}" ]; then
+    IS_WINDOWS=false
+    IS_MAC=false
+    IS_WSL=false
+    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+        IS_WINDOWS=true
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        IS_MAC=true
+    elif [[ "$OSTYPE" == linux-gnu* ]] && grep -qi microsoft /proc/version 2>/dev/null; then
+        IS_WSL=true
+    fi
 fi
 
 # 지원하는 JDK 및 파이썬 버전 목록 (신규 버전 추가 시 목록에만 버전을 추가하면 됨)

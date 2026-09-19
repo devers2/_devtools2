@@ -47,75 +47,12 @@ if [ -z "$RAW_ITEMS_LIST" ]; then
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
-# STEP 5: JSON 파싱 (복수 폴더 데이터 통합)
+# STEP 5: JSON 파싱 (bw-lib 공용 헬퍼 bw_parse_server_items)
 # 비밀번호는 목록에 절대 표시하지 않음
 # 표시 형식: "서버이름 | 사용자명@호스트:포트  🔑(키있음)"
 # 내부 형식: [표시]\t[itemID]\t[username]\t[uri]\t[has_key]
-#
-# ※ printf | python3 - <<HEREDOC 구조는 파이프(stdin)와 heredoc(stdin)이 충돌하여
-#   데이터가 파이썬에 전달되지 않는 문제가 있으므로
-#   파이썬 스크립트를 임시 파일로 분리 후 파이프로 데이터만 전달합니다.
 # ──────────────────────────────────────────────────────────────────────────────
-_PY_SCRIPT=$(mktemp /tmp/bw_parse_XXXXXX.py)
-cat > "$_PY_SCRIPT" <<'PYEOF'
-import sys, json, re
-
-raw_all = sys.stdin.read()
-chunks = raw_all.split('---ITEM_SPLIT---')
-
-all_items = []
-for chunk in chunks:
-    chunk = chunk.strip()
-    if not chunk:
-        continue
-    start_idx = chunk.find('[')
-    end_idx = chunk.rfind(']')
-    if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
-        try:
-            items = json.loads(chunk[start_idx:end_idx+1], strict=False)
-            if isinstance(items, list):
-                all_items.extend(items)
-        except Exception:
-            pass
-
-if not all_items:
-    sys.exit(0)
-
-for item in all_items:
-    if not isinstance(item, dict):
-        continue
-    name     = item.get('name', '이름없음')
-    item_id  = item.get('id', '')
-
-    login = item.get('login')
-    if not isinstance(login, dict):
-        login = {}
-
-    username = login.get('username') or ''
-    uris     = login.get('uris') or []
-
-    raw_uri = ''
-    if isinstance(uris, list) and len(uris) > 0:
-        first_uri = uris[0]
-        if isinstance(first_uri, dict):
-            raw_uri = first_uri.get('uri') or ''
-
-    notes = item.get('notes') or ''
-    if not isinstance(notes, str):
-        notes = ''
-
-    clean_uri = re.sub(r'^[a-z]+://', '', raw_uri)
-    has_key = 'KEY' if re.search(r'BEGIN .* PRIVATE KEY', notes) else ''
-
-    display = f"{name} | {username}@{clean_uri}"
-    if has_key:
-        display += " 🔑"
-
-    print(f"{display}\t{item_id}\t{username}\t{clean_uri}\t{has_key}")
-PYEOF
-
-HOST_LIST=$(printf "%s" "$RAW_ITEMS_LIST" | python3 "$_PY_SCRIPT")
-rm -f "$_PY_SCRIPT"
+HOST_LIST=$(bw_parse_server_items "$RAW_ITEMS_LIST")
 
 if [ -z "$HOST_LIST" ]; then
     echo "ℹ️  '${FOLDER_NAME}' 폴더에 등록된 서버 항목이 없습니다."

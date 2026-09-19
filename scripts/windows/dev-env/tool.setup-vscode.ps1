@@ -32,67 +32,17 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ProgressPreference = 'SilentlyContinue'
 
-$_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
-. ([scriptblock]::Create($_commonContent))
-
-# 파일/심볼릭 링크(dangling 포함)를 안전하게 제거하는 헬퍼
-function Remove-FileOrSymlink {
-    param([string]$Path)
-    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-    if ($null -ne $item) {
-        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-        return $true
-    }
-    $cmdCheck = cmd.exe /c "if exist `"$Path`" echo exists" 2>$null
-    if ($cmdCheck -match 'exists') {
-        cmd.exe /c "del /f /q `"$Path`"" 2>$null | Out-Null
-        return $true
-    }
-    return $false
+$_localCommon = Join-Path $PSScriptRoot "_common.ps1"
+if (Test-Path $_localCommon) {
+    . $_localCommon
+} else {
+    $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
+    $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
+    . ([scriptblock]::Create($_commonContent))
 }
 
-function New-SymlinkIdempotent {
-    param([string]$LinkPath, [string]$TargetPath, [string]$Description = "")
-    $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
-    if (-not (Test-Path $TargetPath)) {
-        Write-Warn "$label 대상 경로가 존재하지 않아 심볼릭 링크를 건너뜁니다: $TargetPath"
-        return $false
-    }
-    $removed = Remove-FileOrSymlink -Path $LinkPath
-    if ($removed) { Write-Info "$label 기존 항목 제거 완료: $LinkPath" }
-    Write-Info "$label 심볼릭 링크 생성 중..."
-    $result = cmd.exe /c "mklink `"$LinkPath`" `"$TargetPath`"" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "$label 심볼릭 링크 생성 실패: $result"
-        return $false
-    }
-    Write-Success "$label 심볼릭 링크 생성 완료"
-    return $true
-}
-
-function Backup-AndLink {
-    param([string]$LinkPath, [string]$TargetPath, [string]$Description = "")
-    $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
-    $item = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
-    if ($null -ne $item) {
-        $isLink = $item.Attributes -band [System.IO.FileAttributes]::ReparsePoint
-        if (-not $isLink) {
-            $backupPath = "$LinkPath.bak"
-            if (-not (Test-Path $backupPath)) {
-                Move-Item -LiteralPath $LinkPath -Destination $backupPath -Force
-                Write-Info "기존 $label 을(를) $(Split-Path $backupPath -Leaf)으로 백업했습니다."
-            } else {
-                Remove-Item -LiteralPath $LinkPath -Force
-            }
-        } else {
-            Remove-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
-        }
-    } else {
-        Remove-FileOrSymlink -Path $LinkPath | Out-Null
-    }
-    return New-SymlinkIdempotent -LinkPath $LinkPath -TargetPath $TargetPath -Description $label
-}
+# 심볼릭 링크 헬퍼 3종(Remove-FileOrSymlink, New-SymlinkIdempotent, Backup-AndLink)은
+# _common.ps1 로 일원화되어 공용으로 제공됩니다.
 
 # ==============================================================================
 # [Step 0] 관리자 권한 확인 및 재실행
@@ -174,29 +124,8 @@ if (Get-Command code -ErrorAction SilentlyContinue) {
 # ==============================================================================
 Write-Step "[Step 2] WSL2 배포판 감지"
 
-if ($WslDistro -eq "") {
-    $devtools2Dir  = Join-Path $env:USERPROFILE ".devtools2"
-    $devtools2File = if (Test-Path $devtools2Dir -PathType Container) { Join-Path $devtools2Dir "wsl_distro" } else { $devtools2Dir }
-    if (Test-Path $devtools2File) {
-        $saved = Get-Content $devtools2File | Where-Object { $_ -match "^WSL_DISTRO=" } | Select-Object -First 1
-        if ($saved) {
-            $WslDistro = ($saved -split "=", 2)[1].Trim()
-            Write-Host "  .devtools2 에서 읽은 배포판: $WslDistro" -ForegroundColor White
-        }
-    }
-    if ($WslDistro -eq "") {
-        $distroList = (wsl --list --quiet 2>$null) | Where-Object { $_ -ne "" }
-        if ($distroList.Count -eq 0) {
-            Write-Fail "WSL2 배포판을 찾을 수 없습니다. WSL2 를 먼저 설치해주세요."
-            Read-Host "계속하려면 엔터를 누르세요"
-            return
-        }
-        $WslDistro = $distroList[0] -replace "`0", "" | ForEach-Object { $_.Trim() }
-        Write-Host "  자동 감지된 배포판: $WslDistro" -ForegroundColor White
-    }
-} else {
-    Write-Host "  지정된 배포판: $WslDistro" -ForegroundColor White
-}
+$WslDistro = Resolve-WslDistro $WslDistro
+Write-Host "  적용 대상 WSL 배포판: $WslDistro" -ForegroundColor White
 
 # 마스터 스크립트에서 확정된 %DEVTOOLS2% 경로 우선 재사용, 단독 실행 시 공용 헬퍼로 자동 탐지
 $DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) {
@@ -321,9 +250,6 @@ if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction Silent
 # [Step 5] WSL Remote 확장 동기화 (tool.setup-vscode.sh 위임 + 리턴 수신)
 # ==============================================================================
 Write-Step "[Step 5] WSL Remote ($WslDistro) 확장 동기화"
-
-# WSL Interop (Windows .exe 실행) 활성 상태 보장 (Exec format error 예방)
-wsl -d $WslDistro -u root -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop || (mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true))"
 
 Write-Info "WSL Remote ($WslDistro): VS Code 확장 프로그램 동기화 중..."
 $rawLinuxVscode = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool.setup-vscode.sh"

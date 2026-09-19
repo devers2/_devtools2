@@ -34,23 +34,8 @@ if grep -qi 'microsoft' /proc/version 2>/dev/null; then
         set_wsl_conf_key "interop" "enabled" "true" "/etc/wsl.conf"
         set_wsl_conf_key "interop" "appendWindowsPath" "true" "/etc/wsl.conf"
     fi
-    # binfmt_misc WSLInterop 복구 (Exec format error 예방)
-    if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
-        if [ "$(id -u)" -eq 0 ]; then
-            echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
-        elif command -v sudo >/dev/null 2>&1; then
-            sudo sh -c 'echo ":WSLInterop:M::MZ::/init:PF" > /proc/sys/fs/binfmt_misc/register' 2>/dev/null || true
-        fi
-    fi
-    if [ ! -f /etc/binfmt.d/WSLInterop.conf ]; then
-        if [ "$(id -u)" -eq 0 ]; then
-            mkdir -p /etc/binfmt.d /usr/lib/binfmt.d 2>/dev/null || true
-            echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf 2>/dev/null || true
-            echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf 2>/dev/null || true
-        elif command -v sudo >/dev/null 2>&1; then
-            sudo sh -c 'mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ":WSLInterop:M::MZ::/init:PF" > /etc/binfmt.d/WSLInterop.conf && echo ":WSLInterop:M::MZ::/init:PF" > /usr/lib/binfmt.d/WSLInterop.conf' 2>/dev/null || true
-        fi
-    fi
+    # binfmt_misc WSLInterop 복구 (Exec format error 예방 — 공용 헬퍼)
+    ensure_wsl_interop
 fi
 
 # --- [권한 체크] 시스템 설정 권한 확인

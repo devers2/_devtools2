@@ -42,102 +42,20 @@ $ProgressPreference = 'SilentlyContinue'
 # 거의 동일하게 복붙되어 있던 걸 _common.ps1(scripts/windows/dev-env/_common.ps1)
 # 공용 파일로 통합했습니다(bash의 _colors.sh와 동일한 패턴).
 # 항상 온라인 최신본을 dot-source(다른 스크립트 스트리밍 실행과 동일한 캐시 우회 원칙).
-$_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
-. ([scriptblock]::Create($_commonContent))
+$_localCommon = Join-Path $PSScriptRoot "dev-env\_common.ps1"
+if (Test-Path $_localCommon) {
+    . $_localCommon
+} else {
+    $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
+    $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
+    . ([scriptblock]::Create($_commonContent))
+}
 
 # 세션 한정 마우스 클릭 멈춤(프리징) 방지: QuickEdit 모드 안전 비활성화 (스크립트 종료/Ctrl+C 시 자동 복원)
 Disable-ConsoleQuickEdit | Out-Null
 
-# ⚠️ Show-BiosVirtualizationHelp는 예전에 여기 정의되어 있었으나, 실제 WSL 설치는
-# 항상 0.setup-wsl.ps1(Invoke-RemotePsScript로 스트리밍 실행)에 위임되어 있어 이
-# 마스터 스크립트에서는 절대 호출되지 않는 도달 불가능한 중복 코드였습니다. 실제
-# BIOS/UEFI 가상화 안내는 0.setup-wsl.ps1 자신의 동일한 함수가 담당합니다.
-
-# 파일/심볼릭 링크(dangling 포함)를 안전하게 제거하는 헬퍼
-# Test-Path는 대상이 없는 dangling symlink를 $false로 반환하여 기존 링크가 남아
-# mklink 재실행 시 "파일이 이미 있습니다" 오류를 유발하므로, Get-Item -Force 로 실제 존재 여부를 확인합니다.
-function Remove-FileOrSymlink {
-    param([string]$Path)
-    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-    if ($null -ne $item) {
-        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-        return $true   # 삭제 수행
-    }
-    # Get-Item도 못 찾은 경우 cmd dir로 최종 확인 (극히 드문 케이스 대비)
-    $cmdCheck = cmd.exe /c "if exist `"$Path`" echo exists" 2>$null
-    if ($cmdCheck -match 'exists') {
-        cmd.exe /c "del /f /q `"$Path`"" 2>$null | Out-Null
-        return $true
-    }
-    return $false  # 애초에 없었음
-}
-
-# 심볼릭 링크를 멱등성 있게 생성하는 헬퍼 (dangling symlink 포함 기존 항목 자동 정리 후 재생성)
-function New-SymlinkIdempotent {
-    param(
-        [string]$LinkPath,
-        [string]$TargetPath,
-        [string]$Description = ""
-    )
-    $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
-
-    # 1) 대상(WSL 경로)이 존재하는지 확인
-    if (-not (Test-Path $TargetPath)) {
-        Write-Warn "$label 대상 경로가 존재하지 않아 심볼릭 링크를 건너뜁니다: $TargetPath"
-        return $false
-    }
-
-    # 2) 기존 파일/링크(dangling 포함) 제거
-    $removed = Remove-FileOrSymlink -Path $LinkPath
-    if ($removed) {
-        Write-Info "$label 기존 항목 제거 완료: $LinkPath"
-    }
-
-    # 3) 심볼릭 링크 생성
-    Write-Info "$label 심볼릭 링크 생성 중..."
-    $result = cmd.exe /c "mklink `"$LinkPath`" `"$TargetPath`"" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "$label 심볼릭 링크 생성 실패: $result"
-        return $false
-    }
-    Write-Success "$label 심볼릭 링크 생성 완료"
-    return $true
-}
-
-# 기존 파일 위치를 심볼릭 링크로 교체하는 헬퍼 (VSCode settings.json/keybindings.json/tasks.json 등에서 공용 사용)
-# - 실제 파일(심볼릭 링크가 아님)이 있으면 최초 1회만 .bak으로 백업하고, 이후 재실행 시에는 그냥 제거
-# - 심볼릭 링크(정상 또는 dangling)면 Remove-FileOrSymlink로 안전하게 제거
-# - 정리 후 New-SymlinkIdempotent로 새 심볼릭 링크 생성
-function Backup-AndLink {
-    param(
-        [string]$LinkPath,
-        [string]$TargetPath,
-        [string]$Description = ""
-    )
-    $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
-
-    $item = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
-    if ($null -ne $item) {
-        $isLink = $item.Attributes -band [System.IO.FileAttributes]::ReparsePoint
-        if (-not $isLink) {
-            $backupPath = "$LinkPath.bak"
-            if (-not (Test-Path $backupPath)) {
-                Move-Item -LiteralPath $LinkPath -Destination $backupPath -Force
-                Write-Info "기존 $label 을(를) $(Split-Path $backupPath -Leaf)으로 백업했습니다."
-            } else {
-                Remove-Item -LiteralPath $LinkPath -Force
-            }
-        } else {
-            Remove-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
-        }
-    } else {
-        # Get-Item으로도 못 찾는 dangling 심볼릭 링크까지 안전하게 정리
-        Remove-FileOrSymlink -Path $LinkPath | Out-Null
-    }
-
-    return New-SymlinkIdempotent -LinkPath $LinkPath -TargetPath $TargetPath -Description $label
-}
+# 심볼릭 링크 헬퍼 3종(Remove-FileOrSymlink, New-SymlinkIdempotent, Backup-AndLink)은
+# _common.ps1 로 일원화되어 공용으로 제공됩니다.
 
 
 

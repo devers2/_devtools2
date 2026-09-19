@@ -258,388 +258,187 @@ echo ""
 # _resolve_action() 은 _install-utils.sh 에서 로드됨 (2.install-core-tools.sh 와 공유)
 
 # ─────────────────────────────────────────────────────────────────
-# 1. fzf 설치 - 터미널용 퍼지 파인더 (목록 검색 도구)
+# 도구 다운로드 URL 생성 헬퍼
 # ─────────────────────────────────────────────────────────────────
-
-# 개별 선택 모드: fzf 버전 결정
-if [ "$VERSION_MODE" = "individual" ]; then
-    echo -n "   🔍 fzf 최신 버전 조회 중... "
-    _fzf_latest=$(fetch_latest_github "junegunn/fzf" | sed 's/^v//')
-    [ -n "$_fzf_latest" ] && echo "완료 ($_fzf_latest)" || echo "실패"
-    echo ""
-    echo "   fzf 설치 버전 선택:"
-    echo "   1) 최신 버전: ${_fzf_latest:-[조회 실패 - 선택 불가]}"
-    echo "   2) 최종 설치 버전: $FZF_PINNED [기본값]"
-    echo ""
-    prompt_read _fzf_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-    case "${_fzf_vs:-2}" in
-        1) [ -n "$_fzf_latest" ] && FZF_VERSION="$_fzf_latest" || FZF_VERSION="$FZF_PINNED" ;;
-        *) FZF_VERSION="$FZF_PINNED" ;;
+get_cli_tool_url() {
+    local tool="$1"
+    local ver="$2"
+    case "$tool" in
+        fzf)
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/junegunn/fzf/releases/download/v${ver}/fzf-${ver}-linux_arm64.tar.gz"
+            else
+                echo "https://github.com/junegunn/fzf/releases/download/v${ver}/fzf-${ver}-linux_amd64.tar.gz"
+            fi
+            ;;
+        lazygit)
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/jesseduffield/lazygit/releases/download/v${ver}/lazygit_${ver}_Linux_arm64.tar.gz"
+            else
+                echo "https://github.com/jesseduffield/lazygit/releases/download/v${ver}/lazygit_${ver}_Linux_x86_64.tar.gz"
+            fi
+            ;;
+        ripgrep)
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/BurntSushi/ripgrep/releases/download/${ver}/ripgrep-${ver}-aarch64-unknown-linux-gnu.tar.gz"
+            else
+                echo "https://github.com/BurntSushi/ripgrep/releases/download/${ver}/ripgrep-${ver}-x86_64-unknown-linux-musl.tar.gz"
+            fi
+            ;;
+        fd)
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/sharkdp/fd/releases/download/v${ver}/fd-v${ver}-aarch64-unknown-linux-musl.tar.gz"
+            else
+                echo "https://github.com/sharkdp/fd/releases/download/v${ver}/fd-v${ver}-x86_64-unknown-linux-musl.tar.gz"
+            fi
+            ;;
+        ast-grep)
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/ast-grep/ast-grep/releases/download/${ver}/app-aarch64-unknown-linux-gnu.zip"
+            else
+                echo "https://github.com/ast-grep/ast-grep/releases/download/${ver}/app-x86_64-unknown-linux-gnu.zip"
+            fi
+            ;;
+        bitwarden)
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/bitwarden/clients/releases/download/cli-v${ver}/bw-linux-arm64-${ver}.zip"
+            else
+                echo "https://vault.bitwarden.com/download/?app=cli&platform=linux"
+            fi
+            ;;
+        rclone)
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/rclone/rclone/releases/download/v${ver}/rclone-v${ver}-linux-arm64.zip"
+            else
+                echo "https://github.com/rclone/rclone/releases/download/v${ver}/rclone-v${ver}-linux-amd64.zip"
+            fi
+            ;;
+        win32yank)
+            echo "https://github.com/equalsraf/win32yank/releases/download/v${ver}/win32yank-x64.zip"
+            ;;
     esac
-    echo ""
-fi
+}
 
-_fzf_action=$(_resolve_action "$FZF_INSTALLED" "fzf")
+# ─────────────────────────────────────────────────────────────────
+# 도구별 버전 확인 및 다운로드/설치 공용 함수
+# ─────────────────────────────────────────────────────────────────
+install_cli_tool() {
+    local id="$1"             # fzf
+    local label="$2"          # "fzf - 터미널용 퍼지 파인더"
+    local repo="$3"           # junegunn/fzf
+    local pinned_ver="$4"     # $FZF_PINNED
+    local current_ver="$5"    # $FZF_VERSION
+    local installed="$6"      # $FZF_INSTALLED
+    local bin_rel_path="$7"   # fzf/fzf
+    local strip_num="${8:-0}" # 0 or 1
+    local toml_key="$9"       # fzf
 
-echo -n "📦 fzf $FZF_VERSION 설치 중..."
-if [ "$_fzf_action" = "skip" ]; then
-    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
-else
-    if [ "$_fzf_action" = "reinstall" ]; then
-        rm -f "$MODULES_DIR/fzf/fzf"
+    # 1. 버전 결정 (개별 선택 모드)
+    local selected_ver="$current_ver"
+    if [ "$VERSION_MODE" = "individual" ]; then
+        if [ "$id" = "bitwarden" ] && [ "$IS_ARM64" != true ]; then
+            selected_ver="(최신)"
+        else
+            echo -n "   🔍 $id 최신 버전 조회 중... "
+            local _latest=""
+            if [ "$id" = "bitwarden" ]; then
+                _latest=$(fetch_latest_bitwarden_cli)
+            elif [ "$id" = "ripgrep" ]; then
+                _latest=$(fetch_latest_github "$repo")
+            else
+                _latest=$(fetch_latest_github "$repo" | sed 's/^v//')
+            fi
+            [ -n "$_latest" ] && echo "완료 ($_latest)" || echo "실패"
+            echo ""
+            echo "   $id 설치 버전 선택:"
+            echo "   1) 최신 버전: ${_latest:-[조회 실패 - 선택 불가]}"
+            echo "   2) 최종 설치 버전: $pinned_ver [기본값]"
+            echo ""
+            local _vs=""
+            prompt_read _vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
+            case "${_vs:-2}" in
+                1) [ -n "$_latest" ] && selected_ver="$_latest" || selected_ver="$pinned_ver" ;;
+                *) selected_ver="$pinned_ver" ;;
+            esac
+            echo ""
+        fi
     fi
-    if [ "$IS_ARM64" = true ]; then
-        _fzf_url="https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_arm64.tar.gz"
-    else
-        _fzf_url="https://github.com/junegunn/fzf/releases/download/v${FZF_VERSION}/fzf-${FZF_VERSION}-linux_amd64.tar.gz"
+
+    # 2. 설치/재설치/건너뛰기 결정
+    local action
+    action=$(_resolve_action "$installed" "$id")
+
+    echo -n "📦 $id $selected_ver 설치 중..."
+    if [ "$action" = "skip" ]; then
+        echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
+        return 0
     fi
-    if safe_download_and_extract "$_fzf_url" "$MODULES_DIR/fzf"; then
-        echo " 완료"
-        if [ "$FZF_VERSION" != "$FZF_PINNED" ]; then
-            update_pinned_version "fzf" "$FZF_VERSION"
+
+    # 3. 재설치 시 기존 바이너리 삭제
+    if [ "$action" = "reinstall" ]; then
+        rm -f "$MODULES_DIR/$bin_rel_path"
+    fi
+
+    local target_dir="$MODULES_DIR/$(dirname "$bin_rel_path")"
+    mkdir -p "$target_dir"
+
+    # 4. 다운로드 URL 생성
+    local dl_url
+    dl_url=$(get_cli_tool_url "$id" "$selected_ver")
+
+    # 5. 다운로드 및 설치
+    local install_ok=false
+    if [ "$id" = "rclone" ]; then
+        if (curl -sLf --connect-timeout 15 "$dl_url" -o /tmp/rclone.zip && \
+             unzip -qo /tmp/rclone.zip -d /tmp/rclone_tmp && \
+             mv -f /tmp/rclone_tmp/rclone-*/rclone "$MODULES_DIR/rclone/rclone" && \
+             rm -rf /tmp/rclone.zip /tmp/rclone_tmp); then
+            install_ok=true
+        fi
+    elif [ "$strip_num" -gt 0 ]; then
+        if safe_download_and_extract "$dl_url" "$target_dir" "$strip_num"; then
+            install_ok=true
         fi
     else
-        echo " ❌ fzf 다운로드/설치 실패" >&2
+        if safe_download_and_extract "$dl_url" "$target_dir"; then
+            install_ok=true
+        fi
     fi
-fi
 
-# ─────────────────────────────────────────────────────────────────
-# 2. lazygit 설치 - 터미널 UI 기반 Git 관리 도구
-# ─────────────────────────────────────────────────────────────────
-
-# 개별 선택 모드: lazygit 버전 결정
-if [ "$VERSION_MODE" = "individual" ]; then
-    echo -n "   🔍 lazygit 최신 버전 조회 중... "
-    _lg_latest=$(fetch_latest_github "jesseduffield/lazygit" | sed 's/^v//')
-    [ -n "$_lg_latest" ] && echo "완료 ($_lg_latest)" || echo "실패"
-    echo ""
-    echo "   lazygit 설치 버전 선택:"
-    echo "   1) 최신 버전: ${_lg_latest:-[조회 실패 - 선택 불가]}"
-    echo "   2) 최종 설치 버전: $LAZYGIT_PINNED [기본값]"
-    echo ""
-    prompt_read _lg_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-    case "${_lg_vs:-2}" in
-        1) [ -n "$_lg_latest" ] && LAZYGIT_VERSION="$_lg_latest" || LAZYGIT_VERSION="$LAZYGIT_PINNED" ;;
-        *) LAZYGIT_VERSION="$LAZYGIT_PINNED" ;;
-    esac
-    echo ""
-fi
-
-_lg_action=$(_resolve_action "$LAZYGIT_INSTALLED" "lazygit")
-
-echo -n "📦 lazygit $LAZYGIT_VERSION 설치 중..."
-if [ "$_lg_action" = "skip" ]; then
-    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
-else
-    if [ "$_lg_action" = "reinstall" ]; then
-        rm -f "$MODULES_DIR/lazygit/lazygit"
-    fi
-    if [ "$IS_ARM64" = true ]; then
-        _lg_url="https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_arm64.tar.gz"
-    else
-        _lg_url="https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_x86_64.tar.gz"
-    fi
-    if safe_download_and_extract "$_lg_url" "$MODULES_DIR/lazygit"; then
+    if [ "$install_ok" = true ]; then
+        if [ "$id" = "ast-grep" ]; then
+            (cd "$target_dir" && ([ -f ast-grep ] && [ ! -f sg ] && ln -sf ast-grep sg || true) && ([ -f sg ] && [ ! -f ast-grep ] && ln -sf sg ast-grep || true))
+        elif [ "$id" = "bitwarden" ]; then
+            chmod +x "$target_dir/bw" 2>/dev/null || true
+        elif [ "$id" = "win32yank" ]; then
+            chmod +x "$target_dir/win32yank.exe" 2>/dev/null || true
+        fi
         echo " 완료"
-        if [ "$LAZYGIT_VERSION" != "$LAZYGIT_PINNED" ]; then
-            update_pinned_version "lazygit" "$LAZYGIT_VERSION"
+
+        if [ -n "$toml_key" ] && [ "$selected_ver" != "$pinned_ver" ] && [ "$selected_ver" != "(최신)" ]; then
+            update_pinned_version "$toml_key" "$selected_ver"
         fi
     else
-        echo " ❌ lazygit 다운로드/설치 실패" >&2
+        echo " ❌ $id 다운로드/설치 실패" >&2
     fi
-fi
+}
 
 # ─────────────────────────────────────────────────────────────────
-# 3. ripgrep (rg) 설치 - 코드 내 문자열 초고속 검색 도구
+# 각 CLI 도구 순차 설치 실행
 # ─────────────────────────────────────────────────────────────────
-
-# 개별 선택 모드: ripgrep 버전 결정
-if [ "$VERSION_MODE" = "individual" ]; then
-    echo -n "   🔍 ripgrep 최신 버전 조회 중... "
-    _rg_latest=$(fetch_latest_github "BurntSushi/ripgrep")
-    [ -n "$_rg_latest" ] && echo "완료 ($_rg_latest)" || echo "실패"
-    echo ""
-    echo "   ripgrep 설치 버전 선택:"
-    echo "   1) 최신 버전: ${_rg_latest:-[조회 실패 - 선택 불가]}"
-    echo "   2) 최종 설치 버전: $RIPGREP_PINNED [기본값]"
-    echo ""
-    prompt_read _rg_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-    case "${_rg_vs:-2}" in
-        1) [ -n "$_rg_latest" ] && RIPGREP_VERSION="$_rg_latest" || RIPGREP_VERSION="$RIPGREP_PINNED" ;;
-        *) RIPGREP_VERSION="$RIPGREP_PINNED" ;;
-    esac
-    echo ""
-fi
-
-_rg_action=$(_resolve_action "$RIPGREP_INSTALLED" "ripgrep")
-
-echo -n "📦 ripgrep $RIPGREP_VERSION 설치 중..."
-if [ "$_rg_action" = "skip" ]; then
-    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
-else
-    if [ "$_rg_action" = "reinstall" ]; then
-        rm -f "$MODULES_DIR/ripgrep/rg"
-    fi
-    if [ "$IS_ARM64" = true ]; then
-        _rg_url="https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep-${RIPGREP_VERSION}-aarch64-unknown-linux-gnu.tar.gz"
-    else
-        _rg_url="https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/ripgrep-${RIPGREP_VERSION}-x86_64-unknown-linux-musl.tar.gz"
-    fi
-    if safe_download_and_extract "$_rg_url" "$MODULES_DIR/ripgrep" 1; then
-        echo " 완료"
-        if [ "$RIPGREP_VERSION" != "$RIPGREP_PINNED" ]; then
-            update_pinned_version "ripgrep" "$RIPGREP_VERSION"
-        fi
-    else
-        echo " ❌ ripgrep 다운로드/설치 실패" >&2
-    fi
-fi
-
-# ─────────────────────────────────────────────────────────────────
-# 4. fd-find (fd) 설치 - 파일 이름 초고속 검색 도구 (find 대용)
-# ─────────────────────────────────────────────────────────────────
-
-# 개별 선택 모드: fd 버전 결정
-if [ "$VERSION_MODE" = "individual" ]; then
-    echo -n "   🔍 fd-find 최신 버전 조회 중... "
-    _fd_latest=$(fetch_latest_github "sharkdp/fd" | sed 's/^v//')
-    [ -n "$_fd_latest" ] && echo "완료 ($_fd_latest)" || echo "실패"
-    echo ""
-    echo "   fd-find 설치 버전 선택:"
-    echo "   1) 최신 버전: ${_fd_latest:-[조회 실패 - 선택 불가]}"
-    echo "   2) 최종 설치 버전: $FD_PINNED [기본값]"
-    echo ""
-    prompt_read _fd_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-    case "${_fd_vs:-2}" in
-        1) [ -n "$_fd_latest" ] && FD_VERSION="$_fd_latest" || FD_VERSION="$FD_PINNED" ;;
-        *) FD_VERSION="$FD_PINNED" ;;
-    esac
-    echo ""
-fi
-
-_fd_action=$(_resolve_action "$FD_INSTALLED" "fd-find")
-
-echo -n "📦 fd-find $FD_VERSION 설치 중..."
-if [ "$_fd_action" = "skip" ]; then
-    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
-else
-    if [ "$_fd_action" = "reinstall" ]; then
-        rm -f "$MODULES_DIR/fd/fd"
-    fi
-    if [ "$IS_ARM64" = true ]; then
-        _fd_url="https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-aarch64-unknown-linux-musl.tar.gz"
-    else
-        _fd_url="https://github.com/sharkdp/fd/releases/download/v${FD_VERSION}/fd-v${FD_VERSION}-x86_64-unknown-linux-musl.tar.gz"
-    fi
-    if safe_download_and_extract "$_fd_url" "$MODULES_DIR/fd" 1; then
-        echo " 완료"
-        if [ "$FD_VERSION" != "$FD_PINNED" ]; then
-            update_pinned_version "fd" "$FD_VERSION"
-        fi
-    else
-        echo " ❌ fd-find 다운로드/설치 실패" >&2
-    fi
-fi
-
-# ─────────────────────────────────────────────────────────────────
-# 5. ast-grep (sg) 설치 - 추상 구문 트리(AST) 기반의 구조적 코드 검색 도구
-# ─────────────────────────────────────────────────────────────────
-
-# 개별 선택 모드: ast-grep 버전 결정
-if [ "$VERSION_MODE" = "individual" ]; then
-    echo -n "   🔍 ast-grep 최신 버전 조회 중... "
-    _sg_latest=$(fetch_latest_github "ast-grep/ast-grep" | sed 's/^v//')
-    [ -n "$_sg_latest" ] && echo "완료 ($_sg_latest)" || echo "실패"
-    echo ""
-    echo "   ast-grep 설치 버전 선택:"
-    echo "   1) 최신 버전: ${_sg_latest:-[조회 실패 - 선택 불가]}"
-    echo "   2) 최종 설치 버전: $ASTGREP_PINNED [기본값]"
-    echo ""
-    prompt_read _sg_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-    case "${_sg_vs:-2}" in
-        1) [ -n "$_sg_latest" ] && ASTGREP_VERSION="$_sg_latest" || ASTGREP_VERSION="$ASTGREP_PINNED" ;;
-        *) ASTGREP_VERSION="$ASTGREP_PINNED" ;;
-    esac
-    echo ""
-fi
-
-_sg_action=$(_resolve_action "$ASTGREP_INSTALLED" "ast-grep")
-
-echo -n "📦 ast-grep $ASTGREP_VERSION 설치 중..."
-if [ "$_sg_action" = "skip" ]; then
-    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
-else
-    if [ "$_sg_action" = "reinstall" ]; then
-        rm -f "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/ast-grep/ast-grep"
-    fi
-    # ast-grep 태그 형식: ${ASTGREP_VERSION} (v 없음), 에셋 파일명: app-{arch}-unknown-linux-gnu.zip
-    if [ "$IS_ARM64" = true ]; then
-        _sg_url="https://github.com/ast-grep/ast-grep/releases/download/${ASTGREP_VERSION}/app-aarch64-unknown-linux-gnu.zip"
-    else
-        _sg_url="https://github.com/ast-grep/ast-grep/releases/download/${ASTGREP_VERSION}/app-x86_64-unknown-linux-gnu.zip"
-    fi
-    if safe_download_and_extract "$_sg_url" "$MODULES_DIR/ast-grep"; then
-        (cd "$MODULES_DIR/ast-grep" && ([ -f ast-grep ] && [ ! -f sg ] && ln -sf ast-grep sg || true) && ([ -f sg ] && [ ! -f ast-grep ] && ln -sf sg ast-grep || true))
-        echo " 완료"
-        if [ "$ASTGREP_VERSION" != "$ASTGREP_PINNED" ]; then
-            update_pinned_version "ast_grep" "$ASTGREP_VERSION"
-        fi
-    else
-        echo " ❌ ast-grep 다운로드/설치 실패" >&2
-    fi
-fi
-
-# ─────────────────────────────────────────────────────────────────
-# 6. Bitwarden CLI (bw) 설치 - 안전한 서버 로그인 연동 및 패스워드 매니저 CLI
-# ─────────────────────────────────────────────────────────────────
-
-# 개별 선택 모드: bitwarden 버전 결정 (ARM64만 해당)
-if [ "$VERSION_MODE" = "individual" ] && [ "$IS_ARM64" = true ]; then
-    echo -n "   🔍 Bitwarden CLI 최신 버전 조회 중... "
-    _bw_latest=$(fetch_latest_bitwarden_cli)
-    [ -n "$_bw_latest" ] && echo "완료 ($_bw_latest)" || echo "실패"
-    echo ""
-    echo "   Bitwarden CLI 설치 버전 선택 (ARM64):"
-    echo "   1) 최신 버전: ${_bw_latest:-[조회 실패 - 선택 불가]}"
-    echo "   2) 최종 설치 버전: $BITWARDEN_ARM_PINNED [기본값]"
-    echo ""
-    prompt_read _bw_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-    case "${_bw_vs:-2}" in
-        1) [ -n "$_bw_latest" ] && BITWARDEN_ARM_VERSION="$_bw_latest" || BITWARDEN_ARM_VERSION="$BITWARDEN_ARM_PINNED" ;;
-        *) BITWARDEN_ARM_VERSION="$BITWARDEN_ARM_PINNED" ;;
-    esac
-    echo ""
-fi
-
-_bw_action=$(_resolve_action "$BITWARDEN_INSTALLED" "Bitwarden CLI")
-
-echo -n "📦 Bitwarden CLI 설치 중..."
-if [ "$_bw_action" = "skip" ]; then
-    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
-else
-    if [ "$_bw_action" = "reinstall" ]; then
-        rm -f "$MODULES_DIR/bitwarden/bw"
-    fi
-    if [ "$IS_ARM64" = true ]; then
-        # ARM64용은 GitHub 클라이언트 릴리즈 주소를 직접 이용 (ARM64 공식 바이너리)
-        _bw_url="https://github.com/bitwarden/clients/releases/download/cli-v${BITWARDEN_ARM_VERSION}/bw-linux-arm64-${BITWARDEN_ARM_VERSION}.zip"
-    else
-        # x86_64용 공식 다이렉트 다운로드 주소 (항상 최신)
-        _bw_url="https://vault.bitwarden.com/download/?app=cli&platform=linux"
-    fi
-    if safe_download_and_extract "$_bw_url" "$MODULES_DIR/bitwarden"; then
-        chmod +x "$MODULES_DIR/bitwarden/bw" 2>/dev/null || true
-        echo " 완료"
-        if [ "$IS_ARM64" = true ] && [ "$BITWARDEN_ARM_VERSION" != "$BITWARDEN_ARM_PINNED" ]; then
-            update_pinned_version "bitwarden_arm" "$BITWARDEN_ARM_VERSION"
-        fi
-    else
-        echo " ❌ Bitwarden CLI 다운로드/설치 실패" >&2
-    fi
-fi
-
-# ─────────────────────────────────────────────────────────────────
-# 7. rclone 설치 - 클라우드 스토리지 동기화 도구
-# ─────────────────────────────────────────────────────────────────
-
-# 개별 선택 모드: rclone 버전 결정
-if [ "$VERSION_MODE" = "individual" ]; then
-    echo -n "   🔍 rclone 최신 버전 조회 중... "
-    _rc_latest=$(fetch_latest_github "rclone/rclone" | sed 's/^v//')
-    [ -n "$_rc_latest" ] && echo "완료 ($_rc_latest)" || echo "실패"
-    echo ""
-    echo "   rclone 설치 버전 선택:"
-    echo "   1) 최신 버전: ${_rc_latest:-[조회 실패 - 선택 불가]}"
-    echo "   2) 최종 설치 버전: $RCLONE_PINNED [기본값]"
-    echo ""
-    prompt_read _rc_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-    case "${_rc_vs:-2}" in
-        1) [ -n "$_rc_latest" ] && RCLONE_VERSION="$_rc_latest" || RCLONE_VERSION="$RCLONE_PINNED" ;;
-        *) RCLONE_VERSION="$RCLONE_PINNED" ;;
-    esac
-    echo ""
-fi
-
-_rc_action=$(_resolve_action "$RCLONE_INSTALLED" "rclone")
-
-echo -n "📦 rclone $RCLONE_VERSION 설치 중..."
-if [ "$_rc_action" = "skip" ]; then
-    echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
-else
-    if [ "$_rc_action" = "reinstall" ]; then
-        rm -f "$MODULES_DIR/rclone/rclone"
-    fi
-    mkdir -p "$MODULES_DIR/rclone"
-    # ⚠️ [다운로드 경로 설계 원칙: GitHub Releases 사용]
-    # - rclone 공식 다운로드 서버(downloads.rclone.org)는 국내 ISP 및 특정 네트워크 환경에서
-    #   패킷 드랍, 접속 차단 또는 응답 지연(Hang)이 빈번하게 발생합니다.
-    # - 공식 저장소(rclone/rclone)의 GitHub Releases는 rclone 팀의 CI/CD에서 동일하게 배포되는 공식 파일이며,
-    #   글로벌 CDN(Fastly/Azure)을 통해 전 세계 어디서나 빠르고 안정적으로 다운로드됩니다.
-    # - 무한 멈춤 방지를 위해 -f(HTTP 오류 감지) 및 --connect-timeout 15 옵션을 적용합니다.
-    if [ "$IS_ARM64" = true ]; then
-        _rc_url="https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-arm64.zip"
-    else
-        _rc_url="https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
-    fi
-    (curl -sLf --connect-timeout 15 "$_rc_url" -o /tmp/rclone.zip && \
-     unzip -qo /tmp/rclone.zip -d /tmp/rclone_tmp && \
-     mv -f /tmp/rclone_tmp/rclone-*/rclone "$MODULES_DIR/rclone/rclone" && \
-     rm -rf /tmp/rclone.zip /tmp/rclone_tmp) &
-    show_spinner $!
-    echo " 완료"
-    if [ "$RCLONE_VERSION" != "$RCLONE_PINNED" ]; then
-        update_pinned_version "rclone" "$RCLONE_VERSION"
-    fi
-fi
+install_cli_tool "fzf" "fzf - 터미널용 퍼지 파인더" "junegunn/fzf" "$FZF_PINNED" "$FZF_VERSION" "$FZF_INSTALLED" "fzf/fzf" 0 "fzf"
+install_cli_tool "lazygit" "lazygit - 터미널 UI Git 도구" "jesseduffield/lazygit" "$LAZYGIT_PINNED" "$LAZYGIT_VERSION" "$LAZYGIT_INSTALLED" "lazygit/lazygit" 0 "lazygit"
+install_cli_tool "ripgrep" "ripgrep (rg) - 코드 검색 도구" "BurntSushi/ripgrep" "$RIPGREP_PINNED" "$RIPGREP_VERSION" "$RIPGREP_INSTALLED" "ripgrep/rg" 1 "ripgrep"
+install_cli_tool "fd" "fd-find (fd) - 파일 검색 도구" "sharkdp/fd" "$FD_PINNED" "$FD_VERSION" "$FD_INSTALLED" "fd/fd" 1 "fd"
+install_cli_tool "ast-grep" "ast-grep (sg) - 구조적 코드 검색 도구" "ast-grep/ast-grep" "$ASTGREP_PINNED" "$ASTGREP_VERSION" "$ASTGREP_INSTALLED" "ast-grep/ast-grep" 0 "ast_grep"
+install_cli_tool "bitwarden" "Bitwarden CLI (bw)" "bitwarden/clients" "$BITWARDEN_ARM_PINNED" "$BITWARDEN_ARM_VERSION" "$BITWARDEN_INSTALLED" "bitwarden/bw" 0 "bitwarden_arm"
+install_cli_tool "rclone" "rclone - 클라우드 동기화 도구" "rclone/rclone" "$RCLONE_PINNED" "$RCLONE_VERSION" "$RCLONE_INSTALLED" "rclone/rclone" 0 "rclone"
 
 # rclone 구성 파일 디렉터리 보장 ($DEVTOOLS2/modules/rclone/.config — git 미추적 영역)
 mkdir -p "$MODULES_DIR/rclone/.config"
 
-# ─────────────────────────────────────────────────────────────────
-# 8. (WSL2 전용) win32yank 설치 (Neovim의 Windows 클립보드 공유 용도)
-# ─────────────────────────────────────────────────────────────────
 if [ "$IS_WSL2" = true ]; then
-    # 개별 선택 모드: win32yank 버전 결정
-    if [ "$VERSION_MODE" = "individual" ]; then
-        echo -n "   🔍 win32yank 최신 버전 조회 중... "
-        _wy_latest=$(fetch_latest_github "equalsraf/win32yank" | sed 's/^v//')
-        [ -n "$_wy_latest" ] && echo "완료 ($_wy_latest)" || echo "실패"
-        echo ""
-        echo "   win32yank 설치 버전 선택:"
-        echo "   1) 최신 버전: ${_wy_latest:-[조회 실패 - 선택 불가]}"
-        echo "   2) 최종 설치 버전: $WIN32YANK_PINNED [기본값]"
-        echo ""
-        prompt_read _wy_vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-        case "${_wy_vs:-2}" in
-            1) [ -n "$_wy_latest" ] && WIN32YANK_VERSION="$_wy_latest" || WIN32YANK_VERSION="$WIN32YANK_PINNED" ;;
-            *) WIN32YANK_VERSION="$WIN32YANK_PINNED" ;;
-        esac
-        echo ""
-    fi
-
-    _wy_action=$(_resolve_action "$WIN32YANK_INSTALLED" "win32yank")
-
-    echo -n "📦 (WSL2) win32yank $WIN32YANK_VERSION 설치 중..."
-    if [ "$_wy_action" = "skip" ]; then
-        echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
-    else
-        if [ "$_wy_action" = "reinstall" ]; then
-            rm -f "$MODULES_DIR/win32yank/win32yank.exe"
-        fi
-        mkdir -p "$MODULES_DIR/win32yank"
-        _wy_url="https://github.com/equalsraf/win32yank/releases/download/v${WIN32YANK_VERSION}/win32yank-x64.zip"
-        if safe_download_and_extract "$_wy_url" "$MODULES_DIR/win32yank"; then
-            chmod +x "$MODULES_DIR/win32yank/win32yank.exe" 2>/dev/null || true
-            echo " 완료"
-            if [ "$WIN32YANK_VERSION" != "$WIN32YANK_PINNED" ]; then
-                update_pinned_version "win32yank" "$WIN32YANK_VERSION"
-            fi
-        else
-            echo " ❌ win32yank 다운로드/설치 실패" >&2
-        fi
-    fi
-
-    # WSL2 클립보드 연동 도구 win32yank PATH 동적 등록
+    install_cli_tool "win32yank" "win32yank - 클립보드 공유 도구" "equalsraf/win32yank" "$WIN32YANK_PINNED" "$WIN32YANK_VERSION" "$WIN32YANK_INSTALLED" "win32yank/win32yank.exe" 0 "win32yank"
     if [ -d "$MODULES_DIR/win32yank" ]; then
         ensure_path_in_bashrc "$MODULES_DIR/win32yank"
     fi
