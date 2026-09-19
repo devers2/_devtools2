@@ -53,9 +53,9 @@ confirm-close-surface = false
 keybind = alt+v=new_split:right
 keybind = alt+s=new_split:down
 
-# 스크립트 연동 (텍스트 직접 전송)
-keybind = alt+c=text:$DEVTOOLS2/scripts/fzf/command-palette
-keybind = alt+h=text:$DEVTOOLS2/scripts/fzf/bw-server-manager
+# 스크립트 연동 — 터미널 대신 셸(readline)에 바인딩되어 있음
+# ~/.bashrc: bind -x '"\ec": command-palette'  bind -x '"\eh": bw-server-manager'
+# (VSCode·IntelliJ 내장 터미널, TUI 안 문자열 새짐 방지를 위해 터미널 바인딩 제거)
 
 # 타이핑 중 마우스 포인터 자동 숨김 (텍스트 가독성 최적화)
 mouse-hide-while-typing = true

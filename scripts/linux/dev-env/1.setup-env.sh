@@ -210,7 +210,33 @@ if ! grep -qF "devtools2/env.sh" ~/.bashrc 2>/dev/null; then
 fi
 
 print_subsep
-print_step "[Step 2] 로그인 쉘 연동 설정 (~/.profile)"
+print_step "[Step 2] 셸(readline) 단축키 바인딩 (~/.bashrc)"
+# bind -x 는 대화형 bash 전용이므로 ~/.bashrc 에 idempotent 하게 주입한다.
+# TUI(nvim, lazygit 등) 안에서 키 문자열이 그대로 새지 않고,
+# VSCode·IntelliJ 내장 터미널을 포함한 모든 bash 세션에서 동작한다.
+_BIND_BLOCK_START='# === DEVTOOLS2 readline 단축키 시작 ==='
+_BIND_BLOCK_END='# === DEVTOOLS2 readline 단축키 끝 ==='
+
+# 기존 블록 제거 후 재주입 (멱등성 보장)
+sed -i "/$_BIND_BLOCK_START/,/$_BIND_BLOCK_END/d" ~/.bashrc 2>/dev/null || true
+
+cat >> ~/.bashrc << 'BIND_EOF'
+# === DEVTOOLS2 readline 단축키 시작 ===
+# Alt+c : 명령 팔레트 (command-palette)
+# Alt+h : 서버 관리자 (bw-server-manager)
+# bind -x 는 대화형 bash 전용 — PS1 이 있을 때만(대화형 셸) 등록한다.
+if [ -n "${PS1:-}" ]; then
+    bind -x '"\ec": "$DEVTOOLS2/scripts/fzf/command-palette"' 2>/dev/null || true
+    bind -x '"\eh": "$DEVTOOLS2/scripts/fzf/bw-server-manager"'  2>/dev/null || true
+fi
+# === DEVTOOLS2 readline 단축키 끝 ===
+BIND_EOF
+
+print_done "~/.bashrc 에 readline 단축키 바인딩을 등록했습니다 (Alt+c, Alt+h)."
+echo ""
+
+print_subsep
+print_step "[Step 3] 로그인 쉘 연동 설정 (~/.profile)"
 # 4) ~/.profile 연동
 if [ -f "$HOME/.profile" ]; then
     if ! grep -qF "devtools2/env.sh" "$HOME/.profile" 2>/dev/null; then
@@ -233,7 +259,7 @@ if [ -f "$HOME/.bash_profile" ]; then
 fi
 
 print_subsep
-print_step "[Step 3] 에디터(Neovim, Zed) 설정: 심볼릭 링크 생성 및 권한 검사"
+print_step "[Step 4] 에디터(Neovim, Zed) 설정: 심볼릭 링크 생성 및 권한 검사"
 echo ""
 # 공통 심볼릭 링크 유틸리티 스크립트 — 로컬에 없으면 GitHub에서 직접 스트리밍 실행
 _SYMLINK_RAW="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/cmd/create-symbolic-link.sh"
@@ -345,7 +371,7 @@ echo "[완료] 에디터(Neovim, Zed) 설정: 심볼릭 링크 생성 및 권한
 echo ""
 
 print_subsep
-print_step "[Step 4] 폰트 설치"
+print_step "[Step 5] 폰트 설치"
 echo ""
 mkdir -p ~/.local/share/fonts
 if [ -d "$DEVTOOLS2/assets/fonts" ]; then
@@ -359,7 +385,7 @@ echo "[완료] 폰트 설치 완료!"
 echo ""
 
 print_subsep
-print_step "[Step 5] 사용자 npmrc 권한 및 레거시 설정 검사"
+print_step "[Step 6] 사용자 npmrc 권한 및 레거시 설정 검사"
 echo ""
 if [ -f "$HOME/.npmrc" ]; then
     chmod 600 "$HOME/.npmrc" 2>/dev/null || true
@@ -372,7 +398,7 @@ echo ""
 
 echo "---------------------------------------------------------------------------"
 print_subsep
-print_step "[Step 6] Gradle/Maven 심볼릭 링크 생성 (용량 최적화)"
+print_step "[Step 7] Gradle/Maven 심볼릭 링크 생성 (용량 최적화)"
 echo ""
 
 # Gradle 의 사용자 설정은 홈 디렉토리에 유지하고 용량이 큰 Caches 와 Wrapper 는 공용 저장소로 링크를 생성한다.
@@ -390,7 +416,7 @@ _run_symlink "$DEVTOOLS2" "$HOME/_devtools2"
 echo ""
 
 print_subsep
-print_step "[Step 7] Gradle 사용자 전역 설정 (gradle.properties)"
+print_step "[Step 8] Gradle 사용자 전역 설정 (gradle.properties)"
 echo ""
 
 GRADLE_PROPS="$HOME/.gradle/gradle.properties"
