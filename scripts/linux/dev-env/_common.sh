@@ -112,11 +112,12 @@ prompt_password() {
             continue
         fi
 
-        # 비영문/비ASCII 문자(한글, 일어, 중문, 전각문자 등: ASCII 32~126 범위를 벗어나는 모든 유니코드) 검사
+        # 비영문/비ASCII 문자(한글, 일어, 중문, 전각문자 등: ASCII 32~126 범위를 벗어나는 모든 문자) 검사
+        # ⚠️ 외부 프로세스(grep, python3 sys.argv 등)를 호출하면 커맨드라인 인자로 비밀번호가 노출되므로,
+        # bash 서브셸(( ... )) 내부에서 C 로케일 glob 패턴 매칭으로 완전히 안전하게 인메모리 검사합니다.
+        # C 로케일에서 [:print:] 는 0x20~0x7E 이므로, 그 밖의 바이트가 하나라도 있으면 참
         local _has_non_ascii=false
-        if echo "$_input" | grep -Pq '[^\x20-\x7E]' 2>/dev/null; then
-            _has_non_ascii=true
-        elif python3 -c "import sys, re; sys.exit(0 if re.search(r'[^\x20-\x7E]', sys.argv[1]) else 1)" "$_input" 2>/dev/null; then
+        if ( LC_ALL=C; [[ "$_input" == *[![:print:]]* ]] ); then
             _has_non_ascii=true
         fi
 

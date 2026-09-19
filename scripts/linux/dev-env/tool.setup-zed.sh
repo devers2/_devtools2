@@ -73,7 +73,7 @@ if [ "$_do_zed" = true ]; then
             'x86_64' \
             'aarch64' \
             'zed'
-        ensure_path_in_bashrc "$DEVTOOLS2/modules/zed"
+        ensure_path_in_bashrc "$DEVTOOLS2/modules/zed/bin"
         print_done "Zed 설치 완료"
     fi
 else

@@ -50,17 +50,29 @@ _mc_decode_base64_to_file() {
     fi
 
     mkdir -p "$(dirname "$_dst")"
+    chmod 700 "$(dirname "$_dst")" 2>/dev/null || true
 
     # macOS(BSD) base64는 -D, GNU base64는 -d를 사용 (플랫폼별 분기)
     local _is_mac=false
     [[ "$OSTYPE" == darwin* ]] && _is_mac=true
 
-    if $_is_mac && printf '%s' "$_b64" | base64 -D >"$_dst" 2>/dev/null; then
-        return 0
-    elif printf '%s' "$_b64" | base64 -d >"$_dst" 2>/dev/null; then
+    # ⚠️ 실패 시 기존 secring.gpg가 삭제되거나 손상되지 않도록 임시 파일에 디코딩 후 원자적 교체
+    local _tmp_dst
+    _tmp_dst=$(umask 077 && mktemp "$(dirname "$_dst")/secring.tmp.XXXXXX" 2>/dev/null || mktemp)
+    local _decoded=false
+
+    if $_is_mac && printf '%s' "$_b64" | base64 -D >"$_tmp_dst" 2>/dev/null; then
+        _decoded=true
+    elif printf '%s' "$_b64" | base64 -d >"$_tmp_dst" 2>/dev/null; then
+        _decoded=true
+    fi
+
+    if [ "$_decoded" = true ] && [ -s "$_tmp_dst" ]; then
+        chmod 600 "$_tmp_dst" 2>/dev/null || true
+        mv -f "$_tmp_dst" "$_dst"
         return 0
     fi
-    rm -f "$_dst"
+    rm -f "$_tmp_dst"
     return 1
 }
 
@@ -300,9 +312,9 @@ setup_maven_central_publishing() {
     _KEYRING_SIZE=$(wc -c <"$_KEYRING_PATH" | tr -d ' ')
     echo "✅ GPG 시크릿 키링 복원 완료: $_KEYRING_PATH (${_KEYRING_SIZE} bytes)"
 
-    # ── 8) gradle.properties에 반영 ──
     mkdir -p "$GRADLE_PROPS_DIR"
-    touch "$GRADLE_PROPS_FILE"
+    (umask 077 && touch "$GRADLE_PROPS_FILE")
+    chmod 600 "$GRADLE_PROPS_FILE" 2>/dev/null || true
 
     _update_gradle_properties_section "$GRADLE_PROPS_FILE" "Maven Central Portal" \
         "centralUsername=${_CP_USER}" \

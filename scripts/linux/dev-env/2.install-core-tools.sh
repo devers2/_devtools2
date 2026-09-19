@@ -62,42 +62,7 @@ LOG_DIR="$DEVTOOLS2/data/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/deploy_$(date +%Y%m%d_%H%M%S).log"
 
-# ARCH/IS_ARM64/IS_WSL2/show_spinner 는 _install-utils.sh / _common.sh 에서 로드됨
-
-install_tool() {
-    local URL_TEMPLATE="$1"
-    local X64_ARCH="$2"
-    local ARM_ARCH="$3"
-    local TARGET_DIR="$4"
-    local SELECTED_ARCH
-    local DOWNLOAD_URL
-    local FILE_NAME
-
-    # 아키텍처에 맞는 아키텍처 식별 문자열 선택
-    if [ "$IS_ARM64" = true ]; then
-        SELECTED_ARCH="$ARM_ARCH"
-    else
-        SELECTED_ARCH="$X64_ARCH"
-    fi
-
-    # URL 템플릿의 {ARCH} 치환
-    DOWNLOAD_URL="${URL_TEMPLATE//\{ARCH\}/$SELECTED_ARCH}"
-    FILE_NAME=$(basename "$DOWNLOAD_URL")
-
-    download_with_progress "$DOWNLOAD_URL" "$FILE_NAME" "$TARGET_DIR"
-
-    echo -n "   📦 $TARGET_DIR 압축 해제 중..."
-    tar -xf "$FILE_NAME" &
-    show_spinner $!
-    echo " 완료"
-
-    # 폴더 이름 정리 (패턴 매칭으로 이동 후 정리)
-    local EXTRACTED_DIR=$(tar -tf "$FILE_NAME" | head -1 | cut -f1 -d"/")
-    mv "$EXTRACTED_DIR" "$TARGET_DIR"
-
-    rm "$FILE_NAME"
-    echo "   ✅ $TARGET_DIR ($ARCH) 설치 완료"
-}
+# ARCH/IS_ARM64/IS_WSL2/show_spinner/install_tool 은 _install-utils.sh / _common.sh 에서 로드됨
 
 # 모든 표준 출력(stdout)과 표준 에러(stderr)를 터미널과 로그 파일에 동시에 기록
 exec > >(tee -i "$LOG_FILE") 2>&1

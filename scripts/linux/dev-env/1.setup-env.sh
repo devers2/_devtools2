@@ -174,6 +174,10 @@ if [ "$IS_WSL2" = false ]; then
     if [ -d "$DEVTOOLS2/modules/ghostty" ]; then
         ensure_path_in_bashrc "$DEVTOOLS2/modules/ghostty"
     fi
+    # 네이티브 리눅스: Zed 에디터
+    if [ -d "$DEVTOOLS2/modules/zed/bin" ]; then
+        ensure_path_in_bashrc "$DEVTOOLS2/modules/zed/bin"
+    fi
 else
     # WSL2: Windows 클립보드 연동 도구 win32yank
     if [ -d "$DEVTOOLS2/modules/win32yank" ]; then

@@ -52,6 +52,53 @@ _ensure_pkg() {
     fi
 }
 
+# ── 아키텍처별 tar.gz 아카이브 다운로드 및 폴더 정리 설치 공용 함수 ─────────
+# 사용법: install_tool <URL_TEMPLATE> <X64_ARCH> <ARM_ARCH> <TARGET_DIR>
+# URL_TEMPLATE 내 '{ARCH}' 문자열이 현재 아키텍처 식별자로 치환됩니다.
+install_tool() {
+    local URL_TEMPLATE="$1"
+    local X64_ARCH="$2"
+    local ARM_ARCH="$3"
+    local TARGET_DIR="$4"
+    local SELECTED_ARCH
+    local DOWNLOAD_URL
+    local FILE_NAME
+
+    # 아키텍처에 맞는 아키텍처 식별 문자열 선택
+    if [ "$IS_ARM64" = true ]; then
+        SELECTED_ARCH="$ARM_ARCH"
+    else
+        SELECTED_ARCH="$X64_ARCH"
+    fi
+
+    # URL 템플릿의 {ARCH} 치환
+    DOWNLOAD_URL="${URL_TEMPLATE//\{ARCH\}/$SELECTED_ARCH}"
+    FILE_NAME=$(basename "$DOWNLOAD_URL")
+
+    if ! download_with_progress "$DOWNLOAD_URL" "$FILE_NAME" "$TARGET_DIR"; then
+        echo "   ❌ $TARGET_DIR 다운로드 실패 ($DOWNLOAD_URL)" >&2
+        rm -f "$FILE_NAME"
+        return 1
+    fi
+
+    echo -n "   📦 $TARGET_DIR 압축 해제 중..."
+    tar -xf "$FILE_NAME" &
+    show_spinner $!
+    wait $! 2>/dev/null || true
+    echo " 완료"
+
+    # 폴더 이름 정리 (패턴 매칭으로 이동 후 정리)
+    local EXTRACTED_DIR
+    EXTRACTED_DIR=$(tar -tf "$FILE_NAME" 2>/dev/null | head -1 | cut -f1 -d"/")
+    if [ -n "$EXTRACTED_DIR" ] && [ "$EXTRACTED_DIR" != "$TARGET_DIR" ] && [ -e "$EXTRACTED_DIR" ]; then
+        rm -rf "$TARGET_DIR"
+        mv "$EXTRACTED_DIR" "$TARGET_DIR"
+    fi
+
+    rm -f "$FILE_NAME"
+    echo "   ✅ $TARGET_DIR ($ARCH) 설치 완료"
+}
+
 # ─────────────────────────────────────────────────────────────────
 # 📄 TOML 유틸리티 함수 (tool-versions.toml 연동)
 # ─────────────────────────────────────────────────────────────────

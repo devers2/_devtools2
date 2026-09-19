@@ -48,6 +48,66 @@
 # ── PAT 인증 관련 함수들이 공유하는 기본 Bitwarden 아이템 이름 ─────────────────
 BW_DEFAULT_PAT_ITEM="${BW_DEFAULT_PAT_ITEM:-github.com-main}"
 
+# ── OS 판별 (Windows / WSL / macOS / Linux) ──────────────────────────────────
+IS_WINDOWS=false
+IS_MAC=false
+IS_WSL=false
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+    IS_WINDOWS=true
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+    IS_MAC=true
+elif grep -qi microsoft /proc/version 2>/dev/null; then
+    IS_WSL=true
+fi
+
+# ── 클립보드 복사 및 보안 삭제 유틸리티 ──────────────────────────────────────
+# 인자($1)가 있으면 인자를 복사하고, 없으면 표준 입력(stdin)을 클립보드로 복사합니다.
+copy_to_clipboard() {
+    local text
+    if [ $# -gt 0 ]; then
+        text="$1"
+    else
+        text=$(cat)
+    fi
+
+    if $IS_WINDOWS || $IS_WSL; then
+        if command -v clip.exe &>/dev/null; then
+            printf "%s" "$text" | clip.exe
+            return 0
+        fi
+    fi
+    if $IS_MAC && command -v pbcopy &>/dev/null; then
+        printf "%s" "$text" | pbcopy
+        return 0
+    fi
+    if command -v wl-copy &>/dev/null; then
+        printf "%s" "$text" | wl-copy
+        return 0
+    elif command -v xclip &>/dev/null; then
+        printf "%s" "$text" | xclip -selection clipboard
+        return 0
+    elif command -v xsel &>/dev/null; then
+        printf "%s" "$text" | xsel --clipboard --input
+        return 0
+    fi
+    return 1
+}
+
+# 클립보드를 즉시 비웁니다.
+clear_clipboard() {
+    copy_to_clipboard "" >/dev/null 2>&1 || true
+}
+
+# 백그라운드 타이머로 N초 후 클립보드를 비웁니다 (기본 30초).
+clear_clipboard_delayed() {
+    local sec="${1:-30}"
+    ( sleep "$sec" && clear_clipboard ) >/dev/null 2>&1 &
+}
+
+# ── 인메모리 비ASCII 문자 검사 함수 (프로세스 인자 노출 방지) ─────────────────
+# C 로케일에서 [:print:] 는 0x20~0x7E 이므로, 그 밖의 바이트가 하나라도 있으면 참
+has_non_ascii() ( LC_ALL=C; [[ "$1" == *[![:print:]]* ]] )
+
 # ── 세션 파일 경로 결정 ────────────────────────────────────────────────────────
 _BW_HOME_DIR="${HOME:-$USERPROFILE}"
 _BW_DEVTOOLS2_DIR="${_BW_HOME_DIR}/.devtools2"
@@ -77,15 +137,9 @@ _bw_do_unlock() {
                 return 1
             fi
 
-            # 비영문/비ASCII 문자(한글, 일어, 중문, 전각문자 등: ASCII 32~126 범위를 벗어나는 모든 유니코드) 검사
-            local _has_non_ascii=false
-            if echo "$_MASTER_PASS" | grep -Pq '[^\x20-\x7E]' 2>/dev/null; then
-                _has_non_ascii=true
-            elif python3 -c "import sys, re; sys.exit(0 if re.search(r'[^\x20-\x7E]', sys.argv[1]) else 1)" "$_MASTER_PASS" 2>/dev/null; then
-                _has_non_ascii=true
-            fi
-
-            if [ "$_has_non_ascii" = true ]; then
+            # 비영문/비ASCII 문자(한글, 일어, 중문, 전각문자 등: ASCII 32~126 범위를 벗어나는 모든 문자) 검사
+            # ⚠️ 프로세스 인자 노출 방지를 위해 순수 bash 서브셸 인메모리 검사 수행
+            if has_non_ascii "$_MASTER_PASS"; then
                 echo "❌ [오류] 입력된 마스터 비밀번호에 '비영문(한글/다국어/전각)' 문자가 포함되어 있습니다!"
                 echo "   키보드를 영문 입력 상태로 전환한 뒤 다시 입력해 주세요."
                 continue
@@ -111,8 +165,8 @@ _bw_do_unlock() {
         return 1
     fi
 
-    echo "$BW_SESSION" > "$_BW_SESSION_FILE"
-    chmod 600 "$_BW_SESSION_FILE"
+    (umask 077; echo "$BW_SESSION" > "$_BW_SESSION_FILE")
+    chmod 600 "$_BW_SESSION_FILE" 2>/dev/null || true
     export BW_SESSION
 
     if [ -d "/dev/shm" ]; then
@@ -184,7 +238,7 @@ bw_get_folder_ids() {
     local _FOLDER_NAME="$1"
     local _FOLDERS_JSON
 
-    _FOLDERS_JSON=$(bw list folders --session "$BW_SESSION" </dev/null 2>&1)
+    _FOLDERS_JSON=$(bw list folders </dev/null 2>&1)
 
     if echo "$_FOLDERS_JSON" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
         echo "❌ Bitwarden 세션이 만료되었습니다." >&2
@@ -227,7 +281,7 @@ bw_get_items_by_folder_name() {
     fi
 
     for _FID in $_FOLDER_IDS; do
-        _ITEMS=$(bw list items --folderid "$_FID" --session "$BW_SESSION" </dev/null 2>&1)
+        _ITEMS=$(bw list items --folderid "$_FID" </dev/null 2>&1)
         if echo "$_ITEMS" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
             echo "❌ Bitwarden 세션이 만료되었습니다." >&2
             rm -f "$_BW_SESSION_FILE"
@@ -331,7 +385,7 @@ PYEOF
 _bw_search_raw() {
     local _ITEM_NAME="$1"
     local _RAW
-    _RAW=$(bw list items --search "$_ITEM_NAME" --session "$BW_SESSION" </dev/null 2>&1)
+    _RAW=$(bw list items --search "$_ITEM_NAME" </dev/null 2>&1)
     if echo "$_RAW" | grep -qi "not logged in\|Vault is locked\|invalid session\|ERR_USE_AFTER_CLOSE"; then
         echo "❌ Bitwarden 세션이 만료되었습니다. 다시 실행해주세요." >&2
         rm -f "$_BW_SESSION_FILE"
@@ -521,12 +575,15 @@ bw_save_git_credentials() {
 
     local _cred_line="https://${_cred_user}:${_pat}@${_cred_host}"
     local _tmp_creds
-    _tmp_creds=$(mktemp)
-    touch ~/.git-credentials
-    chmod 600 ~/.git-credentials
+    _tmp_creds=$(umask 077 && mktemp /tmp/bw_cred_XXXXXX 2>/dev/null || mktemp)
+    trap 'rm -f "$_tmp_creds"' EXIT INT TERM
+    (umask 077 && touch ~/.git-credentials)
+    chmod 600 ~/.git-credentials 2>/dev/null || true
     grep -v "@${_cred_host}" ~/.git-credentials > "$_tmp_creds" 2>/dev/null || true
     echo "$_cred_line" >> "$_tmp_creds"
+    chmod 600 "$_tmp_creds"
     mv "$_tmp_creds" ~/.git-credentials
+    trap - EXIT INT TERM
     echo "✅ PAT 가 ~/.git-credentials 에 저장되었습니다. (host: $_cred_host)"
 }
 
@@ -578,20 +635,24 @@ bw_git_clone() {
     local _ASKPASS
     _ASKPASS=$(mktemp /tmp/bw_askpass_XXXXXX.sh)
     chmod 700 "$_ASKPASS"
-    cat > "$_ASKPASS" <<ASKEOF
+    cat > "$_ASKPASS" <<'ASKEOF'
 #!/usr/bin/env bash
-case "\$1" in
-  Username*) echo "${_GIT_USERNAME}" ;;
-  Password*) echo "${_GIT_PAT}"      ;;
+case "$1" in
+  Username*) printf '%s\n' "$BW_ASKPASS_USER" ;;
+  Password*) printf '%s\n' "$BW_ASKPASS_PAT"  ;;
 esac
 ASKEOF
+    trap 'rm -f "$_ASKPASS"' EXIT INT TERM
 
     echo "🚀 저장소 클론 중: $_REPO_URL -> $_TARGET_DIR"
+    BW_ASKPASS_USER="$_GIT_USERNAME" \
+    BW_ASKPASS_PAT="$_GIT_PAT" \
     GIT_ASKPASS="$_ASKPASS" \
     GIT_TERMINAL_PROMPT=0 \
     git clone "$_REPO_URL" "$_TARGET_DIR"
     local _RC=$?
     rm -f "$_ASKPASS"
+    trap - EXIT INT TERM
 
     if [ $_RC -eq 0 ]; then
         echo "✅ 깃 클론 완료!"

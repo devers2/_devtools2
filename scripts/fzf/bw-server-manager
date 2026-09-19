@@ -18,39 +18,8 @@ else
     exit 1
 fi
 
-# ── OS 판별 ────────────────────────────────────────────────────────────────────
-IS_WINDOWS=false
-IS_MAC=false
-IS_WSL=false
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-    IS_WINDOWS=true
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-    IS_MAC=true
-elif grep -qi microsoft /proc/version 2>/dev/null; then
-    IS_WSL=true
-fi
+# ── OS 판별 및 copy_to_clipboard 는 bw-lib 에서 제공하는 공용 함수를 사용합니다.
 
-# ── 클립보드 복사 (OS별) ───────────────────────────────────────────────────────
-copy_to_clipboard() {
-    local text="$1"
-    if $IS_WINDOWS; then
-        echo -n "$text" | clip.exe
-    elif $IS_WSL; then
-        echo -n "$text" | clip.exe
-    elif $IS_MAC; then
-        echo -n "$text" | pbcopy
-    else
-        if command -v wl-copy &>/dev/null; then
-            echo -n "$text" | wl-copy
-        elif command -v xclip &>/dev/null; then
-            echo -n "$text" | xclip -selection clipboard
-        elif command -v xsel &>/dev/null; then
-            echo -n "$text" | xsel --clipboard --input
-        else
-            echo "⚠️  클립보드 도구(wl-copy/xclip/xsel)를 찾을 수 없습니다." >&2
-        fi
-    fi
-}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # STEP 1~3: Bitwarden 세션 확보 (bw-lib)
@@ -188,29 +157,21 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
-# STEP 7: 비밀번호를 itemID로 안전하게 조회 → 클립보드에만 저장
-# (fzf 목록에 비밀번호 절대 노출 없음)
+# STEP 7: 인증 정보 조회 (인메모리 보관, 필요한 작업 실행 시에만 안전하게 전달)
 # ──────────────────────────────────────────────────────────────────────────────
-SERVER_PASS=$(bw get password "$ITEM_ID" --session "$BW_SESSION" 2>/dev/null || echo "")
+SERVER_PASS=$(bw get password "$ITEM_ID" 2>/dev/null || echo "")
 
-if [ -n "$SERVER_PASS" ]; then
-    copy_to_clipboard "$SERVER_PASS"
-    echo ""
-    echo "📋 비밀번호를 클립보드에 저장했습니다."
-    echo "   접속 후 비밀번호 프롬프트에 붙여넣기 하세요. (Ctrl+Shift+V 또는 마우스 우클릭)"
-fi
-
-# SSH 키 처리: notes에 private key가 있으면 임시 파일로 저장
+# SSH 키 처리: notes에 private key가 있으면 격리된 개인키 파일로 저장 (umask 077)
 SSH_KEY_OPT=""
 if [ "$HAS_KEY" = "KEY" ]; then
-    NOTES_CONTENT=$(bw get notes "$ITEM_ID" --session "$BW_SESSION" 2>/dev/null || echo "")
+    NOTES_CONTENT=$(bw get notes "$ITEM_ID" 2>/dev/null || echo "")
     if [ -n "$NOTES_CONTENT" ]; then
-        KEY_DIR="${GHOSTTY_DIR}/keys"
-        mkdir -p "$KEY_DIR"
+        KEY_DIR="${GHOSTTY_DIR:-${HOME}/.config/ghostty}/keys"
+        (umask 077 && mkdir -p "$KEY_DIR")
         KEY_PATH="$KEY_DIR/bw_key_${ITEM_ID}"
-        if [ ! -f "$KEY_PATH" ] || [ "$(cat "$KEY_PATH")" != "$NOTES_CONTENT" ]; then
-            echo "$NOTES_CONTENT" >"$KEY_PATH"
-            chmod 600 "$KEY_PATH"
+        if [ ! -f "$KEY_PATH" ] || [ "$(cat "$KEY_PATH" 2>/dev/null)" != "$NOTES_CONTENT" ]; then
+            (umask 077 && printf "%s\n" "$NOTES_CONTENT" >"$KEY_PATH")
+            chmod 600 "$KEY_PATH" 2>/dev/null || true
         fi
         SSH_KEY_OPT="-i $KEY_PATH"
     fi
@@ -247,9 +208,16 @@ if [[ "$ACTION" == *"원격 접속"* ]]; then
     [ -n "$SSH_KEY_OPT" ] && SSH_ARGS+=($SSH_KEY_OPT)
     SSH_ARGS+=("$USERNAME@$ACTUAL_HOST")
 
+    if [ -z "$SSH_KEY_OPT" ] && [ -n "$SERVER_PASS" ]; then
+        copy_to_clipboard "$SERVER_PASS"
+        echo "📋 비밀번호를 클립보드에 복사했습니다 (붙여넣기: Ctrl+Shift+V / 우클릭, 45초 후 자동 삭제)."
+        clear_clipboard_delayed 45
+    fi
+
     echo "🚀 SSH 접속: ssh ${SSH_ARGS[*]}"
     echo ""
     ssh "${SSH_ARGS[@]}"
+    clear_clipboard
 
 # ── SFTP ──────────────────────────────────────────────────────────────────────
 elif [[ "$ACTION" == *"파일 전송"* ]]; then
@@ -257,6 +225,12 @@ elif [[ "$ACTION" == *"파일 전송"* ]]; then
     SFTP_ARGS=(-P "$PORT")
     [ -n "$SSH_KEY_OPT" ] && SFTP_ARGS+=($SSH_KEY_OPT)
     SFTP_ARGS+=("$USERNAME@$ACTUAL_HOST")
+
+    if [ -z "$SSH_KEY_OPT" ] && [ -n "$SERVER_PASS" ]; then
+        copy_to_clipboard "$SERVER_PASS"
+        echo "📋 비밀번호를 클립보드에 복사했습니다 (붙여넣기: Ctrl+Shift+V / 우클릭, 45초 후 자동 삭제)."
+        clear_clipboard_delayed 45
+    fi
 
     echo "📁 SFTP 접속: sftp ${SFTP_ARGS[*]}"
     echo ""
@@ -268,6 +242,7 @@ elif [[ "$ACTION" == *"파일 전송"* ]]; then
     echo "  exit          : 접속 종료"
     echo ""
     sftp "${SFTP_ARGS[@]}"
+    clear_clipboard
 
 # ── Rsync ─────────────────────────────────────────────────────────────────────
 elif [[ "$ACTION" == *"파일 동기화"* ]]; then
@@ -450,7 +425,12 @@ elif [[ "$ACTION" == *"SFTP 마운트"* ]]; then
         echo "⏳ Rclone SFTP 리모트 설정 중 ($SERVICE_NAME)..."
         RCLONE_ARGS=(config create "$SERVICE_NAME" sftp host "$ACTUAL_HOST" user "$USERNAME" port "$PORT")
         if [ -n "$SERVER_PASS" ]; then
-            RCLONE_ARGS+=(pass "$SERVER_PASS")
+            # rclone obscure - 로 stdin을 통해 난독화하여 커맨드라인 프로세스 인자 노출 방지
+            local OBSCURED_PASS
+            OBSCURED_PASS=$(printf '%s' "$SERVER_PASS" | "$RCLONE_BIN" obscure - 2>/dev/null || echo "")
+            if [ -n "$OBSCURED_PASS" ]; then
+                RCLONE_ARGS+=(pass "$OBSCURED_PASS")
+            fi
         fi
         if [ "$HAS_KEY" = "KEY" ] && [ -n "$KEY_PATH" ] && [ -f "$KEY_PATH" ]; then
             RCLONE_ARGS+=(key_file "$KEY_PATH")
@@ -466,6 +446,7 @@ elif [[ "$ACTION" == *"SFTP 마운트"* ]]; then
         fi
 
         RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
+        chmod 600 "$RCLONE_CONF" 2>/dev/null || true
         mkdir -p "$HOME/.config/systemd/user"
 
         # 서비스 파일 작성

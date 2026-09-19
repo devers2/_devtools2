@@ -28,12 +28,14 @@ _update_gradle_properties_section() {
     local _header="$2"
     shift 2
 
-    python3 -c "
+    # ⚠️ 토큰이나 비밀번호가 포함된 key=value 쌍을 sys.argv 커맨드라인 인자로 넘기면
+    # ps / /proc/<pid>/cmdline에 평문 노출되므로, stdin 파이프로 안전하게 주입합니다.
+    printf '%s\n' "$@" | python3 -c "
 import sys, re
 
 filepath = sys.argv[1]
 header = sys.argv[2]
-pairs = sys.argv[3:]
+pairs = [line.strip() for line in sys.stdin if '=' in line]
 
 try:
     with open(filepath, 'r', encoding='utf-8') as f:
@@ -74,7 +76,7 @@ for pair in pairs:
 
 with open(filepath, 'w', encoding='utf-8') as f:
     f.writelines(lines)
-" "$_file" "$_header" "$@"
+" "$_file" "$_header"
 }
 
 # ── GitHub Packages 의존성 관리 설정 (gpr.user / gpr.key) ───────────────────
@@ -215,15 +217,17 @@ sys.exit(0 if sig.search(content) else 1)
         return 0
     fi
 
-    # 6. 'y' 입력 시 파일 생성 및 gpr.user, gpr.key 추가/수정
+    # 6. 'y' 입력 시 파일 생성 및 gpr.user, gpr.key 추가/수정 (0600 권한 보장)
     mkdir -p "$GRADLE_PROPS_DIR"
-    touch "$GRADLE_PROPS_FILE"
+    (umask 077 && touch "$GRADLE_PROPS_FILE")
+    chmod 600 "$GRADLE_PROPS_FILE" 2>/dev/null || true
 
     if [ -z "$EXPECTED_USER" ]; then
         read -rp "🔑 gpr.user 에 설정할 GitHub 계정명(user.name)을 입력하세요: " EXPECTED_USER
     fi
     if [ -z "$EXPECTED_PAT" ]; then
-        read -rp "🔑 gpr.key 에 설정할 GitHub PAT(Personal Access Token)을 입력하세요: " EXPECTED_PAT
+        read -rsp "🔑 gpr.key 에 설정할 GitHub PAT(Personal Access Token)을 입력하세요 (보안 마스킹): " EXPECTED_PAT
+        echo ""
     fi
 
     _update_gradle_properties_section "$GRADLE_PROPS_FILE" "" \
@@ -374,7 +378,7 @@ PYEOF
     fi
 
     local SERVER_PASS
-    SERVER_PASS=$(bw get password "$ITEM_ID" --session "$BW_SESSION" 2>/dev/null || echo "")
+    SERVER_PASS=$(bw get password "$ITEM_ID" 2>/dev/null || echo "")
 
     # ── 3. 경로 치환 (SFTP는 홈 디렉터리 기준 상대 경로 사용) ──────────────────
     local REMOTE_MOUNT_PATH LOCAL_MOUNT_PATH
@@ -425,8 +429,9 @@ PYEOF
     RCLONE_ARGS=(config create "$SERVICE_NAME" sftp host "$ACTUAL_HOST" user "$ACTUAL_USERNAME" port "$ACTUAL_PORT" --config "$RCLONE_CONF")
     if [ -n "$SERVER_PASS" ]; then
         # rclone pass 파라미터는 rclone obscure 로 난독화된 값을 요구함 (평문 불가)
+        # ⚠️ 커맨드라인 인자로 평문 비밀번호를 넘기지 않고 stdin(-)으로 주입하여 노출 방지
         local OBSCURED_PASS
-        OBSCURED_PASS=$("$RCLONE_BIN" obscure "$SERVER_PASS" 2>/dev/null || echo "")
+        OBSCURED_PASS=$(printf '%s' "$SERVER_PASS" | "$RCLONE_BIN" obscure - 2>/dev/null || echo "")
         if [ -n "$OBSCURED_PASS" ]; then
             RCLONE_ARGS+=(pass "$OBSCURED_PASS")
         fi

@@ -89,14 +89,15 @@ run_remote_script_sudo "$RAW_BASE/0.init-devtools2.sh"
 print_done "[Step 0] 초기화 완료."
 
 # [Step 0]에서 임시 부여된 passwordless sudo 권한이 설치 도중 오류 등으로 중단되어도
-# 안전하게 회수되도록 EXIT 트랩 등록
+# 안전하게 회수되도록 EXIT/INT/TERM 트랩 등록
 cleanup_temp_sudoers() {
-    local target="${SUDO_USER:-${USER:-}}"
+    local target="${SUDO_USER:-${USER:-$(id -un 2>/dev/null || true)}}"
     if [ -n "$target" ] && [ -f "/etc/sudoers.d/$target" ]; then
         sudo rm -f "/etc/sudoers.d/$target" 2>/dev/null || true
+        echo "[정리] 비정상 종료 또는 시그널 감지: 임시 passwordless sudo 권한($target)을 회수했습니다." >&2
     fi
 }
-trap cleanup_temp_sudoers EXIT
+trap cleanup_temp_sudoers EXIT INT TERM HUP
 
 # ==============================================================================
 # [Step 1] 환경 변수 주입 (~/.bashrc)
@@ -174,7 +175,7 @@ print_step "▶ [정리] 설치용 임시 sudo 권한 회수"
 # Step 1~4 진행 중 sudo 비밀번호를 반복 입력하지 않도록 했습니다.
 # 설치가 모두 끝난 지금 시점에는 더 이상 필요하지 않으므로 회수합니다.
 # (이 시점까지는 passwordless sudo가 살아있으므로 비밀번호 없이 회수 가능합니다.)
-_target_user="${SUDO_USER:-${USER:-}}"
+_target_user="${SUDO_USER:-${USER:-$(id -un 2>/dev/null || true)}}"
 if [ -n "$_target_user" ] && [ -f "/etc/sudoers.d/$_target_user" ]; then
     if sudo rm -f "/etc/sudoers.d/$_target_user"; then
         print_done "임시 passwordless sudo 권한($_target_user)을 회수했습니다. 이후 sudo 사용 시 비밀번호가 필요합니다."
