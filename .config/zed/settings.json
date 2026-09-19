@@ -105,8 +105,16 @@
               "enabled": true
             },
             "format": {
+              "enabled": true,
               "tabSize": 4,
-              "insertSpaces": true
+              "insertSpaces": true,
+              "settings": {
+                "url": "file:///var/opt/_devtools2/.config/formatter/java/s2-code-style.xml",
+                "profile": "Standard-s2"
+              },
+              "comments": {
+                "enabled": false
+              }
             },
             "import": {
               "gradle": {

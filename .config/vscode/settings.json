@@ -83,6 +83,7 @@
   "java.format.settings.url": "file:////var/opt/_devtools2/.config/formatter/java/s2-code-style.xml", // Java 코드 스타일 설정 파일 경로
   "java.format.settings.profile": "Standard-s2", // Java 코드 스타일 프로필 이름
   "java.format.enabled": true,
+  "java.format.comments.enabled": false,
 
   /* [Python 인터프리터 전역 기본값]
    * - 프로젝트별 venv(.vscode/settings.json 의 python.defaultInterpreterPath)가 있으면 그쪽이 우선 적용된다.

@@ -342,9 +342,24 @@ return {
 
       opts.settings = {
         java = {
-          -- [주석 가독성 보존] 포맷터 실행 시 주석(Javadoc, 블록, 라인) 자동 rewrap 비활성화
-          -- 코드는 기존 스타일대로 정상 포맷팅하되, 주석은 작성자가 줄바꿈한 형태 그대로 100% 보존합니다.
+          -- [코드 포맷터] s2 표준 Java 코드 스타일 (s2-code-style.xml) 동기화
+          -- VS Code, Zed, Neovim 3개 편집기가 동일한 Eclipse 포맷터 프로필(Standard-s2)을 공유합니다.
           format = {
+            enabled = true,
+            settings = (function()
+              local xml_path = _G.DEVTOOLS2_DIR .. '/.config/formatter/java/s2-code-style.xml'
+              if vim.uv.fs_stat(xml_path) then
+                local uri = vim.uri_from_fname(xml_path)
+                if uri and uri:match('^file://[^/]') then
+                  uri = uri:gsub('^file://', 'file:///')
+                end
+                return {
+                  url = uri,
+                  profile = 'Standard-s2',
+                }
+              end
+              return nil
+            end)(),
             comments = {
               enabled = false,
             },
