@@ -69,6 +69,11 @@ _mc_decode_base64_to_file() {
 
     if [ "$_decoded" = true ] && [ -s "$_tmp_dst" ]; then
         chmod 600 "$_tmp_dst" 2>/dev/null || true
+        # 기존 키 파일이 이미 존재하면 안전하게 .bak 로 보존
+        if [ -f "$_dst" ]; then
+            cp -f "$_dst" "${_dst}.bak" 2>/dev/null || true
+            chmod 600 "${_dst}.bak" 2>/dev/null || true
+        fi
         mv -f "$_tmp_dst" "$_dst"
         return 0
     fi

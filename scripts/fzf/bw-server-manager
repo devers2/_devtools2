@@ -161,19 +161,17 @@ fi
 # ──────────────────────────────────────────────────────────────────────────────
 SERVER_PASS=$(bw get password "$ITEM_ID" 2>/dev/null || echo "")
 
-# SSH 키 처리: notes에 private key가 있으면 격리된 개인키 파일로 저장 (umask 077)
+# SSH 키 처리: notes에 private key가 있으면 임시 파일에 저장하고 세션 종료 시 자동 삭제 (디스크 영구 잔여 방지)
 SSH_KEY_OPT=""
+TMP_KEY_PATH=""
 if [ "$HAS_KEY" = "KEY" ]; then
     NOTES_CONTENT=$(bw get notes "$ITEM_ID" 2>/dev/null || echo "")
     if [ -n "$NOTES_CONTENT" ]; then
-        KEY_DIR="${GHOSTTY_DIR:-${HOME}/.config/ghostty}/keys"
-        (umask 077 && mkdir -p "$KEY_DIR")
-        KEY_PATH="$KEY_DIR/bw_key_${ITEM_ID}"
-        if [ ! -f "$KEY_PATH" ] || [ "$(cat "$KEY_PATH" 2>/dev/null)" != "$NOTES_CONTENT" ]; then
-            (umask 077 && printf "%s\n" "$NOTES_CONTENT" >"$KEY_PATH")
-            chmod 600 "$KEY_PATH" 2>/dev/null || true
-        fi
-        SSH_KEY_OPT="-i $KEY_PATH"
+        TMP_KEY_PATH=$(umask 077 && mktemp "/tmp/bw_key_${ITEM_ID}_XXXXXX")
+        printf "%s\n" "$NOTES_CONTENT" > "$TMP_KEY_PATH"
+        chmod 600 "$TMP_KEY_PATH" 2>/dev/null || true
+        trap 'rm -f "$TMP_KEY_PATH"' EXIT INT TERM
+        SSH_KEY_OPT="-i $TMP_KEY_PATH"
     fi
 fi
 
@@ -449,9 +447,20 @@ open(f, "w", encoding="utf-8").writelines(new_lines)
 
         FUSERMOUNT_BIN=$(command -v fusermount 2>/dev/null || command -v fusermount3 2>/dev/null || echo "/usr/bin/fusermount")
 
+        # Rclone 설정 파일 경로 일원화 (common-setup.sh 와 동일 기준)
+        if [ -n "${RCLONE_CONFIG:-}" ]; then
+            RCLONE_CONF="$RCLONE_CONFIG"
+        elif [ -n "${DEVTOOLS2:-}" ]; then
+            RCLONE_CONF="${DEVTOOLS2}/modules/rclone/.config/rclone.conf"
+        else
+            RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
+        fi
+        mkdir -p "$(dirname "$RCLONE_CONF")"
+        chmod 700 "$(dirname "$RCLONE_CONF")" 2>/dev/null || true
+
         # 비트워든 정보 기반 Rclone SFTP 리모트 설정
         echo "⏳ Rclone SFTP 리모트 설정 중 ($SERVICE_NAME)..."
-        RCLONE_ARGS=(config create "$SERVICE_NAME" sftp host "$ACTUAL_HOST" user "$USERNAME" port "$PORT")
+        RCLONE_ARGS=(config create "$SERVICE_NAME" sftp host "$ACTUAL_HOST" user "$USERNAME" port "$PORT" --config "$RCLONE_CONF")
         if [ -n "$SERVER_PASS" ]; then
             # rclone obscure - 로 stdin을 통해 난독화하여 커맨드라인 프로세스 인자 노출 방지
             local OBSCURED_PASS
@@ -460,21 +469,27 @@ open(f, "w", encoding="utf-8").writelines(new_lines)
                 RCLONE_ARGS+=(pass "$OBSCURED_PASS")
             fi
         fi
-        if [ "$HAS_KEY" = "KEY" ] && [ -n "$KEY_PATH" ] && [ -f "$KEY_PATH" ]; then
-            RCLONE_ARGS+=(key_file "$KEY_PATH")
+        if [ "$HAS_KEY" = "KEY" ] && [ -n "$NOTES_CONTENT" ]; then
+            # systemd 서비스 데몬이 재부팅 후에도 지속적으로 사용할 수 있도록 rclone 전용 보호 키 디렉터리에 보관
+            RCLONE_KEY_DIR="$(dirname "$RCLONE_CONF")/keys"
+            mkdir -p "$RCLONE_KEY_DIR"
+            chmod 700 "$RCLONE_KEY_DIR" 2>/dev/null || true
+            RCLONE_KEY_PATH="$RCLONE_KEY_DIR/bw_${ITEM_ID}.key"
+            printf "%s\n" "$NOTES_CONTENT" > "$RCLONE_KEY_PATH"
+            chmod 600 "$RCLONE_KEY_PATH" 2>/dev/null || true
+            RCLONE_ARGS+=(key_file "$RCLONE_KEY_PATH")
         fi
 
         RCLONE_ERR=$("${RCLONE_BIN}" "${RCLONE_ARGS[@]}" 2>&1)
         if [ $? -eq 0 ]; then
-            echo "✅ Rclone 리모트 ($SERVICE_NAME) 설정 완료!"
+            chmod 600 "$RCLONE_CONF" 2>/dev/null || true
+            echo "✅ Rclone 리모트 ($SERVICE_NAME) 설정 완료! (config: $RCLONE_CONF)"
         else
             echo "❌ Rclone 리모트 설정에 실패했습니다."
             echo "   오류 상세 내용: $RCLONE_ERR"
             exit 1
         fi
 
-        RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
-        chmod 600 "$RCLONE_CONF" 2>/dev/null || true
         mkdir -p "$HOME/.config/systemd/user"
 
         # 서비스 파일 작성
@@ -488,6 +503,7 @@ Wants=network-online.target
 Type=simple
 ExecStart=${RCLONE_BIN} mount "${SERVICE_NAME}:${REMOTE_PATH}" "${LOCAL_PATH}" \\
     --vfs-cache-mode full \\
+    --allow-other \\
     --config=${RCLONE_CONF}
 ExecStop=${FUSERMOUNT_BIN} -u "${LOCAL_PATH}"
 Restart=on-failure

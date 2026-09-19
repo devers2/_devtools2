@@ -260,29 +260,34 @@ if (-not [string]::IsNullOrEmpty($PSCommandPath)) {
 $wslDistro = "devtools2"
 $_startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 
-# 1. 실행 중인 AutoHotkey 인스턴스 전체 종료
-Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
-    ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+# 1. devtools2 관련 AutoHotkey 인스턴스만 선별적으로 종료 (다른 개인용 AHK 프로세스 보존)
+$_wslPattern   = "wsl\.localhost\\$wslDistro"
+$_localPattern = "_devtools2"
+try {
+    Get-CimInstance Win32_Process -Filter "Name like 'AutoHotkey%'" -ErrorAction SilentlyContinue |
+        Where-Object {
+            $cmd = $_.CommandLine
+            ($cmd -match $_wslPattern) -or ($cmd -match $_localPattern)
+        } |
+        ForEach-Object {
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+} catch {}
 
-# 2. Startup 폴더의 raw .ahk 파일은 모두 제거 (포터블 AHK 환경에서 직접 .ahk 가 있으면 앱 선택 팝업 원인)
-Get-ChildItem -Path $_startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-
-# 3. Startup 폴더의 .lnk 중 AutoHotkey.exe + \\wsl.localhost\$wslDistro 경로를 인수로
-#    가진 바로가기만 선택적으로 제거 (다른 용도의 .lnk 는 절대 건드리지 않음)
-$_wslUncPattern = "(\\\\wsl\.localhost|\\\\wsl\$\\)$wslDistro"
+# 2. Startup 폴더에서 devtools2 관련 바로가기(.lnk) 및 .ahk 파일만 선별적으로 제거
 $_wshShell = New-Object -ComObject WScript.Shell
 Get-ChildItem -Path $_startupDir -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
     try {
         $sc = $_wshShell.CreateShortcut($_.FullName)
-        $isAhk     = $sc.TargetPath -match 'AutoHotkey' -or $sc.TargetPath -match '\.ahk$'
-        $isWslPath = $sc.Arguments  -match $_wslUncPattern
-        if ($isAhk -and $isWslPath) {
+        $combined = "$($sc.Arguments) $($sc.TargetPath)"
+        if (($combined -match $_wslPattern) -or ($combined -match $_localPattern) -or ($_.Name -like "*DevTools2-Hotkey*") -or ($_.Name -like "*Keyboard-Remap*")) {
             Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
-            Write-Info "WSL AHK 바로가기 제거: $($_.Name)"
+            Write-Info "devtools2 AHK 바로가기 제거: $($_.Name)"
         }
     } catch {}
 }
-Write-Info "AutoHotkey Startup 항목 사전 정리 완료"
+Get-ChildItem -Path $_startupDir -Filter "*devtools2*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+Write-Info "AutoHotkey Startup 항목 사전 정리 완료 (개인 AHK 스크립트 보존)"
 
 # 서브스크립트 GitHub raw URL 기준 상수
 # 로컬/온라인 실행 여부와 무관하게 항상 GitHub main 최신 버전 기준으로 실행됩니다.
@@ -339,8 +344,8 @@ if (-not ($wslFeatEnabled -and $vmFeatEnabled) -and -not (Test-Path $_wslResumeF
     Write-Host "  재시작 후 이 스크립트를 다시 실행하면 WSL2 배포판 설치부터 자동으로 이어서 진행됩니다." -ForegroundColor White
     Write-Host ""
 
-    # 재개 플래그 파일 저장 (재시작 후 이어서 진행하기 위해)
-    Set-Content -Path $_wslResumeFlagFile -Value (Get-Date).ToString() -Encoding UTF8
+    # 재개 플래그 파일 저장 (재시작 후 이어서 진행하기 위해, UTF-8 NoBOM 보장)
+    [System.IO.File]::WriteAllText($_wslResumeFlagFile, (Get-Date).ToString(), [System.Text.UTF8Encoding]::new($false))
 
     if (Prompt-Confirm "👉 지금 바로 컴퓨터를 재시작하시겠습니까?" "Y") {
         Write-Info "컴퓨터를 재시작합니다..."

@@ -655,8 +655,9 @@ with open(conf_file, "w", encoding="utf-8") as f:
     wsl --terminate $wslName 2>$null
 }
 
-# 9. Windows 사용자 프로필에 .wslconfig (네트워크 미러링) 자동 설정
+# 9. Windows 사용자 프로필에 .wslconfig (네트워크 미러링) 설정 확인
 #    WSL2 내부 포트(8881, 8080, 5005 등)를 Windows 호스트 localhost에서 별도 포트포워딩 없이 바로 접속 가능하도록 동기화
+#    주의: .wslconfig 는 모든 WSL2 배포판/Docker/VPN에 전역 적용되므로 사용자 동의 후 적용합니다.
 Write-Info "Windows-WSL2 네트워크 포트 직통 연결(mirrored)을 위한 .wslconfig 설정 확인 중..."
 $wslConfigFile = Join-Path $env:USERPROFILE ".wslconfig"
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
@@ -664,20 +665,36 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 if (Test-Path $wslConfigFile) {
     $existing = Get-Content $wslConfigFile -Raw -ErrorAction SilentlyContinue
     if ($existing -notmatch "networkingMode\s*=\s*mirrored") {
-        if ($existing -match "\[wsl2\]") {
-            $updated = $existing + "`nnetworkingMode=mirrored`nautoProxy=true`n"
+        Write-Host ""
+        Write-Question "❓ .wslconfig 에 네트워크 미러링(networkingMode=mirrored)을 적용하시겠습니까?"
+        Write-Info "   • 장점: 포트포워딩 없이 Windows localhost 에서 WSL2 포트(8080 등)에 바로 접속 가능"
+        Write-Info "   • 주의: 모든 WSL2 배포판 및 Docker, VPN 환경에 전역 적용됩니다."
+        if (Prompt-Confirm "   네트워크 미러링 설정을 추가하시겠습니까?" $true) {
+            if ($existing -match "\[wsl2\]") {
+                $updated = $existing + "`nnetworkingMode=mirrored`nautoProxy=true`n"
+            } else {
+                $updated = $existing + "`n[wsl2]`nnetworkingMode=mirrored`nautoProxy=true`n"
+            }
+            [System.IO.File]::WriteAllText($wslConfigFile, $updated, $utf8NoBom)
+            Write-Success ".wslconfig 에 네트워크 미러링(networkingMode=mirrored) 설정이 추가되었습니다."
         } else {
-            $updated = $existing + "`n[wsl2]`nnetworkingMode=mirrored`nautoProxy=true`n"
+            Write-Info ".wslconfig 네트워크 미러링 설정을 건너뛰었습니다."
         }
-        [System.IO.File]::WriteAllText($wslConfigFile, $updated, $utf8NoBom)
-        Write-Success ".wslconfig 에 네트워크 미러링(networkingMode=mirrored) 설정이 추가되었습니다."
     } else {
         Write-Success ".wslconfig (networkingMode=mirrored) 설정이 이미 적용되어 있습니다."
     }
 } else {
-    $defaultWslConfig = "[wsl2]`r`nnetworkingMode=mirrored`r`nautoProxy=true`r`n"
-    [System.IO.File]::WriteAllText($wslConfigFile, $defaultWslConfig, $utf8NoBom)
-    Write-Success "새 .wslconfig (networkingMode=mirrored) 파일 생성 완료!"
+    Write-Host ""
+    Write-Question "❓ 새 .wslconfig 에 네트워크 미러링(networkingMode=mirrored)을 구성하시겠습니까?"
+    Write-Info "   • 장점: 포트포워딩 없이 Windows localhost 에서 WSL2 포트에 바로 접속 가능"
+    Write-Info "   • 주의: 모든 WSL2 배포판 및 Docker, VPN 환경에 전역 적용됩니다."
+    if (Prompt-Confirm "   새 .wslconfig 파일을 생성하시겠습니까?" $true) {
+        $defaultWslConfig = "[wsl2]`r`nnetworkingMode=mirrored`r`nautoProxy=true`r`n"
+        [System.IO.File]::WriteAllText($wslConfigFile, $defaultWslConfig, $utf8NoBom)
+        Write-Success "새 .wslconfig (networkingMode=mirrored) 파일 생성 완료!"
+    } else {
+        Write-Info "새 .wslconfig 파일 생성을 건너뛰었습니다."
+    }
 }
 
 # 10. %USERPROFILE%\.devtools2 통일 디렉터리 보장 및 배포판 정보 저장

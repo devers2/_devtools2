@@ -237,11 +237,22 @@ if (-not $installAhk) {
     }
 
     # ── (3) AHK 스크립트 배포 및 자동 실행 연동 ───────────────────────────────────
-    # 🌟 기존 AutoHotkey 관련 중복 항목 정리 (Startup 바로가기 & 레지스트리 Run 키 & 구형 Task Scheduler)
-    Get-ChildItem -Path $startupDir -Filter "*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path $startupDir -Filter "*AutoHotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path $startupDir -Filter "*Keyboard-Remap*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-    Get-ChildItem -Path $startupDir -Filter "*DevTools2-Hotkey*.lnk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    # 🌟 기존 devtools2 AutoHotkey 관련 항목만 선별 정리 (개인 AHK 스크립트 100% 보존)
+    $wslPattern   = [regex]::Escape("wsl.localhost\$WslDistro")
+    $localPattern = [regex]::Escape("_devtools2")
+
+    $wshShellClean = New-Object -ComObject WScript.Shell
+    Get-ChildItem -Path $startupDir -Filter "*.lnk" -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            $sc = $wshShellClean.CreateShortcut($_.FullName)
+            $combined = "$($sc.Arguments) $($sc.TargetPath)"
+            if (($combined -match $wslPattern) -or ($combined -match $localPattern) -or ($_.Name -like "*DevTools2-Hotkey*") -or ($_.Name -like "*Keyboard-Remap*")) {
+                Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+                Write-Info "이전 devtools2 AHK 바로가기 정리: $($_.Name)"
+            }
+        } catch {}
+    }
+    Get-ChildItem -Path $startupDir -Filter "*devtools2*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
     $runRegPaths = @(
         "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
@@ -251,8 +262,11 @@ if (-not $installAhk) {
         if (Test-Path $regPath) {
             $props = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
             if ($props) {
-                $props.psobject.Properties | Where-Object { $_.Name -like "*AutoHotkey*" } | ForEach-Object {
+                $props.psobject.Properties | Where-Object {
+                    $_.Name -like "*DevTools2*" -or ($_.Value -is [string] -and (($_.Value -match $wslPattern) -or ($_.Value -match $localPattern)))
+                } | ForEach-Object {
                     Remove-ItemProperty -Path $regPath -Name $_.Name -ErrorAction SilentlyContinue
+                    Write-Info "이전 devtools2 Run 레지스트리 정리: $($_.Name)"
                 }
             }
         }
@@ -388,9 +402,17 @@ if (-not $installAhk) {
         }
     }
 
-    # 기존 AutoHotkey 프로세스 전체 종료 후 선택된 권한으로 재실행
-    Get-Process -Name "AutoHotkey*" -ErrorAction SilentlyContinue |
-        ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    # 기존 devtools2 AutoHotkey 프로세스만 선별 종료 후 재실행 (개인 AHK 프로세스 보존)
+    try {
+        Get-CimInstance Win32_Process -Filter "Name like 'AutoHotkey%'" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $cmd = $_.CommandLine
+                ($cmd -match $wslPattern) -or ($cmd -match $localPattern)
+            } |
+            ForEach-Object {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+    } catch {}
 
     if ($registered) {
         # 작업 스케줄러에 등록된 설정(RunLevel)대로 즉시 기동하여 관리자 권한 원치 않는 상속 방지
