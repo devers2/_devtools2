@@ -329,7 +329,8 @@ cd "$DEVTOOLS2/data/.npm-packages"
 
 # 임시 PATH 추가 (방금 설치한 Node.js 바이너리를 현재 셸 환경에 즉시 연동)
 export PATH="$DEVTOOLS2/modules/nodejs/node-v24/bin:$PATH"
-export NPM_CONFIG_USERCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
+export NPM_CONFIG_GLOBALCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
+unset NPM_CONFIG_USERCONFIG
 # setup_npm_mirror는 npmmirror 불가/폴백 시 return 1을 반환하는 정상 케이스가 있어
 # set -e 환경에서 스크립트가 중단되는 버그를 방지한다.
 setup_npm_mirror || true
@@ -419,11 +420,7 @@ install_npm_packages_with_progress() {
     fi
 
     if [ "$success" = true ]; then
-        local cur_reg
-        cur_reg=$(npm config get registry 2>/dev/null | sed 's#/$##')
-        if [ "$cur_reg" != "${target_reg%/}" ]; then
-            npm config set registry "$target_reg" 2>/dev/null || true
-        fi
+        export NPM_CONFIG_REGISTRY="$target_reg"
         print_done "$done_label (적용 저장소: $target_reg)"
     else
         print_error "글로벌 npm 패키지 설치 실패!"

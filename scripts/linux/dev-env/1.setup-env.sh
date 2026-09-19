@@ -85,7 +85,7 @@ echo "" >>"$_DEVTOOLS2_ENV_TMP"
 # cat << 'EOF' 구문을 사용하면 내부의 $ 기호 등이 치환되지 않고 텍스트 그대로 들어간다.
 cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
 export NODE_HOME="$DEVTOOLS2/modules/nodejs/node-v24"
-export NPM_CONFIG_USERCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
+export NPM_CONFIG_GLOBALCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
 
 EOF
 
@@ -194,6 +194,7 @@ GRADLE_HOME=$DEVTOOLS2/modules/gradle/gradle-9
 PYTHON_HOME=$DEVTOOLS2/modules/python/python-314
 PYTHONUSERBASE=$DEVTOOLS2/data/python
 NEOVIM_HOME=$DEVTOOLS2/modules/neovim/nvim
+NPM_CONFIG_GLOBALCONFIG=$DEVTOOLS2/.config/nodejs/.npmrc
 NPM_CONFIG_PREFIX=$DEVTOOLS2/data/.npm-packages
 NODE_PATH=$DEVTOOLS2/data/.npm-packages/lib/node_modules
 RCLONE_CONFIG=$DEVTOOLS2/modules/rclone/.config/rclone.conf
@@ -373,13 +374,14 @@ echo "[완료] 폰트 설치 완료!"
 echo ""
 
 print_subsep
-print_step "[Step 5] 레거시 설정 파일 정리"
+print_step "[Step 5] 사용자 npmrc 권한 및 레거시 설정 검사"
 echo ""
-if [ -f "$HOME/.npmrc" ] && [ ! -L "$HOME/.npmrc" ]; then
-    rm -f "$HOME/.npmrc"
-    echo "[성공] 사용자 홈의 구형 .npmrc를 제거했습니다."
+if [ -f "$HOME/.npmrc" ]; then
+    chmod 600 "$HOME/.npmrc" 2>/dev/null || true
+    echo "[안내] 사용자 홈의 .npmrc 권한을 소유자 전용(600)으로 안전하게 설정했습니다."
+    echo "       (개인 npm 인증 토큰은 홈 디렉터리에 안전하게 보관됩니다)"
 else
-    echo "[확인] 정리할 구형 .npmrc 파일이 없습니다."
+    echo "[확인] 사용자 홈에 .npmrc 파일이 없습니다. (글로벌 공용 설정 사용 중)"
 fi
 echo ""
 
