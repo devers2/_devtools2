@@ -199,56 +199,7 @@ local function attach_debug()
 end
 _G.attach_debug = attach_debug
 
--- 사용자 지정 DAP 단축키 (한글 설명 + 영문 원본 명칭)
-vim.keymap.set(
-  'n',
-  '<leader>da',
-  function()
-    if _G.attach_debug then
-      _G.attach_debug()
-    else
-      vim.notify('attach_debug 함수가 아직 초기화되지 않았습니다.', vim.log.levels.ERROR)
-    end
-  end,
-  { desc = '포트 지정 디버그 연결 (Attach Debug)' }
-)
-  vim.keymap.set('n', '<leader>db', function()
-    require('dap').toggle_breakpoint()
-  end, { desc = '브레이크포인트 설정/해제 (Toggle Breakpoint)' })
-  -- [스마트 디버그 실행 (<leader>dd)]
-  -- 1. 활성 세션 존재 시: `dap.continue()` (다음 브레이크포인트까지 계속 실행 또는 세션 메뉴)
-  -- 2. `.vscode/launch.json` 기반 통합 실행 (파일 부재 시 Main Class, Sub Module, Profile 3대 필수값 대화형 자동 생성 지원)
-  vim.keymap.set('n', '<leader>dd', function()
-    local dap = require('dap')
-    if dap.session() then
-      dap.continue()
-      return
-    end
-
-    require('util.dap_scaffold').ensure_launch_json(function(ok)
-      if ok then
-        dap.continue()
-      end
-    end)
-  end, { desc = '디버그 실행 / 계속 (Run/Continue)' })
-  vim.keymap.set('n', '<leader>dc', function()
-    require('dap').run_to_cursor()
-  end, { desc = '커서 위치까지 실행 (Run to Cursor)' })
-  vim.keymap.set('n', '<leader>de', function()
-    require('dap').step_over()
-  end, { desc = '다음 줄 실행 (Step Over)' })
-  vim.keymap.set('n', '<leader>di', function()
-    require('dap').step_into()
-  end, { desc = '함수 내부 진입 (Step Into)' })
-  vim.keymap.set('n', '<leader>do', function()
-    require('dap').step_out()
-  end, { desc = '함수 밖으로 탈출 (Step Out)' })
-  vim.keymap.set('n', '<leader>dr', function()
-    require('dap').repl.toggle()
-  end, { desc = 'REPL 창 토글 (Toggle REPL)' })
-  vim.keymap.set('n', '<leader>dt', function()
-    require('dap').terminate()
-  end, { desc = '디버깅 및 서버 종료 (Terminate)' })
+-- DAP 단축키는 lazy-loading 시점 충돌 방지 및 일관성을 위해 lua/plugins/dap.lua 의 keys 스펙에서 관리합니다.
 
 -- ============================================================
 -- [수동 ESLint 린터] <leader>l 로 실행, <leader>L 로 창 닫기

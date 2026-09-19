@@ -43,6 +43,7 @@ return {
           'ruff',                   -- Python (실시간 린팅 & 진단)
           'yaml-language-server',   -- YAML (Spring Boot application.yml, GitHub Actions 등)
           'vtsls',                  -- TypeScript / JavaScript
+          'eslint-lsp',             -- JavaScript / TypeScript ESLint Language Server (vscode-eslint-language-server)
 
           -- ===================================================================
           -- ── 2. 포맷터 & 린터 (Formatters & Linters) ──

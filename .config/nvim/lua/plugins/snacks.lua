@@ -40,12 +40,14 @@ return {
 
             -- 원본 버퍼를 직접 셋하면 다른 플러그인의 윈도우 감지 오동작으로 모드가 풀리므로
             -- 텍스트와 파일 타입만 복사하여 스크래치 버퍼를 통해 프리뷰합니다.
-            -- 대용량 버퍼의 경우 최대 1000줄까지만 가져와 프리뷰 렌더링 렉을 방지합니다.
-            local lines = vim.api.nvim_buf_get_lines(ctx.item.buf, 0, 1000, false)
+            -- 전체 라인을 가져와 검색/참조 결과가 어느 위치에 있든 정확히 표시합니다.
+            local lines = vim.api.nvim_buf_get_lines(ctx.item.buf, 0, -1, false)
             local ft = vim.bo[ctx.item.buf].filetype
             ctx.preview:reset()
             ctx.preview:set_lines(lines)
             ctx.preview:highlight({ ft = ft, buf = ctx.buf })
+            -- [위치 이동 복원] 검색 결과 및 LSP 참조의 해당 줄/컬럼으로 커서 이동 및 하이라이트
+            ctx.preview:loc()
           else
             -- 그 외 일반적인 파일 프리뷰는 순정 프리뷰어에 처리를 위임합니다.
             return require('snacks.picker.preview').file(ctx)

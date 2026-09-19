@@ -7,6 +7,15 @@ local M = {}
 -- ===========================================================================================
 M.enabled = true
 
+-- [외부 온라인 번역(Google/MyMemory) 엔드포인트 전송 스위치]
+-- 편집기 내부 메시지(LSP 진행상황, 코드액션 등)의 외부 유출 방지를 위해 기본값은 false입니다.
+-- true로 설정할 때만 오프라인 정적 사전(dict.lua)에 없는 단어를 외부 비공식 API로 요청합니다.
+-- 런타임 제어: :lua require('util.translator').online_enabled = true
+M.online_enabled = false
+
+-- 런타임 캐시 엔트리 최대 보관 개수 (무제한 증가 방지)
+M.MAX_CACHE_ENTRIES = 2000
+
 -- 1. 기본 검증 사전 (Git 형상관리 대상: lua/util/translator/dict.lua)
 local base_dict = require('util.translator.dict')
 
@@ -39,6 +48,13 @@ end
 
 function M.save_cache()
   vim.fn.mkdir(cache_dir, 'p')
+  -- 캐시 항목 개수 상한 체크 (2000개 초과 시 초과분 정리)
+  local keys = vim.tbl_keys(M._runtime_cache)
+  if #keys > M.MAX_CACHE_ENTRIES then
+    for i = 1, (#keys - math.floor(M.MAX_CACHE_ENTRIES * 0.75)) do
+      M._runtime_cache[keys[i]] = nil
+    end
+  end
   local f = io.open(cache_file, 'w')
   if f then
     local ok, encoded = pcall(vim.json.encode, M._runtime_cache)
@@ -373,7 +389,7 @@ function M.process_queue()
 end
 
 function M.request_translation_async(text)
-  if not M.enabled then
+  if not M.enabled or not M.online_enabled then
     return
   end
   local trimmed = vim.trim(text)

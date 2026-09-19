@@ -586,9 +586,15 @@ return {
         }
 
         for key, def in pairs(move_keymaps) do
-          vim.keymap.set({ 'n', 'x', 'o' }, key, ts_guard(function()
-            def[1](def[2], 'textobjects')
-          end), { desc = def[3], silent = true })
+          vim.keymap.set({ 'n', 'x', 'o' }, key, function()
+            -- [diff 모드 가드 복원] diffview 또는 vimdiff 상태에서는 클래스 이동 대신 diff hunk 변경점 이동 보존
+            if vim.wo.diff and key:find('[cC]') then
+              return vim.cmd('normal! ' .. key)
+            end
+            ts_guard(function()
+              def[1](def[2], 'textobjects')
+            end)()
+          end, { desc = def[3], silent = true })
         end
 
         -- =====================================================================
@@ -604,6 +610,7 @@ return {
 
         -- -----------------------------------------------------------------------
         -- [Move 반복 이동 지원] ; 와 , 로 마지막 이동 반복 (f/t 와 동일한 UX)
+        -- (f/F/t/T 단일 문자 검색 및 점프는 flash.nvim 전담하여 상호 충돌 원천 차단)
         -- -----------------------------------------------------------------------
         local ok_repeat, ts_repeat = pcall(require, 'nvim-treesitter-textobjects.repeatable_move')
         if not ok_repeat then
@@ -619,15 +626,6 @@ return {
           if prev_move then
             vim.keymap.set({ 'n', 'x', 'o' }, ',', prev_move, { desc = '마지막 textobject 이동 반복 (후방)' })
           end
-
-          local f_fn = ts_repeat.builtin_f_expr or ts_repeat.builtin_f
-          local F_fn = ts_repeat.builtin_F_expr or ts_repeat.builtin_F
-          local t_fn = ts_repeat.builtin_t_expr or ts_repeat.builtin_t
-          local T_fn = ts_repeat.builtin_T_expr or ts_repeat.builtin_T
-          if f_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'f', f_fn, { expr = true }) end
-          if F_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'F', F_fn, { expr = true }) end
-          if t_fn then vim.keymap.set({ 'n', 'x', 'o' }, 't', t_fn, { expr = true }) end
-          if T_fn then vim.keymap.set({ 'n', 'x', 'o' }, 'T', T_fn, { expr = true }) end
         end
       end)
     end,

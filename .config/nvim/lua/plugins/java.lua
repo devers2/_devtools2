@@ -572,15 +572,25 @@ return {
           client.config.settings.java.configuration.runtimes = opts.settings.java.configuration.runtimes
         end
 
-        -- [저장 시 자동 import 정리] settings.java.saveActions.organizeImports 만으로는
-        -- nvim-jdtls에서 아무 효과가 없어(VS Code의 redhat.java와 달리 저장 이벤트에 자동 연결이
-        -- 안 되는 게 nvim-jdtls의 알려진 동작), BufWritePre에서 직접 organize_imports를 호출합니다.
-        -- 버퍼 단위 augroup(clear=true)이라 on_attach가 같은 버퍼에서 재실행돼도 중복 등록되지 않습니다.
+        -- [저장 시 자동 import 정리: 동기 방식 (Neovim 0.12+)]
+        -- 비동기 호출 시 저장이 먼저 끝나고 import 정리가 뒤늦게 적용되어 저장 직후 버퍼가
+        -- 다시 수정 상태가 되거나 방금 입력한 미사용 import가 지워지는 경합을 방지하기 위해
+        -- client:request_sync 로 동기 처리 후 즉시 workspace edit을 버퍼에 반영합니다.
         vim.api.nvim_create_autocmd('BufWritePre', {
           group = vim.api.nvim_create_augroup('jdtls_organize_imports_' .. bufnr, { clear = true }),
           buffer = bufnr,
           callback = function()
-            require('jdtls').organize_imports()
+            local clients = vim.lsp.get_clients({ bufnr = bufnr, name = 'jdtls' })
+            local jdtls_client = clients[1]
+            if not jdtls_client then
+              return
+            end
+            local params = vim.lsp.util.make_range_params(0, jdtls_client.offset_encoding)
+            params.context = { diagnostics = {} }
+            local resp = jdtls_client:request_sync('java/organizeImports', params, 1000, bufnr)
+            if resp and resp.result then
+              vim.lsp.util.apply_workspace_edit(resp.result, jdtls_client.offset_encoding)
+            end
           end,
         })
       end

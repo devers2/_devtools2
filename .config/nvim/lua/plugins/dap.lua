@@ -14,6 +14,72 @@ return {
         end,
         desc = '포트 지정 디버그 연결 (Attach Debug)',
       },
+      {
+        '<leader>dd',
+        function()
+          local dap = require('dap')
+          if dap.session() then
+            dap.continue()
+            return
+          end
+
+          require('util.dap_scaffold').ensure_launch_json(function(ok)
+            if ok then
+              dap.continue()
+            end
+          end)
+        end,
+        desc = '디버그 실행 / 계속 (Run/Continue)',
+      },
+      {
+        '<leader>dc',
+        function()
+          require('dap').run_to_cursor()
+        end,
+        desc = '커서 위치까지 실행 (Run to Cursor)',
+      },
+      {
+        '<leader>db',
+        function()
+          require('dap').toggle_breakpoint()
+        end,
+        desc = '브레이크포인트 설정/해제 (Toggle Breakpoint)',
+      },
+      {
+        '<leader>de',
+        function()
+          require('dap').step_over()
+        end,
+        desc = '다음 줄 실행 (Step Over)',
+      },
+      {
+        '<leader>di',
+        function()
+          require('dap').step_into()
+        end,
+        desc = '함수 내부 진입 (Step Into)',
+      },
+      {
+        '<leader>do',
+        function()
+          require('dap').step_out()
+        end,
+        desc = '함수 밖으로 탈출 (Step Out)',
+      },
+      {
+        '<leader>dr',
+        function()
+          require('dap').repl.toggle()
+        end,
+        desc = 'REPL 창 토글 (Toggle REPL)',
+      },
+      {
+        '<leader>dt',
+        function()
+          require('dap').terminate()
+        end,
+        desc = '디버깅 및 서버 종료 (Terminate)',
+      },
     },
     opts = function(_, opts)
       local dap = require('dap')

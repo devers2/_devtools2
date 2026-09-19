@@ -241,9 +241,12 @@ if vim.fn.has('wsl') == 1 then
 end
 vim.opt.clipboard = 'unnamedplus'
 
--- 포커스를 잃거나(FocusLost), 버퍼를 떠나거나(BufLeave), 입력 모드를 나갈 때(InsertLeave) 자동 저장
--- (인텔리제이처럼 수정 즉시 또는 창을 옮길 때 확실하게 저장되도록 이벤트를 보강)
-vim.api.nvim_create_autocmd({ 'FocusLost', 'BufLeave', 'InsertLeave' }, {
+-- [Python LSP] LazyVim Python extra에서 pyright 대신 basedpyright를 사용하도록 지정
+vim.g.lazyvim_python_lsp = 'basedpyright'
+
+-- 포커스를 잃거나(FocusLost), 버퍼를 떠날 때(BufLeave) 자동 저장
+-- (InsertLeave는 타이핑 중 Esc 누를 때 불필요한 디스크 쓰기 및 LSP 포맷/Import 정리와의 경합을 방지하기 위해 제외)
+vim.api.nvim_create_autocmd({ 'FocusLost', 'BufLeave' }, {
   group = vim.api.nvim_create_augroup('IntelliJAutoSave', { clear = true }),
   callback = function(args)
     local buf = args.buf
