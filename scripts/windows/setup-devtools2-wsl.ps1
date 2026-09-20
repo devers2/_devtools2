@@ -248,33 +248,33 @@ Write-Info "서브스크립트는 고정된 커밋($($DT2_REF.Substring(0, [Math
 # ==============================================================================
 $_wslResumeFlagFile = "$env:TEMP\.devtools2_wsl_resume"
 
-# 1. WSL2 엔진 고속 작동 확인 (이미 설치 및 정상 작동 중이면 0.03초 만에 즉시 통과)
-$isWslAlreadyReady = $false
+# 1. Windows 필수 선택적 기능 상태 확인 헬퍼
+function Get-IsFeatureEnabled {
+    param([string]$FeatureName)
+    try {
+        $feat = Get-WindowsOptionalFeature -Online -FeatureName $FeatureName -ErrorAction SilentlyContinue
+        return ($null -ne $feat -and $feat.State -eq 'Enabled')
+    } catch {
+        return $false
+    }
+}
+
+# WSL2 엔진 고속 작동 확인 (이미 설치 및 정상 작동 중이면 0.03초 만에 즉시 통과)
+$wslWorking = $false
 try {
-    wsl.exe --status 2>$null | Out-Null
+    $null = wsl.exe --status 2>$null
     if ($LASTEXITCODE -eq 0) {
-        $isWslAlreadyReady = $true
+        $wslWorking = $true
     }
 } catch {}
 
-$wslFeatEnabled = $isWslAlreadyReady
-$vmFeatEnabled  = $isWslAlreadyReady
-
-# WSL이 아직 작동하지 않는 순정 Windows 환경에서만 DISM 전체 점검 수행 (스피너로 시각적 안내)
-if (-not $isWslAlreadyReady -and -not (Test-Path $_wslResumeFlagFile)) {
-    $dismCheckFile = "$env:TEMP\wsl_dism_check.txt"
-    $dismProc = Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"`$f1 = (Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -ErrorAction SilentlyContinue).State -eq ''Enabled''; `$f2 = (Get-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -ErrorAction SilentlyContinue).State -eq ''Enabled''; Set-Content -Path ''$dismCheckFile'' -Value `"`$f1,`$f2`" -Encoding ASCII`"" -PassThru -NoNewWindow -ErrorAction SilentlyContinue
-
-    Wait-WithSpinner -Message "WSL2 환경 및 Windows 필수 기능 상태 점검 중" -Condition {
-        return (-not $dismProc) -or $dismProc.HasExited
-    } -MaxTimeoutSeconds 60 | Out-Null
-
-    if (Test-Path $dismCheckFile) {
-        $dismVals = (Get-Content $dismCheckFile -Raw).Trim() -split ","
-        $wslFeatEnabled = ($dismVals[0] -eq 'True')
-        $vmFeatEnabled  = ($dismVals[1] -eq 'True')
-        Remove-Item $dismCheckFile -Force -ErrorAction SilentlyContinue
-    }
+if ($wslWorking) {
+    $wslFeatEnabled = $true
+    $vmFeatEnabled  = $true
+} else {
+    Write-Info "WSL2 환경 및 Windows 필수 기능 점검 중..."
+    $wslFeatEnabled = Get-IsFeatureEnabled "Microsoft-Windows-Subsystem-Linux"
+    $vmFeatEnabled  = Get-IsFeatureEnabled "VirtualMachinePlatform"
 }
 
 # 필수 선택적 기능 중 하나라도 비활성화되어 있고 재개 플래그도 없는 경우 활성화 수행
@@ -284,11 +284,11 @@ if (-not ($wslFeatEnabled -and $vmFeatEnabled) -and -not (Test-Path $_wslResumeF
     Write-Info "선택적 기능(VirtualMachinePlatform 및 Microsoft-Windows-Subsystem-Linux)을 활성화합니다..."
 
     if (-not $wslFeatEnabled) {
-        $p1 = Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -NoRestart -WarningAction SilentlyContinue | Out-Null`"" -PassThru -NoNewWindow
+        $p1 = Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"`$ProgressPreference = 'SilentlyContinue'; Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Windows-Subsystem-Linux -NoRestart -WarningAction SilentlyContinue | Out-Null`"" -PassThru -NoNewWindow
         Wait-WithSpinner -Message "Microsoft-Windows-Subsystem-Linux 기능 활성화" -Condition { $p1.HasExited }
     }
     if (-not $vmFeatEnabled) {
-        $p2 = Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart -WarningAction SilentlyContinue | Out-Null`"" -PassThru -NoNewWindow
+        $p2 = Start-Process powershell.exe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"`$ProgressPreference = 'SilentlyContinue'; Enable-WindowsOptionalFeature -Online -FeatureName VirtualMachinePlatform -NoRestart -WarningAction SilentlyContinue | Out-Null`"" -PassThru -NoNewWindow
         Wait-WithSpinner -Message "VirtualMachinePlatform 기능 활성화" -Condition { $p2.HasExited }
     }
 
