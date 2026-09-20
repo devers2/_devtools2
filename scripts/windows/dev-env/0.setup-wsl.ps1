@@ -18,6 +18,19 @@
 #    Ubuntu WSL rootfs 이미지를 직접 다운로드하여 'wsl --import'로 단번에
 #    devtools2 전용 배포판을 생성합니다. 사용자 계정은 useradd + chpasswd로
 #    내부에서 직접 설정합니다.
+# 6. 외부 프로세스 출력 및 파일 읽기 시 .Trim() 절대 안전 원칙:
+#    $null 또는 빈 AutomationNull / 배열에 .Trim()을 직접 호출하면 InvokeMethodOnNull 또는
+#    MethodNotFound 예외가 발생하여 스크립트가 즉시 크래시됩니다.
+#    Get-Content나 명령어 출력을 다룰 때는 반드시 [string] 캐스팅을 선행하고,
+#    `if (-not [string]::IsNullOrWhiteSpace($var))` 검증을 거친 후 `.Trim()`을 호출하십시오.
+#    (예: $err = [string](Get-Content $log -Raw); if (-not [string]::IsNullOrWhiteSpace($err)) { $err.Trim() })
+# 7. Start-Process -PassThru 비동기 ExitCode $null 트랩 방지 및 실측 원칙:
+#    Windows PowerShell 5.1에서 Start-Process ... -PassThru 로 프로세스를 띄운 뒤 -Wait 없이
+#    종료를 대기(Wait-WithSpinner 등)하면, 프로세스가 정상 종료(0)되어도 $proc.ExitCode 는
+#    항상 $null 입니다. PowerShell에서 "$null -ne 0"은 $true 로 평가되므로, 정상 성공한 작업이
+#    "실패(종료 코드: )"로 오판되는 치명적 버그가 발생합니다.
+#    비동기 작업 완료 여부는 대상 자원(배포판, 파일 등)의 실제 존재 여부로 교차 검증하거나
+#    Start-Job 등을 통해 명시적 Int32 종료 코드를 전달받아 검증하십시오.
 # ------------------------------------------------------------------------------
 # ==============================================================================
 
@@ -283,17 +296,36 @@ if ($isUpdateRequired) {
 
 # 4. 'devtools2'가 이미 등록되어 있다면 신규 설치를 건너뛰고 계속 진행
 if ($registeredDistros -contains $wslName) {
-    Write-Success "기존에 설치된 WSL2 배포판 '$wslName'이 이미 존재하여 이를 그대로 사용합니다."
-    Write-Warn "---------------------------------------------------------------------------"
-    Write-Warn " [새로운 배포판으로 깨끗하게 다시 설치하고 싶으신가요?]"
-    Write-Warn " 아래 명령어를 실행하여 기존 배포판을 완전히 삭제한 뒤, 이 스크립트를 다시 실행해 주세요."
-    Write-Host ""
-    Write-Host "   wsl --unregister $wslName" -ForegroundColor Red
-    Write-Warn "   (※ 주의: 기존 배포판 내의 모든 파일과 설정이 영구적으로 지워집니다.)"
-    Write-Warn "---------------------------------------------------------------------------"
-    Write-Host ""
-    Write-Success "기존 배포판 사용 준비 완료. 다음 단계로 진행합니다."
-} else {
+    # 기존 배포판에 Step 3-5(사용자 계정 및 wsl.conf [user] default 설정)가 완료되었는지 확인
+    $hasDefaultUser = $false
+    try {
+        $wslConfContent = [string](@(wsl.exe -d $wslName -u root -- cat /etc/wsl.conf 2>$null) | Out-String)
+        if ($wslConfContent -match "\[user\][\s\S]*?default\s*=") {
+            $hasDefaultUser = $true
+        }
+    } catch {}
+
+    if ($hasDefaultUser) {
+        Write-Success "기존에 설치된 WSL2 배포판 '$wslName'이 이미 존재하여 이를 그대로 사용합니다."
+        Write-Warn "---------------------------------------------------------------------------"
+        Write-Warn " [새로운 배포판으로 깨끗하게 다시 설치하고 싶으신가요?]"
+        Write-Warn " 아래 명령어를 실행하여 기존 배포판을 완전히 삭제한 뒤, 이 스크립트를 다시 실행해 주세요."
+        Write-Host ""
+        Write-Host "   wsl --unregister $wslName" -ForegroundColor Red
+        Write-Warn "   (※ 주의: 기존 배포판 내의 모든 파일과 설정이 영구적으로 지워집니다.)"
+        Write-Warn "---------------------------------------------------------------------------"
+        Write-Host ""
+        Write-Success "기존 배포판 사용 준비 완료. 다음 단계로 진행합니다."
+    } else {
+        Write-Warn "기존 배포판 '$wslName'이 등록되어 있으나, 이전 실행 중단으로 인해 사용자 계정 및 환경 설정(Step 3-5)이 완료되지 않았습니다."
+        Write-Info "깨끗한 신규 설치를 위해 미완성 배포판을 초기화(unregister)하고 설치를 다시 시작합니다..."
+        wsl.exe --unregister $wslName 2>$null
+        Start-Sleep -Seconds 1
+        $registeredDistros = @()
+    }
+}
+
+if (-not ($registeredDistros -contains $wslName)) {
 
 # ==============================================================================
 # [Step 2] 설치 경로 결정 - 개발자 드라이브(Dev Drive / ReFS) 자동 감지 및 사용자 선택
@@ -554,24 +586,54 @@ if (-not $skipDownload) {
 
     Write-Info "배포판을 '$wslName' 이름으로 생성 중... ($wslInstallPath)"
     $importErrLog = Join-Path $env:TEMP "wsl_import_error.log"
-    $importProc = Start-Process wsl.exe -ArgumentList "--import `"$wslName`" `"$wslInstallPath`" `"$tempTarPath`" --version 2" -PassThru -NoNewWindow -RedirectStandardError $importErrLog -ErrorAction SilentlyContinue
+    if (Test-Path $importErrLog) { Remove-Item $importErrLog -Force -ErrorAction SilentlyContinue }
+
+    # Start-Job으로 백그라운드 격리 실행하여 PS 5.1에서도 ExitCode와 에러 출력을 완벽하게 수신 (Rule 8)
+    $importJob = Start-Job -ScriptBlock {
+        param($name, $path, $tar, $errLog)
+        $p = Start-Process wsl.exe -ArgumentList "--import `"$name`" `"$path`" `"$tar`" --version 2" -Wait -PassThru -NoNewWindow -RedirectStandardError $errLog -ErrorAction SilentlyContinue
+        return $p.ExitCode
+    } -ArgumentList $wslName, $wslInstallPath, $tempTarPath, $importErrLog
 
     $importWait = Wait-WithSpinner -Message "WSL2 배포판 가상 디스크 생성 및 Import 중" -Condition {
-        return (-not $importProc) -or $importProc.HasExited
+        return ($importJob.State -ne 'Running')
     } -MaxTimeoutSeconds 600
 
-    $importExit = if ($importProc -and $importProc.HasExited) { $importProc.ExitCode } else { 1 }
+    $jobExit = Receive-Job $importJob
+    Remove-Job $importJob -Force
     Remove-Item $tempTarPath -Force -ErrorAction SilentlyContinue
 
-    if (-not $importWait -or $importExit -ne 0) {
-        $errDetail = if (Test-Path $importErrLog) { (Get-Content $importErrLog -Raw).Trim() } else { "" }
-        Write-Fail "배포판 가져오기(Import) 실패 (종료 코드: $importExit)"
-        if ($errDetail) { Write-Warn "오류 상세: $errDetail" }
+    # 배포판 등록 여부 실제 확인 (Rule 8: 프로세스 종료코드 외에 실제 시스템 자원 상태 교차 검증)
+    $distroExists = $false
+    try {
+        $rawList = @(wsl.exe --list --quiet 2>$null)
+        $cleanDistros = $rawList | ForEach-Object { ([string]$_ -replace "`0", "").Trim() }
+        $distroExists = [bool]($cleanDistros -contains $wslName)
+    } catch {}
+
+    # 오류 상세 메시지 안전 추출 (Rule 7: [string] 캐스팅 및 IsNullOrWhiteSpace 선행 검사)
+    $errDetail = ""
+    if (Test-Path $importErrLog) {
+        $rawErr = [string](Get-Content $importErrLog -Raw -ErrorAction SilentlyContinue)
+        if (-not [string]::IsNullOrWhiteSpace($rawErr)) {
+            $errDetail = $rawErr.Trim()
+        }
         Remove-Item $importErrLog -Force -ErrorAction SilentlyContinue
+    }
+
+    # 최종 성공 여부 판정:
+    # 1) 타임아웃 미발생
+    # 2) 배포판이 실제로 정상 등록됨 (실측 검증)
+    # 3) 명시적 실패(종료 코드 0이 아님)가 아님
+    $isImportSuccess = $importWait -and $distroExists -and ($null -eq $jobExit -or $jobExit -eq 0)
+
+    if (-not $isImportSuccess) {
+        $exitDisp = if ($null -ne $jobExit) { $jobExit } else { "알 수 없음" }
+        Write-Fail "배포판 가져오기(Import) 실패 (종료 코드: $exitDisp)"
+        if ($errDetail) { Write-Warn "오류 상세: $errDetail" }
         Pause-Script
         exit 1
     }
-    Remove-Item $importErrLog -Force -ErrorAction SilentlyContinue
     Write-Success "WSL2 배포판 '$wslName' 생성 완료!"
 
     # ── 5. 기본 계정 생성 및 시스템 설정 초기화 (root 권한 1회 설정) ─────────

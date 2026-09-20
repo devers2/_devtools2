@@ -32,6 +32,19 @@
 #    기본 ANSI(CP949)로 오인해 한글 구문 파싱 오류를 일으킵니다. 로컬 파일을 읽어야 할 경우에도
 #    반드시 [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8) 로 읽어
 #    메모리 상에서 [scriptblock]::Create 로 실행해야 합니다.
+# 7. 외부 프로세스 출력 및 파일 읽기 시 .Trim() 절대 안전 원칙:
+#    $null 또는 빈 AutomationNull / 배열에 .Trim()을 직접 호출하면 InvokeMethodOnNull 또는
+#    MethodNotFound 예외가 발생하여 스크립트가 즉시 크래시됩니다.
+#    Get-Content나 명령어 출력을 다룰 때는 반드시 [string] 캐스팅을 선행하고,
+#    `if (-not [string]::IsNullOrWhiteSpace($var))` 검증을 거친 후 `.Trim()`을 호출하십시오.
+#    (예: $err = [string](Get-Content $log -Raw); if (-not [string]::IsNullOrWhiteSpace($err)) { $err.Trim() })
+# 8. Start-Process -PassThru 비동기 ExitCode $null 트랩 방지 및 실측 원칙:
+#    Windows PowerShell 5.1에서 Start-Process ... -PassThru 로 프로세스를 띄운 뒤 -Wait 없이
+#    종료를 대기(Wait-WithSpinner 등)하면, 프로세스가 정상 종료(0)되어도 $proc.ExitCode 는
+#    항상 $null 입니다. PowerShell에서 "$null -ne 0"은 $true 로 평가되므로, 정상 성공한 작업이
+#    "실패(종료 코드: )"로 오판되는 치명적 버그가 발생합니다.
+#    비동기 작업 완료 여부는 대상 자원(배포판, 파일 등)의 실제 존재 여부로 교차 검증하거나
+#    Start-Job 등을 통해 명시적 Int32 종료 코드를 전달받아 검증하십시오.
 # ------------------------------------------------------------------------------
 #
 # 사용 방법:
