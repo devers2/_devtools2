@@ -31,6 +31,12 @@
 #    "실패(종료 코드: )"로 오판되는 치명적 버그가 발생합니다.
 #    비동기 작업 완료 여부는 대상 자원(배포판, 파일 등)의 실제 존재 여부로 교차 검증하거나
 #    Start-Job 등을 통해 명시적 Int32 종료 코드를 전달받아 검증하십시오.
+# 8. WSL/Linux 프로세스로 다중 라인 스크립트 전달 시 STDIN 파이프라인 필수 원칙:
+#    PowerShell에서 wsl.exe python3 -c "$code" 또는 bash -c "$code" 형태로 따옴표가 포함된
+#    스크립트를 인라인 명령행 인자로 넘기면, Windows 프로세스 파라미터 전달 과정에서 내부 큰따옴표가
+#    탈락(strip)되어 Linux 측 인터프리터에서 SyntaxError 또는 command not found 예외가 발생합니다.
+#    다중 라인 스크립트는 반드시 @' ... '@ (원시 작은따옴표 here-string)으로 선언하고,
+#    $code | wsl ... python3 - "$arg" 또는 bash 형태로 STDIN을 통해 안전하게 전달하십시오.
 # ------------------------------------------------------------------------------
 # ==============================================================================
 
@@ -659,60 +665,44 @@ if (-not $skipDownload) {
 
     # 2) hostname 및 /etc/wsl.conf 설정 (기존 설정 보존하며 default user, systemd=true, interop 섹션 병합)
     wsl -d $wslName -u root -- bash -c "echo '$wslName' > /etc/hostname"
-    $mergeWslConfPy = @"
-import sys, os
+    $mergeWslConfPy = @'
+import configparser, sys
 
-conf_file = "/etc/wsl.conf"
-settings = [
-    ("user", "default", sys.argv[1]),
-    ("interop", "enabled", "true"),
-    ("interop", "appendWindowsPath", "true"),
-    ("boot", "systemd", "true"),
-]
+path = '/etc/wsl.conf'
+username = sys.argv[1]
+c = configparser.ConfigParser()
+c.read(path)
 
-lines = []
-if os.path.exists(conf_file):
-    try:
-        with open(conf_file, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-    except Exception:
-        pass
+for sec in ['boot', 'user', 'interop']:
+    if not c.has_section(sec):
+        c.add_section(sec)
 
-for sec, k, v in settings:
-    sec_header = f"[{sec}]".lower()
-    in_sec = False
-    sec_found = False
-    key_updated = False
-    new_lines = []
-    for line in lines:
-        s = line.strip()
-        if s.startswith("[") and s.endswith("]"):
-            if in_sec and not key_updated:
-                new_lines.append(f"{k}={v}\n")
-                key_updated = True
-            in_sec = (s.lower() == sec_header)
-            if in_sec:
-                sec_found = True
-        elif in_sec and "=" in s and not s.startswith("#") and not s.startswith(";"):
-            if s.split("=", 1)[0].strip().lower() == k.lower():
-                line = f"{k}={v}\n"
-                key_updated = True
-        new_lines.append(line)
-    if in_sec and not key_updated:
-        new_lines.append(f"{k}={v}\n")
-        key_updated = True
-    elif not sec_found:
-        if new_lines and not new_lines[-1].endswith("\n"):
-            new_lines[-1] += "\n"
-        if new_lines and new_lines[-1].strip() != "":
-            new_lines.append("\n")
-        new_lines.append(f"[{sec}]\n{k}={v}\n")
-    lines = new_lines
+c.set('boot', 'systemd', 'true')
+c.set('user', 'default', username)
+c.set('interop', 'enabled', 'true')
+c.set('interop', 'appendWindowsPath', 'true')
 
-with open(conf_file, "w", encoding="utf-8") as f:
-    f.writelines(lines)
+with open(path, 'w', encoding='utf-8') as f:
+    c.write(f)
+'@
+    $mergeWslConfPy | wsl -d $wslName -u root -- python3 - "$createdUsername"
+    if ($LASTEXITCODE -ne 0) {
+        # Python 실패 시 bash 순수 heredoc 폴백으로 직접 기록
+        $confFallback = @"
+cat << 'EOF' > /etc/wsl.conf
+[boot]
+systemd=true
+
+[user]
+default=$createdUsername
+
+[interop]
+enabled=true
+appendWindowsPath=true
+EOF
 "@
-    wsl -d $wslName -u root -- python3 -c "$mergeWslConfPy" "$createdUsername"
+        $confFallback | wsl -d $wslName -u root -- bash
+    }
 
     # 3) Windows Interop 핸들러 등록
     wsl -d $wslName -u root -- bash -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)"
