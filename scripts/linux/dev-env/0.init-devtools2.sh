@@ -176,31 +176,25 @@ if [ -d "$TARGET_DIR" ] && [ -d "$TARGET_DIR/.git" ]; then
     print_info "이미 유효한 Git 개발도구 저장소($TARGET_DIR)가 존재합니다."
     print_info "설치 스크립트는 멱등성이 보장되므로 그대로 이어서 진행합니다."
 
-    # ── 커밋 일치 확인 및 자동 맞춤 (작업 트리가 깨끗할 때) ──
+    # ── 커밋 일치 확인 및 자동 맞춤 (작업 트리가 깨끗할 때 최신 원격 커밋 동기화) ──
     _target_ref="${DT2_REF:-main}"
-    if [ -n "$_target_ref" ] && [ "$_target_ref" != "main" ]; then
-        _current_head=$(git -C "$TARGET_DIR" rev-parse HEAD 2>/dev/null || true)
-        if [ "$_current_head" != "$_target_ref" ]; then
-            _is_clean=false
-            if git -C "$TARGET_DIR" diff --quiet 2>/dev/null && git -C "$TARGET_DIR" diff --staged --quiet 2>/dev/null; then
-                _is_clean=true
-            fi
-            if [ "$_is_clean" = true ]; then
-                print_info "로컬 저장소 커밋을 원격 실행 커밋(${_target_ref:0:7})으로 동기화합니다..."
-                if sudo -u "$INVOKER" git -C "$TARGET_DIR" fetch --quiet origin 2>/dev/null && \
-                   sudo -u "$INVOKER" git -C "$TARGET_DIR" checkout --quiet "$_target_ref" 2>/dev/null; then
-                    print_done "로컬 저장소 커밋 동기화 완료: ${_target_ref:0:7}"
-                else
-                    print_warn "로컬 저장소 커밋 동기화 실패 (네트워크 또는 권한 확인 필요)"
-                fi
-            else
-                print_warn "⚠️  로컬 저장소에 미커밋 변경 사항이 있어 자동 커밋 동기화를 건너뜁니다."
-                print_warn "   현재 로컬 커밋: ${_current_head:0:7}, 실행 원격 커밋: ${_target_ref:0:7}"
-                print_warn "   설정 파일이나 도구 버전 불일치를 방지하려면 수동으로 커밋을 맞춰주세요."
-            fi
+    _is_clean=false
+    if git -C "$TARGET_DIR" diff --quiet 2>/dev/null && git -C "$TARGET_DIR" diff --staged --quiet 2>/dev/null; then
+        _is_clean=true
+    fi
+
+    if [ "$_is_clean" = true ]; then
+        print_info "로컬 저장소($TARGET_DIR)를 최신 원격 커밋($_target_ref)으로 동기화합니다..."
+        if sudo -u "$INVOKER" git -C "$TARGET_DIR" fetch --quiet origin 2>/dev/null && \
+           sudo -u "$INVOKER" git -C "$TARGET_DIR" checkout --quiet "$_target_ref" 2>/dev/null && \
+           sudo -u "$INVOKER" git -C "$TARGET_DIR" pull --ff-only --quiet origin "$_target_ref" 2>/dev/null; then
+            _new_head=$(git -C "$TARGET_DIR" rev-parse --short HEAD 2>/dev/null || true)
+            print_done "로컬 저장소 커밋 동기화 완료: $_new_head"
         else
-            print_info "로컬 저장소 커밋이 실행 원격 커밋과 일치합니다: ${_target_ref:0:7}"
+            print_warn "로컬 저장소 커밋 동기화 건너뜀 또는 실패 (기존 버전으로 계속 진행)"
         fi
+    else
+        print_warn "⚠️  로컬 저장소에 미커밋 변경 사항이 있어 자동 커밋 동기화를 건너뜁니다."
     fi
     print_sep
     echo ""
