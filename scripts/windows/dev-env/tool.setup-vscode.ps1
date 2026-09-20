@@ -32,14 +32,14 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ProgressPreference = 'SilentlyContinue'
 
-$_localCommon = Join-Path $PSScriptRoot "_common.ps1"
-if (Test-Path $_localCommon) {
-    . $_localCommon
+$_localCommon = if (-not [string]::IsNullOrEmpty($PSScriptRoot)) { Join-Path $PSScriptRoot "_common.ps1" } else { $null }
+if ($_localCommon -and (Test-Path $_localCommon)) {
+    $_commonContent = [System.IO.File]::ReadAllText($_localCommon, [System.Text.Encoding]::UTF8)
 } else {
     $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
     $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
-    . ([scriptblock]::Create($_commonContent))
 }
+. ([scriptblock]::Create($_commonContent))
 
 # 심볼릭 링크 헬퍼 3종(Remove-FileOrSymlink, New-SymlinkIdempotent, Backup-AndLink)은
 # _common.ps1 로 일원화되어 공용으로 제공됩니다.

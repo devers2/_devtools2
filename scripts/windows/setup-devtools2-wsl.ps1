@@ -42,14 +42,14 @@ $ProgressPreference = 'SilentlyContinue'
 # 거의 동일하게 복붙되어 있던 걸 _common.ps1(scripts/windows/dev-env/_common.ps1)
 # 공용 파일로 통합했습니다(bash의 _colors.sh와 동일한 패턴).
 # 항상 온라인 최신본을 dot-source(다른 스크립트 스트리밍 실행과 동일한 캐시 우회 원칙).
-$_localCommon = Join-Path $PSScriptRoot "dev-env\_common.ps1"
-if (Test-Path $_localCommon) {
-    . $_localCommon
+$_localCommon = if (-not [string]::IsNullOrEmpty($PSScriptRoot)) { Join-Path $PSScriptRoot "dev-env\_common.ps1" } else { $null }
+if ($_localCommon -and (Test-Path $_localCommon)) {
+    $_commonContent = [System.IO.File]::ReadAllText($_localCommon, [System.Text.Encoding]::UTF8)
 } else {
     $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
     $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
-    . ([scriptblock]::Create($_commonContent))
 }
+. ([scriptblock]::Create($_commonContent))
 
 # 세션 한정 마우스 클릭 멈춤(프리징) 방지: QuickEdit 모드 안전 비활성화 (스크립트 종료/Ctrl+C 시 자동 복원)
 Disable-ConsoleQuickEdit | Out-Null
