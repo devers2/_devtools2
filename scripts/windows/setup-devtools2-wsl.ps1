@@ -48,8 +48,11 @@
 # ------------------------------------------------------------------------------
 #
 # 사용 방법:
-#   PowerShell (PS 5.1 또는 PS 7)을 관리자 권한으로 열고 실행:
-#   .\setup-devtools2-wsl.ps1
+#   1) 온라인 원격 실행 (기본 권장 - PS 5.1 / PS 7 공통 호환):
+#      irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex
+#   2) 로컬 파일 직접 실행 시 (반드시 PowerShell 7 / pwsh 필요):
+#      pwsh -ExecutionPolicy Bypass -File .\scripts\windows\setup-devtools2-wsl.ps1
+#      (※ Windows PowerShell 5.1에서 로컬 NoBOM 파일 직접 실행 시 CP949 인코딩 오인으로 파싱 에러 발생)
 # ==============================================================================
 
 # --- 한글 깨짐 방지: 출력 인코딩을 UTF-8 NoBOM 으로 설정
