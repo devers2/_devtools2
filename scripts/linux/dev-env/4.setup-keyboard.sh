@@ -117,39 +117,43 @@ else
             exit 1
         }
 
-        # 소스 클론 또는 업데이트
+        # 소스 클론 또는 업데이트 (스피너 표시)
         if [ -d "$KEYD_MODULE_DIR/.git" ]; then
-            print_info "keyd 소스 업데이트 중: $KEYD_MODULE_DIR"
-            (cd "$KEYD_MODULE_DIR" && git pull --ff-only) >/tmp/_keyd_git.log 2>&1 || {
-                print_warn "git pull 실패. 기존 소스 그대로 사용합니다."
-            }
+            (cd "$KEYD_MODULE_DIR" && git pull --ff-only) >/tmp/_keyd_git.log 2>&1 &
+            local _pull_pid=$!
+            run_with_spinner "keyd 소스 업데이트 진행 중..." "$_pull_pid"
+            wait "$_pull_pid" 2>/dev/null || print_warn "git pull 실패. 기존 소스 그대로 사용합니다."
+            rm -f /tmp/_keyd_git.log
         else
-            print_info "keyd 소스 클론 중: $KEYD_MODULE_DIR"
             mkdir -p "$(dirname "$KEYD_MODULE_DIR")"
-            git clone https://github.com/rvaiya/keyd "$KEYD_MODULE_DIR" >/tmp/_keyd_git.log 2>&1 || {
+            git clone https://github.com/rvaiya/keyd "$KEYD_MODULE_DIR" >/tmp/_keyd_git.log 2>&1 &
+            local _clone_pid=$!
+            run_with_spinner "keyd 소스 클론 진행 중..." "$_clone_pid"
+            if ! wait "$_clone_pid" 2>/dev/null; then
                 print_error "keyd 소스 클론 실패. 로그: /tmp/_keyd_git.log"
                 exit 1
-            }
+            fi
+            rm -f /tmp/_keyd_git.log
         fi
 
-        # 빌드 및 설치
-        print_info "keyd 빌드 중..."
-        (
-            cd "$KEYD_MODULE_DIR"
-            make >/tmp/_keyd_make.log 2>&1
-        ) || {
+        # 빌드 및 설치 (스피너 표시)
+        (cd "$KEYD_MODULE_DIR" && make >/tmp/_keyd_make.log 2>&1) &
+        local _make_pid=$!
+        run_with_spinner "keyd 컴파일 및 빌드 중 (make)..." "$_make_pid"
+        if ! wait "$_make_pid" 2>/dev/null; then
             print_error "keyd 빌드 실패. 로그: /tmp/_keyd_make.log"
             exit 1
-        }
+        fi
+        rm -f /tmp/_keyd_make.log
 
-        print_info "keyd 설치 중 (make install)..."
-        (
-            cd "$KEYD_MODULE_DIR"
-            make install >/tmp/_keyd_install.log 2>&1
-        ) || {
+        (cd "$KEYD_MODULE_DIR" && make install >/tmp/_keyd_install.log 2>&1) &
+        local _inst_pid=$!
+        run_with_spinner "keyd 시스템 설치 중 (make install)..." "$_inst_pid"
+        if ! wait "$_inst_pid" 2>/dev/null; then
             print_error "keyd 설치 실패. 로그: /tmp/_keyd_install.log"
             exit 1
-        }
+        fi
+        rm -f /tmp/_keyd_install.log
 
         print_success "keyd 소스 빌드 및 설치 완료: $(command -v keyd)"
     fi

@@ -221,11 +221,17 @@ else
     mkdir -p "$TARGET_DIR"
     chown -R "$INVOKER" "$TARGET_DIR"
 
-    # 공개 저장소이므로 토큰 인증 없이 호출자 권한으로 클론을 진행합니다.
-    if ! sudo -u "$INVOKER" git clone https://github.com/devers2/_devtools2.git "$TARGET_DIR"; then
-        echo "[오류] 깃 클론에 실패했습니다. 네트워크 상태나 저장소 URL을 확인해주세요."
+    # 공개 저장소이므로 토큰 인증 없이 호출자 권한으로 클론을 진행합니다 (스피너 표시)
+    sudo -u "$INVOKER" git clone https://github.com/devers2/_devtools2.git "$TARGET_DIR" >/tmp/_dt2_clone.log 2>&1 &
+    _clone_pid=$!
+    run_with_spinner "GitHub 저장소(_devtools2) 복제 진행 중..." "$_clone_pid"
+    if ! wait "$_clone_pid" 2>/dev/null; then
+        echo "[오류] 깃 클론에 실패했습니다. 로그:"
+        cat /tmp/_dt2_clone.log >&2
+        rm -f /tmp/_dt2_clone.log
         exit 1
     fi
+    rm -f /tmp/_dt2_clone.log
     echo "  ✅ 깃 클론 완료!"
 
     DEVTOOLS2="$TARGET_DIR"

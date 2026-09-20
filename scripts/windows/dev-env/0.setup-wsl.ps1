@@ -553,16 +553,25 @@ if (-not $skipDownload) {
     }
 
     Write-Info "배포판을 '$wslName' 이름으로 생성 중... ($wslInstallPath)"
-    Write-Info "(압축 해제 및 가상 디스크 생성에 약 10~30초 소요됩니다)"
-    wsl --import $wslName $wslInstallPath $tempTarPath --version 2
-    $importExit = $LASTEXITCODE
+    $importErrLog = Join-Path $env:TEMP "wsl_import_error.log"
+    $importProc = Start-Process wsl.exe -ArgumentList "--import `"$wslName`" `"$wslInstallPath`" `"$tempTarPath`" --version 2" -PassThru -NoNewWindow -RedirectStandardError $importErrLog -ErrorAction SilentlyContinue
+
+    $importWait = Wait-WithSpinner -Message "WSL2 배포판 가상 디스크 생성 및 Import 중" -Condition {
+        return (-not $importProc) -or $importProc.HasExited
+    } -MaxTimeoutSeconds 600
+
+    $importExit = if ($importProc -and $importProc.HasExited) { $importProc.ExitCode } else { 1 }
     Remove-Item $tempTarPath -Force -ErrorAction SilentlyContinue
 
-    if ($importExit -ne 0) {
+    if (-not $importWait -or $importExit -ne 0) {
+        $errDetail = if (Test-Path $importErrLog) { (Get-Content $importErrLog -Raw).Trim() } else { "" }
         Write-Fail "배포판 가져오기(Import) 실패 (종료 코드: $importExit)"
+        if ($errDetail) { Write-Warn "오류 상세: $errDetail" }
+        Remove-Item $importErrLog -Force -ErrorAction SilentlyContinue
         Pause-Script
         exit 1
     }
+    Remove-Item $importErrLog -Force -ErrorAction SilentlyContinue
     Write-Success "WSL2 배포판 '$wslName' 생성 완료!"
 
     # ── 5. 기본 계정 생성 및 시스템 설정 초기화 (root 권한 1회 설정) ─────────
