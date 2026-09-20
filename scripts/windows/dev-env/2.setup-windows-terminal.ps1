@@ -107,7 +107,7 @@ Write-Host "  선택된 폰트: $fontFace" -ForegroundColor White
 # WSL2 배포판 자동 감지 (폰트 원본을 WSL2 저장소에서 우선 복사하기 위함)
 $WslDistroDetected = $WslDistro
 if ($WslDistroDetected -eq "") {
-    $distroList = (wsl --list --quiet 2>$null) | Where-Object { $_ -ne "" }
+    $distroList = @(wsl --list --quiet 2>$null | Where-Object { $_ -match "\S" })
     if ($distroList.Count -gt 0) {
         $WslDistroDetected = ($distroList[0] -replace "`0", "").Trim()
     }

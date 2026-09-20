@@ -335,8 +335,8 @@ Write-Info "대상 WSL2 배포판: $wslDistro"
 # ==============================================================================
 Write-Info "WSL2 배포판($wslDistro) 접근 가능 여부 확인 중..."
 $distroReady = Wait-WithSpinner -Message "WSL2 배포판($wslDistro) 준비 확인" -Condition {
-    $out = (wsl -d $wslDistro -- echo ready 2>$null) | Out-String
-    ($out -replace "`0","").Trim() -eq "ready"
+    $out = ((@(wsl -d $wslDistro -- echo ready 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
+    $out -eq "ready"
 } -MaxTimeoutSeconds 60
 if ($distroReady) {
     Write-Success "WSL2 배포판 접근 확인 완료: $wslDistro"
@@ -356,14 +356,24 @@ if (-not $distroReady) {
 Write-Step "[Step 2] WSL2 내부 개발도구 디렉터리 및 권한 초기화"
 
 # WSL2 기본 사용자 계정 확인 (0.init-devtools2.sh에 SUDO_USER로 전달하여 소유권 설정 및 설치용 임시 권한 부여)
-$wslUser = ((wsl -d $wslDistro -- whoami 2>$null) -replace "`0", "").Trim()
+$wslUser = ([string](@(wsl -d $wslDistro -- whoami 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
 if ([string]::IsNullOrEmpty($wslUser) -or $wslUser -eq "root") {
-    # /etc/wsl.conf 의 [user] default 설정값 조회 시도 (재기동 지연 대응)
-    $confUser = ((wsl -d $wslDistro -u root -- bash -c "grep -E '^\s*default\s*=' /etc/wsl.conf 2>/dev/null | cut -d'=' -f2" 2>$null) -replace "`0", "").Trim()
+    # 1) /etc/wsl.conf 의 [user] default 설정값 조회 시도 (재기동 지연 대응)
+    $confUser = ([string](@(wsl -d $wslDistro -u root -- bash -c "grep -E '^\s*default\s*=' /etc/wsl.conf 2>/dev/null | cut -d'=' -f2" 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
     if (-not [string]::IsNullOrEmpty($confUser) -and $confUser -ne "root") {
         $wslUser = $confUser
-    } elseif ([string]::IsNullOrEmpty($wslUser)) {
-        $wslUser = $env:USERNAME.ToLower()
+    } else {
+        # 2) /home 디렉터리에서 실제 비루트 사용자 계정 탐색
+        $homeUsers = @(wsl -d $wslDistro -u root -- bash -c "ls -1 /home 2>/dev/null" 2>$null) | Where-Object { $_ -match "^\w" -and $_ -ne "lost+found" }
+        $matchedUser = $homeUsers | Where-Object { $_ -ne "ubuntu" } | Select-Object -Last 1
+        if (-not $matchedUser -and $homeUsers.Count -gt 0) {
+            $matchedUser = $homeUsers[0]
+        }
+        if ($matchedUser) {
+            $wslUser = ([string]$matchedUser -replace "`0", "").Trim()
+        } elseif ([string]::IsNullOrEmpty($wslUser) -or $wslUser -eq "root") {
+            $wslUser = $env:USERNAME.ToLower()
+        }
     }
 }
 Write-Info "WSL2 사용자 계정 감지: $wslUser"
@@ -371,7 +381,7 @@ Write-Info "WSL2 사용자 계정 감지: $wslUser"
 # 임시 권한 회수 헬퍼 함수 (설치 완료 또는 비정상 중단 시 /etc/sudoers.d/$wslUser 회수)
 function Revoke-WslTempSudo {
     if (-not [string]::IsNullOrEmpty($wslUser)) {
-        $check = ((wsl -d $wslDistro -u root -- bash -c "test -f /etc/sudoers.d/$wslUser && echo EXISTS || echo NONE" 2>$null) -replace "`0", "").Trim()
+        $check = ([string](@(wsl -d $wslDistro -u root -- bash -c "test -f /etc/sudoers.d/$wslUser && echo EXISTS || echo NONE" 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
         wsl -d $wslDistro -u root -- bash -c "rm -f /etc/sudoers.d/$wslUser /tmp/.wsl_pw_tmp" 2>$null
         if ($check -eq "EXISTS") {
             Write-Success "WSL2 임시 passwordless sudo 권한($wslUser)을 안전하게 회수했습니다. (이후 sudo 사용 시 비밀번호 필요)"
@@ -408,13 +418,13 @@ if ($initExit -ne 0) {
 #   → 감지 즉시 wsl --shutdown 후 자동 재시작하여 확인.
 # ==============================================================================
 Write-SubStep "▶ [사전 확인] WSL Interop 상태 점검"
-$interopCheck = ((wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null) -replace "`0", "").Trim()
+$interopCheck = ([string](@(wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
 if ($interopCheck -ne "OK") {
     Write-Warn "WSL Interop 비활성 감지 (binfmt_misc/WSLInterop 미등록)"
     Write-Info "  → root 권한으로 WSL Interop 핸들러 및 binfmt.d 설정을 즉시 등록합니다..."
     wsl -d $wslDistro -u root -- bash -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)"
 
-    $interopCheck = ((wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null) -replace "`0", "").Trim()
+    $interopCheck = ([string](@(wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
     if ($interopCheck -ne "OK") {
         Write-Info "  → WSL Interop이 없으면 Windows 실행 파일(.exe) 연동이 불가능합니다."
         Write-Info "  → WSL을 완전히 재시작합니다..."
@@ -428,7 +438,7 @@ if ($interopCheck -ne "OK") {
         }
 
         # 재시작 후 재확인
-        $interopCheck2 = ((wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null) -replace "`0", "").Trim()
+        $interopCheck2 = ([string](@(wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
         if ($interopCheck2 -ne "OK") {
             Write-Fail "WSL 재시작 후에도 WSL Interop 복구 실패."
             Write-Info "  → PC를 재부팅한 후 다시 실행해 주세요."
@@ -516,7 +526,7 @@ if (-not (Test-Path $winGradleDir)) {
 }
 
 if ([string]::IsNullOrEmpty($wslUser) -or $wslUser -eq "root") {
-    $wslUser = ((wsl -d $wslDistro -- bash -c "whoami" 2>$null) -replace "`0", "").Trim()
+    $wslUser = ([string](@(wsl -d $wslDistro -- bash -c "whoami" 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
 }
 $wslUncRoot = if (Test-Path "\\wsl$\$wslDistro") { "\\wsl$\$wslDistro" } else { "\\wsl.localhost\$wslDistro" }
 $wslGradleProps = "$wslUncRoot\home\$wslUser\.gradle\gradle.properties"
