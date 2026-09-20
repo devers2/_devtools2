@@ -788,7 +788,7 @@ Write-Host ""
 # 세션 한정 빠른 편집 모드(QuickEdit) 원래대로 복원
 Restore-ConsoleQuickEdit | Out-Null
 
-# 스크립트 정상 종료 (부모 스크립트의 $LASTEXITCODE 오판 방지)
+# 스크립트 정상 종료 (부모 스크립트의 $LASTEXITCODE 오판 방지 및 파이프라인 누출 방지)
 $global:LASTEXITCODE = 0
-return 0
+return
 
