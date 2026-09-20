@@ -585,22 +585,30 @@ if (-not $skipDownload) {
     }
 
     Write-Info "배포판을 '$wslName' 이름으로 생성 중... ($wslInstallPath)"
-    $importErrLog = Join-Path $env:TEMP "wsl_import_error.log"
-    if (Test-Path $importErrLog) { Remove-Item $importErrLog -Force -ErrorAction SilentlyContinue }
 
-    # Start-Job으로 백그라운드 격리 실행하여 PS 5.1에서도 ExitCode와 에러 출력을 완벽하게 수신 (Rule 8)
-    $importJob = Start-Job -ScriptBlock {
-        param($name, $path, $tar, $errLog)
-        $p = Start-Process wsl.exe -ArgumentList "--import `"$name`" `"$path`" `"$tar`" --version 2" -Wait -PassThru -NoNewWindow -RedirectStandardError $errLog -ErrorAction SilentlyContinue
-        return $p.ExitCode
-    } -ArgumentList $wslName, $wslInstallPath, $tempTarPath, $importErrLog
+    # .NET Process API로 직접 백그라운드 프로세스 실행 (PS 5.1의 Start-Process 핸들 누락 버그 회피 - Rule 8)
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "$env:SystemRoot\System32\wsl.exe"
+    $psi.Arguments = "--import `"$wslName`" `"$wslInstallPath`" `"$tempTarPath`" --version 2"
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardError = $true
 
+    $importProc = [System.Diagnostics.Process]::Start($psi)
     $importWait = Wait-WithSpinner -Message "WSL2 배포판 가상 디스크 생성 및 Import 중" -Condition {
-        return ($importJob.State -ne 'Running')
+        return ($null -eq $importProc) -or $importProc.HasExited
     } -MaxTimeoutSeconds 600
 
-    $jobExit = Receive-Job $importJob
-    Remove-Job $importJob -Force
+    $jobExit = 1
+    $errDetail = ""
+    if ($importProc) {
+        $importProc.WaitForExit()
+        $jobExit = $importProc.ExitCode
+        $errDetail = ([string]$importProc.StandardError.ReadToEnd()).Trim()
+        $importProc.Dispose()
+    } else {
+        $errDetail = "WSL 가져오기 프로세스를 시작할 수 없습니다."
+    }
     Remove-Item $tempTarPath -Force -ErrorAction SilentlyContinue
 
     # 배포판 등록 여부 실제 확인 (Rule 8: 프로세스 종료코드 외에 실제 시스템 자원 상태 교차 검증)
@@ -611,26 +619,15 @@ if (-not $skipDownload) {
         $distroExists = [bool]($cleanDistros -contains $wslName)
     } catch {}
 
-    # 오류 상세 메시지 안전 추출 (Rule 7: [string] 캐스팅 및 IsNullOrWhiteSpace 선행 검사)
-    $errDetail = ""
-    if (Test-Path $importErrLog) {
-        $rawErr = [string](Get-Content $importErrLog -Raw -ErrorAction SilentlyContinue)
-        if (-not [string]::IsNullOrWhiteSpace($rawErr)) {
-            $errDetail = $rawErr.Trim()
-        }
-        Remove-Item $importErrLog -Force -ErrorAction SilentlyContinue
-    }
-
     # 최종 성공 여부 판정:
     # 1) 타임아웃 미발생
     # 2) 배포판이 실제로 정상 등록됨 (실측 검증)
     # 3) 명시적 실패(종료 코드 0이 아님)가 아님
-    $isImportSuccess = $importWait -and $distroExists -and ($null -eq $jobExit -or $jobExit -eq 0)
+    $isImportSuccess = $importWait -and $distroExists -and ($jobExit -eq 0)
 
     if (-not $isImportSuccess) {
-        $exitDisp = if ($null -ne $jobExit) { $jobExit } else { "알 수 없음" }
-        Write-Fail "배포판 가져오기(Import) 실패 (종료 코드: $exitDisp)"
-        if ($errDetail) { Write-Warn "오류 상세: $errDetail" }
+        Write-Fail "배포판 가져오기(Import) 실패 (종료 코드: $jobExit)"
+        if (-not [string]::IsNullOrWhiteSpace($errDetail)) { Write-Warn "오류 상세: $errDetail" }
         Pause-Script
         exit 1
     }
