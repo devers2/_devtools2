@@ -21,6 +21,17 @@
 #    폴백을 뺀 것뿐입니다(순수 단순화). 반면 ps1은 로컬 NoBOM 파일을 PowerShell 5.1이 직접
 #    읽으면 한글 등이 깨질 위험이 있어 애초에 로컬을 볼 수조차 없습니다 — ps1은 위 1번 원칙대로
 #    항상 온라인에서 새로 가져와 실행해야 합니다.
+# 5. 원격 스트리밍(irm | iex) 무(無)파일 런타임 준수:
+#    온라인으로 파이프 실행 시 스크립트 파일이 디스크에 존재하지 않으므로 $PSScriptRoot 및 $PSCommandPath 는
+#    빈 값($null/"")입니다. Join-Path 나 Test-Path 를 직접 호출하면 빈 문자열/Null 매개변수 바인딩 예외
+#    (ParameterBindingValidationException)가 발생하여 if-else 구문 전체가 건너뛰어지는 치명적 버그가 생깁니다.
+#    경로 관련 변수를 다룰 때는 반드시 `if (-not [string]::IsNullOrEmpty($PSScriptRoot))` 사전 검사와
+#    `-and` 단락 평가(Short-circuit)를 필수 적용하십시오.
+# 6. 로컬 파일 로드 시 인메모리 UTF-8 디코딩 원칙:
+#    Windows PowerShell 5.1(순정 윈도우 기본 셸)은 UTF-8 NoBOM 스크립트를 디스크에서 직접 dot-source(. $path)하면
+#    기본 ANSI(CP949)로 오인해 한글 구문 파싱 오류를 일으킵니다. 로컬 파일을 읽어야 할 경우에도
+#    반드시 [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8) 로 읽어
+#    메모리 상에서 [scriptblock]::Create 로 실행해야 합니다.
 # ------------------------------------------------------------------------------
 #
 # 사용 방법:
@@ -36,12 +47,14 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $ProgressPreference = 'SilentlyContinue'
 
 # ==============================================================================
-# 헬퍼 함수
+# 헬퍼 함수 (_common.ps1 로딩)
 # ==============================================================================
 # Write-Step/Write-Success/Pause-Script/Wait-WithSpinner 등은 여러 ps1 파일에
 # 거의 동일하게 복붙되어 있던 걸 _common.ps1(scripts/windows/dev-env/_common.ps1)
 # 공용 파일로 통합했습니다(bash의 _colors.sh와 동일한 패턴).
-# 항상 온라인 최신본을 dot-source(다른 스크립트 스트리밍 실행과 동일한 캐시 우회 원칙).
+#
+# ⚠️ [로딩 주의사항] irm | iex 원격 실행 시 $PSScriptRoot가 비어 있으므로 사전 검사 필수!
+# 순정 PS5.1 CP949 인코딩 오인 방지를 위해 로컬/원격 모두 메모리 스크립트블록으로 로드합니다.
 $_localCommon = if (-not [string]::IsNullOrEmpty($PSScriptRoot)) { Join-Path $PSScriptRoot "dev-env\_common.ps1" } else { $null }
 if ($_localCommon -and (Test-Path $_localCommon)) {
     $_commonContent = [System.IO.File]::ReadAllText($_localCommon, [System.Text.Encoding]::UTF8)
