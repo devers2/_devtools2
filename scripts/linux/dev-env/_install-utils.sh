@@ -385,12 +385,16 @@ verify_sha256() {
 # ─────────────────────────────────────────────────────────────────
 # 1) 압축 아카이브(tar.gz, zip) 안전 다운로드 및 압축 해제
 #    성공 시 0, 실패 시 1 반환 (실패 시 대상 디렉터리 오염 방지)
-#    인수: $1 = URL, $2 = 대상 디렉터리, $3 = strip_count(기본 0), $4 = sha256_or_url(선택)
+#    인수: $1 = URL, $2 = 대상 디렉터리, $3 = strip_count(기본 0),
+#          $4 = sha256_or_url(선택), $5 = label(선택, 프로그레스 바 표시용)
+#    다운로드 시 download_with_progress 프로그레스 바를 표시하고,
+#    압축 해제 시 show_spinner 회전 애니메이션을 표시합니다.
 safe_download_and_extract() {
     local url="$1"
     local target_dir="$2"
     local strip_count="${3:-0}"
     local checksum_spec="${4:-}"
+    local label="${5:-$(basename "$url")}"
 
     if [ -z "$url" ] || [ -z "$target_dir" ]; then
         echo "❌ safe_download_and_extract 오류: URL과 대상 디렉터리는 필수입니다." >&2
@@ -401,13 +405,14 @@ safe_download_and_extract() {
     tmp_archive=$(mktemp "/tmp/dt2_dl_XXXXXX")
     trap 'rm -f "$tmp_archive"' RETURN
 
-    if ! curl -fsSL "$url" -o "$tmp_archive"; then
-        echo "❌ 다운로드 실패 (HTTP 에러 또는 연결 오류): $url" >&2
+    # 프로그레스 바와 함께 다운로드 (download_with_progress 는 _common.sh 에서 로드됨)
+    if ! download_with_progress "$url" "$tmp_archive" "$label"; then
+        echo "   ❌ 다운로드 실패 (HTTP 에러 또는 연결 오류): $url" >&2
         return 1
     fi
 
     if [ ! -s "$tmp_archive" ]; then
-        echo "❌ 다운로드 실패 (빈 파일): $url" >&2
+        echo "   ❌ 다운로드 실패 (빈 파일): $url" >&2
         return 1
     fi
 
@@ -421,29 +426,34 @@ safe_download_and_extract() {
     local strip_opt=""
     [ "$strip_count" -gt 0 ] && strip_opt="--strip-components=$strip_count"
 
+    # 스피너와 함께 압축 해제 (show_spinner 는 _common.sh 에서 로드됨)
+    echo -n "   📦 $label 압축 해제 중..."
     if [[ "$url" == *.zip ]]; then
-        if ! unzip -q -o "$tmp_archive" -d "$target_dir"; then
-            echo "❌ zip 압축 해제 실패: $url" >&2
-            return 1
-        fi
+        unzip -q -o "$tmp_archive" -d "$target_dir" &
     else
-        if ! tar -xzf "$tmp_archive" -C "$target_dir" $strip_opt; then
-            echo "❌ tar.gz 압축 해제 실패: $url" >&2
-            return 1
-        fi
+        tar -xzf "$tmp_archive" -C "$target_dir" $strip_opt &
     fi
+    local _ext_pid=$!
+    show_spinner $_ext_pid
+    if ! wait $_ext_pid 2>/dev/null; then
+        echo " ❌ 압축 해제 실패" >&2
+        return 1
+    fi
+    echo " 완료"
 
     return 0
 }
 
 # 2) 단일 바이너리/스크립트 파일 안전 다운로드
 #    성공 시 0, 실패 시 1 반환 (원자적 교체 및 체크섬 검증 지원)
-#    인수: $1 = URL, $2 = 대상 파일, $3 = 권한모드(기본 755), $4 = sha256_or_url(선택)
+#    인수: $1 = URL, $2 = 대상 파일, $3 = 권한모드(기본 755),
+#          $4 = sha256_or_url(선택), $5 = label(선택, 프로그레스 바 표시용)
 safe_download_binary() {
     local url="$1"
     local target_file="$2"
     local chmod_mode="${3:-755}"
     local checksum_spec="${4:-}"
+    local label="${5:-$(basename "$target_file")}"
 
     if [ -z "$url" ] || [ -z "$target_file" ]; then
         echo "❌ safe_download_binary 오류: URL과 대상 파일 경로는 필수입니다." >&2
@@ -458,13 +468,14 @@ safe_download_binary() {
     tmp_file=$(mktemp "/tmp/dt2_bin_XXXXXX")
     trap 'rm -f "$tmp_file"' RETURN
 
-    if ! curl -fsSL "$url" -o "$tmp_file"; then
-        echo "❌ 바이너리 다운로드 실패 (HTTP 에러 또는 연결 오류): $url" >&2
+    # 프로그레스 바와 함께 다운로드
+    if ! download_with_progress "$url" "$tmp_file" "$label"; then
+        echo "   ❌ $label 바이너리 다운로드 실패 (HTTP 에러 또는 연결 오류): $url" >&2
         return 1
     fi
 
     if [ ! -s "$tmp_file" ]; then
-        echo "❌ 다운로드 실패 (빈 파일): $url" >&2
+        echo "   ❌ $label 다운로드 실패 (빈 파일): $url" >&2
         return 1
     fi
 

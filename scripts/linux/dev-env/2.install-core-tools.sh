@@ -204,8 +204,6 @@ install_adoptium_jdk() {
     local jdk_arch="$([ "$IS_ARM64" = true ] && echo 'aarch64' || echo 'x64')"
     local pinned_ver
     pinned_ver=$(get_pinned_version "jdk${major}")
-
-    echo "   📦 JDK $major 다운로드 및 압축 해제..."
     local dl_url=""
     local checksum=""
     local actual_ver=""
@@ -234,7 +232,7 @@ install_adoptium_jdk() {
         checksum="${dl_url}.sha256.txt"
     fi
 
-    if safe_download_and_extract "$dl_url" "$target_path" 1 "$checksum"; then
+    if safe_download_and_extract "$dl_url" "$target_path" 1 "$checksum" "JDK $major"; then
         echo "   ✅ JDK $major ($dest_dir) 설치 완료"
         if [ -n "$actual_ver" ] && [ "$actual_ver" != "$pinned_ver" ]; then
             update_pinned_version "jdk${major}" "$actual_ver"
@@ -271,14 +269,13 @@ GRADLE_VERSION="${GRADLE_PINNED:-9.7.1}"
 if [ -d "$DEVTOOLS2/modules/gradle/gradle-9" ]; then
     echo "   ⏭️ [건너뜀] gradle-9 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/gradle/gradle-9'"
 else
-    echo -n "   📦 Gradle $GRADLE_VERSION 다운로드 및 설치 중..."
     _gradle_url="https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
     _gradle_sha="${_gradle_url}.sha256"
-    if safe_download_and_extract "$_gradle_url" "$DEVTOOLS2/modules/gradle" 0 "$_gradle_sha"; then
+    if safe_download_and_extract "$_gradle_url" "$DEVTOOLS2/modules/gradle" 0 "$_gradle_sha" "Gradle $GRADLE_VERSION"; then
         [ -d "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" ] && mv -f "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" "$DEVTOOLS2/modules/gradle/gradle-9"
-        echo " 완료"
+        echo "   ✅ Gradle $GRADLE_VERSION 설치 완료"
     else
-        echo " ❌ Gradle 설치 실패" >&2
+        echo "   ❌ Gradle 설치 실패" >&2
     fi
 fi
 
@@ -588,23 +585,21 @@ if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
     if prompt_confirm "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까?" "N"; then
         echo "   🗑️  기존 디렉토리 삭제 중..."
         rm -rf "$DEVTOOLS2/modules/neovim/nvim"
-        echo "   📦 Neovim $NEOVIM_VERSION 다운로드 및 압축 해제..."
-        if safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "$_nvim_sha"; then
+        if safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "$_nvim_sha" "Neovim $NEOVIM_VERSION"; then
             echo "   ✅ Neovim $NEOVIM_VERSION 설치 완료"
         else
             echo "   ⚠️  체크섬 검증 또는 다운로드 실패. 체크섬 검증 없이 재시도합니다..."
-            safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1
+            safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "" "Neovim $NEOVIM_VERSION"
         fi
     else
         echo "   ⏭️ [건너뜀] neovim 디렉토리가 이미 존재합니다."
     fi
 else
-    echo "   📦 Neovim $NEOVIM_VERSION 다운로드 및 압축 해제..."
-    if safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "$_nvim_sha"; then
+    if safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "$_nvim_sha" "Neovim $NEOVIM_VERSION"; then
         echo "   ✅ Neovim $NEOVIM_VERSION 설치 완료"
     else
         echo "   ⚠️  체크섬 검증 또는 다운로드 실패. 체크섬 검증 없이 재시도합니다..."
-        safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1
+        safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "" "Neovim $NEOVIM_VERSION"
     fi
 fi
 

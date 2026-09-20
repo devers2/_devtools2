@@ -386,9 +386,9 @@ install_cli_tool() {
     local action
     action=$(_resolve_action "$installed" "$id")
 
-    echo -n "📦 $id $selected_ver 설치 중..."
+    echo "📦 $id $selected_ver 설치..."
     if [ "$action" = "skip" ]; then
-        echo " ⏭️  [건너뜀] 이미 설치되어 있습니다."
+        echo "   ⏭️  [건너뜀] 이미 설치되어 있습니다."
         return 0
     fi
 
@@ -407,18 +407,26 @@ install_cli_tool() {
     # 5. 다운로드 및 설치
     local install_ok=false
     if [ "$id" = "rclone" ]; then
-        if (curl -sLf --connect-timeout 15 "$dl_url" -o /tmp/rclone.zip && \
-             unzip -qo /tmp/rclone.zip -d /tmp/rclone_tmp && \
+        if download_with_progress "$dl_url" "/tmp/rclone.zip" "rclone $selected_ver"; then
+            echo -n "   📦 rclone $selected_ver 압축 해제 중..."
+            (unzip -qo /tmp/rclone.zip -d /tmp/rclone_tmp && \
              mv -f /tmp/rclone_tmp/rclone-*/rclone "$MODULES_DIR/rclone/rclone" && \
-             rm -rf /tmp/rclone.zip /tmp/rclone_tmp); then
-            install_ok=true
+             rm -rf /tmp/rclone.zip /tmp/rclone_tmp) &
+            local _rc_pid=$!
+            show_spinner $_rc_pid
+            if wait $_rc_pid 2>/dev/null; then
+                echo " 완료"
+                install_ok=true
+            else
+                echo " ❌ 압축 해제 실패" >&2
+            fi
         fi
     elif [ "$strip_num" -gt 0 ]; then
-        if safe_download_and_extract "$dl_url" "$target_dir" "$strip_num"; then
+        if safe_download_and_extract "$dl_url" "$target_dir" "$strip_num" "" "$id $selected_ver"; then
             install_ok=true
         fi
     else
-        if safe_download_and_extract "$dl_url" "$target_dir"; then
+        if safe_download_and_extract "$dl_url" "$target_dir" 0 "" "$id $selected_ver"; then
             install_ok=true
         fi
     fi
@@ -431,7 +439,7 @@ install_cli_tool() {
         elif [ "$id" = "win32yank" ]; then
             chmod +x "$target_dir/win32yank.exe" 2>/dev/null || true
         fi
-        echo " 완료"
+        echo "   ✅ $id $selected_ver 설치 완료"
 
         if [ -n "$toml_key" ] && [ "$selected_ver" != "$pinned_ver" ] && [ "$selected_ver" != "(최신)" ]; then
             update_pinned_version "$toml_key" "$selected_ver"
