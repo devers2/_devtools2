@@ -113,6 +113,12 @@ prompt_password() {
     local _pw_var="$1"
     local _msg="${2:-🔐 비밀번호 입력 (보안 마스킹): 🔒}"
     local _input=""
+    local _saved_tty=""
+    if [ -t 0 ] || [ -c /dev/tty ]; then
+        _saved_tty=$(stty -g 2>/dev/null || true)
+        stty icanon icrnl 2>/dev/null || true
+    fi
+    trap '[ -n "$_saved_tty" ] && stty "$_saved_tty" 2>/dev/null || true' RETURN
 
     while true; do
         printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$_msg"

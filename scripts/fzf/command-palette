@@ -3,6 +3,13 @@
 # [ALT+c] 독립형 명령어 팔레트 (OS 호환 및 Gradle 상태 동적 감지)
 # ==============================================================================
 
+# ── bind -x (Readline 단축키) 환경 터미널 정규화 ─────────────────────────────
+# Readline이 설정한 raw 모드(-icanon -icrnl)에서는 Enter(\r)가 개행(\n)으로 변환되지 않아
+# fzf 이후 실행되는 서브 스크립트나 비밀번호 입력(read)에서 엔터가 먹통이 됩니다.
+if [ -t 0 ] || [ -c /dev/tty ]; then
+    stty icanon icrnl echo 2>/dev/null || true
+fi
+
 # ── bw-lib 공유 라이브러리 로드 (Bitwarden 인증 모듈) ─────────────────────────
 _CP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$_CP_SCRIPT_DIR/bw-lib" ]; then
