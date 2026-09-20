@@ -426,10 +426,16 @@ safe_download_and_extract() {
     local strip_opt=""
     [ "$strip_count" -gt 0 ] && strip_opt="--strip-components=$strip_count"
 
-    # 스피너와 함께 압축 해제 (show_spinner 는 _common.sh 에서 로드됨)
+    # 스피너와 함께 압축 해제 (URL 확장자 의존 탈피 - 파일 헤더 무결성 검사 기반 자동 판별)
     echo -n "   📦 $label 압축 해제 중..."
-    if [[ "$url" == *.zip ]]; then
+    if unzip -tq "$tmp_archive" >/dev/null 2>&1; then
         unzip -q -o "$tmp_archive" -d "$target_dir" &
+    elif [[ "$url" == *.zip ]]; then
+        unzip -q -o "$tmp_archive" -d "$target_dir" &
+    elif tar -tzf "$tmp_archive" >/dev/null 2>&1; then
+        tar -xzf "$tmp_archive" -C "$target_dir" $strip_opt &
+    elif tar -tf "$tmp_archive" >/dev/null 2>&1; then
+        tar -xf "$tmp_archive" -C "$target_dir" $strip_opt &
     else
         tar -xzf "$tmp_archive" -C "$target_dir" $strip_opt &
     fi

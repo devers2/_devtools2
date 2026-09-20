@@ -257,6 +257,13 @@ $hasNeovimLabel = ($coreToolsCode -match 'safe_download_and_extract\s+"\$_nvim_u
 
 Assert-Test "Linux Core Tools(JDK, Gradle, Neovim) 다운로드 시 UX 라벨 인자가 완벽히 전달되는가" ($hasJdkLabel -and $hasGradleLabel -and $hasNeovimLabel)
 
+# --- 4-6. Linux safe_download_and_extract 아카이브 포맷 자동 판별 검증
+$installUtilsFile = Join-Path $repoRootPath "scripts\linux\dev-env\_install-utils.sh"
+$installUtilsCode = [System.IO.File]::ReadAllText($installUtilsFile, [System.Text.Encoding]::UTF8)
+$hasUnzipTest = ($installUtilsCode -match 'unzip\s+-tq\s+"\$tmp_archive"')
+$hasTarGzTest = ($installUtilsCode -match 'tar\s+-tzf\s+"\$tmp_archive"')
+Assert-Test "Linux safe_download_and_extract 가 URL 확장자 대신 파일 헤더 무결성(unzip -tq)으로 아카이브를 판별하는가" ($hasUnzipTest -and $hasTarGzTest)
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================
