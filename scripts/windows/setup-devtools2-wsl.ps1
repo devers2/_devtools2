@@ -51,6 +51,11 @@
 #    탈락(strip)되어 Linux 측 인터프리터에서 SyntaxError 또는 command not found 예외가 발생합니다.
 #    다중 라인 스크립트는 반드시 @' ... '@ (원시 작은따옴표 here-string)으로 선언하고,
 #    $code | wsl ... python3 - "$arg" 또는 bash 형태로 STDIN을 통해 안전하게 전달하십시오.
+# 10. [AI / 개발자 필독 - 커밋 전 통합 테스트 러너 실행 필수 원칙]:
+#    스크립트(.ps1, .sh)를 수정한 후에는 커밋/푸시 전에 반드시 아래 명령어로 통합 테스트를 실행하여
+#    전수 검증(BOM, 문법, .Trim() 널 안전, ExitCode $null 트랩, 파이썬 인용부호 무결성 등)을 통과해야 합니다:
+#      .\tests\run-all-tests.bat
+#      (또는 powershell -ExecutionPolicy Bypass -File .\tests\run-all-tests.ps1)
 # ------------------------------------------------------------------------------
 #
 # 사용 방법:

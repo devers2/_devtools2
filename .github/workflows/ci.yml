@@ -80,6 +80,11 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+      - name: Run Full Automated Test Suite (All 11 Regressions)
+        shell: pwsh
+        run: |
+          ./tests/run-all-tests.ps1
+
   # ── 2. Bash 스크립트 구문 검사 (bash -n & ShellCheck) ──────────────────────
   bash-lint:
     name: Bash Syntax & ShellCheck
