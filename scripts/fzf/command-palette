@@ -974,6 +974,14 @@ elif [[ "$CHOICE" == *"JDK 버전 변경"* ]]; then
         exit 0
     fi
 
+    if [[ "$JDK_CHOICE" == "8" ]]; then
+        echo ""
+        echo "⚠️  [호환성 주의] Gradle 9 실행 불가 (JVM 17+ 필요)"
+        echo "   JDK 8은 레거시 컴파일 호환용입니다. Gradle 9.x 빌드는 JVM 17 이상이 필수이므로,"
+        echo "   Java 8 프로젝트 빌드는 Gradle 툴체인(org.gradle.java.installations.paths) 설정을 권장합니다."
+        echo ""
+    fi
+
     if $IS_WINDOWS; then
         JDK_SWITCH_PS1="$DEV_ROOT/scripts/windows/cmd/jdk_switch.ps1"
         if [[ -f "$JDK_SWITCH_PS1" ]]; then

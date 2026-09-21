@@ -739,3 +739,14 @@ function Backup-AndLink {
     return New-SymlinkIdempotent -LinkPath $LinkPath -TargetPath $TargetPath -Description $label
 }
 
+# ==============================================================================
+# WSL2 Interop (binfmt_misc) 등록 헬퍼
+# ==============================================================================
+# Windows .exe 바이너리 실행 시 Exec format error 방지
+function Register-WslInterop {
+    param([string]$Distro)
+    if ([string]::IsNullOrEmpty($Distro)) { return }
+    wsl.exe -d $Distro -u root -- bash -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)" 2>$null
+}
+
+

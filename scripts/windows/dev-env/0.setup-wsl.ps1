@@ -710,7 +710,7 @@ EOF
     }
 
     # 3) Windows Interop 핸들러 등록
-    wsl -d $wslName -u root -- bash -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)"
+    Register-WslInterop $wslName
 
     Write-Success "WSL2 시스템 환경 및 사용자($createdUsername) 구성 완료!"
 

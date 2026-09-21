@@ -16,6 +16,7 @@
 !.gitattributes
 !.gitignore
 !README.md
+!AGENTS.md
 
 # vim 스왑 파일 (vim 편집 중 자동 생성, 형상관리 불필요)
 .*.swp

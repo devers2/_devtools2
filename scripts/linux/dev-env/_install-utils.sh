@@ -343,10 +343,11 @@ EOF
 # ─────────────────────────────────────────────────────────────────
 # 🔒 SHA256 체크섬 검증 유틸리티
 # ─────────────────────────────────────────────────────────────────
-# 인수: $1 = 대상 파일 경로, $2 = 64자리 16진수 SHA256 또는 .sha256 파일 URL
+# 인수: $1 = 대상 파일 경로, $2 = 64자리 16진수 SHA256 또는 체크섬 파일 URL, $3 = 원본 파일명 힌트(선택)
 verify_sha256() {
     local target_file="$1"
     local checksum_spec="$2"
+    local filename_hint="${3:-$(basename "$target_file")}"
 
     [ -z "$checksum_spec" ] && return 0
 
@@ -361,7 +362,18 @@ verify_sha256() {
     elif [[ "$checksum_spec" =~ ^https?:// ]]; then
         local raw_cs
         raw_cs=$(curl -fsSL --max-time 15 "$checksum_spec" 2>/dev/null || true)
-        expected_hash=$(echo "$raw_cs" | grep -oE '[0-9a-fA-F]{64}' | head -1 || true)
+        if [ -n "$raw_cs" ]; then
+            if [ -n "$filename_hint" ]; then
+                local matched_line
+                matched_line=$(echo "$raw_cs" | grep -iF "$filename_hint" | head -1 || true)
+                if [ -n "$matched_line" ]; then
+                    expected_hash=$(echo "$matched_line" | grep -oE '[0-9a-fA-F]{64}' | head -1 || true)
+                fi
+            fi
+            if [ -z "$expected_hash" ]; then
+                expected_hash=$(echo "$raw_cs" | grep -oE '[0-9a-fA-F]{64}' | head -1 || true)
+            fi
+        fi
         if [ -z "$expected_hash" ]; then
             echo "⚠️  체크섬 URL에서 유효한 SHA256 해시를 찾을 수 없습니다: $checksum_spec" >&2
             return 1
@@ -417,7 +429,7 @@ safe_download_and_extract() {
     fi
 
     if [ -n "$checksum_spec" ]; then
-        if ! verify_sha256 "$tmp_archive" "$checksum_spec"; then
+        if ! verify_sha256 "$tmp_archive" "$checksum_spec" "$(basename "$url")"; then
             return 1
         fi
     fi

@@ -470,23 +470,27 @@ except Exception as e:
 # ==============================================================================
 # Windows .exe 바이너리 실행 시 Exec format error 방지
 ensure_wsl_interop() {
-    [ "${IS_WSL2:-false}" != true ] && return 0
-    [ -f /proc/sys/fs/binfmt_misc/WSLInterop ] && return 0
+    [ "${IS_WSL2:-false}" != true ] && ! grep -qi 'microsoft' /proc/version 2>/dev/null && return 0
 
     local _interop_val=':WSLInterop:M::MZ::/init:PF'
-    if [ -w /proc/sys/fs/binfmt_misc/register ]; then
-        echo "$_interop_val" > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
-    elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-        sudo sh -c "echo '$_interop_val' > /proc/sys/fs/binfmt_misc/register" 2>/dev/null || true
-    fi
 
+    # 1) /etc/binfmt.d 및 /usr/lib/binfmt.d 에 영구 설정 기록
     if [ ! -f /etc/binfmt.d/WSLInterop.conf ]; then
         if [ "$(id -u)" -eq 0 ]; then
-            mkdir -p /etc/binfmt.d /usr/lib/binfmt.d
+            mkdir -p /etc/binfmt.d /usr/lib/binfmt.d 2>/dev/null || true
             echo "$_interop_val" > /etc/binfmt.d/WSLInterop.conf 2>/dev/null || true
             echo "$_interop_val" > /usr/lib/binfmt.d/WSLInterop.conf 2>/dev/null || true
         elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
             sudo sh -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo '$_interop_val' > /etc/binfmt.d/WSLInterop.conf && echo '$_interop_val' > /usr/lib/binfmt.d/WSLInterop.conf" 2>/dev/null || true
+        fi
+    fi
+
+    # 2) 런타임 binfmt_misc 핸들러 등록 (미등록 상태일 때)
+    if [ ! -f /proc/sys/fs/binfmt_misc/WSLInterop ]; then
+        if [ -w /proc/sys/fs/binfmt_misc/register ]; then
+            echo "$_interop_val" > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true
+        elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            sudo sh -c "echo '$_interop_val' > /proc/sys/fs/binfmt_misc/register" 2>/dev/null || true
         fi
     fi
 }

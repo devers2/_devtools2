@@ -338,6 +338,35 @@ get_cli_tool_url() {
 }
 
 # ─────────────────────────────────────────────────────────────────
+# 도구 다운로드 SHA256 체크섬 URL 생성 헬퍼
+# ─────────────────────────────────────────────────────────────────
+get_cli_tool_checksum_url() {
+    local tool="$1"
+    local ver="$2"
+    case "$tool" in
+        fzf)
+            echo "https://github.com/junegunn/fzf/releases/download/v${ver}/fzf_${ver}_checksums.txt"
+            ;;
+        lazygit)
+            echo "https://github.com/jesseduffield/lazygit/releases/download/v${ver}/checksums.txt"
+            ;;
+        ripgrep)
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/BurntSushi/ripgrep/releases/download/${ver}/ripgrep-${ver}-aarch64-unknown-linux-gnu.tar.gz.sha256"
+            else
+                echo "https://github.com/BurntSushi/ripgrep/releases/download/${ver}/ripgrep-${ver}-x86_64-unknown-linux-musl.tar.gz.sha256"
+            fi
+            ;;
+        rclone)
+            echo "https://github.com/rclone/rclone/releases/download/v${ver}/SHA256SUMS"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# ─────────────────────────────────────────────────────────────────
 # 도구별 버전 확인 및 다운로드/설치 공용 함수
 # ─────────────────────────────────────────────────────────────────
 install_cli_tool() {
@@ -400,14 +429,22 @@ install_cli_tool() {
     local target_dir="$MODULES_DIR/$(dirname "$bin_rel_path")"
     mkdir -p "$target_dir"
 
-    # 4. 다운로드 URL 생성
-    local dl_url
+    # 4. 다운로드 URL 및 무결성 검증용 체크섬 URL 생성
+    local dl_url dl_checksum
     dl_url=$(get_cli_tool_url "$id" "$selected_ver")
+    dl_checksum=$(get_cli_tool_checksum_url "$id" "$selected_ver")
 
     # 5. 다운로드 및 설치
     local install_ok=false
     if [ "$id" = "rclone" ]; then
         if download_with_progress "$dl_url" "/tmp/rclone.zip" "rclone $selected_ver"; then
+            if [ -n "$dl_checksum" ]; then
+                if ! verify_sha256 "/tmp/rclone.zip" "$dl_checksum" "$(basename "$dl_url")"; then
+                    rm -f /tmp/rclone.zip
+                    echo " ❌ rclone 체크섬 검증 실패" >&2
+                    return 1
+                fi
+            fi
             echo -n "   📦 rclone $selected_ver 압축 해제 중..."
             (unzip -qo /tmp/rclone.zip -d /tmp/rclone_tmp && \
              mv -f /tmp/rclone_tmp/rclone-*/rclone "$MODULES_DIR/rclone/rclone" && \
@@ -422,11 +459,11 @@ install_cli_tool() {
             fi
         fi
     elif [ "$strip_num" -gt 0 ]; then
-        if safe_download_and_extract "$dl_url" "$target_dir" "$strip_num" "" "$id $selected_ver"; then
+        if safe_download_and_extract "$dl_url" "$target_dir" "$strip_num" "$dl_checksum" "$id $selected_ver"; then
             install_ok=true
         fi
     else
-        if safe_download_and_extract "$dl_url" "$target_dir" 0 "" "$id $selected_ver"; then
+        if safe_download_and_extract "$dl_url" "$target_dir" 0 "$dl_checksum" "$id $selected_ver"; then
             install_ok=true
         fi
     fi

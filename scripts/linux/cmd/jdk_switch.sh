@@ -47,6 +47,10 @@ fi
 # 5. 환경 변수 적용
 echo "[정보] Java $VERSION (폴더: $FOLDER_NAME) 버전으로 전환을 시도합니다..."
 echo "[정보] 경로: $TARGET_PATH"
+if [ "$VERSION" = "8" ]; then
+    echo "⚠️  [호환성 주의] Gradle 9 실행 불가 (JVM 17+ 필요)"
+    echo "   JDK 8 환경에서는 Gradle 9 빌드가 실행되지 않으므로, Java 8 프로젝트는 Gradle 툴체인을 권장합니다."
+fi
 
 # 현재 세션에 즉시 적용
 export JAVA_HOME="$TARGET_PATH"

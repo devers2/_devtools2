@@ -464,7 +464,7 @@ $interopCheck = ([string](@(wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/b
 if ($interopCheck -ne "OK") {
     Write-Warn "WSL Interop 비활성 감지 (binfmt_misc/WSLInterop 미등록)"
     Write-Info "  → root 권한으로 WSL Interop 핸들러 및 binfmt.d 설정을 즉시 등록합니다..."
-    wsl -d $wslDistro -u root -- bash -c "mkdir -p /etc/binfmt.d /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' > /etc/binfmt.d/WSLInterop.conf && echo ':WSLInterop:M::MZ::/init:PF' > /usr/lib/binfmt.d/WSLInterop.conf && ([ -f /proc/sys/fs/binfmt_misc/register ] && echo ':WSLInterop:M::MZ::/init:PF' > /proc/sys/fs/binfmt_misc/register 2>/dev/null || true)"
+    Register-WslInterop $wslDistro
 
     $interopCheck = ([string](@(wsl -d $wslDistro -- bash -c "test -f /proc/sys/fs/binfmt_misc/WSLInterop && echo OK || echo MISSING" 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
     if ($interopCheck -ne "OK") {
