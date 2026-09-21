@@ -285,6 +285,12 @@ setup_rclone_sftp_mount() {
 
             if [ "$NEEDS_SYSTEMD" = true ]; then
                 echo "⏳ /etc/wsl.conf 에 systemd 활성화 설정을 안전하게 병합합니다... (sudo 필요)"
+                # tty 정규화: fzf bind-x 에서 호출 시 raw mode 상태로 sudo 비밀번호 입력 실패 방지
+                if [ -c /dev/tty ]; then
+                    stty icanon icrnl echo < /dev/tty 2>/dev/null || true
+                elif [ -t 0 ]; then
+                    stty icanon icrnl echo 2>/dev/null || true
+                fi
                 if ! type set_wsl_conf_key >/dev/null 2>&1 && [ -f "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh" ]; then
                     source "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh" 2>/dev/null || true
                 fi
