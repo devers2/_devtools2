@@ -620,7 +620,7 @@ setup_vscode_launch_json() {
         return 1
     fi
 
-    python3 -c "
+    python3 - "$TARGET_DIR" "$CONFIGS_JSON" "$OVERWRITE" << 'PYEOF'
 import json
 import os
 import re
@@ -637,7 +637,7 @@ launch_file = os.path.join(vscode_dir, 'launch.json')
 
 def parse_jsonc(raw_text):
     # 1) 문자열 리터럴을 보존하면서 주석(/* ... */, // ...) 제거
-    pattern = re.compile(r'(/\*.*?\*/|//[^\r\n]*)|(\"(?:\\.|[^\"\\])*\")', re.DOTALL)
+    pattern = re.compile(r'(/\*.*?\*/|//[^\r\n]*)|("(?:\\.|[^"\\])*")', re.DOTALL)
     no_comments = pattern.sub(lambda m: '' if m.group(1) else m.group(2), raw_text)
     # 2) 닫는 괄호 앞의 후행 콤마(trailing comma) 제거: , ] -> ] 및 , } -> }
     clean_text = re.sub(r',\s*([\]}])', r'\1', no_comments)
@@ -703,12 +703,12 @@ with open(launch_file, 'w', encoding='utf-8') as f:
 if not file_existed:
     print(f'✅ .vscode/launch.json 생성 완료 ({len(new_configs)}개 디버그 설정 등록)')
 elif overwrite:
-    print(f'✅ .vscode/launch.json 갱신 완료 ({len(existing_data[\"configurations\"])}개 디버그 설정 재작성)')
+    print(f'✅ .vscode/launch.json 갱신 완료 ({len(existing_data["configurations"])}개 디버그 설정 재작성)')
 elif added_count > 0:
     print(f'✅ .vscode/launch.json 갱신 완료 ({added_count}개 신규 디버그 설정 추가)')
 else:
     print('ℹ️  .vscode/launch.json 에 동일한 디버그 설정이 이미 존재합니다.')
-" "$TARGET_DIR" "$CONFIGS_JSON" "$OVERWRITE"
+PYEOF
 }
 
 # ── SFTP 마운트 옵션 통합 처리 헬퍼 ──────────────────────────────────────────
