@@ -479,42 +479,329 @@ fi
 # 4. 선택 항목별 실전 실행 프로세스 분기
 # ==============================================================================
 
+# ==============================================================================
+# 2-1. .vscode/launch.json 기반 bootRun 설정 감지 및 스캐폴딩 헬퍼
+# ==============================================================================
+
+# JSONC 파싱 및 Java launch 구성 탐색 함수
+# 성공 시: TARGET_LAUNCH_NAME, TARGET_MAIN_CLASS, TARGET_MOD, TARGET_PROF, TARGET_VM_EXTRA 설정 후 0 반환
+# 복수 구성 선택 중 사용자 취소(Esc) 시: 2 반환
+# 파일 없거나 Java launch 구성 없을 시: 1 반환
+parse_vscode_launch_for_bootrun() {
+    local launch_file="$CWD/.vscode/launch.json"
+    if [[ ! -f "$launch_file" ]]; then
+        return 1
+    fi
+
+    local parsed_output
+    parsed_output=$(python3 - "$launch_file" "$CWD" 2>/dev/null << 'PYEOF'
+import json, os, re, sys
+
+launch_file = sys.argv[1]
+cwd = sys.argv[2]
+
+def parse_jsonc(text):
+    pattern = re.compile(r'(/\*.*?\*/|//[^\r\n]*)|("(?:\\.|[^"\\])*")', re.DOTALL)
+    no_comments = pattern.sub(lambda m: '' if m.group(1) else m.group(2), text)
+    clean_text = re.sub(r',\s*([\]}])', r'\1', no_comments)
+    return json.loads(clean_text)
+
+try:
+    with open(launch_file, 'r', encoding='utf-8') as f:
+        data = parse_jsonc(f.read())
+except Exception:
+    sys.exit(1)
+
+configs = data.get('configurations', [])
+if not isinstance(configs, list):
+    sys.exit(1)
+
+java_configs = []
+for c in configs:
+    if isinstance(c, dict) and c.get('type') == 'java' and c.get('request', 'launch') == 'launch':
+        java_configs.append(c)
+
+if not java_configs:
+    sys.exit(1)
+
+# rootProject.name 판별 (루트 프로젝트와 모듈명이 같으면 단일 모듈로 처리)
+root_project_name = ''
+for sf in [os.path.join(cwd, 'settings.gradle'), os.path.join(cwd, 'settings.gradle.kts')]:
+    if os.path.isfile(sf):
+        try:
+            with open(sf, 'r', encoding='utf-8') as f:
+                m = re.search(r"rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]", f.read())
+                if m:
+                    root_project_name = m.group(1)
+                    break
+        except Exception:
+            pass
+
+results = []
+for idx, c in enumerate(java_configs):
+    name = c.get('name', f'Config {idx + 1}')
+    main_class = c.get('mainClass', '')
+    proj_name = c.get('projectName', '')
+    vm_args = c.get('vmArgs', '')
+    if isinstance(vm_args, list):
+        vm_args = ' '.join(vm_args)
+    args = c.get('args', '')
+    if isinstance(args, list):
+        args = ' '.join(args)
+
+    # 1. 프로필 추출
+    profile = ''
+    m_prof = re.search(r'-Dspring\.profiles\.active=([^\s]+)', vm_args)
+    if m_prof:
+        profile = m_prof.group(1)
+    else:
+        m_args_prof = re.search(r'--spring\.profiles\.active=([^\s]+)', args)
+        if m_args_prof:
+            profile = m_args_prof.group(1)
+
+    # 2. 추가 시스템 프로퍼티 (-D... 중 spring.profiles.active 제외)
+    extra_vm_parts = []
+    for token in vm_args.split():
+        if token.startswith('-D') and not token.startswith('-Dspring.profiles.active='):
+            extra_vm_parts.append(token)
+    extra_vm = ' '.join(extra_vm_parts)
+
+    # 3. 모듈명 결정: rootProject.name과 일치 시 단일 모듈(빈 문자열)
+    mod = proj_name
+    if mod and root_project_name and mod == root_project_name:
+        mod = ''
+
+    results.append({
+        'name': name,
+        'mainClass': main_class,
+        'module': mod,
+        'profile': profile,
+        'extraVm': extra_vm
+    })
+
+print(json.dumps(results, ensure_ascii=False))
+PYEOF
+    )
+
+    if [[ -z "$parsed_output" ]]; then
+        return 1
+    fi
+
+    local count
+    count=$(python3 -c "import json, sys; print(len(json.loads(sys.argv[1])))" "$parsed_output" 2>/dev/null || echo "0")
+    if [[ "$count" -eq 0 ]]; then
+        return 1
+    fi
+
+    local selected_idx=0
+    if [[ "$count" -gt 1 ]]; then
+        local config_menu=()
+        while IFS=$'\t' read -r idx c_name c_prof c_mod; do
+            local label="$c_name"
+            [[ -n "$c_mod" ]] && label="$label [모듈: $c_mod]"
+            [[ -n "$c_prof" ]] && label="$label [프로필: $c_prof]"
+            config_menu+=("${idx}\t${label}")
+        done < <(python3 -c "
+import json, sys
+data = json.loads(sys.argv[1])
+for i, d in enumerate(data):
+    print(f'{i}\t{d.get(\"name\", \"\")}\t{d.get(\"profile\", \"\")}\t{d.get(\"module\", \"\")}')
+" "$parsed_output")
+
+        local fzf_choice
+        fzf_choice=$(printf '%s\n' "${config_menu[@]}" | fzf --with-nth=2 --prompt="🎯 실행할 launch.json 구성을 선택하세요 > " --height=40% --reverse)
+        if [[ -z "$fzf_choice" ]]; then
+            echo "❌ bootRun 구성 선택이 취소되었습니다."
+            return 2
+        fi
+        selected_idx=$(echo "$fzf_choice" | cut -f1)
+    fi
+
+    eval "$(python3 - "$parsed_output" "$selected_idx" << 'PYEOF'
+import json, sys, shlex
+data = json.loads(sys.argv[1])
+idx = int(sys.argv[2])
+target = data[idx]
+print(f"TARGET_LAUNCH_NAME={shlex.quote(target.get('name', ''))}")
+print(f"TARGET_MAIN_CLASS={shlex.quote(target.get('mainClass', ''))}")
+print(f"TARGET_MOD={shlex.quote(target.get('module', ''))}")
+print(f"TARGET_PROF={shlex.quote(target.get('profile', ''))}")
+print(f"TARGET_VM_EXTRA={shlex.quote(target.get('extraVm', ''))}")
+PYEOF
+    )"
+
+    return 0
+}
+
+# .vscode/launch.json 미감지 시 스마트 기본값 추론 및 생성 함수
+scaffold_launch_json_for_bootrun() {
+    echo ""
+    echo "💡 [.vscode/launch.json] 표준 디버그/실행 설정이 감지되지 않았습니다."
+    echo "   Spring Boot 표준 실행 구성을 생성합니다."
+    echo "──────────────────────────────────────────────────────────────────────────────"
+
+    # 1. 메인 클래스 스마트 추론
+    local default_main=""
+    if [[ -f "$CWD/.nvim.lua" ]]; then
+        default_main=$(grep -E '^\s*MAIN_CLASS\s*=' "$CWD/.nvim.lua" 2>/dev/null | head -1 | sed -E 's/.*=\s*["'\''"]([^"'\'']+)["'\''"].*/\1/')
+    fi
+    if [[ -z "$default_main" ]] && [[ -d "$CWD/src/main/java" ]]; then
+        local found_file
+        found_file=$(grep -rl '@SpringBootApplication' "$CWD/src/main/java" 2>/dev/null | head -1)
+        if [[ -n "$found_file" ]]; then
+            local pkg cls
+            pkg=$(grep -E '^\s*package\s+' "$found_file" | head -1 | sed -E 's/^\s*package\s+([^;]+);.*/\1/')
+            cls=$(basename "$found_file" .java)
+            if [[ -n "$pkg" && -n "$cls" ]]; then
+                default_main="${pkg}.${cls}"
+            fi
+        fi
+    fi
+
+    # 2. 모듈/프로젝트명 스마트 추론
+    local default_proj=""
+    if [[ -f "$CWD/settings.gradle" ]]; then
+        default_proj=$(grep -oE "rootProject\.name\s*=\s*['\"][^'\"]+['\"]" "$CWD/settings.gradle" 2>/dev/null | head -1 | sed -E "s/rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]/\1/")
+    elif [[ -f "$CWD/settings.gradle.kts" ]]; then
+        default_proj=$(grep -oE "rootProject\.name\s*=\s*['\"][^'\"]+['\"]" "$CWD/settings.gradle.kts" 2>/dev/null | head -1 | sed -E "s/rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]/\1/")
+    fi
+    [[ -z "$default_proj" ]] && default_proj="$(basename "$CWD")"
+
+    # 3. 프로필 스마트 추론 (@profiles-*.yml 또는 application-*.yml 스캔)
+    local default_prof=""
+    local res_dir="$CWD/src/main/resources"
+    if [[ -d "$res_dir" ]]; then
+        local prof_candidates=()
+        for pf in "$res_dir"/config/@profiles-*.yml "$res_dir"/config/@profiles-*.yaml; do
+            if [[ -f "$pf" ]]; then
+                local p_name
+                p_name=$(basename "$pf" | sed -E 's/^@profiles-([^\.]+)\.ya?ml$/\1/')
+                prof_candidates+=("$p_name")
+            fi
+        done
+        if [[ ${#prof_candidates[@]} -eq 0 ]]; then
+            for pf in "$res_dir"/application-*.yml "$res_dir"/application-*.yaml; do
+                if [[ -f "$pf" ]]; then
+                    local p_name
+                    p_name=$(basename "$pf" | sed -E 's/^application-([^\.]+)\.ya?ml$/\1/')
+                    prof_candidates+=("$p_name")
+                fi
+            done
+        fi
+        if [[ ${#prof_candidates[@]} -gt 0 ]]; then
+            default_prof=$(IFS=','; echo "${prof_candidates[*]}")
+        fi
+    fi
+    [[ -z "$default_prof" ]] && default_prof="local"
+
+    # 사용자 1회성 입력 받기 (친절한 가이드 및 힌트 제공)
+    echo ""
+    echo "📌 1. 메인 클래스 (Spring Boot 진입 클래스 FQCN)"
+    echo "   • 자동 분석 결과: ${default_main:-(감지 실패 - 직접 입력 필요)}"
+    read -p "   👉 메인 클래스 [$default_main]: " IN_MAIN
+    IN_MAIN=${IN_MAIN:-$default_main}
+
+    echo ""
+    echo "📌 2. 모듈 / 프로젝트명 (Gradle 실행 대상 모듈)"
+    echo "   • 싱글 프로젝트: 기본값 그대로 Enter / 멀티모듈: 서브모듈명(예: api, core) 입력"
+    read -p "   👉 모듈/프로젝트명 [$default_proj]: " IN_PROJ
+    IN_PROJ=${IN_PROJ:-$default_proj}
+
+    echo ""
+    echo "📌 3. 실행 프로필 (Spring Boot Active Profiles / 쉼표 구분)"
+    echo "   • 자동 분석 결과: ${default_prof:-(없음)}"
+    read -p "   👉 실행 프로필 [$default_prof]: " IN_PROF
+    IN_PROF=${IN_PROF:-$default_prof}
+    echo "──────────────────────────────────────────────────────────────────────────────"
+
+    if [[ -z "$IN_MAIN" ]]; then
+        echo "❌ 메인 클래스가 지정되지 않아 launch.json 생성을 중단합니다."
+        return 1
+    fi
+
+    local app_name="${IN_MAIN##*.}"
+    [[ -z "$app_name" ]] && app_name="$IN_PROJ"
+
+    local vm_args="-Dfile.encoding=UTF-8"
+    [[ -n "$IN_PROF" ]] && vm_args="-Dfile.encoding=UTF-8 -Dspring.profiles.active=${IN_PROF}"
+
+    mkdir -p "$CWD/.vscode"
+    python3 - "$CWD/.vscode/launch.json" "$app_name" "$IN_MAIN" "$IN_PROJ" "$vm_args" << 'PYEOF'
+import json, sys
+
+path, name, main_class, proj_name, vm_args = sys.argv[1:6]
+config = {
+    'version': '0.2.0',
+    'configurations': [
+        {
+            'type': 'java',
+            'name': name,
+            'request': 'launch',
+            'mainClass': main_class,
+            'projectName': proj_name,
+            'vmArgs': vm_args
+        }
+    ]
+}
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(config, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+PYEOF
+
+    echo "✅ .vscode/launch.json 생성이 완료되었습니다!"
+    echo "   (이제 Neovim, VSCode, fzf 어디서든 동일한 설정으로 실행됩니다)"
+    echo ""
+
+    TARGET_LAUNCH_NAME="$app_name"
+    TARGET_MAIN_CLASS="$IN_MAIN"
+    TARGET_MOD=""
+    if [[ -n "$IN_PROJ" && "$IN_PROJ" != "$default_proj" ]]; then
+        TARGET_MOD="$IN_PROJ"
+    fi
+    TARGET_PROF="$IN_PROF"
+    TARGET_VM_EXTRA="-Dfile.encoding=UTF-8"
+
+    return 0
+}
+
 # ── [Gradle] 실행 (bootRun) ──────────────────────────────────────────────────
 if [[ "$CHOICE" == *"실행"* ]]; then
-    PREV_INIT=$(get_state "gradle_run" "init_path")
-    PREV_MOD=$(get_state "gradle_run" "module")
-    PREV_PROF=$(get_state "gradle_run" "profile")
+    TARGET_LAUNCH_NAME=""
+    TARGET_MAIN_CLASS=""
+    TARGET_MOD=""
+    TARGET_PROF=""
+    TARGET_VM_EXTRA=""
 
-    echo "📋 이전 실행 설정:"
-    echo "   Init 스크립트: ${PREV_INIT:-(없음)}"
-    echo "   모듈명       : ${PREV_MOD:-(없음)}"
-    echo "   프로필       : ${PREV_PROF:-(없음)}"
+    # 1. .vscode/launch.json 파싱 시도 (단일 원천)
+    parse_vscode_launch_for_bootrun
+    _parse_code=$?
+
+    if [[ "$_parse_code" -eq 2 ]]; then
+        exit 0
+    elif [[ "$_parse_code" -ne 0 ]]; then
+        scaffold_launch_json_for_bootrun || exit 1
+        parse_vscode_launch_for_bootrun || exit 1
+    fi
+
+    # 2. 감지/생성된 launch.json 정보 표시 및 실행 확인
+    echo "📋 [.vscode/launch.json] 실행 구성: ${TARGET_LAUNCH_NAME}"
+    [[ -n "$TARGET_MAIN_CLASS" ]] && echo "   메인 클래스 : ${TARGET_MAIN_CLASS}"
+    echo "   모듈 / 대상 : ${TARGET_MOD:-(루트 프로젝트)}"
+    echo "   실행 프로필 : ${TARGET_PROF:-(없음)}"
+    [[ -n "$TARGET_VM_EXTRA" ]] && echo "   추가 VM 인자: ${TARGET_VM_EXTRA}"
     echo ""
     read -p "▶️  이 설정으로 바로 실행하시겠습니까? (Y/n): " REUSE
     REUSE=${REUSE:-"y"}
 
     if [[ "${REUSE,,}" != "y" ]]; then
-        read -p "📜 Init 스크립트 경로 [$PREV_INIT]: " INIT_PATH
-        INIT_PATH=${INIT_PATH:-$PREV_INIT}
+        read -p "📦 모듈명 (루트면 엔터) [$TARGET_MOD]: " IN_MOD
+        TARGET_MOD=${IN_MOD:-$TARGET_MOD}
 
-        read -p "📦 모듈명 (없으면 엔터) [$PREV_MOD]: " MOD
-        MOD=${MOD:-$PREV_MOD}
-
-        read -p "🔑 프로필 (dev 등) [$PREV_PROF]: " PROF
-        PROF=${PROF:-$PREV_PROF}
-
-        save_state "gradle_run" "init_path" "$INIT_PATH"
-        save_state "gradle_run" "module" "$MOD"
-        save_state "gradle_run" "profile" "$PROF"
-    else
-        INIT_PATH="$PREV_INIT"
-        MOD="$PREV_MOD"
-        PROF="$PREV_PROF"
+        read -p "🔑 프로필 [$TARGET_PROF]: " IN_PROF
+        TARGET_PROF=${IN_PROF:-$TARGET_PROF}
     fi
 
-    # 안전하게 배열로 인수 조립 (eval 대신 직접 실행)
-    # bootRun 은 gradlew 자체가 JVM 위에서 실행되므로 OS 공통 처리
-    # Windows 에서만 cmd.exe /c 래퍼 필요
+    # 3. 안전하게 배열로 인수 조립 (eval 대신 직접 실행)
     CMD_ARGS=()
     if $IS_WINDOWS; then
         CMD_ARGS+=("cmd.exe" "/c" "$GW_NAME")
@@ -522,18 +809,20 @@ if [[ "$CHOICE" == *"실행"* ]]; then
         CMD_ARGS+=("$GW_NAME")
     fi
 
-    if [[ -n "$INIT_PATH" ]]; then
-        CMD_ARGS+=("-I" "$INIT_PATH")
-    fi
-
-    if [[ -n "$MOD" ]]; then
-        CMD_ARGS+=(":$MOD:bootRun")
+    if [[ -n "$TARGET_MOD" ]]; then
+        CMD_ARGS+=(":$TARGET_MOD:bootRun")
     else
         CMD_ARGS+=("bootRun")
     fi
 
-    if [[ -n "$PROF" ]]; then
-        CMD_ARGS+=("--args=--spring.profiles.active=$PROF")
+    if [[ -n "$TARGET_PROF" ]]; then
+        CMD_ARGS+=("--args=--spring.profiles.active=$TARGET_PROF")
+    fi
+
+    if [[ -n "$TARGET_VM_EXTRA" ]]; then
+        for vm_token in $TARGET_VM_EXTRA; do
+            CMD_ARGS+=("$vm_token")
+        done
     fi
 
     # 기본 백그라운드 컴파일 감시(-t), 병렬 빌드, 빌드 캐시 활성화
@@ -544,7 +833,7 @@ if [[ "$CHOICE" == *"실행"* ]]; then
     SAVE_LOG=${SAVE_LOG:-"n"}
 
     # bootRun 실행 전 포트 충돌 사전 확인
-    check_and_resolve_port_conflict "$MOD"
+    check_and_resolve_port_conflict "$TARGET_MOD"
 
     echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
     if [[ "${SAVE_LOG,,}" == "y" ]]; then

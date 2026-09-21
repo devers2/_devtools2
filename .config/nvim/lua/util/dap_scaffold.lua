@@ -447,6 +447,33 @@ end
 -- 언어별 3번째 파라미터 기본값 추론
 local function detect_default_param3(lang)
   if lang == 'java' then
+    local cwd = vim.fn.getcwd()
+    local res_dir = cwd .. '/src/main/resources'
+    if vim.fn.isdirectory(res_dir) == 1 then
+      local candidates = {}
+      -- Goono-ELN 스타일 (@profiles-*.yml) 및 표준 application-*.yml 스캔
+      local profile_files = vim.fn.globpath(res_dir .. '/config', '@profiles-*.yml', false, true)
+      if #profile_files == 0 then
+        profile_files = vim.fn.globpath(res_dir .. '/config', '@profiles-*.yaml', false, true)
+      end
+      if #profile_files == 0 then
+        profile_files = vim.fn.globpath(res_dir, 'application-*.yml', false, true)
+      end
+      if #profile_files == 0 then
+        profile_files = vim.fn.globpath(res_dir, 'application-*.yaml', false, true)
+      end
+
+      for _, f in ipairs(profile_files) do
+        local fname = vim.fn.fnamemodify(f, ':t')
+        local p_name = fname:match('^@profiles%-([%w_%-]+)%.ya?ml$') or fname:match('^application%-([%w_%-]+)%.ya?ml$')
+        if p_name and p_name ~= '' then
+          table.insert(candidates, p_name)
+        end
+      end
+      if #candidates > 0 then
+        return table.concat(candidates, ',')
+      end
+    end
     return 'local'
   elseif lang == 'python' then
     return 'local'
@@ -460,32 +487,32 @@ local function detect_default_param3(lang)
   return 'local'
 end
 
--- 언어별 도메인에 특화된 3대 질문 정의
+-- 언어별 도메인에 특화된 3대 질문 정의 (Enter 시 추천값 자동 채택 힌트 안내)
 local LANGUAGE_PROMPTS = {
   java = {
-    q1 = '1. Main Class (진입 클래스명, 예: com.example.Application): ',
-    q2 = '2. Sub Module (하위 모듈명 / 싱글 프로젝트면 비우기): ',
-    q3 = '3. Profile (Spring Profile / 예: local, dev / 비우면 미지정): ',
+    q1 = '1. Main Class [Enter=자동감지값] (Spring Boot 진입 클래스 FQCN): ',
+    q2 = '2. Sub Module [Enter=루트프로젝트] (멀티모듈 서브프로젝트면 모듈명 / 싱글이면 엔터): ',
+    q3 = '3. Profile [Enter=추천값] (Spring Active Profiles, 쉼표 구분): ',
   },
   python = {
-    q1 = '1. Main / Entry (진입 파일 또는 모듈명, 예: main:app, main.py): ',
-    q2 = '2. Virtualenv (가상환경 폴더명, 예: .venv, venv_math): ',
-    q3 = '3. Profile (실행 환경 ENV / 예: local, dev / 비우면 미지정): ',
+    q1 = '1. Main / Entry [Enter=자동감지값] (진입 파일 또는 모듈명, 예: main:app, main.py): ',
+    q2 = '2. Virtualenv [Enter=자동감지값] (가상환경 폴더명, 예: .venv, venv_math): ',
+    q3 = '3. Profile [Enter=기본값] (실행 환경 ENV / 예: local, dev / 비우면 미지정): ',
   },
   node = {
-    q1 = '1. Entry Script (진입 파일 경로, 예: src/index.ts): ',
-    q2 = '2. Sub Module / Package (모노레포 패키지 / 싱글이면 비우기): ',
-    q3 = '3. Profile (NODE_ENV / 예: development, local / 비우면 미지정): ',
+    q1 = '1. Entry Script [Enter=자동감지값] (진입 파일 경로, 예: src/index.ts): ',
+    q2 = '2. Sub Module / Package [Enter=기본값] (모노레포 패키지 / 싱글이면 엔터): ',
+    q3 = '3. Profile [Enter=기본값] (NODE_ENV / 예: development, local): ',
   },
   go = {
-    q1 = '1. Entry / Program (진입 파일 또는 디렉토리, 예: main.go, .): ',
-    q2 = '2. Package / Subdir (하위 패키지 경로 / 루트면 비우기): ',
-    q3 = '3. Profile (실행 환경 ENV / 예: local, dev / 비우면 미지정): ',
+    q1 = '1. Entry / Program [Enter=자동감지값] (진입 파일 또는 디렉토리, 예: main.go, .): ',
+    q2 = '2. Package / Subdir [Enter=루트] (하위 패키지 경로 / 루트면 엔터): ',
+    q3 = '3. Profile [Enter=기본값] (실행 환경 ENV / 예: local, dev): ',
   },
   rust = {
-    q1 = '1. Binary Name (실행 바이너리 또는 패키지명): ',
-    q2 = '2. Build Mode (빌드 모드, debug / release): ',
-    q3 = '3. Program Args (실행 인자 / 없으면 비우기): ',
+    q1 = '1. Binary Name [Enter=자동감지값] (실행 바이너리 또는 패키지명): ',
+    q2 = '2. Build Mode [Enter=debug] (빌드 모드, debug / release): ',
+    q3 = '3. Program Args [Enter=없음] (실행 인자 / 없으면 엔터): ',
   },
 }
 
@@ -495,6 +522,12 @@ local function prompt_three_inputs(lang, on_complete)
   local default_q1 = detect_default_entry(lang)
   local default_q2 = detect_default_param2(lang)
   local default_q3 = detect_default_param3(lang)
+
+  vim.notify(
+    '💡 .vscode/launch.json 생성: 분석된 추천값이 기본으로 제공됩니다 (Enter=채택).',
+    vim.log.levels.INFO,
+    { title = 'DAP Scaffold' }
+  )
 
   vim.ui.input({
     prompt = prompts.q1,
