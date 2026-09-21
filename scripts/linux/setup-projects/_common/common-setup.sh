@@ -17,6 +17,17 @@
 #      - $2: Bitwarden 아이템 이름 (선택, 기본값: $BW_DEFAULT_PAT_ITEM. bw-lib 참고)
 # ==============================================================================
 
+# ── 터미널 모드 정규화 헬퍼 (bind -x / fzf 실행 환경 대응) ────────────────────
+if ! command -v normalize_tty &>/dev/null; then
+    normalize_tty() {
+        if [ -c /dev/tty ]; then
+            stty icanon icrnl echo < /dev/tty 2>/dev/null || true
+        elif [ -t 0 ]; then
+            stty icanon icrnl echo 2>/dev/null || true
+        fi
+    }
+fi
+
 # ── gradle.properties 섹션 갱신 헬퍼 (gpr.*, Maven Central Portal, GPG Signing 공용) ──
 # key=value 쌍들을 파일에서 찾아 있으면 값만 갱신하고, 없으면 새로 추가합니다.
 # 이번 호출에서 실제로 새로 추가되는 키가 하나라도 있으면, 그 앞에 빈 줄 + "# <header>"
@@ -286,11 +297,7 @@ setup_rclone_sftp_mount() {
             if [ "$NEEDS_SYSTEMD" = true ]; then
                 echo "⏳ /etc/wsl.conf 에 systemd 활성화 설정을 안전하게 병합합니다... (sudo 필요)"
                 # tty 정규화: fzf bind-x 에서 호출 시 raw mode 상태로 sudo 비밀번호 입력 실패 방지
-                if [ -c /dev/tty ]; then
-                    stty icanon icrnl echo < /dev/tty 2>/dev/null || true
-                elif [ -t 0 ]; then
-                    stty icanon icrnl echo 2>/dev/null || true
-                fi
+                normalize_tty
                 if ! type set_wsl_conf_key >/dev/null 2>&1 && [ -f "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh" ]; then
                     source "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh" 2>/dev/null || true
                 fi
@@ -425,11 +432,7 @@ PYEOF
     # FUSE user_allow_other 설정 확인 (일반 사용자의 --allow-other 마운트 허용)
     if [ -f /etc/fuse.conf ] && grep -q '^#user_allow_other' /etc/fuse.conf 2>/dev/null; then
         echo "⏳ /etc/fuse.conf 에 user_allow_other 설정을 주석 해제합니다... (sudo 필요)"
-        if [ -c /dev/tty ]; then
-            stty icanon icrnl echo < /dev/tty 2>/dev/null || true
-        elif [ -t 0 ]; then
-            stty icanon icrnl echo 2>/dev/null || true
-        fi
+        normalize_tty
         sudo sed -i 's/#user_allow_other/user_allow_other/' /etc/fuse.conf 2>/dev/null || true
     fi
 

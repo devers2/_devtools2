@@ -36,6 +36,7 @@
 #                                  → 개별 프로젝트 설정 스크립트/command-palette 등에서 항목명을
 #                                    직접 프롬프트하고 싶을 때 이 함수 하나만 호출하면 됩니다
 #                                    (프롬프트 문구/로직을 바꿀 일이 생기면 여기 한 곳만 수정)
+#   normalize_tty                → bind -x (Readline) 터미널 모드 정규화 (icanon icrnl echo 복원)
 #
 # 공통 상수:
 #   BW_DEFAULT_PAT_ITEM          → PAT 인증에 사용할 Bitwarden 아이템 이름의 공통 기본값
@@ -55,6 +56,20 @@ if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; t
     IS_WINDOWS=true
 elif grep -qi microsoft /proc/version 2>/dev/null; then
     IS_WSL=true
+fi
+
+# ── 터미널 모드 정규화 헬퍼 ──────────────────────────────────────────────────
+# bind -x (Readline 단축키) 환경에서 터미널을 canonical 모드로 복원합니다.
+# Readline이 설정한 raw 모드(-icanon -icrnl)에서는 Enter(\r)가 Newline(\n)으로 변환되지 않아
+# fzf 이후 실행되는 서브 스크립트나 비밀번호 입력(read, sudo)에서 엔터가 먹통이 되거나 인증에 실패합니다.
+if ! command -v normalize_tty &>/dev/null; then
+    normalize_tty() {
+        if [ -c /dev/tty ]; then
+            stty icanon icrnl echo < /dev/tty 2>/dev/null || true
+        elif [ -t 0 ]; then
+            stty icanon icrnl echo 2>/dev/null || true
+        fi
+    }
 fi
 
 # ── 클립보드 복사 및 보안 삭제 유틸리티 ──────────────────────────────────────
@@ -121,11 +136,7 @@ _bw_do_unlock() {
     # read 및 후속 프로세스(sudo 등)가 엔터 입력을 감지하지 못하거나 잘못된 문자(\r)로 인식합니다.
     # 터미널 모드를 canonical 모드로 정규화(icanon icrnl echo)합니다.
     # ⚠️ 주의: RETURN 시 raw 모드로 원복하면 후속 프로세스(git, sudo 등)의 입력이 망가지므로 원복하지 않습니다.
-    if [ -c /dev/tty ]; then
-        stty icanon icrnl echo < /dev/tty 2>/dev/null || true
-    elif [ -t 0 ]; then
-        stty icanon icrnl echo 2>/dev/null || true
-    fi
+    normalize_tty
 
     # 공용 prompt_password 함수가 로드되어 있으면 사용, 없으면 자체 비영문 감지 입력 루프 실행
     if command -v prompt_password &>/dev/null; then

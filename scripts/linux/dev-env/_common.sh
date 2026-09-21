@@ -48,6 +48,19 @@ print_sep()     { printf "${_C_CYAN}%s${_C_RESET}\n" "==========================
 print_banner()  { echo ""; print_sep; printf "  ${_C_CYAN}%s${_C_RESET}\n" "$*"; print_sep; echo ""; }
 print_subsep()  { printf "${_C_CYAN}%s${_C_RESET}\n" "---------------------------------------------------------------------------"; }
 
+# ── tty 정규화 헬퍼 ─────────────────────────────────────────────────────────
+# bind -x (Readline 단축키) 환경에서 터미널을 canonical 모드로 복원합니다.
+# Readline이 설정한 raw 모드(-icanon -icrnl)에서는 Enter(\r)가 개행(\n)으로
+# 변환되지 않아, read/sudo 등의 대화형 입력이 실패합니다. 이 함수를 호출하면
+# icanon(행 편집), icrnl(CR→NL 변환), echo(입력 에코)를 복원합니다.
+normalize_tty() {
+    if [ -c /dev/tty ]; then
+        stty icanon icrnl echo < /dev/tty 2>/dev/null || true
+    elif [ -t 0 ]; then
+        stty icanon icrnl echo 2>/dev/null || true
+    fi
+}
+
 # ── 프롬프트 / 질문 헬퍼 ──────────────────────────────────────────────
 print_question() { printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
 print_option() {
@@ -113,11 +126,7 @@ prompt_password() {
     local _pw_var="$1"
     local _msg="${2:-🔐 비밀번호 입력 (보안 마스킹): 🔒}"
     local _input=""
-    if [ -c /dev/tty ]; then
-        stty icanon icrnl echo < /dev/tty 2>/dev/null || true
-    elif [ -t 0 ]; then
-        stty icanon icrnl echo 2>/dev/null || true
-    fi
+    normalize_tty
 
     while true; do
         printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$_msg"

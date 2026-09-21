@@ -7,15 +7,6 @@
 
 FOLDER_NAME="RemoteServer"
 
-# ── bind -x (Readline 단축키) 환경 터미널 정규화 ─────────────────────────────
-# Readline이 설정한 raw 모드(-icanon -icrnl)에서는 Enter(\r)가 개행(\n)으로 변환되지 않아
-# fzf 이후 실행되는 서브 스크립트나 비밀번호 입력(read, sudo)에서 엔터가 먹통이 됩니다.
-if [ -c /dev/tty ]; then
-    stty icanon icrnl echo < /dev/tty 2>/dev/null || true
-elif [ -t 0 ]; then
-    stty icanon icrnl echo 2>/dev/null || true
-fi
-
 # ── bw-lib 공유 라이브러리 로드 ───────────────────────────────────────────────
 _BW_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$_BW_LIB_DIR/bw-lib" ]; then
@@ -23,9 +14,14 @@ if [ -f "$_BW_LIB_DIR/bw-lib" ]; then
 elif [ -f "$DEVTOOLS2/scripts/fzf/bw-lib" ]; then
     source "$DEVTOOLS2/scripts/fzf/bw-lib"
 else
-    echo "❌ bw-lib 파일을 찾을 수 없습니다. ($\_BW_LIB_DIR/bw-lib)"
+    echo "❌ bw-lib 파일을 찾을 수 없습니다. (${_BW_LIB_DIR}/bw-lib)"
     exit 1
 fi
+
+# ── bind -x (Readline 단축키) 환경 터미널 정규화 ─────────────────────────────
+# Readline이 설정한 raw 모드(-icanon -icrnl)에서는 Enter(\r)가 개행(\n)으로 변환되지 않아
+# fzf 이후 실행되는 서브 스크립트나 비밀번호 입력(read, sudo)에서 엔터가 먹통이 됩니다.
+normalize_tty
 
 # ── OS 판별 및 copy_to_clipboard 는 bw-lib 에서 제공하는 공용 함수를 사용합니다.
 
