@@ -5,8 +5,10 @@
 
 # ── bind -x (Readline 단축키) 환경 터미널 정규화 ─────────────────────────────
 # Readline이 설정한 raw 모드(-icanon -icrnl)에서는 Enter(\r)가 개행(\n)으로 변환되지 않아
-# fzf 이후 실행되는 서브 스크립트나 비밀번호 입력(read)에서 엔터가 먹통이 됩니다.
-if [ -t 0 ] || [ -c /dev/tty ]; then
+# fzf 이후 실행되는 서브 스크립트나 비밀번호 입력(read, sudo)에서 엔터가 먹통이 되거나 인증에 실패합니다.
+if [ -c /dev/tty ]; then
+    stty icanon icrnl echo < /dev/tty 2>/dev/null || true
+elif [ -t 0 ]; then
     stty icanon icrnl echo 2>/dev/null || true
 fi
 
@@ -1145,6 +1147,11 @@ elif [[ "$CHOICE" == *"프로젝트 설정"* ]]; then
     echo ""
     echo "🚀 실행: $_SP_TARGET"
     echo ""
+    if [ -c /dev/tty ]; then
+        stty icanon icrnl echo < /dev/tty 2>/dev/null || true
+    elif [ -t 0 ]; then
+        stty icanon icrnl echo 2>/dev/null || true
+    fi
     if bash "$_SP_TARGET"; then
         echo ""
         echo "✅ 프로젝트 설정 스크립트 실행 완료"

@@ -155,6 +155,11 @@ if ! dpkg -s libfuse2 >/dev/null 2>&1 && ! dpkg -s libfuse2t64 >/dev/null 2>&1; 
     apt-get install -y libfuse2t64 >/dev/null 2>&1 || apt-get install -y libfuse2 >/dev/null 2>&1 || true
 fi
 
+# FUSE 마운트(rclone SFTP 등)를 위한 user_allow_other 자동 활성화 (프로젝트 셋업 시 sudo 회피)
+if [ -f /etc/fuse.conf ]; then
+    sed -i 's/#user_allow_other/user_allow_other/' /etc/fuse.conf 2>/dev/null || true
+fi
+
 # 스크립트를 실제 호출한 사용자(관리자가 sudo로 실행한 경우 SUDO_USER를 우선 사용)
 INVOKER="${SUDO_USER:-${USER:-root}}"
 INVOKER_HOME=$(getent passwd "$INVOKER" | cut -d: -f6)

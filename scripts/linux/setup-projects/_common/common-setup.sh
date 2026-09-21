@@ -419,6 +419,11 @@ PYEOF
     # FUSE user_allow_other 설정 확인 (일반 사용자의 --allow-other 마운트 허용)
     if [ -f /etc/fuse.conf ] && grep -q '^#user_allow_other' /etc/fuse.conf 2>/dev/null; then
         echo "⏳ /etc/fuse.conf 에 user_allow_other 설정을 주석 해제합니다... (sudo 필요)"
+        if [ -c /dev/tty ]; then
+            stty icanon icrnl echo < /dev/tty 2>/dev/null || true
+        elif [ -t 0 ]; then
+            stty icanon icrnl echo 2>/dev/null || true
+        fi
         sudo sed -i 's/#user_allow_other/user_allow_other/' /etc/fuse.conf 2>/dev/null || true
     fi
 

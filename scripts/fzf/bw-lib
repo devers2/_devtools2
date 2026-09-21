@@ -118,14 +118,14 @@ _bw_do_unlock() {
 
     # bind -x (Readline 단축키: Alt+c / Alt+h) 환경 대응:
     # Readline이 설정한 raw 모드(-icanon -icrnl)에서는 Enter(\r)가 Newline(\n)으로 변환되지 않아
-    # read 가 엔터 입력을 감지하지 못하고 멈추는 현상이 발생합니다.
-    # 터미널 모드를 canonical 모드로 정규화(icanon icrnl)하고 반환 시 복원합니다.
-    local _saved_tty=""
-    if [ -t 0 ] || [ -c /dev/tty ]; then
-        _saved_tty=$(stty -g 2>/dev/null || true)
-        stty icanon icrnl 2>/dev/null || true
+    # read 및 후속 프로세스(sudo 등)가 엔터 입력을 감지하지 못하거나 잘못된 문자(\r)로 인식합니다.
+    # 터미널 모드를 canonical 모드로 정규화(icanon icrnl echo)합니다.
+    # ⚠️ 주의: RETURN 시 raw 모드로 원복하면 후속 프로세스(git, sudo 등)의 입력이 망가지므로 원복하지 않습니다.
+    if [ -c /dev/tty ]; then
+        stty icanon icrnl echo < /dev/tty 2>/dev/null || true
+    elif [ -t 0 ]; then
+        stty icanon icrnl echo 2>/dev/null || true
     fi
-    trap '[ -n "$_saved_tty" ] && stty "$_saved_tty" 2>/dev/null || true' RETURN
 
     # 공용 prompt_password 함수가 로드되어 있으면 사용, 없으면 자체 비영문 감지 입력 루프 실행
     if command -v prompt_password &>/dev/null; then
