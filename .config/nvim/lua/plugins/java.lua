@@ -446,6 +446,11 @@ return {
       -- java-test 번들 오류 방지: LazyVim 설정에서 java-test 번들 로드를 원천 차단
       opts.test = false
 
+      -- [DAP Launch 피커 오염 방지] LazyVim의 setup_dap_main_class_configs 호출을 원천 차단
+      -- JDTLS가 메인 클래스를 스캔하여 vmArgs/args 없는 빈 Launch 구성을 주입하는 것을 방지하고,
+      -- 오직 표준 .vscode/launch.json 설정만 단독으로 실행되도록 보장합니다.
+      opts.dap_main = false
+
       -- LSP Client Capabilities 지원 설정
       local extendedClientCapabilities = jdtls.extendedClientCapabilities
       extendedClientCapabilities.resolveCodeActionSupport = true
@@ -561,10 +566,15 @@ return {
           config_overrides = {},
         })
 
-        -- dap.providers.configs['jdtls'] 중복 등록 방지 (setup_dap_main_class_configs와 중복 방지)
+        -- dap.providers.configs['jdtls'] 및 dap.configurations.java 중복/더미 등록 방지
         local dap_ok, dap = pcall(require, 'dap')
-        if dap_ok and dap.providers and dap.providers.configs then
-          dap.providers.configs['jdtls'] = nil
+        if dap_ok then
+          if dap.providers and dap.providers.configs then
+            dap.providers.configs['jdtls'] = nil
+          end
+          if dap.configurations then
+            dap.configurations.java = {}
+          end
         end
 
         -- 클라이언트 자체에서 java-test를 재차 시도하지 않도록 리셋 (안전하게 체크)

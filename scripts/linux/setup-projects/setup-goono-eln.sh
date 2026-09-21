@@ -33,4 +33,5 @@ setup_gradle_spring_project \
     --repo-url "https://github.com/redwit-dev/Goono-ELN.git" \
     --jdk-version 21 \
     --main-class "so.goono.GoonoELNApplication" \
+    --project-name "goono-eln" \
     --spring-profile "0_DEVELOP,0_LOCAL,s2"

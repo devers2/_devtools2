@@ -153,34 +153,46 @@ EOF
 #   $2 = APP_NAME    (필수, 예: GoonoELNApplication)
 #   $3 = MAIN_CLASS  (필수, 예: so.goono.GoonoELNApplication)
 #   $4 = VM_ARGS     (선택, 기본값: -Dfile.encoding=UTF-8)
+#   $5 = PROJECT_NAME(선택, 미지정 시 settings.gradle에서 자동 추출)
 setup_vscode_java_launch() {
     local TARGET_DIR="$1"
     local APP_NAME="$2"
     local MAIN_CLASS="$3"
     local VM_ARGS="${4:--Dfile.encoding=UTF-8}"
+    local PROJECT_NAME="${5:-}"
+
+    # settings.gradle / settings.gradle.kts 에서 rootProject.name 자동 감지
+    if [ -z "$PROJECT_NAME" ]; then
+        if [ -f "$TARGET_DIR/settings.gradle" ]; then
+            PROJECT_NAME=$(grep -oE "rootProject\.name\s*=\s*['\"][^'\"]+['\"]" "$TARGET_DIR/settings.gradle" | head -n 1 | sed -E "s/rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]/\1/" || true)
+        elif [ -f "$TARGET_DIR/settings.gradle.kts" ]; then
+            PROJECT_NAME=$(grep -oE "rootProject\.name\s*=\s*['\"][^'\"]+['\"]" "$TARGET_DIR/settings.gradle.kts" | head -n 1 | sed -E "s/rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]/\1/" || true)
+        fi
+    fi
 
     # ⚠️ 주의사항:
-    # 1. projectName은 일부러 지정하지 않습니다.
-    #    VSCode Java 확장이 실제로 등록하는 프로젝트 이름은 settings.gradle의 rootProject.name과
-    #    다를 수 있어, 생략 시 vscode-java-debug가 mainClass만으로 워크스페이스를 탐색해
-    #    정확한 프로젝트를 찾으므로 임포터 종류에 구애받지 않고 안전합니다.
-    # 2. vmArgs는 반드시 단일 공백 구분 문자열(String)이어야 합니다!
+    # 1. vmArgs는 반드시 단일 공백 구분 문자열(String)이어야 합니다!
     #    배열(["-D..."])로 선언할 경우 Neovim DAP 및 JDTLS Debug Server에서
     #    JsonSyntaxException: Expected STRING but was BEGIN_ARRAY at path $.vmArgs 크래시가 발생합니다.
+    # 2. projectName은 멀티모듈 및 nvim-jdtls 디버거 클래스패스 바인딩을 위해 settings.gradle 기준으로 자동 지정됩니다.
     local CONFIG_JSON
     CONFIG_JSON=$(python3 -c "
 import json, sys
 app_name = sys.argv[1]
 main_class = sys.argv[2]
 vm_args = sys.argv[3]
-print(json.dumps([{
+proj_name = sys.argv[4] if len(sys.argv) > 4 else ''
+conf = {
     'type': 'java',
     'name': app_name,
     'request': 'launch',
     'mainClass': main_class,
     'vmArgs': vm_args
-}]))
-" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS")
+}
+if proj_name:
+    conf['projectName'] = proj_name
+print(json.dumps([conf]))
+" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME")
 
     setup_vscode_launch_json "$TARGET_DIR" "$CONFIG_JSON"
 }
@@ -194,11 +206,12 @@ setup_vscode_java() {
     local APP_NAME="$3"
     local MAIN_CLASS="$4"
     local VM_ARGS="$5"
+    local PROJECT_NAME="${6:-}"
 
     echo "⚙️  .vscode 설정 파일 생성 중..."
     setup_vscode_java_settings "$TARGET_DIR" "$JDK_VERSION"
     if [ -n "$MAIN_CLASS" ]; then
-        setup_vscode_java_launch "$TARGET_DIR" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS"
+        setup_vscode_java_launch "$TARGET_DIR" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME"
     fi
 }
 
@@ -220,6 +233,7 @@ setup_gradle_spring_project() {
     local SPRING_PROFILE=""
     local VM_ARGS=""
     local APP_NAME=""
+    local PROJECT_NAME=""
     local PROJECT_ROOT="./"
     local SFTP_SPEC=""
     local SFTP_USER=""
@@ -237,6 +251,7 @@ setup_gradle_spring_project() {
             --spring-profile)    SPRING_PROFILE="$2"; shift 2 ;;
             --vm-args)           VM_ARGS="$2"; shift 2 ;;
             --app-name)          APP_NAME="$2"; shift 2 ;;
+            --project-name)      PROJECT_NAME="$2"; shift 2 ;;
             --project-root)      PROJECT_ROOT="$2"; shift 2 ;;
             --sftp)              SFTP_SPEC="$2"; shift 2 ;;
             --sftp-user)         SFTP_USER="$2"; shift 2 ;;
@@ -303,7 +318,7 @@ setup_gradle_spring_project() {
     setup_nvim_lua_java "$TARGET_DIR" "$JDK_VERSION" "$MAIN_CLASS" "$PROJECT_ROOT"
 
     # 4. .vscode 설정 생성 (settings.json, launch.json)
-    setup_vscode_java "$TARGET_DIR" "$JDK_VERSION" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS"
+    setup_vscode_java "$TARGET_DIR" "$JDK_VERSION" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME"
 
     # 5. VSCode 필수 확장 프로그램 검사/설치
     install_vscode_extensions "${VSCODE_JAVA_EXTENSIONS[@]}"
