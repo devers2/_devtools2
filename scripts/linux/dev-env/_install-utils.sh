@@ -528,8 +528,9 @@ try:
             pkg = data[0].get("binary", {}).get("package", {})
             link = pkg.get("link", "")
             chk = pkg.get("checksum", "")
-            if rel and link:
-                print(f"{rel}|{link}|{chk}")
+            clean_rel = rel[4:] if rel.startswith("jdk-") else (rel[3:] if rel.startswith("jdk") else rel)
+            if clean_rel and link:
+                print(f"{clean_rel}|{link}|{chk}")
 except Exception:
     pass
 '
