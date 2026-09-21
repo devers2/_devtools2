@@ -352,6 +352,7 @@ setup_pip_mirror() {
         cat << 'EOF' > "$HOME/.pip/pip.conf"
 [global]
 index-url = https://mirror.kakao.com/pypi/simple
+extra-index-url = https://pypi.org/simple
 EOF
         cp -f "$HOME/.pip/pip.conf" "$HOME/.config/pip/pip.conf" 2>/dev/null || true
         print_info "한국 카카오 PyPI 고속 미러 서버(HTTPS)를 pip 저장소로 적용했습니다."

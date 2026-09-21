@@ -54,6 +54,12 @@ return {
           'xmlformatter',           -- XML (pom.xml, logback.xml, mapper.xml 등)
           'sql-formatter',          -- SQL (단독 .sql 파일 및 JPA/MyBatis 텍스트 블록)
           'markdownlint-cli2',      -- Markdown (nvim-lint 마크다운 린터)
+
+          -- ===================================================================
+          -- ── 3. DAP 디버그 어댑터 (Debug Adapters) ──
+          -- ===================================================================
+          'debugpy',                -- Python (debugpy-adapter)
+          'js-debug-adapter',       -- JavaScript / TypeScript
         }
 
         -- 🔒 [중복 설치 충돌 원천 방지]

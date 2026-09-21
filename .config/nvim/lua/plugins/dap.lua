@@ -1060,7 +1060,19 @@ return {
     'mfussenegger/nvim-dap-python',
     optional = true,
     config = function()
-      require('dap-python').setup('debugpy-adapter', { include_configs = false })
+      local python_path = 'debugpy-adapter'
+      if vim.fn.executable(python_path) ~= 1 then
+        local ok, registry = pcall(require, 'mason-registry')
+        if ok and registry.is_installed('debugpy') then
+          local pkg = registry.get_package('debugpy')
+          local p = pkg:get_install_path()
+          local venv_py = p .. (vim.fn.has('win32') == 1 and '/venv/Scripts/python.exe' or '/venv/bin/python')
+          if vim.fn.executable(venv_py) == 1 then
+            python_path = venv_py
+          end
+        end
+      end
+      require('dap-python').setup(python_path, { include_configs = false })
       local dap = require('dap')
       dap.configurations.python = {}
     end,
