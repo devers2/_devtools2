@@ -608,12 +608,6 @@ echo ""
 # ==============================================================================
 configure_gradle_dap
 
-# ==============================================================================
-# 9. Gradle Spotless (Java 포매터) 전역 설정
-# (구현부: scripts/linux/dev-env/_install-utils.sh configure_gradle_spotless)
-# ==============================================================================
-configure_gradle_spotless
-
 print_sep
 print_step "🎉 모든 도구 설치가 완료되었습니다!"
 echo ""
