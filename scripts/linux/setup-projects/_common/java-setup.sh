@@ -202,11 +202,16 @@ print(json.dumps([conf]))
 }
 
 # ── 3-1. .zed/debug.json 생성 (Zed 에디터 전용 DAP 디버그 설정) ─────────────
-# [배경]
+# [단일 원본(SSOT) 관리 원칙]
+#   1. 디버그 설정의 유일한 원본(Single Source of Truth)은 `.vscode/launch.json` 입니다.
+#   2. 개발자는 `.vscode/launch.json`만 수정하며, 이 파일(.zed/debug.json)은
+#      프로젝트 셋업 시점 또는 Neovim 저장(:w) 시점에 자동 파생/동기화됩니다.
+#
+# [배경 및 목적]
 #   Zed의 Java 확장은 디버그 어댑터를 "Java" (대문자 J)로 등록합니다.
-#   반면 .vscode/launch.json은 "type": "java" (소문자)를 사용하므로,
+#   반면 .vscode/launch.json은 DAP 표준인 "type": "java" (소문자)를 사용하므로,
 #   Zed에서 .vscode/launch.json의 Java 설정을 직접 인식하지 못합니다.
-#   따라서 Zed 사용자를 위해 .zed/debug.json을 별도로 생성합니다.
+#   따라서 사용자가 두 파일을 수동으로 이중 관리하지 않도록 최초 셋업 시점에 자동 생성합니다.
 #
 # [생성 내용]
 #   1. Launch 모드: Zed 내부에서 직접 Spring Boot 앱을 구동하여 디버깅
@@ -273,7 +278,17 @@ if proj_name:
     attach_cfg['projectName'] = proj_name
 configs.append(attach_cfg)
 
-print(json.dumps(configs, indent=2, ensure_ascii=False))
+header = '''// ==============================================================================
+// ⚠️ [자동 생성 파일 - 직접 수정 금지 / DO NOT EDIT DIRECTLY]
+// 이 파일은 .vscode/launch.json 으로부터 자동 생성 및 동기화되는 파생 파일입니다.
+//
+// [설정 수정 방법]
+// 디버그 설정을 변경하려면 프로젝트 루트의 .vscode/launch.json 을 수정해 주세요.
+// Neovim에서 저장(:w)하거나 setup 스크립트 실행 시 이 파일로 자동 동기화됩니다.
+// ==============================================================================
+
+'''
+print(header + json.dumps(configs, indent=2, ensure_ascii=False))
 " "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME" > "$DEBUG_FILE"
 
     echo "✅ .zed/debug.json 생성 완료 (Launch + Attach 2개 디버그 설정 등록)"

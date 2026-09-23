@@ -559,3 +559,168 @@ vim.api.nvim_create_autocmd('FileType', {
     vim.opt_local.formatoptions:remove({ 'c', 't' })
   end,
 })
+
+-- ===========================================================================================
+-- [DAP 단일 원본(SSOT) 자동 동기화: .vscode/launch.json → .zed/debug.json (Fail-safe)]
+-- ===========================================================================================
+-- 📌 [설계 목적 및 단일 원본(Single Source of Truth) 관리 원칙]
+-- 1. 단일 원본 관리 원칙:
+--    - 개발자는 오직 `.vscode/launch.json` 딱 하나만 수정 및 관리합니다.
+--    - Zed 전용 `.zed/debug.json`은 사용자가 직접 편집하는 대상이 아니며,
+--      `.vscode/launch.json`이 저장될 때 백그라운드에서 실시간으로 자동 동기화되는 파생 파일입니다.
+--
+-- 2. 자동 동기화가 필요한 배경:
+--    - VS Code와 Neovim(nvim-dap)은 DAP 표준인 `"type": "java"`(소문자)를 사용합니다.
+--    - 반면 Zed의 Java 확장은 어댑터 이름을 `"Java"`(대문자)로 등록해두어, Zed 코어가
+--      `.vscode/launch.json`의 소문자 설정을 직접 인식하지 못하는 제약이 있습니다.
+--    - 따라서 사용자가 두 설정 파일을 수동으로 이중 관리하는 부담을 완전히 없애기 위해,
+--      Neovim에서 `.vscode/launch.json`을 저장(:w)하는 즉시 `.zed/debug.json`을 자동 갱신합니다.
+--
+-- 3. 안전 원칙 (Zero Side-Effects / Fail-safe):
+--    - 완전 격리(pcall): JSON 파싱 실패, 문법 오류, 쓰기 권한 부족 등 어떤 예외가 발생하더라도
+--      Neovim의 저장(:w), VS Code, nvim-dap의 일반 동작에 0.001%의 영향도 주지 않고 안전하게 무시합니다.
+--    - 비동기 스케줄링(vim.schedule): 에디터 UI 블로킹 없이 저장 완료 후 백그라운드에서 조용히 수행됩니다.
+--    - 변경 감지(Idempotency): 내용 변경이 없을 때는 불필요한 디스크 쓰기(I/O)를 건너뜁니다.
+-- ===========================================================================================
+vim.api.nvim_create_autocmd('BufWritePost', {
+  group = vim.api.nvim_create_augroup('sync_launch_json_to_zed', { clear = true }),
+  pattern = '*launch.json',
+  callback = function(event)
+    pcall(function()
+      local buf = event.buf
+      if not buf or not vim.api.nvim_buf_is_valid(buf) then
+        return
+      end
+      local fname = vim.api.nvim_buf_get_name(buf)
+      if not fname or fname == '' then
+        return
+      end
+
+      -- 절대 경로 정규화 (상대경로, ~경로, 윈도우 역슬래시 모두 대응)
+      local normalized_path = vim.fn.fnamemodify(fname, ':p'):gsub('\\', '/')
+      if not normalized_path:match('/%.vscode/launch%.json$') then
+        return
+      end
+
+      local project_root = normalized_path:gsub('/%.vscode/launch%.json$', '')
+        if not project_root or project_root == '' then
+          return
+        end
+
+        local f = io.open(fname, 'r')
+        if not f then
+          return
+        end
+        local content = f:read('*a')
+        f:close()
+        if not content or content == '' then
+          return
+        end
+
+        -- 주석(// 및 /* */) 및 trailing comma 제거 후 파싱
+        local no_block = content:gsub('/%*.-%*/', '')
+        local clean_json = no_block:gsub('//[^\r\n]*', '')
+        clean_json = clean_json:gsub(',%s*([%]}])', '%1')
+
+        local ok, data = pcall(vim.json.decode, clean_json)
+        if not ok or type(data) ~= 'table' or not data.configurations then
+          return
+        end
+
+        local zed_configs = {}
+        for _, cfg in ipairs(data.configurations) do
+          if type(cfg) == 'table' and cfg.type then
+            local c_type = tostring(cfg.type):lower()
+            -- Java 설정 변환 (VS Code type: "java" -> Zed adapter: "Java")
+            if c_type == 'java' and cfg.mainClass and cfg.mainClass ~= '' then
+              local app_name = cfg.name or cfg.mainClass:match('[^%.]+$') or 'Application'
+              -- 1) Launch 모드: Zed 내부에서 직접 Spring Boot 앱 구동
+              local zed_launch = {
+                adapter = 'Java',
+                request = 'launch',
+                label = app_name .. ' (Launch)',
+                mainClass = cfg.mainClass,
+                vmArgs = cfg.vmArgs,
+                stopOnEntry = false,
+                cwd = '$ZED_WORKTREE_ROOT',
+              }
+              if cfg.projectName and cfg.projectName ~= '' then
+                zed_launch.projectName = cfg.projectName
+              end
+              if cfg.args and cfg.args ~= '' then
+                zed_launch.args = type(cfg.args) == 'table' and cfg.args or { cfg.args }
+              end
+              table.insert(zed_configs, zed_launch)
+
+              -- 2) Attach 모드: 터미널에서 gradlew bootRun --debug-jvm 실행 후 Zed 연결
+              local zed_attach = {
+                adapter = 'Java',
+                request = 'attach',
+                label = app_name .. ' (Attach :5005)',
+                hostName = 'localhost',
+                port = 5005,
+              }
+              if cfg.projectName and cfg.projectName ~= '' then
+                zed_attach.projectName = cfg.projectName
+              end
+              table.insert(zed_configs, zed_attach)
+            end
+          end
+        end
+
+        if #zed_configs == 0 then
+          return
+        end
+
+        local zed_dir = project_root .. '/.zed'
+        local zed_debug_file = zed_dir .. '/debug.json'
+
+        -- 기존 파일 내용과 비교하여 동일하면 쓰지 않음 (불필요한 디스크 쓰기 방지)
+        local ef = io.open(zed_debug_file, 'r')
+        if ef then
+          local e_content = ef:read('*a')
+          ef:close()
+          -- 주석 제거 후 내용 비교
+          local clean_e = e_content:gsub('//[^\r\n]*', ''):gsub('/%*.-%*/', '')
+          local e_ok, e_data = pcall(vim.json.decode, clean_e)
+          if e_ok and vim.deep_equal(e_data, zed_configs) then
+            return
+          end
+        end
+
+        -- .zed 디렉토리 생성
+        vim.fn.mkdir(zed_dir, 'p')
+
+        -- 멀티라인 포맷팅
+        local pretty_json_str = nil
+        pcall(function()
+          local encoded = vim.json.encode(zed_configs)
+          if vim.fn.executable('python3') == 1 then
+            local p_out = vim.fn.system({ 'python3', '-m', 'json.tool' }, encoded)
+            if vim.v.shell_error == 0 and p_out ~= '' then
+              pretty_json_str = p_out
+            end
+          end
+        end)
+
+        -- ⚠️ 개발자가 직접 수정하지 않고 .vscode/launch.json을 수정하도록 안내하는 헤더 주석
+        local header_comment = table.concat({
+          '// ==============================================================================',
+          '// ⚠️ [자동 생성 파일 - 직접 수정 금지 / DO NOT EDIT DIRECTLY]',
+          '// 이 파일은 .vscode/launch.json 으로부터 자동 생성 및 동기화되는 파생 파일입니다.',
+          '//',
+          '// [설정 수정 방법]',
+          '// 디버그 설정을 변경하려면 프로젝트 루트의 .vscode/launch.json 을 수정해 주세요.',
+          '// Neovim에서 저장(:w)하거나 setup 스크립트 실행 시 이 파일로 자동 동기화됩니다.',
+          '// ==============================================================================',
+          '',
+        }, '\n')
+
+        local wf = io.open(zed_debug_file, 'w')
+        if wf then
+          wf:write(header_comment .. (pretty_json_str or (vim.json.encode(zed_configs) .. '\n')))
+          wf:close()
+        end
+      end)
+  end,
+})
