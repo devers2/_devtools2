@@ -781,15 +781,16 @@ function M.ensure_launch_json(on_ready)
       end
 
       local lang = 'java'
-      if choice:find('Java') then
+      local choice_lower = choice:lower()
+      if choice_lower:find('java') then
         lang = 'java'
-      elseif choice:find('Python') then
+      elseif choice_lower:find('python') then
         lang = 'python'
-      elseif choice:find('Node') then
+      elseif choice_lower:find('node') then
         lang = 'node'
-      elseif choice:find('Go') then
+      elseif choice_lower:find('go') then
         lang = 'go'
-      elseif choice:find('Rust') then
+      elseif choice_lower:find('rust') then
         lang = 'rust'
       end
       proceed_with_lang(lang)

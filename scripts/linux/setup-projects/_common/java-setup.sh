@@ -143,6 +143,19 @@ EOF
     echo "✅ .vscode/settings.json 생성 완료"
 }
 
+# ── 2-1. Gradle 프로젝트 루트 이름 추출 헬퍼 ──────────────────────────────────
+# settings.gradle / settings.gradle.kts 에서 rootProject.name 자동 감지
+detect_gradle_project_name() {
+    local TARGET_DIR="$1"
+    local PROJ_NAME=""
+    if [ -f "$TARGET_DIR/settings.gradle" ]; then
+        PROJ_NAME=$(grep -oE "rootProject\.name\s*=\s*['\"][^'\"]+['\"]" "$TARGET_DIR/settings.gradle" | head -n 1 | sed -E "s/rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]/\1/" || true)
+    elif [ -f "$TARGET_DIR/settings.gradle.kts" ]; then
+        PROJ_NAME=$(grep -oE "rootProject\.name\s*=\s*['\"][^'\"]+['\"]" "$TARGET_DIR/settings.gradle.kts" | head -n 1 | sed -E "s/rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]/\1/" || true)
+    fi
+    echo "$PROJ_NAME"
+}
+
 # ── 3. .vscode/launch.json 생성 (DAP 디버그 런치 설정 - IDE 공통) ───────────
 # 이 파일은 VS Code 전용이 아닌 DAP(Debug Adapter Protocol) 표준 형식으로,
 # Neovim(nvim-dap), VS Code, Cursor 등 DAP를 지원하는 모든 IDE에서 공통으로 사용됩니다.
@@ -159,16 +172,7 @@ setup_vscode_java_launch() {
     local APP_NAME="$2"
     local MAIN_CLASS="$3"
     local VM_ARGS="${4:--Dfile.encoding=UTF-8}"
-    local PROJECT_NAME="${5:-}"
-
-    # settings.gradle / settings.gradle.kts 에서 rootProject.name 자동 감지
-    if [ -z "$PROJECT_NAME" ]; then
-        if [ -f "$TARGET_DIR/settings.gradle" ]; then
-            PROJECT_NAME=$(grep -oE "rootProject\.name\s*=\s*['\"][^'\"]+['\"]" "$TARGET_DIR/settings.gradle" | head -n 1 | sed -E "s/rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]/\1/" || true)
-        elif [ -f "$TARGET_DIR/settings.gradle.kts" ]; then
-            PROJECT_NAME=$(grep -oE "rootProject\.name\s*=\s*['\"][^'\"]+['\"]" "$TARGET_DIR/settings.gradle.kts" | head -n 1 | sed -E "s/rootProject\.name\s*=\s*['\"]([^'\"]+)['\"]/\1/" || true)
-        fi
-    fi
+    local PROJECT_NAME="${5:-$(detect_gradle_project_name "$TARGET_DIR")}"
 
     # ⚠️ 주의사항:
     # 1. vmArgs는 반드시 단일 공백 구분 문자열(String)이어야 합니다!
@@ -197,9 +201,88 @@ print(json.dumps([conf]))
     setup_vscode_launch_json "$TARGET_DIR" "$CONFIG_JSON"
 }
 
-# ── 4. .vscode 통합 설정 (settings.json + launch.json) ────────────────────────
-# settings.json: IDE별(VS Code/Cursor 등) Java 런타임 경로 설정
-# launch.json  : DAP 표준 형식, IDE 공통 사용 (Neovim, VS Code, Cursor 등)
+# ── 3-1. .zed/debug.json 생성 (Zed 에디터 전용 DAP 디버그 설정) ─────────────
+# [배경]
+#   Zed의 Java 확장은 디버그 어댑터를 "Java" (대문자 J)로 등록합니다.
+#   반면 .vscode/launch.json은 "type": "java" (소문자)를 사용하므로,
+#   Zed에서 .vscode/launch.json의 Java 설정을 직접 인식하지 못합니다.
+#   따라서 Zed 사용자를 위해 .zed/debug.json을 별도로 생성합니다.
+#
+# [생성 내용]
+#   1. Launch 모드: Zed 내부에서 직접 Spring Boot 앱을 구동하여 디버깅
+#   2. Attach 모드: 터미널에서 ./gradlew bootRun --debug-jvm 실행 후 Zed에서 연결
+#
+# [사용 방법]
+#   Zed에서 F4 (debugger: start) → 원하는 설정 선택
+#
+# 인수:
+#   $1 = TARGET_DIR   (필수)
+#   $2 = APP_NAME     (필수, 예: GoonoELNApplication)
+#   $3 = MAIN_CLASS   (필수, 예: so.goono.GoonoELNApplication)
+#   $4 = VM_ARGS      (선택, 기본값: -Dfile.encoding=UTF-8)
+#   $5 = PROJECT_NAME (선택, 미지정 시 settings.gradle에서 자동 추출)
+setup_zed_java_debug() {
+    local TARGET_DIR="$1"
+    local APP_NAME="$2"
+    local MAIN_CLASS="$3"
+    local VM_ARGS="${4:--Dfile.encoding=UTF-8}"
+    local PROJECT_NAME="${5:-$(detect_gradle_project_name "$TARGET_DIR")}"
+
+    local ZED_DIR="$TARGET_DIR/.zed"
+    local DEBUG_FILE="$ZED_DIR/debug.json"
+
+    if [ -f "$DEBUG_FILE" ]; then
+        echo "ℹ️  .zed/debug.json 이 이미 존재합니다. 덮어쓰지 않습니다."
+        return 0
+    fi
+
+    mkdir -p "$ZED_DIR"
+
+    python3 -c "
+import json, sys
+app_name = sys.argv[1]
+main_class = sys.argv[2]
+vm_args = sys.argv[3]
+proj_name = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else ''
+
+configs = []
+
+# 1) Launch 모드: Zed 내부에서 직접 구동
+launch_cfg = {
+    'adapter': 'Java',
+    'request': 'launch',
+    'label': app_name + ' (Launch)',
+    'mainClass': main_class,
+    'vmArgs': vm_args,
+    'stopOnEntry': False,
+    'cwd': '\$ZED_WORKTREE_ROOT'
+}
+if proj_name:
+    launch_cfg['projectName'] = proj_name
+configs.append(launch_cfg)
+
+# 2) Attach 모드: ./gradlew bootRun --debug-jvm 후 연결
+attach_cfg = {
+    'adapter': 'Java',
+    'request': 'attach',
+    'label': app_name + ' (Attach :5005)',
+    'hostName': 'localhost',
+    'port': 5005
+}
+if proj_name:
+    attach_cfg['projectName'] = proj_name
+configs.append(attach_cfg)
+
+print(json.dumps(configs, indent=2, ensure_ascii=False))
+" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME" > "$DEBUG_FILE"
+
+    echo "✅ .zed/debug.json 생성 완료 (Launch + Attach 2개 디버그 설정 등록)"
+}
+
+# ── 4. IDE 통합 설정 (settings.json + launch.json + .zed/debug.json) ──────────
+# settings.json   : IDE별(VS Code/Cursor 등) Java 런타임 경로 설정
+# launch.json     : DAP 표준 형식, IDE 공통 사용 (Neovim, VS Code, Cursor 등)
+# .zed/debug.json : Zed 에디터 전용 DAP 디버그 설정 (adapter: "Java" 대문자)
 setup_vscode_java() {
     local TARGET_DIR="$1"
     local JDK_VERSION="${2:-21}"
@@ -208,10 +291,17 @@ setup_vscode_java() {
     local VM_ARGS="$5"
     local PROJECT_NAME="${6:-}"
 
+    # PROJECT_NAME 미지정 시 1회만 자동 추출하여 launch.json 및 .zed/debug.json에 재사용
+    if [ -z "$PROJECT_NAME" ]; then
+        PROJECT_NAME=$(detect_gradle_project_name "$TARGET_DIR")
+    fi
+
     echo "⚙️  .vscode 설정 파일 생성 중..."
     setup_vscode_java_settings "$TARGET_DIR" "$JDK_VERSION"
     if [ -n "$MAIN_CLASS" ]; then
         setup_vscode_java_launch "$TARGET_DIR" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME"
+        # Zed 에디터 전용 디버그 설정 (.zed/debug.json)
+        setup_zed_java_debug "$TARGET_DIR" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME"
     fi
 }
 

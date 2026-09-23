@@ -179,6 +179,16 @@ vim.lsp.log.set_level(vim.log.levels.WARN)
 -- 마우스 지원 활성화 (IDE와 유사한 경험 제공)
 vim.opt.mouse = 'a'
 
+-- ============================================================
+-- [대소문자 처리 최적화 (검색 및 명령줄 자동완성)]
+-- 1. ignorecase: 검색(/, ?) 시 기본적으로 대소문자를 구분하지 않음
+-- 2. smartcase: 검색어에 대문자가 하나라도 포함되면 자동으로 대소문자를 구분 (가장 스마트한 검색)
+-- 3. wildignorecase: 명령줄(:e, :find 등) 파일명 및 커맨드 완성 시 대소문자를 무시 (GoonoApplication 등 열 때 편리)
+-- ============================================================
+vim.opt.ignorecase = true
+vim.opt.smartcase = true
+vim.opt.wildignorecase = true
+
 -- 기본 들여쓰기 설정 (현대 개발 표준 2칸 공백: JSON, HTML, JS/TS, CSS, YAML, Lua 등)
 -- (Java, Python 등 4칸이나 Go/Makefile의 실제 탭 등 언어별 예외는 autocmds.lua에서 처리)
 vim.opt.shiftwidth = 2

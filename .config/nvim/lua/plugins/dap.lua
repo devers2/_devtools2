@@ -478,6 +478,39 @@ return {
         return true
       end
 
+      -- ===========================================================================================
+      -- [DAP 어댑터 및 설정 대소문자 무시(Case-Insensitive) 지원]
+      -- .vscode/launch.json 또는 Zed .zed/debug.json 등에서 type이 "java", "Java", "JAVA",
+      -- "python", "Python", "node", "Node" 등 어떤 대소문자로 지정되더라도
+      -- Neovim(nvim-dap)에서 어댑터 및 설정을 대소문자 구분 없이 완벽하게 탐색하고 실행합니다.
+      -- ===========================================================================================
+      local function make_case_insensitive_table(tbl)
+        local mt = getmetatable(tbl) or {}
+        local orig_index = mt.__index
+        mt.__index = function(t, key)
+          if type(key) == 'string' then
+            local lower_k = key:lower()
+            for k, v in pairs(t) do
+              if type(k) == 'string' and k:lower() == lower_k then
+                return v
+              end
+            end
+          end
+          if type(orig_index) == 'function' then
+            return orig_index(t, key)
+          elseif type(orig_index) == 'table' then
+            return orig_index[key]
+          end
+          return nil
+        end
+        return setmetatable(tbl, mt)
+      end
+
+      dap.adapters = dap.adapters or {}
+      dap.configurations = dap.configurations or {}
+      make_case_insensitive_table(dap.adapters)
+      make_case_insensitive_table(dap.configurations)
+
       -- [순수 launch.json 0순위 원칙 및 피커 오염 방지]
       -- Attach는 <leader>da가 전담하고, Launch는 .vscode/launch.json이 0순위 표준입니다.
       -- LazyVim의 언어별 extras(java, python, typescript 등)가 자체적으로 주입하는 기본 설정
@@ -490,8 +523,6 @@ return {
       dap.configurations.javascript = {}
       dap.configurations.typescriptreact = {}
       dap.configurations.javascriptreact = {}
-
-
 
       -- [모든 언어 공통 포트 감지 헬퍼]
       -- args, vmArgs, env, port 필드에서 실행 포트를 안전하게 추출합니다.
@@ -541,14 +572,15 @@ return {
           end
         end
 
-        -- 언어별 웹 모듈 기본 포트 폴백
+        -- 언어별 웹 모듈 기본 포트 폴백 (type 대소문자 무관 비교)
+        local conf_type = type(config.type) == 'string' and config.type:lower() or ''
         if
-          (config.type == 'python' or config.type == 'debugpy')
+          (conf_type == 'python' or conf_type == 'debugpy')
           and (config.module == 'uvicorn' or (config.name and config.name:find('FastAPI')))
         then
           return '8000'
         end
-        if config.type == 'java' and config.mainClass and not config.mainClass:find('Batch') and not config.mainClass:find('Test') then
+        if conf_type == 'java' and config.mainClass and not config.mainClass:find('Batch') and not config.mainClass:find('Test') then
           return '8080'
         end
 
@@ -964,6 +996,18 @@ return {
 
       ---@diagnostic disable-next-line: duplicate-set-field
       dap.run = function(config, run_opts)
+        -- [config.type 대소문자 유연 정규화]
+        -- launch.json 또는 Zed debug.json 등에서 type이 "Java", "JAVA" 등으로 지정된 경우
+        -- dap.adapters에 등록된 키(예: "java")로 정규화하거나 호환되도록 처리
+        if config and type(config.type) == 'string' then
+          local raw_type = config.type
+          local lower_type = raw_type:lower()
+          -- adapters에 대소문자 무관 어댑터가 있으면 참조 가능
+          if not rawget(dap.adapters, raw_type) and dap.adapters[lower_type] then
+            config.type = lower_type
+          end
+        end
+
         -- Attach(외부 프로세스 연결) 요청 시에는 연결 대상인 외부 프로세스를 절대 선제 종료하지 않고 즉시 연결
         if config and config.request == 'attach' then
           orig_run(config, run_opts)
@@ -972,8 +1016,9 @@ return {
 
         -- Launch(신규 실행) 요청 시에만 포트 충돌 방지를 위해 기존 잔여 프로세스를 선제적으로 비동기 정리
         kill_debuggee_process(nil, function()
-          if config and config.type == 'java' and config.request == 'launch' then
-            local current_adapter = dap.adapters.java
+          local conf_type = config and type(config.type) == 'string' and config.type:lower() or ''
+          if conf_type == 'java' and config and config.request == 'launch' then
+            local current_adapter = dap.adapters.java or dap.adapters.Java
             if type(current_adapter) == 'function' and not wrapped_adapters[current_adapter] then
               local orig_adapter = current_adapter
               local wrapped = function(cb, conf)
@@ -997,6 +1042,7 @@ return {
               end
               wrapped_adapters[wrapped] = true
               dap.adapters.java = wrapped
+              dap.adapters.Java = wrapped
             end
             run_java_launch(config, run_opts, orig_run)
             return
