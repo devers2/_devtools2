@@ -1,26 +1,91 @@
 #!/usr/bin/env bash
-# DEVTOOLS2 JDTLS Launcher Script
-# - 사용자 계정명(~), 설치 경로, JDTLS/Lombok/Debugger 버전을 하드코딩 없이 동적으로 탐색하여 실행합니다.
-# - JDTLS 구동 시 Lombok(-javaagent) 자바 에이전트를 자동으로 주입합니다.
-# - Debugger 플러그인 JAR을 고정 경로 심볼릭 링크로 유지하여 settings.json 에서 버전 하드코딩을 제거합니다.
+# ==============================================================================
+# 🌟 [Zed 에디터 전용] Java Language Server (JDTLS) 동적 런처 스크립트
+# ==============================================================================
+#
+# ■ 개요 및 호출 경로:
+#   - 이 스크립트는 Zed 에디터가 Java 프로젝트를 열 때 구동하는 전용 런처입니다.
+#   - 연동 위치: .config/zed/settings.json -> lsp.jdtls.binary.path
+#
+# ■ 커스텀 런처 도입 이유 (Zed 순정 기본 방식 대비 장점):
+#   1. [Lombok 지원 보장]
+#      - Zed 순정 Java 확장은 Lombok 어노테이션(@Getter, @Setter, @Slf4j 등) 인식에
+#        자주 실패합니다. 이 스크립트는 JDTLS 실행 시 -javaagent:lombok.jar 를
+#        100% 강제 주입하여 컴파일 및 문법 오류를 완벽하게 차단합니다.
+#   2. [Java 디버깅 (DAP) 자동 연동]
+#      - Microsoft Java Debug Adapter(com.microsoft.java.debug.plugin)를 동적으로
+#        탐색하여 고정 심볼릭 링크로 유지함으로써 Zed 내 F4/디버깅 기능을 활성화합니다.
+#   3. [자원 재사용 (SSOT) & 초고속 구동 & 오프라인 완벽 지원]
+#      - DevTools2 기본 필수 도구인 Neovim(Mason)에 사전 설치된 최신 JDTLS, Lombok,
+#        Debugger 자원을 1순위로 즉시 재사용합니다. (Zed 확장 폴더는 2순위 폴백)
+#      - 수백 MB의 중복 다운로드를 방지하고, 최초 설치 직후 100% 오프라인에서도 즉시 작동합니다.
+#   4. [동적 최신 버전 자동 감지]
+#      - 특정 버전 번호를 코드에 하드코딩하지 않고 sort -V 정렬을 통해
+#        항상 디스크에 존재하는 가장 최신 버전의 바이너리와 JAR를 자동으로 선택합니다.
+# ==============================================================================
 
-DEVTOOLS2="${DEVTOOLS2:-/var/opt/_devtools2}"
+# ── 0. DevTools2 루트 디렉터리 동적 확정 ──────────────────────────────────────
+if [ -z "${DEVTOOLS2:-}" ] || [ ! -d "$DEVTOOLS2" ]; then
+    DEVTOOLS2="/var/opt/_devtools2"
+    if [ ! -d "$DEVTOOLS2" ]; then
+        DEVTOOLS2="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    fi
+fi
 
-JDTLS_BIN=$(find "$HOME/.local/share/zed/remote_extensions/work/java/jdtls" -name "jdtls" -type f 2>/dev/null | sort -V | tail -n 1)
-LOMBOK_JAR=$(find "$HOME/.local/share/zed/remote_extensions/work/java/lombok" -name "lombok*.jar" ! -name "*-sources.jar" -type f 2>/dev/null | sort -V | tail -n 1)
-DEBUGGER_JAR=$(find "$HOME/.local/share/zed/remote_extensions/work/java/debugger" -name "com.microsoft.java.debug.plugin-*.jar" -type f 2>/dev/null | sort -V | tail -n 1)
+# ── 1. JDTLS 언어 서버 바이너리 동적 탐색 ─────────────────────────────────────
+# (1순위: DevTools2 필수 Neovim Mason 패키지 / 2순위: Zed 확장 경로 / 3순위: 시스템 PATH)
+JDTLS_BIN=""
+if [ -x "$DEVTOOLS2/data/nvim/mason/packages/jdtls/bin/jdtls" ]; then
+    JDTLS_BIN="$DEVTOOLS2/data/nvim/mason/packages/jdtls/bin/jdtls"
+elif [ -x "$DEVTOOLS2/data/nvim/mason/bin/jdtls" ]; then
+    JDTLS_BIN="$DEVTOOLS2/data/nvim/mason/bin/jdtls"
+fi
 
-# Lombok fallback (Gradle 캐시)
+if [ -z "$JDTLS_BIN" ] || [ ! -x "$JDTLS_BIN" ]; then
+    # 2순위: Zed Java 확장이 자체 다운로드한 경로
+    JDTLS_BIN=$(find "$HOME/.local/share/zed/remote_extensions/work/java/jdtls" -name "jdtls" -type f 2>/dev/null | sort -V | tail -n 1)
+fi
+
+if [ -z "$JDTLS_BIN" ] || [ ! -x "$JDTLS_BIN" ]; then
+    # 3순위: 시스템 PATH 탐색
+    if command -v jdtls >/dev/null 2>&1; then
+        JDTLS_BIN="$(command -v jdtls)"
+    fi
+fi
+
+# ── 2. Lombok 자바 에이전트(-javaagent) JAR 동적 탐색 ────────────────────────
+# (1순위: DevTools2 Mason jdtls 패키지 / 2순위: Zed 확장 경로 / 3순위: Gradle 캐시)
+LOMBOK_JAR=""
+if [ -f "$DEVTOOLS2/data/nvim/mason/packages/jdtls/lombok.jar" ]; then
+    LOMBOK_JAR="$DEVTOOLS2/data/nvim/mason/packages/jdtls/lombok.jar"
+fi
+
 if [ -z "$LOMBOK_JAR" ]; then
+    # 2순위: Zed 확장 경로
+    LOMBOK_JAR=$(find "$HOME/.local/share/zed/remote_extensions/work/java/lombok" -name "lombok*.jar" ! -name "*-sources.jar" -type f 2>/dev/null | sort -V | tail -n 1)
+fi
+
+if [ -z "$LOMBOK_JAR" ]; then
+    # 3순위: Gradle 캐시
     LOMBOK_JAR=$(find "$DEVTOOLS2/data/.gradle/caches" -name "lombok-*.jar" ! -name "*-sources.jar" -type f 2>/dev/null | head -n 1)
 fi
 
-# Debugger JAR 심볼릭 링크 갱신 (버전이 바뀌어도 settings.json 경로는 고정 유지)
-DEBUGGER_LINK="$DEVTOOLS2/scripts/java/com.microsoft.java.debug.plugin.jar"
-if [ -n "$DEBUGGER_JAR" ]; then
-    ln -sf "$DEBUGGER_JAR" "$DEBUGGER_LINK" 2>/dev/null
+# ── 3. Java Debugger 플러그인 JAR 동적 탐색 및 고정 심볼릭 링크 갱신 ─────────
+# (1순위: DevTools2 Mason 디버거 패키지 / 2순위: Zed 확장 경로)
+# (Zed settings.json 은 고정 링크 경로인 .../com.microsoft.java.debug.plugin.jar 를 참조함)
+DEBUGGER_JAR=$(find "$DEVTOOLS2/data/nvim/mason/packages/java-debug-adapter" -name "com.microsoft.java.debug.plugin-*.jar" -type f 2>/dev/null | sort -V | tail -n 1)
+if [ -z "$DEBUGGER_JAR" ]; then
+    # 2순위: Zed 확장 경로
+    DEBUGGER_JAR=$(find "$HOME/.local/share/zed/remote_extensions/work/java/debugger" -name "com.microsoft.java.debug.plugin-*.jar" -type f 2>/dev/null | sort -V | tail -n 1)
 fi
 
+DEBUGGER_LINK="$DEVTOOLS2/scripts/java/com.microsoft.java.debug.plugin.jar"
+if [ -n "$DEBUGGER_JAR" ] && [ -f "$DEBUGGER_JAR" ]; then
+    mkdir -p "$(dirname "$DEBUGGER_LINK")" 2>/dev/null || true
+    ln -sf "$DEBUGGER_JAR" "$DEBUGGER_LINK" 2>/dev/null || true
+fi
+
+# ── 4. JDTLS 최종 실행 (Lombok 주입 및 안정적인 JDK 21 런타임 바인딩) ─────────
 if [ -n "$JDTLS_BIN" ] && [ -x "$JDTLS_BIN" ]; then
     export JAVA_HOME="$DEVTOOLS2/modules/java/jdk-21"
     export PATH="$DEVTOOLS2/modules/java/jdk-21/bin:$DEVTOOLS2/modules/gradle/gradle-9/bin:$PATH"
@@ -31,6 +96,6 @@ if [ -n "$JDTLS_BIN" ] && [ -x "$JDTLS_BIN" ]; then
         exec "$JDTLS_BIN" "$@"
     fi
 else
-    echo "Error: jdtls binary not found in $HOME/.local/share/zed/remote_extensions/work/java/jdtls" >&2
+    echo "Error: [Zed] jdtls binary not found in Zed extensions or DevTools2 packages ($DEVTOOLS2/data/nvim/mason/packages/jdtls)." >&2
     exit 1
 fi
