@@ -286,18 +286,21 @@ chown -R "$INVOKER:$DEVTOOLS2_GROUP" "$DEVTOOLS2"
 echo "[작업] 디렉토리와 파일 퍼미션을 조정합니다 (공유 영역 선별 2770, others 차단, 민감 정보 보호)..."
 
 # 4-1) 기본 디렉토리 권한: 전체 트리는 표준 755/750 적용
-find "$DEVTOOLS2" -type d -exec chmod 750 {} +
+find "$DEVTOOLS2" ! -path "*/data/nvim/lazy/*" ! -path "*/.git/*" -type d -exec chmod 750 {} +
 
 # 4-2) 실제 쓰기 공유가 필요한 런타임/캐시 디렉터리(data, modules)에만 2770 (SGID) 한정 적용
 for _shared_dir in "$DEVTOOLS2/data" "$DEVTOOLS2/modules"; do
     if [ -d "$_shared_dir" ]; then
-        find "$_shared_dir" -type d -exec chmod 2770 {} + 2>/dev/null || true
+        find "$_shared_dir" ! -path "*/data/nvim/lazy/*" ! -path "*/.git/*" -type d -exec chmod 2770 {} + 2>/dev/null || true
     fi
 done
 
 # 4-3) 일반 파일 권한: 소유자/그룹 읽기/쓰기 허용, others 접근 차단 (a+r 금지)
 # rclone.conf, SSH 키, 토큰 등 보안 민감 파일은 이 일괄 변경에서 제외하여 권한 완화를 방지합니다.
+# ⚠️ Neovim Lazy 플러그인(data/nvim/lazy) 및 .git 내부 파일은 외부 저장소 원본 권한을 보존해야 하므로 제외합니다.
 find "$DEVTOOLS2" -type f \
+    ! -path "*/data/nvim/lazy/*" \
+    ! -path "*/.git/*" \
     ! -name "rclone.conf" \
     ! -name "*.key" \
     ! -name "*.pem" \
@@ -308,7 +311,10 @@ find "$DEVTOOLS2" -type f \
     -exec chmod u+rw,g+rw,o-rwx {} +
 
 # 4-4) 스크립트 및 바이너리 실행 권한 보존/부여
+# ⚠️ Neovim Lazy 플러그인(data/nvim/lazy) 및 .git 내부 파일은 외부 저장소 원본 권한을 보존해야 하므로 제외합니다.
 find "$DEVTOOLS2" -type f \( -perm /111 -o -name "*.sh" -o -name "*.bash" \) \
+    ! -path "*/data/nvim/lazy/*" \
+    ! -path "*/.git/*" \
     ! -name "rclone.conf" \
     ! -name "*.key" \
     ! -name "*.pem" \
@@ -316,10 +322,13 @@ find "$DEVTOOLS2" -type f \( -perm /111 -o -name "*.sh" -o -name "*.bash" \) \
     ! -name "id_ed25519*" \
     -exec chmod u+x,g+x {} +
 
-# 4-4) 보안 민감 파일 권한 강제 (rclone.conf, SSH 개인키, 인증 토큰 등: 600 / 디렉터리: 700)
+# 4-5) 보안 민감 파일 권한 강제 (rclone.conf, SSH 개인키, 인증 토큰 등: 600 / 디렉터리: 700)
 # rclone.conf 는 SSH/SFTP 비밀번호가 난독화(rclone obscure)되어 있어 누구든 rclone reveal 로
 # 평문 비밀번호를 즉시 복호화할 수 있으므로, 반드시 소유자 전용 600 권한으로 엄격히 격리합니다.
-find "$DEVTOOLS2" -type f \( \
+find "$DEVTOOLS2" -type f \
+    ! -path "*/data/nvim/lazy/*" \
+    ! -path "*/.git/*" \
+    \( \
     -name "rclone.conf" -o \
     -name "*.key" -o \
     -name "*.pem" -o \
