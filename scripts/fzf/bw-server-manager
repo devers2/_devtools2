@@ -21,6 +21,27 @@ fi
 # ── bind -x (Readline 단축키) 환경 터미널 정규화 ─────────────────────────────
 # Readline이 설정한 raw 모드(-icanon -icrnl)에서는 Enter(\r)가 개행(\n)으로 변환되지 않아
 # fzf 이후 실행되는 서브 스크립트나 비밀번호 입력(read, sudo)에서 엔터가 먹통이 됩니다.
+
+# ── bind -x 환경 tty 상태 백업 및 종료 시 원복 보장 ────────────────────────────
+# bind -x로 실행된 스크립트 내부에서 normalize_tty로 canonical 모드로 전환하되,
+# 스크립트 종료 시 Readline이 기대하는 원래 raw 모드(-icanon -echo)로 무조건 복원합니다.
+# 이 처리가 없으면 2회차 이후 Alt+c/Alt+h 단축키가 먹통이 됩니다.
+_ORIG_STTY=""
+if [ -c /dev/tty ]; then
+    _ORIG_STTY=$(stty -g < /dev/tty 2>/dev/null || true)
+elif [ -t 0 ]; then
+    _ORIG_STTY=$(stty -g 2>/dev/null || true)
+fi
+_restore_tty() {
+    if [ -n "$_ORIG_STTY" ]; then
+        if [ -c /dev/tty ]; then
+            stty "$_ORIG_STTY" < /dev/tty 2>/dev/null || true
+        elif [ -t 0 ]; then
+            stty "$_ORIG_STTY" 2>/dev/null || true
+        fi
+    fi
+}
+trap '_restore_tty' EXIT INT TERM
 normalize_tty
 
 # ── OS 판별 및 copy_to_clipboard 는 bw-lib 에서 제공하는 공용 함수를 사용합니다.
@@ -112,7 +133,7 @@ if [ "$HAS_KEY" = "KEY" ]; then
         TMP_KEY_PATH=$(umask 077 && mktemp "/tmp/bw_key_${ITEM_ID}_XXXXXX")
         printf "%s\n" "$NOTES_CONTENT" > "$TMP_KEY_PATH"
         chmod 600 "$TMP_KEY_PATH" 2>/dev/null || true
-        trap 'rm -f "$TMP_KEY_PATH"' EXIT INT TERM
+        trap 'rm -f "$TMP_KEY_PATH"; _restore_tty' EXIT INT TERM
         SSH_KEY_OPT="-i $TMP_KEY_PATH"
     fi
 fi

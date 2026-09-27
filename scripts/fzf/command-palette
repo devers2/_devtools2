@@ -24,6 +24,27 @@ if ! command -v normalize_tty &>/dev/null; then
         fi
     }
 fi
+
+# ── bind -x 환경 tty 상태 백업 및 종료 시 원복 보장 ────────────────────────────
+# bind -x로 실행된 스크립트 내부에서 normalize_tty로 canonical 모드로 전환하되,
+# 스크립트 종료 시 Readline이 기대하는 원래 raw 모드(-icanon -echo)로 무조건 복원합니다.
+# 이 처리가 없으면 2회차 이후 Alt+c/Alt+h 단축키가 먹통이 됩니다.
+_ORIG_STTY=""
+if [ -c /dev/tty ]; then
+    _ORIG_STTY=$(stty -g < /dev/tty 2>/dev/null || true)
+elif [ -t 0 ]; then
+    _ORIG_STTY=$(stty -g 2>/dev/null || true)
+fi
+_restore_tty() {
+    if [ -n "$_ORIG_STTY" ]; then
+        if [ -c /dev/tty ]; then
+            stty "$_ORIG_STTY" < /dev/tty 2>/dev/null || true
+        elif [ -t 0 ]; then
+            stty "$_ORIG_STTY" 2>/dev/null || true
+        fi
+    fi
+}
+trap '_restore_tty' EXIT INT TERM
 normalize_tty
 
 # 1. 현재 작업 환경 분석 및 OS 판별 (IS_WINDOWS, IS_MAC, IS_WSL 은 bw-lib 에서 기본 제공)
