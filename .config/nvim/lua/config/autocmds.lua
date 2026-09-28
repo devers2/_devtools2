@@ -634,7 +634,7 @@ vim.api.nvim_create_autocmd('BufWritePost', {
             -- Java 설정 변환 (VS Code type: "java" -> Zed adapter: "Java")
             if c_type == 'java' and cfg.mainClass and cfg.mainClass ~= '' then
               local app_name = cfg.name or cfg.mainClass:match('[^%.]+$') or 'Application'
-              -- 1) Launch 모드: Zed 내부에서 직접 Spring Boot 앱 구동
+              -- Launch 모드: Zed 내부에서 직접 Spring Boot 앱 구동
               local zed_launch = {
                 adapter = 'Java',
                 request = 'launch',
@@ -651,19 +651,6 @@ vim.api.nvim_create_autocmd('BufWritePost', {
                 zed_launch.args = type(cfg.args) == 'table' and cfg.args or { cfg.args }
               end
               table.insert(zed_configs, zed_launch)
-
-              -- 2) Attach 모드: 터미널에서 gradlew bootRun --debug-jvm 실행 후 Zed 연결
-              local zed_attach = {
-                adapter = 'Java',
-                request = 'attach',
-                label = app_name .. ' (Attach :5005)',
-                hostName = 'localhost',
-                port = 5005,
-              }
-              if cfg.projectName and cfg.projectName ~= '' then
-                zed_attach.projectName = cfg.projectName
-              end
-              table.insert(zed_configs, zed_attach)
             end
           end
         end

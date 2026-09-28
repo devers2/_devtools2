@@ -24,9 +24,9 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 # PSScriptRoot 무(無)파일/인메모리 런타임 호환 처리 (Rule 5)
 $repoRootPath = if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-    (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    (Resolve-Path (Join-Path $PSScriptRoot "..")).ProviderPath
 } else {
-    (Get-Location).Path
+    (Get-Location).ProviderPath
 }
 
 $testStats = @{
@@ -71,10 +71,13 @@ $targetExtensions = @("*.ps1", "*.sh", "*.bash", "*.json", "*.toml", "*.conf")
 $bomViolations = @()
 $paramViolations = @()
 
+# 런타임/캐시/의존성 디렉터리(data, modules 등)를 탐색 단계에서 사전 제외하여 초고속 스캔 보장
+$excludedDirs = "^(\.git|\.vscode|\.idea|target|build|node_modules|data|modules)$"
+$targetDirs = Get-ChildItem -LiteralPath $repoRootPath -Directory | Where-Object { $_.Name -notmatch $excludedDirs }
+$allCandidateFiles = @($targetDirs | Get-ChildItem -Recurse -File | Where-Object { $_.FullName -notmatch "(\.git|\.vscode|\.idea|target|build|node_modules|data|modules)" }) + @(Get-ChildItem -LiteralPath $repoRootPath -File)
+
 foreach ($ext in $targetExtensions) {
-    Get-ChildItem -Path $repoRootPath -Recurse -File -Filter $ext | Where-Object {
-        $_.FullName -notmatch "(\.git|\.vscode|\.idea|target|build|node_modules)"
-    } | ForEach-Object {
+    $allCandidateFiles | Where-Object { $_.Name -like $ext } | ForEach-Object {
         # 1) BOM 검사 (0xEF, 0xBB, 0xBF - PS 5.1 / 7 공용 .NET API 사용)
         $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
         if ($bytes -and $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
@@ -111,9 +114,7 @@ Assert-Test "모든 .ps1 스크립트의 param() 블록 앞에 실행문이 없�
 # ==============================================================================
 Write-TestHeader "[Suite 2] PowerShell 구문 정적 분석 (PS 5.1 / 7 파서)"
 
-$psFiles = Get-ChildItem -Path $repoRootPath -Recurse -File -Filter "*.ps1" | Where-Object {
-    $_.FullName -notmatch "(\.git|node_modules)"
-}
+$psFiles = $allCandidateFiles | Where-Object { $_.Extension -eq ".ps1" }
 
 $syntaxErrors = @()
 foreach ($file in $psFiles) {

@@ -214,8 +214,7 @@ print(json.dumps([conf]))
 #   따라서 사용자가 두 파일을 수동으로 이중 관리하지 않도록 최초 셋업 시점에 자동 생성합니다.
 #
 # [생성 내용]
-#   1. Launch 모드: Zed 내부에서 직접 Spring Boot 앱을 구동하여 디버깅
-#   2. Attach 모드: 터미널에서 ./gradlew bootRun --debug-jvm 실행 후 Zed에서 연결
+#   - Launch 모드: Zed 내부에서 직접 Spring Boot 앱을 구동하여 디버깅
 #
 # [사용 방법]
 #   Zed에서 F4 (debugger: start) → 원하는 설정 선택
@@ -252,7 +251,7 @@ proj_name = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else ''
 
 configs = []
 
-# 1) Launch 모드: Zed 내부에서 직접 구동
+# Launch 모드: Zed 내부에서 직접 구동
 launch_cfg = {
     'adapter': 'Java',
     'request': 'launch',
@@ -265,18 +264,6 @@ launch_cfg = {
 if proj_name:
     launch_cfg['projectName'] = proj_name
 configs.append(launch_cfg)
-
-# 2) Attach 모드: ./gradlew bootRun --debug-jvm 후 연결
-attach_cfg = {
-    'adapter': 'Java',
-    'request': 'attach',
-    'label': app_name + ' (Attach :5005)',
-    'hostName': 'localhost',
-    'port': 5005
-}
-if proj_name:
-    attach_cfg['projectName'] = proj_name
-configs.append(attach_cfg)
 
 header = '''// ==============================================================================
 // ⚠️ [자동 생성 파일 - 직접 수정 금지 / DO NOT EDIT DIRECTLY]
@@ -291,7 +278,7 @@ header = '''// =================================================================
 print(header + json.dumps(configs, indent=2, ensure_ascii=False))
 " "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME" > "$DEBUG_FILE"
 
-    echo "✅ .zed/debug.json 생성 완료 (Launch + Attach 2개 디버그 설정 등록)"
+    echo "✅ .zed/debug.json 생성 완료 (Launch 디버그 설정 등록)"
 }
 
 # ── 4. IDE 통합 설정 (settings.json + launch.json + .zed/debug.json) ──────────
