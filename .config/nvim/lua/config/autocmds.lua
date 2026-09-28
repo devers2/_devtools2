@@ -104,7 +104,14 @@ vim.api.nvim_create_autocmd({ 'BufReadPre', 'BufEnter' }, {
       vim.b[buf].autoformat = false
     else
       -- 일반 파일 버퍼로 돌아왔을 때는 괄호 짝 매칭 기능을 다시 활성화
-      pcall(vim.cmd, 'DoMatchParen')
+      -- ※ DoMatchParen은 내부적으로 `silent windo doau CursorMoved`를 실행하여
+      --    모든 창을 순회합니다. 터미널/nofile 등 비파일 버퍼에서 이것이 실행되면
+      --    dap-view의 winfixbuf 창과 treesitter highlighter가 충돌하여
+      --    창이 무한 증식하는 버그가 발생합니다. 일반 파일 버퍼에서만 실행합니다.
+      local bt = vim.bo[buf].buftype
+      if bt == '' then
+        pcall(vim.cmd, 'DoMatchParen')
+      end
     end
   end,
 })

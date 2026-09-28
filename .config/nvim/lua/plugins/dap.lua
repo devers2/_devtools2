@@ -354,11 +354,11 @@ return {
 
       -- [통합 디버그 UI 닫기 헬퍼 (nvim-dap-view, nvim-dap-ui, REPL 등 모든 UI 완벽 지원)]
       local function close_debug_ui()
-        -- 1) nvim-dap-view 닫기
+        -- 1) nvim-dap-view 닫기 (하단 디버그 뷰 및 터미널 로그 분할 창 정리)
         pcall(function()
           local ok, dap_view = pcall(require, 'dap-view')
           if ok and dap_view and dap_view.close then
-            dap_view.close()
+            dap_view.close(true)
           end
         end)
 
@@ -432,21 +432,16 @@ return {
         end
       end
 
-      -- DAP 터미널 창 생성 시 포커스를 로그 창에 두고 커서를 맨 마지막 줄로 이동시켜 실시간 자동 스크롤 보장
+      -- DAP 터미널 창 생성: 버퍼만 생성하여 반환합니다.
+      -- 실제 하단 분할 배치(dap-view.open)는 event_initialized 리스너에서 한 번만 호출합니다.
+      -- 여기서 open()을 중복 호출하면 창 증식의 원인이 됩니다.
       dap.defaults.fallback.terminal_win_cmd = function()
-        vim.cmd('belowright new')
-        local term_win = vim.api.nvim_get_current_win()
-        local term_buf = vim.api.nvim_get_current_buf()
-        vim.schedule(function()
-          if vim.api.nvim_win_is_valid(term_win) and vim.api.nvim_buf_is_valid(term_buf) then
-            vim.api.nvim_set_current_win(term_win)
-            local line_count = vim.api.nvim_buf_line_count(term_buf)
-            pcall(vim.api.nvim_win_set_cursor, term_win, { line_count, 0 })
-          end
-        end)
-        return term_buf, term_win
+        return vim.api.nvim_create_buf(false, false)
       end
       -- winfixbuf 관련 버퍼 스위칭 에러(E1513) 방지를 위한 커스텀 switchbuf 로직
+      -- [핵심] 디버깅 중 dap-view/dap-view-term 등 하단 패널이 모두 winfixbuf=true 이므로,
+      -- 소스 파일 점프 시 find_editor_win()으로 상단 에디터 창을 정확히 지목해야 합니다.
+      -- 그렇지 않으면 매 점프마다 vim.cmd.split()이 실행되어 창이 계속 증식합니다.
       dap.defaults.fallback.switchbuf = function(bufnr, line, column)
         local api = vim.api
         local col = math.max(0, (column or 1) - 1)
@@ -460,7 +455,24 @@ return {
           return true
         end
 
-        -- 2) 현재 창이 winfixbuf로 잠겨있다면, 현재 탭 내에서 잠기지 않은 다른 창 탐색
+        -- 2) 에디터 전용 헬퍼로 상단 코드 에디터 창을 탐색 (dap-view 패널은 건너뜀)
+        local editor_win = _G.find_editor_win and _G.find_editor_win()
+        if editor_win and api.nvim_win_is_valid(editor_win) then
+          -- 에디터 창도 winfixbuf가 켜져 있을 수 있으므로 일시 해제 후 복원
+          local was_fixed = vim.wo[editor_win].winfixbuf
+          if was_fixed then
+            vim.wo[editor_win].winfixbuf = false
+          end
+          api.nvim_win_set_buf(editor_win, bufnr)
+          pcall(api.nvim_win_set_cursor, editor_win, { line, col })
+          api.nvim_set_current_win(editor_win)
+          if was_fixed then
+            vim.wo[editor_win].winfixbuf = true
+          end
+          return true
+        end
+
+        -- 3) find_editor_win이 없는 경우 폴백: 현재 탭 내에서 잠기지 않은 다른 창 탐색
         for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
           if not vim.wo[win].winfixbuf then
             api.nvim_win_set_buf(win, bufnr)
@@ -470,7 +482,24 @@ return {
           end
         end
 
-        -- 3) 모든 창이 잠겨있다면 새 창을 분할해 열고 로드
+        -- 4) 최후 수단: 에디터 창을 일시 해제하여 사용 (절대 split하지 않음)
+        -- dap-view 패널(dap-view, dap-view-term)은 제외하고, 일반 에디터 성격의 창만 대상
+        for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do
+          if api.nvim_win_is_valid(win) then
+            local buf = api.nvim_win_get_buf(win)
+            local ft = vim.bo[buf].filetype
+            local cfg = api.nvim_win_get_config(win)
+            if cfg.relative == '' and not ft:find('^dap%-') and ft ~= 'dap-repl' then
+              vim.wo[win].winfixbuf = false
+              api.nvim_win_set_buf(win, bufnr)
+              pcall(api.nvim_win_set_cursor, win, { line, col })
+              api.nvim_set_current_win(win)
+              return true
+            end
+          end
+        end
+
+        -- 5) 정말 모든 것이 실패한 경우에만 분할 (사실상 도달 불가)
         vim.cmd.split()
         local new_win = api.nvim_get_current_win()
         api.nvim_win_set_buf(new_win, bufnr)
@@ -589,6 +618,8 @@ return {
 
       -- 대신 디버깅 시작 시 nvim-dap-view가 자동으로 열리도록 설정
       dap.listeners.after.event_initialized['dapview_config'] = function(session)
+        -- dap-view.open()은 이 리스너에서 단 한 번만 호출합니다.
+        -- terminal_win_cmd나 다른 곳에서 중복 호출하면 창이 증식합니다.
         require('dap-view').open()
 
         -- 디버깅 시작 안내 알림 (모든 언어 공통 포트 표기)
@@ -601,10 +632,8 @@ return {
           vim.notify(string.format('🚀 디버깅 시작: %s', name), vim.log.levels.INFO, { title = 'DAP' })
         end
 
-        -- 디버깅 실행 시 로그/터미널 창 열림 보장 및 자동 스크롤:
-        -- 1) 사용자가 이전에 로그 창을 :q로 닫았더라도 새 디버깅 시작 시 다시 열어줌
-        -- 2) 단, 이미 열려 있는 경우에는 중복으로 2개 열리지 않도록 기존 창을 재사용
-        -- 3) 커서를 맨 마지막 줄로 이동시켜 실시간 자동 스크롤(Auto-Scroll) 활성화
+        -- 터미널 버퍼의 커서를 맨 마지막 줄로 이동시켜 nvim-dap-view의 자동 스크롤 활성화
+        -- (open()을 다시 호출하지 않고, 이미 열린 터미널 창의 커서만 조정)
         vim.schedule(function()
           local current_session = session or dap.session()
           local term_buf = current_session and current_session.term_buf
@@ -622,34 +651,12 @@ return {
             end
           end
 
-          local log_win = nil
           if term_buf and vim.api.nvim_buf_is_valid(term_buf) then
-            -- 이미 열려있는 창이 있는지 확인
             local wins = vim.fn.win_findbuf(term_buf)
-            if #wins > 0 then
-              log_win = wins[1]
-            else
-              -- 사용자가 :q로 닫아서 화면에 없는 경우: 메인 에디터/대시보드 아래에 분할 창 생성하여 복원
-              for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-                local buf = vim.api.nvim_win_get_buf(win)
-                local ft = vim.bo[buf].filetype
-                if ft ~= 'dap-view' and ft ~= 'dap-view-term' and ft ~= 'dap-repl' then
-                  vim.api.nvim_set_current_win(win)
-                  vim.cmd('belowright split')
-                  log_win = vim.api.nvim_get_current_win()
-                  vim.api.nvim_win_set_buf(log_win, term_buf)
-                  break
-                end
-              end
+            if #wins > 0 and vim.api.nvim_win_is_valid(wins[1]) then
+              local line_count = vim.api.nvim_buf_line_count(term_buf)
+              pcall(vim.api.nvim_win_set_cursor, wins[1], { line_count, 0 })
             end
-          end
-
-          -- 로그 창이 확보되었으면 포커스를 두고 맨 아래로 스크롤
-          if log_win and vim.api.nvim_win_is_valid(log_win) then
-            pcall(vim.api.nvim_set_current_win, log_win)
-            local buf = vim.api.nvim_win_get_buf(log_win)
-            local line_count = vim.api.nvim_buf_line_count(buf)
-            pcall(vim.api.nvim_win_set_cursor, log_win, { line_count, 0 })
           end
         end)
       end
@@ -1066,6 +1073,11 @@ return {
   -- ─────────────────────────────────────────────────────────────────────
   -- nvim-dap-view: 클릭 가능한 디버그 컨트롤바 + 모던 DAP UI
   -- <leader>dv  →  nvim-dap-view 토글 열기/닫기
+  -- 레이아웃:
+  --   - 상단: 코드 에디터 (수직 공간 대폭 확보)
+  --   - 하단 좌측: 프로그램 실행 로그 (Terminal)
+  --   - 하단 우측: 디버깅 정보 (Scopes, Watches, Breakpoints 등)
+  --   * 좌하/우하 위치를 반대로 바꾸려면 opts.windows.terminal.position을 'right'로 변경
   -- ─────────────────────────────────────────────────────────────────────
   {
     'igorlfs/nvim-dap-view',
@@ -1082,7 +1094,8 @@ return {
     opts = {
       winbar = {
         -- 보여줄 섹션 탭 순서
-        sections = { 'watches', 'scopes', 'exceptions', 'breakpoints', 'threads', 'repl', 'console' },
+        -- ※ 'console'은 탭 대신 하단 분할 창(terminal)으로 좌/우에 독립 배치되므로 목록에서 제외합니다.
+        sections = { 'watches', 'scopes', 'exceptions', 'breakpoints', 'threads', 'repl' },
         default_section = 'scopes',
         -- 클릭 가능한 디버그 컨트롤바 활성화
         -- (▶ Continue  ↷ Step Over  ↴ Step Into  ↱ Step Out  ⏹ Stop 등)
@@ -1092,11 +1105,40 @@ return {
         },
       },
       windows = {
-        -- 0.25 = 화면의 25% 높이로 하단에 열기
-        size = 0.25,
+        -- 0.3 = 화면의 30% 높이로 하단에 열기 (상단 코드 에디터 공간 70% 확보)
+        size = 0.3,
         position = 'below',
+        terminal = {
+          -- 0.5 = 하단 분할 영역의 50% 너비로 좌/우 균등 분할
+          size = 0.5,
+          -- [레이아웃 옵션 가이드]
+          -- 'left' : [상단: 에디터] / [좌하: 로그, 우하: 디버깅(watches 등)] (기본값)
+          -- 'right': [상단: 에디터] / [좌하: 디버깅(watches 등), 우하: 로그]
+          position = 'left',
+        },
       },
     },
+    config = function(_, opts)
+      require('dap-view').setup(opts)
+
+      -- [플러그인 안정성 강화: exceptions 널 가드 패치]
+      -- 디버깅 창에서 더블클릭(<2-LeftMouse>) 시 빈 줄이거나 어댑터 예외 필터가 초기화되지 않은 상태에서
+      -- attempt to index a nil value 크래시가 발생하는 것을 원천 방지합니다.
+      local ok, exc_actions = pcall(require, 'dap-view.exceptions.actions')
+      if ok and exc_actions and exc_actions.toggle_exception_filter then
+        local orig_toggle = exc_actions.toggle_exception_filter
+        exc_actions.toggle_exception_filter = function(line)
+          local state = require('dap-view.state')
+          if not state.current_adapter or not state.exceptions_options or not state.exceptions_options[state.current_adapter] then
+            return
+          end
+          if not state.exceptions_options[state.current_adapter][line] then
+            return
+          end
+          return orig_toggle(line)
+        end
+      end
+    end,
   },
   -- ─────────────────────────────────────────────────────────────────────
   -- nvim-dap-python: 기본 내장 configuration(file, file:args, doctest 등) 주입 차단
