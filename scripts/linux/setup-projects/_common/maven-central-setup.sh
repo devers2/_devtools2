@@ -126,16 +126,35 @@ setup_maven_central_publishing() {
         return 1
     fi
     if ! command -v bw_get_fields &>/dev/null; then
+        local _DEVTOOLS2_BASE="${DEVTOOLS2:-$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/../../../..")}"
+        if [ -f "$_DEVTOOLS2_BASE/scripts/fzf/bw-lib" ]; then
+            # shellcheck disable=SC1090
+            source "$_DEVTOOLS2_BASE/scripts/fzf/bw-lib"
+        fi
+    fi
+    if ! command -v bw_get_fields &>/dev/null; then
         echo "❌ bw-lib 가 로드되지 않아 진행할 수 없습니다 (bw_get_fields 없음)." >&2
         return 1
     fi
 
+    local _FORCE_SETUP=false
+    if [ "${2:-}" = "--yes" ] || [ "${2:-}" = "-y" ]; then
+        _FORCE_SETUP=true
+    fi
+
     # 2. Maven Central 배포용 설정 진행 여부 사전 확인 (기본값 N: 대소문자 무관 n이면 건너뜀)
-    echo ""
-    read -rp "❓ Maven 중앙 저장소(Central Portal) 배포용 설정을 진행하시겠습니까? [y/N]: " _MC_WANT_SETUP
-    _MC_WANT_SETUP=$(echo "${_MC_WANT_SETUP:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
-    if [ "$_MC_WANT_SETUP" != "y" ]; then
-        return 0
+    if [ "$_FORCE_SETUP" = "false" ]; then
+        echo ""
+        read -rp "❓ Maven 중앙 저장소(Central Portal) 배포용 설정을 진행하시겠습니까? [y/N]: " _MC_WANT_SETUP
+        _MC_WANT_SETUP=$(echo "${_MC_WANT_SETUP:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
+        if [ "$_MC_WANT_SETUP" != "y" ]; then
+            return 0
+        fi
+    fi
+
+    # Bitwarden 세션 확보 (로그인 및 마스터 비밀번호 언락 확인)
+    if command -v bw_ensure_session &>/dev/null; then
+        bw_ensure_session || return 1
     fi
 
     # 3. Bitwarden 항목 이름 질의 (기본값: Maven Central Portal / GPG Signing)

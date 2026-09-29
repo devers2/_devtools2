@@ -800,9 +800,17 @@ setup_s2_library_project() {
 
     # 1. Bitwarden 세션 확보
     echo "⏳ Bitwarden 상태 확인 중..."
-    if command -v bw_ensure_session &>/dev/null; then
-        bw_ensure_session || return 1
+    if ! command -v bw_ensure_session &>/dev/null; then
+        local _DEVTOOLS2_BASE="${DEVTOOLS2:-$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/../../../..")}"
+        if [ -f "$_DEVTOOLS2_BASE/scripts/fzf/bw-lib" ]; then
+            # shellcheck disable=SC1090
+            source "$_DEVTOOLS2_BASE/scripts/fzf/bw-lib"
+        else
+            echo "❌ bw-lib 라이브러리를 찾을 수 없습니다: $_DEVTOOLS2_BASE/scripts/fzf/bw-lib"
+            return 1
+        fi
     fi
+    bw_ensure_session || return 1
 
     # 2. 깃 클론
     if [ -d "$target_dir/.git" ]; then
@@ -862,14 +870,9 @@ EOF
         echo "✅ .vscode/settings.json 생성 완료"
     fi
 
-    # 5. Maven Central 배포용 설정
-    if command -v setup_maven_central_publishing &>/dev/null; then
-        setup_maven_central_publishing "$target_dir"
-    fi
-
-    # 6. VSCode Java 확장 프로그램 확인/설치
+    # 5. VSCode Java 확장 프로그램 확인/설치
     echo ""
-    echo "⏳ [Step 6] VSCode Java 확장 프로그램을 확인/설치합니다..."
+    echo "⏳ [Step 5] VSCode Java 확장 프로그램을 확인/설치합니다..."
     local vscode_bin=""
     for _bin in code code-insiders; do
         if command -v "$_bin" &>/dev/null; then

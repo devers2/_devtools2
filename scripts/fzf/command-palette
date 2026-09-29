@@ -983,6 +983,79 @@ elif [[ "$CHOICE" == *"빌드"* ]]; then
 
 # ── [Gradle] Maven 중앙 저장소 배포 ──────────────────────────────────────────
 elif [[ "$CHOICE" == *"중앙 저장소 배포"* ]]; then
+    # ── 0. 배포 필수 환경(GPG 서명키 + Central Portal 인증) 사전 검증 ────────
+    # ~/.gradle/gradle.properties 에 signing.keyId 와 centralUsername 이 모두
+    # 설정되어 있어야 Gradle 서명/배포 태스크가 정상 실행됩니다. 하나라도 없으면
+    # Bitwarden 에서 가져와 자동 설정하도록 maven-central-setup.sh 를 호출합니다.
+    _CP_GRADLE_PROPS="$HOME/.gradle/gradle.properties"
+    _CP_HAS_SIGNING=false
+    _CP_HAS_CENTRAL=false
+    if [ -f "$_CP_GRADLE_PROPS" ]; then
+        grep -qE '^\s*signing\.keyId\s*=' "$_CP_GRADLE_PROPS" 2>/dev/null && _CP_HAS_SIGNING=true
+        grep -qE '^\s*centralUsername\s*=' "$_CP_GRADLE_PROPS" 2>/dev/null && _CP_HAS_CENTRAL=true
+    fi
+
+    if [ "$_CP_HAS_SIGNING" = "false" ] || [ "$_CP_HAS_CENTRAL" = "false" ]; then
+        echo ""
+        echo "⚠️  Maven Central 배포에 필요한 설정이 ~/.gradle/gradle.properties 에 없습니다."
+        [ "$_CP_HAS_SIGNING" = "false" ] && echo "   ❌ GPG 서명 키 (signing.keyId / signing.password / signing.secretKeyRingFile)"
+        [ "$_CP_HAS_CENTRAL" = "false" ] && echo "   ❌ Central Portal 인증 정보 (centralUsername / centralPassword)"
+        echo ""
+        read -rp "❓ Bitwarden 에서 자동으로 설정하시겠습니까? (y/N): " _CP_AUTO_SETUP
+        _CP_AUTO_SETUP=$(echo "${_CP_AUTO_SETUP:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
+
+        if [ "$_CP_AUTO_SETUP" = "y" ]; then
+            # common-setup.sh + maven-central-setup.sh 로드
+            _CP_DT2="${DEVTOOLS2:-$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/../..")}"
+            if [ -f "$_CP_DT2/scripts/linux/setup-projects/_common/common-setup.sh" ]; then
+                # shellcheck disable=SC1090
+                source "$_CP_DT2/scripts/linux/setup-projects/_common/common-setup.sh"
+            fi
+            if ! command -v setup_maven_central_publishing &>/dev/null; then
+                if [ -f "$_CP_DT2/scripts/linux/setup-projects/_common/maven-central-setup.sh" ]; then
+                    # shellcheck disable=SC1090
+                    source "$_CP_DT2/scripts/linux/setup-projects/_common/maven-central-setup.sh"
+                fi
+            fi
+            if command -v setup_maven_central_publishing &>/dev/null; then
+                setup_maven_central_publishing "$CWD" "--yes" || {
+                    echo ""
+                    echo "❌ 배포 환경 자동 설정에 실패했습니다. 배포를 중단합니다."
+                    exit 1
+                }
+            else
+                echo "❌ setup_maven_central_publishing 함수를 로드할 수 없습니다."
+                echo "   $DEVTOOLS2/scripts/linux/setup-projects/_common/maven-central-setup.sh 파일을 확인해주세요."
+                exit 1
+            fi
+
+            # 설정 후 재검증
+            _CP_HAS_SIGNING=false
+            _CP_HAS_CENTRAL=false
+            if [ -f "$_CP_GRADLE_PROPS" ]; then
+                grep -qE '^\s*signing\.keyId\s*=' "$_CP_GRADLE_PROPS" 2>/dev/null && _CP_HAS_SIGNING=true
+                grep -qE '^\s*centralUsername\s*=' "$_CP_GRADLE_PROPS" 2>/dev/null && _CP_HAS_CENTRAL=true
+            fi
+            if [ "$_CP_HAS_SIGNING" = "false" ] || [ "$_CP_HAS_CENTRAL" = "false" ]; then
+                echo ""
+                echo "❌ 자동 설정 후에도 필수 설정이 완전하지 않습니다. 배포를 중단합니다."
+                exit 1
+            fi
+            echo ""
+            echo "✅ 배포 환경 설정이 완료되었습니다. 배포를 계속 진행합니다."
+            echo ""
+        else
+            echo ""
+            echo "ℹ️  배포 환경 설정을 건너뛰었습니다."
+            echo "   수동으로 설정하려면 다음 명령어를 실행하세요:"
+            echo '   source "$DEVTOOLS2/scripts/fzf/bw-lib"'
+            echo '   source "$DEVTOOLS2/scripts/linux/setup-projects/_common/common-setup.sh"'
+            echo '   source "$DEVTOOLS2/scripts/linux/setup-projects/_common/maven-central-setup.sh"'
+            echo '   bw_ensure_session && setup_maven_central_publishing "$PWD"'
+            exit 0
+        fi
+    fi
+
     # ── 1. settings.gradle(.kts)에서 서브모듈/루트 이름 탐색 ────────────────────
     _CP_SETTINGS_FILE=""
     if [ -f "$CWD/settings.gradle.kts" ]; then
