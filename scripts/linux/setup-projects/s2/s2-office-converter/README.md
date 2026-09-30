@@ -16,7 +16,7 @@ s2-support 의 `S2PdfUtil` 이 **오피스·한글 문서(docx, xlsx, pptx, hwp,
 
 | 파일 | 역할 |
 |---|---|
-| `setup-s2-office-converter.sh` | 설치 스크립트. 파일 하나로 온라인 설치, 폐쇄망 묶음 만들기(`--export`), 폐쇄망 설치(`--import`), 다시 만들기, 제거를 모두 합니다. |
+| `setup-s2-office-converter.sh` | 설치 스크립트. 이 파일 하나로 온라인 설치, 폐쇄망 설치 파일 만들기(`--export`), 다시 만들기, 제거를 모두 합니다. |
 | `README.md` | 이 안내문 |
 
 스크립트는 다른 파일에 의존하지 않으므로 GitHub 에서 바로 실행하거나, 이 파일만 복사해 실행할 수 있습니다.
@@ -54,33 +54,31 @@ curl -fsSL <주소> | bash
 
 ### 2. 폐쇄망 설치 (서버가 인터넷에 접속할 수 없을 때)
 
-**① 인터넷 되는 PC** (서버와 같은 CPU 종류, 예: 둘 다 x86_64) — 묶음 만들기
+인터넷 되는 PC에서 **설치 파일 하나**를 만들어 서버로 옮긴 뒤 실행합니다.
+
+**① 인터넷 되는 PC** (서버와 같은 CPU 종류, 예: 둘 다 x86_64) — 설치 파일 만들기
 
 ```sh
 # --target 에 서버의 배포판:버전 (서버에서 확인: . /etc/os-release && echo "$ID:$VERSION_ID")
-curl -fsSL <주소> | bash -s -- --export ./s2-office-converter-offline --target ubuntu:22.04
+curl -fsSL <주소> | bash -s -- --export --target ubuntu:22.04
 ```
 
-만들어지는 폴더:
+지금 폴더에 `setup-s2-office-converter-offline.sh` (수백 MB) 가 만들어집니다.
+이 스크립트 뒤에 변환기 이미지와 서버 배포판용 Podman 설치 파일을 압축해 붙인 실행 파일입니다.
+다른 이름·위치로 만들려면 `--export <파일 경로>`.
 
-| 파일 | 내용 |
-|---|---|
-| `setup-s2-office-converter.sh` | 이 스크립트 |
-| `s2-office-converter.tar` | 변환기 이미지 (수백 MB) |
-| `podman-packages/` | 서버 배포판용 Podman 패키지 (서버에 Podman 이 없을 때 사용) |
-| `manifest.env` | 배포판·CPU·버전 정보 |
-| `SHA256SUMS` | 옮기는 동안 손상되지 않았는지 확인용 |
+**② 그 파일 하나를 서버에 옮김** (USB, 파일 전송 등)
 
-**② 폴더를 통째로 서버에 옮김** (USB, 파일 전송 등)
-
-**③ 폐쇄망 서버** — 묶음으로 설치 (인터넷 접속 없음)
+**③ 폐쇄망 서버** — 옮긴 파일을 실행 (인터넷 접속 없음)
 
 ```sh
-bash ./s2-office-converter-offline/setup-s2-office-converter.sh --import ./s2-office-converter-offline --app-user appuser
+bash setup-s2-office-converter-offline.sh --app-user appuser
 ```
 
-체크섬, CPU 종류, 배포판을 먼저 확인하고 맞지 않으면 무엇을 다시 해야 하는지 알려 주고 멈춥니다.
-서버에 이미 Podman 이 있으면 패키지 설치는 건너뜁니다.
+- 손상 여부(체크섬), CPU 종류를 먼저 확인하고, 맞지 않으면 무엇을 다시 해야 하는지 알려 주고 멈춥니다.
+- 서버에 Podman 이 없으면 파일에 든 패키지로 설치합니다 (이때 배포판도 맞아야 함). 이미 있으면 건너뜁니다.
+- 설치 중에 `/var/tmp` 에 잠시 압축을 풀었다가 지웁니다. 공간이 부족하면 `TMPDIR=<폴더> bash setup-s2-office-converter-offline.sh ...`.
+- 옵션은 원래 스크립트와 같습니다 (`--rebuild` 는 이미지를 다시 등록, `--uninstall` 은 제거).
 
 `--target` 에 쓸 수 있는 배포판: `ubuntu:<버전>`, `debian:<버전>`, `rockylinux:<버전>`, `almalinux:<버전>`,
 `rhel:<버전>` (AlmaLinux 패키지로 받음, 바이너리 호환), `fedora:<버전>`
@@ -136,11 +134,12 @@ s2-soffice --headless --convert-to pdf --outdir /tmp/out 보고서.hwp
 | "앱 실행 계정의 홈 폴더가 없습니다" | 안내된 명령으로 홈 폴더를 만든 뒤 다시 실행 |
 | 한글 문서만 변환 실패 | `--rebuild` 로 이미지를 다시 만듦 (H2Orestart 포함 여부는 마지막 확인 단계에 표시) |
 | 변환 결과에서 글자 모양이 원본과 다름 | 원본 문서에 쓴 글꼴이 없어서입니다. 필요한 글꼴은 이미지에 추가해야 합니다 |
-| 폐쇄망 `--import` 에서 CPU·배포판 불일치 | 안내대로 `--target` 을 맞춰 인터넷 PC 에서 다시 `--export` |
+| 폐쇄망 설치 파일에서 CPU·배포판 불일치 | 안내대로 `--target` 을 맞춰 인터넷 PC 에서 다시 `--export` |
+| 폐쇄망 설치 파일 "체크섬 불일치" | 옮기는 중 손상됨. 파일을 다시 옮김 |
 | 변환이 느림 | 변환마다 컨테이너를 새로 띄워 한 건에 수 초 걸립니다 (설계상 격리를 우선함) |
 
 ## 라이선스
 
 이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(GPL 3.0), 폰트(SIL OFL 1.1 등), Podman(Apache 2.0)을 각 배포처에서 받아
-설치할 뿐 재배포하지 않습니다. 각 소프트웨어는 자체 라이선스를 따릅니다. 폐쇄망 묶음을 다른 조직에 전달하면 그 안의
+설치할 뿐 재배포하지 않습니다. 각 소프트웨어는 자체 라이선스를 따릅니다. 폐쇄망 설치 파일을 다른 조직에 전달하면 그 안의
 소프트웨어를 배포하는 것이 되므로 각 라이선스를 확인하십시오.

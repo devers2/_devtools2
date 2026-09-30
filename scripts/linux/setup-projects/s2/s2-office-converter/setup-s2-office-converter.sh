@@ -15,11 +15,12 @@
 #   # 2) 개발 PC, WSL (온라인) — 지금 로그인한 계정으로 설치
 #   curl -fsSL https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/setup-projects/s2/s2-office-converter/setup-s2-office-converter.sh | bash
 #
-#   # 3) 폐쇄망 서버 — 인터넷 되는 PC에서 묶음을 만들어 옮긴 뒤 설치
+#   # 3) 폐쇄망 서버 — 인터넷 되는 PC에서 설치 파일 하나를 만들어 옮긴 뒤 실행
 #   #    (인터넷 되는 PC, 서버와 같은 CPU 종류) 서버 배포판·버전을 --target 으로 지정
-#   curl -fsSL <위 주소> | bash -s -- --export ./s2-office-converter-offline --target ubuntu:22.04
-#   #    (폐쇄망 서버) 옮긴 폴더에서 실행
-#   bash ./s2-office-converter-offline/setup-s2-office-converter.sh --import ./s2-office-converter-offline --app-user appuser
+#   curl -fsSL <위 주소> | bash -s -- --export --target ubuntu:22.04
+#   #    → setup-s2-office-converter-offline.sh 파일 하나가 생김 (스크립트 + 이미지 + Podman 설치 파일)
+#   #    (폐쇄망 서버) 그 파일을 옮겨 실행
+#   bash setup-s2-office-converter-offline.sh --app-user appuser
 #
 #   # 이미지 다시 만들기 / 제거
 #   curl -fsSL <위 주소> | bash -s -- --app-user appuser --rebuild
@@ -47,13 +48,14 @@
 #                      --user 도 같은 뜻으로 받습니다.
 #   --rebuild          이미지를 다시 만듭니다 (보안 업데이트 반영 등).
 #   --uninstall        s2-soffice 명령과 이미지를 제거합니다 (Podman 자체는 남김).
-#   --export [폴더]    폐쇄망용 묶음을 만듭니다 (기본 ./s2-office-converter-offline). 인터넷 되는 PC에서 실행.
+#   --export [파일]    폐쇄망용 설치 파일 하나를 만듭니다 (기본 ./setup-s2-office-converter-offline.sh).
+#                      인터넷 되는 PC에서 실행. 이 스크립트 뒤에 변환기 이미지와 Podman 설치 파일을 붙인 파일로,
+#                      서버에서 그대로 실행하면 인터넷 접속 없이 설치합니다 (옵션은 이 스크립트와 같음).
 #   --target 배포판    --export 에서 서버의 배포판:버전 (예: ubuntu:22.04, ubuntu:24.04, debian:12, rockylinux:9, almalinux:9).
 #                      기본: 이 PC 와 같음. 서버에 Podman 을 설치할 패키지를 이 배포판용으로 받습니다.
-#   --import 폴더      --export 로 만든 묶음으로 설치합니다. 인터넷에 접속하지 않습니다.
 #
 # 멱등성: 몇 번을 실행해도 같은 상태가 됩니다. 이미 있는 것은 건너뛰고 없는 것만 준비합니다.
-#   - Podman: 없으면 설치 (온라인: apt/dnf, 폐쇄망: 묶음의 패키지)
+#   - Podman: 없으면 설치 (온라인: apt/dnf, 폐쇄망: 설치 파일에 든 패키지)
 #   - 대상 계정의 subuid/subgid: 없으면 추가 (rootless Podman 필요 조건)
 #   - 이미지: 같은 버전(태그)이 있으면 건너뜀. 버전을 올리면 새로 만들고 이전 버전은 정리
 #   - /usr/local/bin/s2-soffice: 내용이 다를 때만 교체
@@ -61,7 +63,7 @@
 #
 # 라이선스: 이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(GPL 3.0), 폰트(SIL OFL 1.1 등), Podman(Apache 2.0)을
 # 각 배포처에서 받아 설치할 뿐, 재배포하지 않습니다. 각 소프트웨어는 자체 라이선스를 따릅니다.
-# (폐쇄망 묶음을 다른 조직에 전달하면 그 안의 소프트웨어를 배포하는 것이 되므로 각 라이선스를 확인하십시오.)
+# (폐쇄망 설치 파일을 다른 조직에 전달하면 그 안의 소프트웨어를 배포하는 것이 되므로 각 라이선스를 확인하십시오.)
 # ==============================================================================
 set -euo pipefail
 
@@ -79,6 +81,11 @@ WRAPPER_PATH="/usr/local/bin/s2-soffice"
 SCRIPT_NAME="setup-s2-office-converter.sh"
 SCRIPT_URL="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/setup-projects/s2/s2-office-converter/${SCRIPT_NAME}"
 IMAGE_ARCHIVE="s2-office-converter.tar"
+OFFLINE_FILE="setup-s2-office-converter-offline.sh"
+# Line between the script and the attached payload of an offline file | 폐쇄망 설치 파일에서 스크립트와 첨부 데이터의 경계 줄
+PAYLOAD_MARKER="__S2_OFFICE_CONVERTER_PAYLOAD__"
+# Large files go here rather than /tmp, which is often a small tmpfs | 큰 파일은 작은 tmpfs 인 경우가 많은 /tmp 대신 여기에
+WORK_TMP="${TMPDIR:-/var/tmp}"
 
 # ------------------------------------------------------------------------------
 # 출력
@@ -101,9 +108,9 @@ usage() {
                        확인: ps -eo user,cmd | grep -i java (첫 칸)
   --rebuild            이미지를 다시 만듦 (보안 업데이트 반영 등)
   --uninstall          s2-soffice 명령과 이미지를 제거 (Podman 은 남김)
-  --export [폴더]      폐쇄망용 묶음 만들기 (기본 ./s2-office-converter-offline, 인터넷 되는 PC에서)
+  --export [파일]      폐쇄망용 설치 파일 하나 만들기 (기본 ./setup-s2-office-converter-offline.sh, 인터넷 되는 PC에서)
+                       서버에서: bash setup-s2-office-converter-offline.sh --app-user 계정
   --target 배포판      --export 에서 서버 배포판:버전 (예: ubuntu:22.04, debian:12, rockylinux:9). 기본: 이 PC 와 같음
-  --import 폴더        묶음으로 설치 (폐쇄망 서버, 인터넷 접속 없음)
   --help               이 도움말
 
 자세한 안내: 같은 폴더의 README.md
@@ -116,8 +123,7 @@ USAGE
 TARGET_USER="${SUDO_USER:-$(id -un)}"
 MODE="install"
 REBUILD=false
-EXPORT_DIR=""
-IMPORT_DIR=""
+EXPORT_FILE=""
 TARGET_DISTRO=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -141,7 +147,7 @@ while [ $# -gt 0 ]; do
     --export)
         MODE="export"
         if [ $# -ge 2 ] && [ "${2#--}" = "$2" ]; then
-            EXPORT_DIR="$2"
+            EXPORT_FILE="$2"
             shift 2
         else
             shift
@@ -149,7 +155,7 @@ while [ $# -gt 0 ]; do
         ;;
     --export=*)
         MODE="export"
-        EXPORT_DIR="${1#*=}"
+        EXPORT_FILE="${1#*=}"
         shift
         ;;
     --target)
@@ -161,17 +167,6 @@ while [ $# -gt 0 ]; do
         TARGET_DISTRO="${1#*=}"
         shift
         ;;
-    --import)
-        [ $# -ge 2 ] || fail "--import 다음에 묶음 폴더가 필요합니다."
-        MODE="import"
-        IMPORT_DIR="$2"
-        shift 2
-        ;;
-    --import=*)
-        MODE="import"
-        IMPORT_DIR="${1#*=}"
-        shift
-        ;;
     -h | --help)
         usage
         exit 0
@@ -181,6 +176,26 @@ while [ $# -gt 0 ]; do
 done
 if [ -n "$TARGET_DISTRO" ] && [ "$MODE" != "export" ]; then
     fail "--target 은 --export 와 함께 씁니다."
+fi
+
+# An offline file is this script with the payload attached after a marker line: "<marker> <sha256 of payload>"
+# | 폐쇄망 설치 파일은 이 스크립트 뒤에 경계 줄("<경계> <첨부 데이터 sha256>")과 첨부 데이터를 붙인 것
+SELF=""
+PAYLOAD_LINE=""
+PAYLOAD_SHA256=""
+if [ -f "${BASH_SOURCE[0]:-}" ]; then
+    SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    marker_line="$(grep -anm1 "^${PAYLOAD_MARKER} [0-9a-f]\{64\}\$" "$SELF" || true)"
+    if [ -n "$marker_line" ]; then
+        PAYLOAD_LINE="${marker_line%%:*}"
+        PAYLOAD_SHA256="${marker_line##* }"
+    fi
+fi
+if [ -n "$PAYLOAD_LINE" ]; then
+    case "$MODE" in
+    install) MODE="offline" ;;
+    export) fail "폐쇄망 설치 파일로는 --export 를 할 수 없습니다. 인터넷 되는 PC에서 원래 스크립트로 실행하십시오." ;;
+    esac
 fi
 
 [ "$(uname -s)" = "Linux" ] || fail "리눅스에서만 실행할 수 있습니다."
@@ -271,11 +286,11 @@ install_podman_online() {
     fi
     if command -v apt-get >/dev/null 2>&1; then
         "${SUDO[@]}" apt-get update -qq ||
-            fail "패키지 목록을 받을 수 없습니다. 인터넷이 안 되는 서버라면 --export / --import 로 설치하십시오 (README.md 참고)."
+            fail "패키지 목록을 받을 수 없습니다. 인터넷이 안 되는 서버라면 --export 로 만든 폐쇄망 설치 파일로 설치하십시오 (README.md 참고)."
         "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq podman uidmap slirp4netns >/dev/null
     elif command -v dnf >/dev/null 2>&1; then
         "${SUDO[@]}" dnf install -y -q podman shadow-utils ||
-            fail "Podman 을 설치할 수 없습니다. 인터넷이 안 되는 서버라면 --export / --import 로 설치하십시오 (README.md 참고)."
+            fail "Podman 을 설치할 수 없습니다. 인터넷이 안 되는 서버라면 --export 로 만든 폐쇄망 설치 파일로 설치하십시오 (README.md 참고)."
     else
         fail "apt 또는 dnf 가 있는 배포판(Ubuntu, Debian, RHEL, Rocky 등)에서만 자동 설치할 수 있습니다. Podman 을 직접 설치한 뒤 다시 실행하십시오."
     fi
@@ -535,87 +550,105 @@ mode_install() {
     done_message
 }
 
-# 인터넷 되는 PC: 이미지 + 서버용 Podman 패키지 + 이 스크립트를 한 폴더에
+# 인터넷 되는 PC: 이 스크립트 + 이미지 + 서버용 Podman 패키지를 실행 파일 하나로
 mode_export() {
-    local dir="${EXPORT_DIR:-./s2-office-converter-offline}"
+    local out="${EXPORT_FILE:-./${OFFLINE_FILE}}"
     local target="${TARGET_DISTRO:-$(host_distro)}"
     local family distro_img
     family="$(distro_family "$target")" || fail "지원하지 않는 배포판입니다: $target (ubuntu, debian, rockylinux, almalinux, rhel, fedora)"
     distro_img="$(distro_image "$target")" || fail "지원하지 않는 배포판입니다: $target"
-    info "폐쇄망 묶음 만들기: $dir (서버: $target, CPU: $ARCH)"
+    [ -d "$(dirname "$out")" ] || fail "저장할 폴더가 없습니다: $(dirname "$out")"
+    info "폐쇄망 설치 파일 만들기: $out (서버: $target, CPU: $ARCH)"
 
     install_podman_online
     ensure_subids
     build_image
 
-    mkdir -p "$dir/podman-packages"
-    dir="$(cd "$dir" && pwd)"
+    local stage
+    stage="$(mktemp -d -p "$WORK_TMP" s2-office-converter-export.XXXXXX)"
+    CLEANUP_PATHS+=("$stage")
+    mkdir -p "$stage/payload/podman-packages"
 
-    info "변환기 이미지 저장 ($IMAGE_ARCHIVE)"
-    rm -f "$dir/$IMAGE_ARCHIVE"
-    podman_target save -o "$dir/$IMAGE_ARCHIVE" "$IMAGE"
-    ok "저장: $dir/$IMAGE_ARCHIVE ($(du -h "$dir/$IMAGE_ARCHIVE" | cut -f1))"
+    info "변환기 이미지 저장"
+    podman_target save -o "$stage/payload/$IMAGE_ARCHIVE" "$IMAGE"
+    ok "저장: $IMAGE ($(du -h "$stage/payload/$IMAGE_ARCHIVE" | cut -f1))"
 
     info "서버용 Podman 패키지 받기 ($target → $distro_img)"
-    rm -f "$dir/podman-packages/"*
     # Download inside a container of the server's distribution so dependencies match it
     # | 서버와 같은 배포판 컨테이너 안에서 받아야 의존성이 서버에 맞음
     if [ "$family" = apt ]; then
-        podman_target run --rm -v "$dir/podman-packages:/out:Z" "$distro_img" sh -c '
+        podman_target run --rm -v "$stage/payload/podman-packages:/out:Z" "$distro_img" sh -c '
             set -e
             apt-get update -qq
             DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --download-only --no-install-recommends podman uidmap slirp4netns >/dev/null
             cp /var/cache/apt/archives/*.deb /out/'
     else
-        podman_target run --rm -v "$dir/podman-packages:/out:Z" "$distro_img" sh -c '
+        podman_target run --rm -v "$stage/payload/podman-packages:/out:Z" "$distro_img" sh -c '
             set -e
             dnf install -y -q --downloadonly --downloaddir=/out podman shadow-utils'
     fi
-    ok "패키지: $(find "$dir/podman-packages" -type f | wc -l)개 ($(du -sh "$dir/podman-packages" | cut -f1))"
+    ok "패키지: $(find "$stage/payload/podman-packages" -type f | wc -l)개 ($(du -sh "$stage/payload/podman-packages" | cut -f1))"
 
-    # The script itself goes into the bundle: a copy when run from a file, a download when streamed
-    # | 스크립트 자신을 묶음에: 파일로 실행했으면 복사, 스트리밍 실행이면 다운로드
-    if [ -f "${BASH_SOURCE[0]:-}" ]; then
-        cp -f "${BASH_SOURCE[0]}" "$dir/$SCRIPT_NAME"
-    else
-        curl -fsSL -o "$dir/$SCRIPT_NAME" "$SCRIPT_URL"
-    fi
-    chmod 755 "$dir/$SCRIPT_NAME"
-
-    cat >"$dir/manifest.env" <<MANIFEST
-# s2-office-converter 폐쇄망 묶음 (--import 가 확인합니다)
+    cat >"$stage/payload/manifest.env" <<MANIFEST
+# s2-office-converter 폐쇄망 설치 파일 정보 (설치할 때 확인합니다)
 BUNDLE_TARGET=${target}
 BUNDLE_ARCH=${ARCH}
 BUNDLE_IMAGE=${IMAGE}
 BUNDLE_H2ORESTART=${H2ORESTART_VERSION}
 BUNDLE_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 MANIFEST
-    (cd "$dir" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum >SHA256SUMS)
+
+    # The script itself heads the file: a copy when run from a file, a download when streamed
+    # | 파일 앞부분은 이 스크립트: 파일로 실행했으면 복사, 스트리밍 실행이면 다운로드
+    if [ -n "$SELF" ]; then
+        cp -f "$SELF" "$stage/script.sh"
+    else
+        curl -fsSL -o "$stage/script.sh" "$SCRIPT_URL"
+    fi
+
+    info "파일 하나로 묶기 (압축하느라 몇 분 걸릴 수 있습니다)"
+    tar -czf "$stage/payload.tgz" -C "$stage/payload" .
+    local sha
+    sha="$(sha256sum "$stage/payload.tgz" | cut -d' ' -f1)"
+    {
+        cat "$stage/script.sh"
+        printf '\n%s %s\n' "$PAYLOAD_MARKER" "$sha"
+        cat "$stage/payload.tgz"
+    } >"$out.part"
+    chmod 755 "$out.part"
+    mv -f "$out.part" "$out"
 
     cat <<DONE
 
-🎉 폐쇄망 묶음을 만들었습니다: $dir ($(du -sh "$dir" | cut -f1))
-   이 폴더를 통째로 서버에 옮긴 뒤, 서버에서 실행하십시오:
-     bash <옮긴 폴더>/$SCRIPT_NAME --import <옮긴 폴더> --app-user <앱 실행 계정>
-   서버 조건: 배포판 ${target}, CPU ${ARCH}
+🎉 폐쇄망 설치 파일을 만들었습니다: $out ($(du -h "$out" | cut -f1))
+   이 파일 하나를 서버에 옮긴 뒤, 서버에서 실행하십시오:
+     bash $(basename "$out") --app-user <앱 실행 계정>
+   서버 조건: 배포판 ${target}, CPU ${ARCH}, ${WORK_TMP} 여유 공간 $(du -h "$stage/payload" -s | cut -f1) 이상
 DONE
 }
 
-# 폐쇄망 서버: 묶음으로 설치 (인터넷 접속 없음)
-mode_import() {
-    local dir="$IMPORT_DIR"
-    [ -d "$dir" ] || fail "묶음 폴더가 없습니다: $dir"
-    dir="$(cd "$dir" && pwd)"
-    { [ -f "$dir/manifest.env" ] && [ -f "$dir/$IMAGE_ARCHIVE" ]; } || fail "--export 로 만든 묶음 폴더가 아닙니다: $dir"
+# 첨부 데이터 (경계 줄 다음부터 끝까지)
+payload_stream() {
+    tail -n +"$((PAYLOAD_LINE + 1))" "$SELF"
+}
 
-    info "묶음 확인: $dir"
-    (cd "$dir" && sha256sum -c --quiet SHA256SUMS) || fail "묶음 파일이 손상되었거나 바뀌었습니다 (SHA256SUMS 불일치). 다시 옮기십시오."
+# 폐쇄망 서버: 이 파일에 붙은 이미지·패키지로 설치 (인터넷 접속 없음)
+mode_offline() {
+    info "설치 파일 확인: $SELF"
+    [ "$(payload_stream | sha256sum | cut -d' ' -f1)" = "$PAYLOAD_SHA256" ] ||
+        fail "설치 파일이 손상되었습니다 (체크섬 불일치). 파일을 다시 옮기십시오."
     ok "체크섬 확인"
+
+    local dir
+    dir="$(mktemp -d -p "$WORK_TMP" s2-office-converter.XXXXXX)"
+    CLEANUP_PATHS+=("$dir")
+    payload_stream | tar -xzf - -C "$dir" || fail "압축을 풀 수 없습니다. $WORK_TMP 의 여유 공간을 확인하십시오 (다른 위치: TMPDIR=<폴더> bash ...)."
+    [ -f "$dir/manifest.env" ] && [ -f "$dir/$IMAGE_ARCHIVE" ] || fail "설치 파일의 내용이 올바르지 않습니다. --export 로 다시 만드십시오."
+
     local BUNDLE_TARGET="" BUNDLE_ARCH="" BUNDLE_IMAGE=""
     # shellcheck disable=SC1091
     . "$dir/manifest.env"
-    [ "$BUNDLE_ARCH" = "$ARCH" ] || fail "CPU 종류가 다릅니다: 묶음 $BUNDLE_ARCH, 이 서버 $ARCH. 서버와 같은 CPU 의 PC 에서 다시 만드십시오."
-    [ "$BUNDLE_IMAGE" = "$IMAGE" ] || warn "묶음의 이미지($BUNDLE_IMAGE)와 이 스크립트의 버전($IMAGE)이 다릅니다. 묶음에 든 스크립트로 실행하십시오."
+    [ "$BUNDLE_ARCH" = "$ARCH" ] || fail "CPU 종류가 다릅니다: 설치 파일 $BUNDLE_ARCH, 이 서버 $ARCH. 서버와 같은 CPU 의 PC 에서 다시 만드십시오."
     IMAGE="$BUNDLE_IMAGE"
 
     info "Podman 확인"
@@ -625,19 +658,19 @@ mode_import() {
         local host
         host="$(host_distro)"
         [ "$host" = "$BUNDLE_TARGET" ] ||
-            fail "Podman 패키지는 $BUNDLE_TARGET 용인데 이 서버는 $host 입니다. --target $host 로 묶음을 다시 만드십시오."
+            fail "Podman 패키지는 $BUNDLE_TARGET 용인데 이 서버는 $host 입니다. --target $host 로 설치 파일을 다시 만드십시오."
         shopt -s nullglob
         if [ "$(distro_family "$BUNDLE_TARGET")" = apt ]; then
             local debs=("$dir/podman-packages/"*.deb)
-            [ ${#debs[@]} -gt 0 ] || fail "묶음에 Podman 패키지가 없습니다."
+            [ ${#debs[@]} -gt 0 ] || fail "설치 파일에 Podman 패키지가 없습니다."
             "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-download "${debs[@]}" >/dev/null
         else
             local rpms=("$dir/podman-packages/"*.rpm)
-            [ ${#rpms[@]} -gt 0 ] || fail "묶음에 Podman 패키지가 없습니다."
+            [ ${#rpms[@]} -gt 0 ] || fail "설치 파일에 Podman 패키지가 없습니다."
             "${SUDO[@]}" dnf install -y -q --disablerepo='*' "${rpms[@]}"
         fi
         shopt -u nullglob
-        ok "Podman 설치 (묶음): $(podman --version)"
+        ok "Podman 설치 (설치 파일): $(podman --version)"
     fi
 
     ensure_subids
@@ -646,14 +679,10 @@ mode_import() {
     if [ "$REBUILD" = false ] && podman_target image exists "$IMAGE" 2>/dev/null; then
         skip "이미지가 이미 있습니다 ($TARGET_USER)."
     else
-        # The app account may not be able to read the operator's folder | 앱 실행 계정은 관리자 폴더를 못 읽을 수 있음
-        local shared
-        shared="$(mktemp -d)"
-        CLEANUP_PATHS+=("$shared")
-        cp "$dir/$IMAGE_ARCHIVE" "$shared/"
-        chmod 755 "$shared"
-        chmod 644 "$shared/$IMAGE_ARCHIVE"
-        podman_target load -i "$shared/$IMAGE_ARCHIVE" >/dev/null
+        # The app account must be able to read the extracted image | 앱 실행 계정이 풀어 놓은 이미지를 읽을 수 있어야 함
+        chmod 755 "$dir"
+        chmod 644 "$dir/$IMAGE_ARCHIVE"
+        podman_target load -i "$dir/$IMAGE_ARCHIVE" >/dev/null
         ok "이미지 등록: $IMAGE ($TARGET_USER)"
         remove_old_images
     fi
@@ -667,5 +696,8 @@ case "$MODE" in
 install) mode_install ;;
 uninstall) mode_uninstall ;;
 export) mode_export ;;
-import) mode_import ;;
+offline) mode_offline ;;
 esac
+# An offline file carries binary data after this line, so the script must stop here
+# | 폐쇄망 설치 파일은 이 뒤에 이진 데이터가 붙으므로 여기서 반드시 끝냄
+exit 0
