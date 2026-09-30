@@ -658,8 +658,11 @@ if (-not $skipDownload) {
     }
 
     # 2) 사용자 비밀번호 설정 (NoBOM 인코딩 보장 및 chpasswd 표준입력 전달)
+    #    ⚠️ PowerShell은 네이티브 프로그램(wsl.exe)으로 파이프할 때 줄 끝에 CRLF(\r\n)를 붙입니다(실측).
+    #    chpasswd는 \n만 제거하므로 그대로 넘기면 비밀번호 끝에 \r이 포함되어 저장되고,
+    #    설치 후 sudo 등에서 입력한 비밀번호가 맞지 않게 됩니다. → tr -d '\r' 로 CR을 제거한 뒤 전달합니다.
     $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-    Write-Output "${createdUsername}:${plainPassword}" | wsl -d $wslName -u root -- chpasswd
+    Write-Output "${createdUsername}:${plainPassword}" | wsl -d $wslName -u root -- bash -c "tr -d '\r' | chpasswd"
     $chpasswdExit = $LASTEXITCODE
     $plainPassword = $null
     if ($chpasswdExit -ne 0) {
@@ -706,7 +709,8 @@ enabled=true
 appendWindowsPath=true
 EOF
 "@
-        $confFallback | wsl -d $wslName -u root -- bash
+        # CRLF(파이프 줄 끝/로컬 CRLF 체크아웃)가 섞이면 heredoc 종료 줄(EOF\r)을 인식하지 못하므로 CR 제거 후 실행
+        $confFallback | wsl -d $wslName -u root -- bash -c "tr -d '\r' | bash"
     }
 
     # 3) Windows Interop 핸들러 등록
