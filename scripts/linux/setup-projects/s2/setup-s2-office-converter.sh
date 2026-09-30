@@ -278,6 +278,7 @@ input=""
 while [ $# -gt 0 ]; do
     case "$1" in
     --headless | --norestore | --nologo | --nodefault | --nolockcheck | --invisible) shift ;;
+    -env:*) shift ;; # Each conversion runs in a fresh container, so no profile option is needed | 매번 새 컨테이너라 프로필 옵션 불필요
     --convert-to)
         convert_to="${2:?--convert-to 다음에 형식이 필요합니다}"
         shift 2
