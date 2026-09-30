@@ -6,24 +6,28 @@
 # [실행 방법] s2-support 를 쓰는 앱과 같은 서버에서, sudo 를 쓸 수 있는 계정으로 실행합니다.
 #             이 파일 하나만으로 동작하므로 저장소를 받을 필요 없이 GitHub 에서 바로 실행하면 됩니다.
 #
-#   # 1) 온라인 실행 — 앱을 실행하는 계정(예: tomcat)용으로 설치 (권장)
-#   curl -fsSL https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/setup-projects/s2/setup-s2-office-converter.sh | bash -s -- --user tomcat
+#   # 1) 운영 서버 — 앱 실행 계정을 지정해 설치 (appuser 자리에 실제 계정 이름)
+#   curl -fsSL https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/setup-projects/s2/setup-s2-office-converter.sh | bash -s -- --app-user appuser
 #
-#   # 2) 온라인 실행 — 지금 로그인한 계정용으로 설치 (개발 PC, WSL)
+#   # 2) 개발 PC, WSL — 지금 로그인한 계정으로 설치 (앱을 내 계정으로 실행할 때)
 #   curl -fsSL https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/setup-projects/s2/setup-s2-office-converter.sh | bash
 #
 #   # 3) 받아서 실행 (내용을 먼저 확인하고 싶을 때)
 #   curl -fsSL -o /tmp/setup-s2-office-converter.sh https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/setup-projects/s2/setup-s2-office-converter.sh
-#   bash /tmp/setup-s2-office-converter.sh --user tomcat
+#   bash /tmp/setup-s2-office-converter.sh --app-user appuser
 #
 #   # 이미지 다시 만들기 / 제거
-#   curl -fsSL <위 주소> | bash -s -- --user tomcat --rebuild
-#   curl -fsSL <위 주소> | bash -s -- --user tomcat --uninstall
+#   curl -fsSL <위 주소> | bash -s -- --app-user appuser --rebuild
+#   curl -fsSL <위 주소> | bash -s -- --app-user appuser --uninstall
+#
+#   앱 실행 계정: 웹 애플리케이션(Java)을 실행하는 리눅스 계정입니다 (웹사이트 회원 계정이 아님).
+#     확인: ps -eo user,cmd | grep -i java   → 첫 칸이 앱 실행 계정
+#     rootless Podman 은 이미지를 계정별로 저장하므로, 그 계정에 설치해야 앱이 변환기를 쓸 수 있습니다.
 #
 #   - 처음 실행은 LibreOffice 를 받느라 몇 분 걸리며, sudo 비밀번호를 물을 수 있습니다.
 #   - 여러 번 실행해도 안전합니다. 이미 설치된 것은 건너뛰고 빠진 것만 채웁니다.
 #   - 설치가 끝나면 앱을 다시 시작할 필요 없이 S2PdfUtil 이 s2-soffice 를 자동으로 찾습니다.
-#   - 확인: sudo -u tomcat s2-soffice --version
+#   - 확인: sudo -u appuser s2-soffice --version
 #
 # [하는 일]
 # S2PdfUtil(s2-support)이 docx·xlsx·pptx·hwp·hwpx 등을 PDF 로 변환·병합할 수 있도록
@@ -34,8 +38,8 @@
 #                                                                  LibreOffice + H2Orestart + 폰트
 #
 # 옵션:
-#   --user 계정  변환기를 사용할 계정(웹 애플리케이션을 실행하는 계정, 예: tomcat). 기본: 이 스크립트를 실행한 계정.
-#                root 없는(rootless) Podman 은 이미지를 계정별로 저장하므로, 앱을 실행하는 계정으로 만들어야 합니다.
+#   --app-user 계정  앱 실행 계정(웹 애플리케이션을 실행하는 리눅스 계정). 기본: 이 스크립트를 실행한 계정.
+#                    --user 도 같은 뜻으로 받습니다.
 #   --rebuild    이미지를 다시 만듭니다 (보안 업데이트 반영 등).
 #   --uninstall  s2-soffice 명령과 이미지를 제거합니다 (Podman 자체는 남김).
 #
@@ -77,10 +81,11 @@ fail() {
 
 usage() {
     cat <<'USAGE'
-사용법: bash setup-s2-office-converter.sh [--user 계정] [--rebuild] [--uninstall] [--help]
+사용법: bash setup-s2-office-converter.sh [--app-user 계정] [--rebuild] [--uninstall] [--help]
 
-  --user 계정  변환기를 사용할 계정(웹 애플리케이션을 실행하는 계정, 예: tomcat). 기본: 이 스크립트를 실행한 계정.
-               root 없는(rootless) Podman 은 이미지를 계정별로 저장하므로, 앱을 실행하는 계정으로 만들어야 합니다.
+  --app-user 계정  앱 실행 계정(웹 애플리케이션을 실행하는 리눅스 계정). 기본: 이 스크립트를 실행한 계정.
+                   rootless Podman 은 이미지를 계정별로 저장하므로, 앱을 실행하는 계정에 설치해야 합니다.
+                   확인: ps -eo user,cmd | grep -i java (첫 칸). --user 도 같은 뜻으로 받습니다.
   --rebuild    이미지를 다시 만듭니다 (보안 업데이트 반영 등).
   --uninstall  s2-soffice 명령과 이미지를 제거합니다 (Podman 자체는 남김).
 USAGE
@@ -94,13 +99,13 @@ REBUILD=false
 UNINSTALL=false
 while [ $# -gt 0 ]; do
     case "$1" in
-    --user)
-        [ $# -ge 2 ] || fail "--user 다음에 계정 이름이 필요합니다."
+    --app-user | --user)
+        [ $# -ge 2 ] || fail "$1 다음에 앱 실행 계정 이름이 필요합니다."
         TARGET_USER="$2"
         shift 2
         ;;
-    --user=*)
-        TARGET_USER="${1#--user=}"
+    --app-user=* | --user=*)
+        TARGET_USER="${1#*=}"
         shift
         ;;
     --rebuild)
@@ -120,8 +125,8 @@ while [ $# -gt 0 ]; do
 done
 
 [ "$(uname -s)" = "Linux" ] || fail "리눅스에서만 실행할 수 있습니다."
-id "$TARGET_USER" >/dev/null 2>&1 || fail "계정이 없습니다: $TARGET_USER"
-[ "$TARGET_USER" != "root" ] || fail "root 계정용으로는 만들지 않습니다. --user 로 앱을 실행하는 일반 계정을 지정하십시오."
+id "$TARGET_USER" >/dev/null 2>&1 || fail "앱 실행 계정이 없습니다: $TARGET_USER (확인: ps -eo user,cmd | grep -i java)"
+[ "$TARGET_USER" != "root" ] || fail "root 계정용으로는 만들지 않습니다. --app-user 로 앱을 실행하는 일반 계정을 지정하십시오."
 
 # root 권한이 필요한 명령 (이미 root 면 그대로)
 if [ "$(id -u)" -eq 0 ]; then
