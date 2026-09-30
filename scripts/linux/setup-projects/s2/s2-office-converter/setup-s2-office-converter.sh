@@ -73,7 +73,7 @@ set -euo pipefail
 BASE_IMAGE="docker.io/library/debian:trixie-slim"
 H2ORESTART_VERSION="0.7.14"
 H2ORESTART_SHA256="cbea23bc37861361bbc534bc0675e5bc67b36f712072490f82a9bf410d7c04d8"
-IMAGE_REVISION="1"
+IMAGE_REVISION="2"
 IMAGE_NAME="localhost/s2-office-converter"
 IMAGE_TAG="${IMAGE_REVISION}-h2o${H2ORESTART_VERSION}"
 IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
@@ -320,6 +320,7 @@ build_image() {
     info "변환기 이미지 ($IMAGE)"
     if [ "$REBUILD" = false ] && podman_target image exists "$IMAGE" 2>/dev/null; then
         skip "이미지가 이미 있습니다 ($TARGET_USER)."
+        remove_old_images
         return
     fi
     local build_dir
@@ -345,7 +346,11 @@ RUN curl -fsSL -o /tmp/H2Orestart.oxt \\
  && echo "${H2ORESTART_SHA256}  /tmp/H2Orestart.oxt" | sha256sum -c - \\
  && HOME=/tmp unopkg add --shared /tmp/H2Orestart.oxt \\
  && unopkg list --shared | grep -qi h2o \\
- && rm -rf /tmp/H2Orestart.oxt /tmp/.config
+ && find /tmp -mindepth 1 -delete
+
+# /tmp is HOME at run time and is copied into each container, so it must start empty (root-owned leftovers from the
+# install above would block the converting account) | /tmp 는 실행 시 HOME 이고 컨테이너마다 복사되므로 비어 있어야 함
+# (위 설치의 root 소유 잔여물이 있으면 변환 계정이 쓰지 못함)
 
 LABEL org.opencontainers.image.title="s2-office-converter" \\
       org.opencontainers.image.description="LibreOffice + H2Orestart + Korean fonts for s2-support S2PdfUtil" \\
@@ -678,6 +683,7 @@ mode_offline() {
     info "변환기 이미지 ($IMAGE)"
     if [ "$REBUILD" = false ] && podman_target image exists "$IMAGE" 2>/dev/null; then
         skip "이미지가 이미 있습니다 ($TARGET_USER)."
+        remove_old_images
     else
         # The app account must be able to read the extracted image | 앱 실행 계정이 풀어 놓은 이미지를 읽을 수 있어야 함
         chmod 755 "$dir"
