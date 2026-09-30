@@ -138,6 +138,10 @@ fi
 
 TARGET_UID="$(id -u "$TARGET_USER")"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+# Rootless Podman keeps images under the account's home | rootless Podman 은 이미지를 계정 홈 아래에 저장
+if [ -z "$TARGET_HOME" ] || [ ! -d "$TARGET_HOME" ]; then
+    fail "앱 실행 계정($TARGET_USER)의 홈 폴더가 없습니다: ${TARGET_HOME:-(없음)}. Podman 이미지를 저장할 수 있도록 홈 폴더를 만들어 주십시오 (예: sudo mkdir -p /home/$TARGET_USER && sudo chown $TARGET_USER: /home/$TARGET_USER && sudo usermod -d /home/$TARGET_USER $TARGET_USER)."
+fi
 
 # 대상 계정으로 podman 실행. 로그인 세션이 없는 서비스 계정도 동작하도록 런타임 경로와 cgroup 관리자를 지정
 as_target() {
