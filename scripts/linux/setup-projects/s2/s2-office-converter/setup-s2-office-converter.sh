@@ -33,20 +33,24 @@
 #   - 처음 실행은 LibreOffice 를 받느라 몇 분 걸리며, sudo 비밀번호를 물을 수 있습니다.
 #   - 여러 번 실행해도 안전합니다. 이미 설치된 것은 건너뛰고 빠진 것만 채웁니다.
 #   - 설치가 끝나면 앱을 다시 시작할 필요 없이 S2PdfUtil 이 s2-soffice 를 자동으로 찾습니다.
-#   - 확인: sudo -u appuser s2-soffice --version
+#   - 확인: sudo -u appuser s2-soffice --version, sudo -u appuser s2-chrome --version
+#   - 웹 페이지 변환(Chromium)이 필요 없으면 --no-chrome (이미지 약 0.7GB 작아짐)
 #
 # [하는 일]
 # S2PdfUtil(s2-support)이 docx·xlsx·pptx·hwp·hwpx 등을 PDF 로 변환·병합할 수 있도록
 # LibreOffice + H2Orestart(한글 확장) + 한글 폰트가 든 Podman 컨테이너 이미지를 만들고,
-# 이를 호출하는 명령 s2-soffice 를 설치합니다.
+# 이를 호출하는 명령 s2-soffice 를 설치합니다. 웹 페이지(URL 로 받은 HTML)를 화면 그대로 PDF 로 만들도록
+# Chromium 과 명령 s2-chrome 도 함께 설치합니다 (--no-chrome 으로 뺄 수 있음).
 #
 #   [앱] S2PdfUtil ──(s2-soffice --headless --convert-to pdf ...)──▶ [Podman 컨테이너]
-#                                                                  LibreOffice + H2Orestart + 폰트
+#                  ──(s2-chrome --print-to-pdf <pdf> <html>)────────▶  LibreOffice + H2Orestart + Chromium + 폰트
 #
 # 옵션:
 #   --app-user 계정    앱 실행 계정(웹 애플리케이션을 실행하는 리눅스 계정). 기본: 이 스크립트를 실행한 계정.
 #                      --user 도 같은 뜻으로 받습니다.
 #   --rebuild          이미지를 다시 만듭니다 (보안 업데이트 반영 등).
+#   --no-chrome        웹 페이지 변환용 Chromium(s2-chrome)을 빼고 설치합니다 (이미지 약 0.7GB 작아짐).
+#                      없으면 S2PdfUtil 은 웹 페이지를 내장 렌더러(openhtmltopdf)로 변환합니다.
 #   --uninstall        s2-soffice 명령과 이미지를 제거합니다 (Podman 자체는 남김).
 #   --export [파일]    폐쇄망용 설치 파일 하나를 만듭니다 (기본 ./setup-s2-office-converter-offline.sh).
 #                      인터넷 되는 PC에서 실행. 이 스크립트 뒤에 변환기 이미지와 Podman 설치 파일을 붙인 파일로,
@@ -58,10 +62,10 @@
 #   - Podman: 없으면 설치 (온라인: apt/dnf, 폐쇄망: 설치 파일에 든 패키지)
 #   - 대상 계정의 subuid/subgid: 없으면 추가 (rootless Podman 필요 조건)
 #   - 이미지: 같은 버전(태그)이 있으면 건너뜀. 버전을 올리면 새로 만들고 이전 버전은 정리
-#   - /usr/local/bin/s2-soffice: 내용이 다를 때만 교체
+#   - /usr/local/bin/s2-soffice, s2-chrome: 내용이 다를 때만 교체 (--no-chrome 이면 s2-chrome 제거)
 #   - 마지막에 실제 변환으로 동작을 확인
 #
-# 라이선스: 이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(GPL 3.0), 폰트(SIL OFL 1.1 등), Podman(Apache 2.0)을
+# 라이선스: 이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(GPL 3.0), Chromium(BSD 3-Clause 등), 폰트(SIL OFL 1.1 등), Podman(Apache 2.0)을
 # 각 배포처에서 받아 설치할 뿐, 재배포하지 않습니다. 각 소프트웨어는 자체 라이선스를 따릅니다.
 # (폐쇄망 설치 파일을 다른 조직에 전달하면 그 안의 소프트웨어를 배포하는 것이 되므로 각 라이선스를 확인하십시오.)
 # ==============================================================================
@@ -75,9 +79,8 @@ H2ORESTART_VERSION="0.7.14"
 H2ORESTART_SHA256="cbea23bc37861361bbc534bc0675e5bc67b36f712072490f82a9bf410d7c04d8"
 IMAGE_REVISION="2"
 IMAGE_NAME="localhost/s2-office-converter"
-IMAGE_TAG="${IMAGE_REVISION}-h2o${H2ORESTART_VERSION}"
-IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
 WRAPPER_PATH="/usr/local/bin/s2-soffice"
+CHROME_WRAPPER_PATH="/usr/local/bin/s2-chrome"
 SCRIPT_NAME="setup-s2-office-converter.sh"
 SCRIPT_URL="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/setup-projects/s2/s2-office-converter/${SCRIPT_NAME}"
 IMAGE_ARCHIVE="s2-office-converter.tar"
@@ -107,6 +110,7 @@ usage() {
   --app-user 계정      앱 실행 계정(웹 애플리케이션을 실행하는 리눅스 계정)용으로 설치. --user 도 같은 뜻.
                        확인: ps -eo user,cmd | grep -i java (첫 칸)
   --rebuild            이미지를 다시 만듦 (보안 업데이트 반영 등)
+  --no-chrome          웹 페이지 변환용 Chromium(s2-chrome)을 빼고 설치 (이미지 약 0.7GB 작아짐)
   --uninstall          s2-soffice 명령과 이미지를 제거 (Podman 은 남김)
   --export [파일]      폐쇄망용 설치 파일 하나 만들기 (기본 ./setup-s2-office-converter-offline.sh, 인터넷 되는 PC에서)
                        서버에서: bash setup-s2-office-converter-offline.sh --app-user 계정
@@ -123,6 +127,7 @@ USAGE
 TARGET_USER="${SUDO_USER:-$(id -un)}"
 MODE="install"
 REBUILD=false
+WITH_CHROME=true
 EXPORT_FILE=""
 TARGET_DISTRO=""
 while [ $# -gt 0 ]; do
@@ -142,6 +147,10 @@ while [ $# -gt 0 ]; do
         ;;
     --uninstall)
         MODE="uninstall"
+        shift
+        ;;
+    --no-chrome)
+        WITH_CHROME=false
         shift
         ;;
     --export)
@@ -177,6 +186,16 @@ done
 if [ -n "$TARGET_DISTRO" ] && [ "$MODE" != "export" ]; then
     fail "--target 은 --export 와 함께 씁니다."
 fi
+
+# Image tag per content: with Chromium or without | 이미지 태그는 내용별 (Chromium 포함 여부)
+image_for() {
+    if [ "$1" = true ]; then
+        echo "${IMAGE_NAME}:${IMAGE_REVISION}-h2o${H2ORESTART_VERSION}-chrome"
+    else
+        echo "${IMAGE_NAME}:${IMAGE_REVISION}-h2o${H2ORESTART_VERSION}"
+    fi
+}
+IMAGE="$(image_for "$WITH_CHROME")"
 
 # An offline file is this script with the payload attached after a marker line: "<marker> <sha256 of payload>"
 # | 폐쇄망 설치 파일은 이 스크립트 뒤에 경계 줄("<경계> <첨부 데이터 sha256>")과 첨부 데이터를 붙인 것
@@ -323,7 +342,8 @@ build_image() {
         remove_old_images
         return
     fi
-    local build_dir
+    local build_dir chrome_packages=""
+    [ "$WITH_CHROME" = false ] || chrome_packages="chromium"
     build_dir="$(mktemp -d)"
     CLEANUP_PATHS+=("$build_dir")
     cat >"$build_dir/Containerfile" <<CONTAINERFILE
@@ -337,7 +357,7 @@ RUN apt-get update \\
       libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui libreoffice-java-common \\
       default-jre-headless \\
       fonts-nanum fonts-noto-cjk fonts-liberation2 fonts-crosextra-carlito fonts-crosextra-caladea \\
-      ca-certificates curl coreutils \\
+      ca-certificates curl coreutils ${chrome_packages} \\
  && rm -rf /var/lib/apt/lists/*
 
 # H2Orestart (GPL 3.0, https://github.com/ebandal/H2Orestart): pinned version, verified by SHA-256
@@ -354,7 +374,8 @@ RUN curl -fsSL -o /tmp/H2Orestart.oxt \\
 
 LABEL org.opencontainers.image.title="s2-office-converter" \\
       org.opencontainers.image.description="LibreOffice + H2Orestart + Korean fonts for s2-support S2PdfUtil" \\
-      s2.h2orestart.version="${H2ORESTART_VERSION}"
+      s2.h2orestart.version="${H2ORESTART_VERSION}" \\
+      s2.chromium="${WITH_CHROME}"
 
 ENV HOME=/tmp LANG=C.UTF-8
 WORKDIR /work
@@ -495,6 +516,93 @@ WRAPPER
     fi
 }
 
+# s2-chrome 명령 (웹 페이지 → PDF). --no-chrome 이면 제거
+install_chrome_wrapper() {
+    info "s2-chrome 명령 ($CHROME_WRAPPER_PATH)"
+    if [ "$WITH_CHROME" = false ]; then
+        if [ -f "$CHROME_WRAPPER_PATH" ]; then
+            "${SUDO[@]}" rm -f "$CHROME_WRAPPER_PATH"
+            ok "제거: $CHROME_WRAPPER_PATH (--no-chrome)"
+        else
+            skip "Chromium 없이 설치합니다 (--no-chrome)."
+        fi
+        return
+    fi
+    local wrapper_tmp
+    wrapper_tmp="$(mktemp)"
+    CLEANUP_PATHS+=("$wrapper_tmp")
+    cat >"$wrapper_tmp" <<'WRAPPER'
+#!/usr/bin/env bash
+# s2-chrome: 이미지·CSS 를 모두 넣은 HTML 파일을 Chromium 으로 PDF 인쇄합니다. Podman 컨테이너(s2-office-converter)에서 실행합니다.
+# _devtools2/scripts/linux/setup-projects/s2/s2-office-converter/setup-s2-office-converter.sh 가 설치합니다.
+# 직접 고치지 마십시오 (다시 실행하면 덮어씀).
+#
+#   s2-chrome --print-to-pdf <출력 PDF> <입력 HTML>
+#   s2-chrome --version
+#
+# 네트워크가 없는 컨테이너에서 실행하므로 페이지의 JavaScript 도 밖(내부망 포함)에 접속하지 못합니다.
+# Chromium 자체 샌드박스는 rootless 컨테이너 안에서 쓸 수 없어 끄고(--no-sandbox), 컨테이너(네트워크 없음, 읽기 전용,
+# 권한 없음, 호출자 uid)가 격리를 맡습니다.
+#
+# 환경 변수:
+#   S2_CHROME_TIMEOUT  인쇄 제한 시간(초, 기본 60)
+set -euo pipefail
+
+IMAGE="@IMAGE@"
+TIMEOUT="${S2_CHROME_TIMEOUT:-60}"
+
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+[ -d "$runtime_dir" ] && [ -w "$runtime_dir" ] || runtime_dir="/tmp/podman-run-$(id -u)"
+mkdir -p "$runtime_dir"
+export XDG_RUNTIME_DIR="$runtime_dir"
+podman_cmd=(podman --cgroup-manager=cgroupfs --events-backend=file)
+
+if [ "${1:-}" = "--version" ]; then
+    exec "${podman_cmd[@]}" run --rm --network=none "$IMAGE" chromium --version
+fi
+if [ "${1:-}" != "--print-to-pdf" ] || [ $# -ne 3 ]; then
+    echo "사용법: s2-chrome --print-to-pdf <출력 PDF> <입력 HTML>" >&2
+    exit 2
+fi
+output="$2"
+input="$3"
+[ -f "$input" ] || {
+    echo "s2-chrome: 입력 파일이 없습니다: $input" >&2
+    exit 1
+}
+
+# Only a private copy is mounted | 전용 사본만 컨테이너에 연결
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/in" "$work/out"
+cp -- "$input" "$work/in/page.html"
+
+"${podman_cmd[@]}" run --rm \
+    --network=none --read-only \
+    --cap-drop=ALL --security-opt=no-new-privileges \
+    --userns=keep-id \
+    -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
+    "$IMAGE" timeout --kill-after=5 "$TIMEOUT" chromium --headless --no-sandbox --disable-gpu \
+    --disable-dev-shm-usage --no-first-run --no-default-browser-check --disable-extensions \
+    --disable-background-networking --disable-sync --disable-crash-reporter --mute-audio --hide-scrollbars \
+    --no-pdf-header-footer --user-data-dir=/tmp/chrome --virtual-time-budget=10000 \
+    --print-to-pdf=/work/out/page.pdf file:///work/in/page.html >&2
+
+[ -s "$work/out/page.pdf" ] || {
+    echo "s2-chrome: 인쇄 결과가 없습니다." >&2
+    exit 1
+}
+mv -f -- "$work/out/page.pdf" "$output"
+WRAPPER
+    sed -i "s|@IMAGE@|${IMAGE}|" "$wrapper_tmp"
+    if [ -f "$CHROME_WRAPPER_PATH" ] && cmp -s "$wrapper_tmp" "$CHROME_WRAPPER_PATH"; then
+        skip "s2-chrome 이 최신입니다."
+    else
+        "${SUDO[@]}" install -m 0755 "$wrapper_tmp" "$CHROME_WRAPPER_PATH"
+        ok "설치: $CHROME_WRAPPER_PATH"
+    fi
+}
+
 # 동작 확인 (대상 계정으로 실제 변환)
 verify() {
     info "동작 확인 ($TARGET_USER)"
@@ -518,6 +626,18 @@ verify() {
     else
         warn "H2Orestart 가 확인되지 않습니다. --rebuild 로 이미지를 다시 만드십시오."
     fi
+    [ "$WITH_CHROME" = true ] || return 0
+    local web_dir
+    web_dir="$(as_target mktemp -d)"
+    as_target sh -c 'printf "<!doctype html><meta charset=utf-8><div style=\"display:flex\"><p>s2-chrome 확인 한글</p></div>" > "$1/page.html"' sh "$web_dir"
+    if as_target "$CHROME_WRAPPER_PATH" --print-to-pdf "$web_dir/page.pdf" "$web_dir/page.html" >/dev/null 2>&1 &&
+        as_target test -s "$web_dir/page.pdf"; then
+        ok "웹 페이지 확인: HTML → PDF ($(podman_target run --rm --network=none "$IMAGE" chromium --version 2>/dev/null | head -1))"
+    else
+        as_target rm -rf "$web_dir"
+        fail "웹 페이지 변환 확인 실패. 'sudo -u $TARGET_USER $CHROME_WRAPPER_PATH --print-to-pdf /tmp/a.pdf <파일.html>' 로 오류를 확인하십시오."
+    fi
+    as_target rm -rf "$web_dir"
 }
 
 done_message() {
@@ -527,6 +647,7 @@ done_message() {
    예) S2PdfUtil.merge(List.of(PdfSource.ofDocument(Path.of("보고서.hwp")), ...));
    확인) sudo -u ${TARGET_USER} ${WRAPPER_PATH} --version
 DONE
+    [ "$WITH_CHROME" = false ] || echo "   웹 페이지(URL 로 받은 HTML)는 s2-chrome 으로 화면 그대로 변환합니다. 확인) sudo -u ${TARGET_USER} ${CHROME_WRAPPER_PATH} --version"
 }
 
 # ==============================================================================
@@ -534,12 +655,15 @@ DONE
 # ==============================================================================
 
 mode_uninstall() {
-    if [ -f "$WRAPPER_PATH" ]; then
-        "${SUDO[@]}" rm -f "$WRAPPER_PATH"
-        ok "제거: $WRAPPER_PATH"
-    else
-        skip "s2-soffice 가 없습니다."
-    fi
+    local path
+    for path in "$WRAPPER_PATH" "$CHROME_WRAPPER_PATH"; do
+        if [ -f "$path" ]; then
+            "${SUDO[@]}" rm -f "$path"
+            ok "제거: $path"
+        else
+            skip "$(basename "$path") 가 없습니다."
+        fi
+    done
     if command -v podman >/dev/null 2>&1; then
         local image images
         mapfile -t images < <(podman_target images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep "^${IMAGE_NAME}:" || true)
@@ -555,6 +679,7 @@ mode_install() {
     ensure_subids
     build_image
     install_wrapper
+    install_chrome_wrapper
     verify
     done_message
 }
@@ -607,6 +732,7 @@ mode_export() {
 BUNDLE_TARGET=${target}
 BUNDLE_ARCH=${ARCH}
 BUNDLE_IMAGE=${IMAGE}
+BUNDLE_CHROME=${WITH_CHROME}
 BUNDLE_H2ORESTART=${H2ORESTART_VERSION}
 BUNDLE_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 MANIFEST
@@ -658,11 +784,12 @@ mode_offline() {
     payload_stream | tar -xzf - -C "$dir" || fail "압축을 풀 수 없습니다. $WORK_TMP 의 여유 공간을 확인하십시오 (다른 위치: TMPDIR=<폴더> bash ...)."
     [ -f "$dir/manifest.env" ] && [ -f "$dir/$IMAGE_ARCHIVE" ] || fail "설치 파일의 내용이 올바르지 않습니다. --export 로 다시 만드십시오."
 
-    local BUNDLE_TARGET="" BUNDLE_ARCH="" BUNDLE_IMAGE=""
+    local BUNDLE_TARGET="" BUNDLE_ARCH="" BUNDLE_IMAGE="" BUNDLE_CHROME="false"
     # shellcheck disable=SC1091
     . "$dir/manifest.env"
     [ "$BUNDLE_ARCH" = "$ARCH" ] || fail "CPU 종류가 다릅니다: 설치 파일 $BUNDLE_ARCH, 이 서버 $ARCH. 서버와 같은 CPU 의 PC 에서 다시 만드십시오."
     IMAGE="$BUNDLE_IMAGE"
+    WITH_CHROME="$BUNDLE_CHROME"
 
     info "Podman 확인"
     if command -v podman >/dev/null 2>&1; then
@@ -702,6 +829,7 @@ mode_offline() {
     fi
 
     install_wrapper
+    install_chrome_wrapper
     verify
     done_message
 }
