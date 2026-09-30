@@ -509,7 +509,11 @@ verify() {
         fail "변환 확인 실패. 'sudo -u $TARGET_USER $WRAPPER_PATH --headless --convert-to pdf --outdir /tmp <파일>' 로 오류를 확인하십시오."
     fi
     as_target rm -rf "$check_dir"
-    if podman_target run --rm --network=none "$IMAGE" unopkg list --shared 2>/dev/null | grep -qi h2o; then
+    # Capture first: with pipefail, grep -q quitting early would fail the pipeline through SIGPIPE
+    # | 먼저 받아 둠: pipefail 에서 grep -q 가 일찍 끝나면 SIGPIPE 로 파이프라인이 실패함
+    local extensions
+    extensions="$(podman_target run --rm --network=none "$IMAGE" unopkg list --shared 2>/dev/null || true)"
+    if grep -qi h2orestart <<<"$extensions"; then
         ok "한글(hwp, hwpx) 확장: H2Orestart ${H2ORESTART_VERSION}"
     else
         warn "H2Orestart 가 확인되지 않습니다. --rebuild 로 이미지를 다시 만드십시오."
@@ -579,6 +583,8 @@ mode_export() {
     ok "저장: $IMAGE ($(du -h "$stage/payload/$IMAGE_ARCHIVE" | cut -f1))"
 
     info "서버용 Podman 패키지 받기 ($target → $distro_img)"
+    local helper_existed=false
+    ! podman_target image exists "$distro_img" 2>/dev/null || helper_existed=true
     # Download inside a container of the server's distribution so dependencies match it
     # | 서버와 같은 배포판 컨테이너 안에서 받아야 의존성이 서버에 맞음
     if [ "$family" = apt ]; then
@@ -592,6 +598,8 @@ mode_export() {
             set -e
             dnf install -y -q --downloadonly --downloaddir=/out podman shadow-utils'
     fi
+    # Remove the download helper image unless it was already here | 받기용 이미지는 원래 없었으면 지움
+    [ "$helper_existed" = true ] || podman_target rmi -f "$distro_img" >/dev/null 2>&1 || true
     ok "패키지: $(find "$stage/payload/podman-packages" -type f | wc -l)개 ($(du -sh "$stage/payload/podman-packages" | cut -f1))"
 
     cat >"$stage/payload/manifest.env" <<MANIFEST
