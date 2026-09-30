@@ -108,6 +108,10 @@ return {
       end
 
       dap.listeners.before['event_process']['track_pid'] = track_pid
+      -- java-debug(vscode-java-debug)는 이벤트 이름을 소문자 "processid"로 보냅니다.
+      -- (com.microsoft.java.debug.core.protocol.Events$ProcessIdNotification)
+      -- 리스너 키는 대소문자를 구분하므로 소문자 키로 등록해야 실제로 PID가 추적됩니다.
+      dap.listeners.before['event_processid']['track_pid'] = track_pid
       dap.listeners.before['event_processId']['track_pid'] = track_pid
 
       -- [프로젝트 종속 디버기 프로세스 판별 헬퍼]
@@ -398,10 +402,23 @@ return {
       -- (2번: Disconnect (terminate = false) 선택 시 서버를 살려두기 위해 사용)
       local _dap_keep_process = false
 
+      -- 사용자가 직접 종료/연결 해제를 요청한 세션 ID 목록
+      -- 이 목록에 없는 세션이 끝났다면 디버기가 스스로 종료된 것(기동 실패, System.exit 등)으로 봅니다.
+      local user_stopped_sessions = {}
+      -- event_exited / event_terminated 가 연달아 와도 종료 처리는 세션당 한 번만 수행합니다.
+      local ended_sessions = {}
+
+      local function mark_user_stopped(session)
+        if session and session.id then
+          user_stopped_sessions[session.id] = true
+        end
+      end
+
       local orig_terminate = dap.terminate
       dap.terminate = function(...)
         local session = dap.session()
         local is_attach = session and session.config and session.config.request == 'attach'
+        mark_user_stopped(session)
         _dap_keep_process = false
         close_debug_ui()
         if not is_attach then
@@ -412,11 +429,19 @@ return {
         return orig_terminate(...)
       end
 
+      -- dap.restart는 내부 terminate()를 직접 호출하므로(래퍼 미경유) 사용자 종료로 표시합니다.
+      local orig_restart = dap.restart
+      dap.restart = function(...)
+        mark_user_stopped(dap.session())
+        return orig_restart(...)
+      end
+
       local orig_disconnect = dap.disconnect
       dap.disconnect = function(opts, cb)
         opts = opts or {}
         local session = dap.session()
         local is_attach = session and session.config and session.config.request == 'attach'
+        mark_user_stopped(session)
         if opts.terminateDebuggee == true and not is_attach then
           -- 1번: 디버깅 UI + 프로세스 모두 종료 (단, attach 세션은 프로세스 유지)
           _dap_keep_process = false
@@ -663,9 +688,45 @@ return {
       -- 디버깅 종료 시 모든 디버그 UI가 자동으로 닫히고 프로세스를 정리하도록 설정
       -- 1. _dap_keep_process == true 이면 disconnect keep-alive 선택이므로 프로세스는 종료하지 않음
       -- 2. session.config.request == 'attach' 이면 외부 프로세스에 연결했던 것이므로 외부 서버는 죽이지 않음
-      local function on_session_ended(session)
-        close_debug_ui()
+      -- 3. 사용자가 종료하지 않았는데 세션이 끝났다면(디버기 스스로 종료: 기동 실패, System.exit 등)
+      --    프로세스 스캔/강제 종료와 UI 닫기를 하지 않습니다.
+      --    - java-debug는 VMDeath 시점에 exited/terminated 이벤트를 보내므로, 이때 스캔하면
+      --      아직 종료 중인 "현재" 디버기 JVM이 잡혀 "기존 디버깅 프로세스를 정리했습니다"라는
+      --      잘못된 알림이 뜨고, UI까지 닫혀 실제 실패 원인(콘솔 스택트레이스)을 볼 수 없었습니다.
+      --    - 남은 프로세스가 있더라도 다음 실행 시 dap.run 선제 정리에서 정리됩니다.
+      local function on_session_ended(session, body)
+        local session_id = session and session.id
+        if session_id then
+          if ended_sessions[session_id] then
+            return
+          end
+          ended_sessions[session_id] = true
+        end
+
+        local by_user = session_id and user_stopped_sessions[session_id]
+        if session_id then
+          user_stopped_sessions[session_id] = nil
+        end
+
         local is_attach = session and session.config and session.config.request == 'attach'
+        if not by_user and not is_attach then
+          if session_id then
+            active_debug_pids[session_id] = nil
+          end
+          _dap_keep_process = false
+          local exit_code = body and body.exitCode
+          vim.notify(
+            string.format(
+              '디버깅 대상 프로세스가 종료되었습니다%s.\n원인은 콘솔(dap-view) 로그를 확인하세요. (<leader>dv 로 닫기)',
+              exit_code and string.format(' (exit code: %s)', tostring(exit_code)) or ''
+            ),
+            vim.log.levels.WARN,
+            { title = 'DAP 세션 종료' }
+          )
+          return
+        end
+
+        close_debug_ui()
         if not _dap_keep_process and not is_attach then
           kill_debuggee_process(session)
         elseif session and session.id then
