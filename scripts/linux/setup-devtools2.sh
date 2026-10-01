@@ -50,13 +50,17 @@ run_remote_script() {
 }
 
 # sudo 가 필요한 스크립트용 (curl | sudo bash 패턴)
+# ⚠️ sudo 는 기본(env_reset)으로 환경변수를 지우므로, 커밋 고정값(DT2_REF)과 추가 변수는
+#    "sudo env KEY=VALUE bash" 로 명시적으로 넘깁니다. 넘기지 않으면 root 스크립트만
+#    main 브랜치 최신본을 보게 되어 커밋 고정이 깨집니다.
+# 사용법: run_remote_script_sudo <url> [KEY=VALUE ...]
 run_remote_script_sudo() {
     local url="$1"
     shift
     curl -sSfL \
         -H 'Cache-Control: no-cache, no-store, must-revalidate' \
         -H 'Pragma: no-cache' \
-        "$url" | sudo bash "$@"
+        "$url" | sudo env DT2_REF="$DT2_REF" "$@" bash
 }
 
 # ── 커밋 고정(Commit Pinning): 설치 도중 main 브랜치 푸시로 인한 스크립트 불일치 방지 ──
@@ -100,26 +104,48 @@ esac
 # ==============================================================================
 print_step "▶ [Step 0] DevTools2 저장소 및 시스템 초기화 (sudo 권한 필요)"
 
-run_remote_script_sudo "$RAW_BASE/0.init-devtools2.sh"
-print_done "[Step 0] 초기화 완료."
-
-# [Step 0]에서 임시 부여된 passwordless sudo 권한이 설치 도중 오류 등으로 중단되어도
-# 안전하게 회수되도록 EXIT/INT/TERM 트랩 등록 및 백그라운드 sudo 갱신
+# [Step 0]에서 임시 부여할 passwordless sudo 권한이 설치 도중 오류 등으로 중단되어도
+# 안전하게 회수되도록, 권한을 받기 "전"에 EXIT/INT/TERM 트랩을 먼저 등록합니다
+# (0.init 이 sudoers 를 쓴 직후 실패해도 회수되도록).
 _sudo_loop_pid=""
 if command -v sudo >/dev/null 2>&1; then
     ( while kill -0 "$$" 2>/dev/null; do sudo -n true 2>/dev/null || true; sleep 50; done ) &
     _sudo_loop_pid=$!
 fi
 
+# 임시 passwordless sudo 회수 (멱등). 회수했으면 0, 회수할 것이 없었으면 1 을 반환합니다.
+# ⚠️ /etc/sudoers.d 는 root 전용(0750)이라 일반 사용자의 [ -f /etc/sudoers.d/... ] 검사는
+#    항상 거짓입니다. 존재 확인과 삭제 모두 sudo -n 으로 수행해야 실제로 회수됩니다.
+#    (임시 권한이 살아 있는 동안에는 sudo -n 이 비밀번호 없이 성공합니다.)
+_DT2_SUDO_TARGET="${SUDO_USER:-${USER:-$(id -un 2>/dev/null || true)}}"
+# 0.init-devtools2.sh 가 만든 devtools2 전용 파일(devtools2-temp-<사용자>)만 지우고,
+# 이전 버전이 만든 /etc/sudoers.d/<사용자> 는 내용이 그 한 줄과 정확히 같을 때만 지웁니다
+# (사용자가 직접 만든 sudoers 파일은 건드리지 않음).
+_DT2_SUDOERS_FILE="/etc/sudoers.d/devtools2-temp-$_DT2_SUDO_TARGET"
+revoke_temp_sudoers() {
+    [ -n "$_DT2_SUDO_TARGET" ] || return 1
+    local _revoked=1
+    if sudo -n test -e "$_DT2_SUDOERS_FILE" 2>/dev/null; then
+        sudo -n rm -f "$_DT2_SUDOERS_FILE" 2>/dev/null && _revoked=0
+    fi
+    local _legacy="/etc/sudoers.d/$_DT2_SUDO_TARGET"
+    if sudo -n test -e "$_legacy" 2>/dev/null \
+        && [ "$(sudo -n cat "$_legacy" 2>/dev/null)" = "$_DT2_SUDO_TARGET ALL=(ALL) NOPASSWD: ALL" ]; then
+        sudo -n rm -f "$_legacy" 2>/dev/null && _revoked=0
+    fi
+    return $_revoked
+}
+
 cleanup_temp_sudoers() {
     [ -n "$_sudo_loop_pid" ] && kill "$_sudo_loop_pid" 2>/dev/null || true
-    local target="${SUDO_USER:-${USER:-$(id -un 2>/dev/null || true)}}"
-    if [ -n "$target" ] && [ -f "/etc/sudoers.d/$target" ]; then
-        sudo rm -f "/etc/sudoers.d/$target" 2>/dev/null || true
-        echo "[정리] 비정상 종료 또는 시그널 감지: 임시 passwordless sudo 권한($target)을 회수했습니다." >&2
+    if revoke_temp_sudoers; then
+        echo "[정리] 설치 중단 감지: 임시 passwordless sudo 권한($_DT2_SUDO_TARGET)을 회수했습니다." >&2
     fi
 }
 trap cleanup_temp_sudoers EXIT INT TERM HUP
+
+run_remote_script_sudo "$RAW_BASE/0.init-devtools2.sh" DT2_GRANT_TEMP_SUDO=1
+print_done "[Step 0] 초기화 완료."
 
 # ==============================================================================
 # [Step 1] 환경 변수 주입 (~/.bashrc)
@@ -197,13 +223,10 @@ print_step "▶ [정리] 설치용 임시 sudo 권한 회수"
 # Step 1~4 진행 중 sudo 비밀번호를 반복 입력하지 않도록 했습니다.
 # 설치가 모두 끝난 지금 시점에는 더 이상 필요하지 않으므로 회수합니다.
 # (이 시점까지는 passwordless sudo가 살아있으므로 비밀번호 없이 회수 가능합니다.)
-_target_user="${SUDO_USER:-${USER:-$(id -un 2>/dev/null || true)}}"
-if [ -n "$_target_user" ] && [ -f "/etc/sudoers.d/$_target_user" ]; then
-    if sudo rm -f "/etc/sudoers.d/$_target_user"; then
-        print_done "임시 passwordless sudo 권한($_target_user)을 회수했습니다. 이후 sudo 사용 시 비밀번호가 필요합니다."
-    else
-        print_warn "임시 passwordless sudo 권한 회수에 실패했습니다. 수동으로 제거하세요: sudo rm -f /etc/sudoers.d/$_target_user"
-    fi
+if revoke_temp_sudoers; then
+    print_done "임시 passwordless sudo 권한($_DT2_SUDO_TARGET)을 회수했습니다. 이후 sudo 사용 시 비밀번호가 필요합니다."
+elif sudo -n test -e "$_DT2_SUDOERS_FILE" 2>/dev/null; then
+    print_warn "임시 passwordless sudo 권한 회수에 실패했습니다. 수동으로 제거하세요: sudo rm -f $_DT2_SUDOERS_FILE"
 fi
 
 # ==============================================================================

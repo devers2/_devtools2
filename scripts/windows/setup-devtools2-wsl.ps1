@@ -82,12 +82,33 @@ $ProgressPreference = 'SilentlyContinue'
 #
 # ⚠️ [로딩 주의사항] irm | iex 원격 실행 시 $PSScriptRoot가 비어 있으므로 사전 검사 필수!
 # 순정 PS5.1 CP949 인코딩 오인 방지를 위해 로컬/원격 모두 메모리 스크립트블록으로 로드합니다.
+#
+# ── 커밋 고정(Commit Pinning): 설치 도중 main 브랜치 푸시로 인한 스크립트 불일치 방지 ──
+# _common.ps1 을 포함한 모든 서브스크립트가 같은 커밋에서 오도록 가장 먼저 SHA 를 확정합니다.
+# $env:DT2_REF 는 이 프로세스에서 실행되는 서브스크립트(ps1)와 WSL 쪽 sh 에 그대로 전달됩니다.
+$_dt2RefMsg = $null
+if (-not $env:DT2_REF) {
+    try {
+        $apiResp = Invoke-RestMethod -Uri "https://api.github.com/repos/devers2/_devtools2/commits/main" -Headers @{ "User-Agent" = "PowerShell" } -TimeoutSec 10 -ErrorAction Stop
+        if ($apiResp -and $apiResp.sha) {
+            $env:DT2_REF = $apiResp.sha
+        } else {
+            $env:DT2_REF = "main"
+            $_dt2RefMsg = "GitHub API 커밋 SHA 조회 실패 → 'main' 브랜치 기본값 사용"
+        }
+    } catch {
+        $env:DT2_REF = "main"
+        $_dt2RefMsg = "GitHub API 커밋 SHA 조회 실패 → 'main' 브랜치 기본값 사용"
+    }
+}
+$DT2_REF = $env:DT2_REF
+
 $_localCommon = if (-not [string]::IsNullOrEmpty($PSScriptRoot)) { Join-Path $PSScriptRoot "dev-env\_common.ps1" } else { $null }
 if ($_localCommon -and (Test-Path $_localCommon)) {
     $_commonContent = [System.IO.File]::ReadAllText($_localCommon, [System.Text.Encoding]::UTF8)
 } else {
     $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-    $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
+    $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/$DT2_REF/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
 }
 . ([scriptblock]::Create($_commonContent))
 
@@ -247,22 +268,12 @@ Get-ChildItem -Path $_startupDir -Filter "*.lnk" -ErrorAction SilentlyContinue |
 Get-ChildItem -Path $_startupDir -Filter "*devtools2*.ahk" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 Write-Info "AutoHotkey Startup 항목 사전 정리 완료 (개인 AHK 스크립트 보존)"
 
-# ── 커밋 고정(Commit Pinning): 설치 도중 main 브랜치 푸시로 인한 스크립트 불일치 방지 ──
-if (-not $env:DT2_REF) {
-    try {
-        $apiResp = Invoke-RestMethod -Uri "https://api.github.com/repos/devers2/_devtools2/commits/main" -Headers @{ "User-Agent" = "PowerShell" } -TimeoutSec 10 -ErrorAction Stop
-        if ($apiResp -and $apiResp.sha) {
-            $env:DT2_REF = $apiResp.sha
-            Write-Info "설치 커밋 고정 완료: $($env:DT2_REF)"
-        } else {
-            $env:DT2_REF = "main"
-        }
-    } catch {
-        $env:DT2_REF = "main"
-        Write-Warn "GitHub API 커밋 SHA 조회 실패 → 'main' 브랜치 기본값 사용"
-    }
+# ── 커밋 고정 결과 안내 (SHA 확정은 _common.ps1 로딩 전에 이미 끝남) ──
+if ($_dt2RefMsg) {
+    Write-Warn $_dt2RefMsg
+} else {
+    Write-Info "설치 커밋 고정 완료: $DT2_REF"
 }
-$DT2_REF = $env:DT2_REF
 
 # 서브스크립트 GitHub raw URL 기준 상수 (고정된 커밋 SHA 기반)
 $RAW_WIN   = "https://raw.githubusercontent.com/devers2/_devtools2/$DT2_REF/scripts/windows/dev-env"
@@ -421,26 +432,48 @@ if ([string]::IsNullOrEmpty($wslUser) -or $wslUser -eq "root") {
 Write-Info "WSL2 사용자 계정 감지: $wslUser"
 
 # 임시 권한 회수 헬퍼 함수 (설치 완료 또는 비정상 중단 시 /etc/sudoers.d/$wslUser 회수)
+# - 0.init-devtools2.sh 가 만든 devtools2 전용 파일(devtools2-temp-<사용자>)만 지웁니다.
+# - 이전 버전이 만든 /etc/sudoers.d/<사용자> 는 내용이 그 한 줄과 정확히 같을 때만 지웁니다
+#   (사용자가 직접 만든 sudoers 파일 보존).
 function Revoke-WslTempSudo {
     if (-not [string]::IsNullOrEmpty($wslUser)) {
-        $check = ([string](@(wsl -d $wslDistro -u root -- bash -c "test -f /etc/sudoers.d/$wslUser && echo EXISTS || echo NONE" 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
-        wsl -d $wslDistro -u root -- bash -c "rm -f /etc/sudoers.d/$wslUser /tmp/.wsl_pw_tmp" 2>$null
+        $revokeSh = @'
+u="$1"; r=NONE
+f="/etc/sudoers.d/devtools2-temp-$u"
+[ -e "$f" ] && rm -f "$f" && r=EXISTS
+l="/etc/sudoers.d/$u"
+[ -e "$l" ] && [ "$(cat "$l")" = "$u ALL=(ALL) NOPASSWD: ALL" ] && rm -f "$l" && r=EXISTS
+rm -f /tmp/.wsl_pw_tmp
+echo "$r"
+'@
+        # 다중 라인 스크립트는 STDIN 으로 전달 (Rule 9), CRLF 제거
+        $check = ([string](@($revokeSh | wsl -d $wslDistro -u root -- bash -c "tr -d '\r' | bash -s -- '$wslUser'" 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
         if ($check -eq "EXISTS") {
             Write-Success "WSL2 임시 passwordless sudo 권한($wslUser)을 안전하게 회수했습니다. (이후 sudo 사용 시 비밀번호 필요)"
         }
     }
 }
 
+# ⚠️ [Step 2]에서 임시 passwordless sudo 를 부여한 뒤로는, 설치가 어떤 이유로 끝나든
+#    (명시적 exit, 하위 스크립트 다운로드 실패 같은 종료 오류, Ctrl+C) 반드시 회수되도록
+#    이후 단계를 try/finally 로 감쌉니다. (콘솔 창을 강제로 닫으면 finally 도 실행되지 않으므로,
+#    그 경우에는 스크립트를 다시 실행하면 [정리] 단계에서 회수됩니다.)
+try {
+
 # WSL2 저장소 초기화 및 깃 클론 (0.init-devtools2.sh 실행)
 # ── Windows 호스트에서는 'wsl -u root'로 비밀번호 입력 없이 안전하게 관리자 권한 실행 가능.
-# ── 평문 비밀번호 파일(/tmp/.wsl_pw_tmp) 불필요 및 SUDO_USER 환경변수로 대상 사용자 전달
+# ── 평문 비밀번호 파일(/tmp/.wsl_pw_tmp) 불필요 및 SUDO_USER/SUDO_UID 환경변수로 대상 사용자 전달
+#    (SUDO_UID 는 root 로 실행되는 git 이 사용자 소유 저장소를 "dubious ownership"으로 거부하지 않게 하는 데도 필요)
+# ── 스크립트 파일은 root 로 받아 root 로 실행합니다. 일반 사용자 권한으로 /tmp 에 받으면
+#    root 가 실행하기 전 사이에 다른 사용자 프로세스가 내용을 바꿔치기할 수 있습니다.
 Write-SubStep "▶ WSL2 저장소 초기화 및 Git 클론 실행 (0.init-devtools2.sh)"
 $wslTmpScript = "/tmp/_dt2_init.sh"
 
-wsl -d $wslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/0.init-devtools2.sh' -o $wslTmpScript && chmod +x $wslTmpScript"
+wsl -d $wslDistro -u root -- bash -c "rm -f $wslTmpScript && curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/0.init-devtools2.sh' -o $wslTmpScript && chmod 700 $wslTmpScript"
 
-# root 권한으로 초기화 스크립트 실행 (SUDO_USER=$wslUser, DT2_REF=$DT2_REF 전달)
-wsl -d $wslDistro -u root -- env SUDO_USER=$wslUser DT2_REF=$DT2_REF bash $wslTmpScript
+# root 권한으로 초기화 스크립트 실행 (SUDO_USER/SUDO_UID, DT2_REF 전달, 설치용 임시 sudo 부여 요청)
+$wslUid = ([string](@(wsl -d $wslDistro -u root -- id -u $wslUser 2>$null) | Select-Object -Last 1) -replace "`0", "").Trim()
+wsl -d $wslDistro -u root -- env SUDO_USER=$wslUser SUDO_UID=$wslUid DT2_REF=$DT2_REF DT2_GRANT_TEMP_SUDO=1 bash $wslTmpScript
 $initExit = $LASTEXITCODE
 wsl -d $wslDistro -u root -- rm -f $wslTmpScript /tmp/.wsl_pw_tmp 2>$null
 
@@ -593,6 +626,11 @@ if (Test-Path $wslGradleProps) {
 # ==============================================================================
 Write-Step "[정리] WSL2 설치용 임시 sudo 권한 회수"
 Revoke-WslTempSudo
+
+} finally {
+    # 정상 경로에서는 위 [정리] 단계에서 이미 회수되어 아무 일도 하지 않습니다(멱등).
+    Revoke-WslTempSudo
+}
 
 # ==============================================================================
 # 전체 설치 완료
