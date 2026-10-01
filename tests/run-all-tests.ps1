@@ -373,6 +373,19 @@ $installUtils = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\
 $badReturnTrap = ([regex]::Matches($installUtils, "trap '[^']*' RETURN") | Where-Object { $_.Value -notmatch 'trap - RETURN' }).Count
 Assert-Test "_install-utils.sh 의 RETURN 트랩이 실행 후 스스로 해제되는가" ($badReturnTrap -eq 0)
 
+# --- 5-9. 설치 로그를 /tmp/_고정이름 에 쓰면 다중 사용자 서버에서 남이 먼저 만든 파일에 쓰지 못해
+#     (fs.protected_regular=2) 리다이렉트가 실패하고 apt 설치 같은 명령이 아예 실행되지 않음 → $DT2_TMP 사용
+$fixedTmp = @()
+foreach ($sh in (Get-ChildItem -Path (Join-Path $repoRootPath "scripts\linux") -Recurse -File -Filter "*.sh")) {
+    $shLines = [System.IO.File]::ReadAllLines($sh.FullName, [System.Text.Encoding]::UTF8)
+    for ($i = 0; $i -lt $shLines.Count; $i++) {
+        if ($shLines[$i] -match '^\s*#') { continue }
+        if ($shLines[$i] -match '[>"\s]/tmp/_[A-Za-z]') { $fixedTmp += "$($sh.Name):$($i + 1)" }
+    }
+}
+Assert-Test "리눅스 설치 스크립트가 /tmp 고정 이름 대신 사용자 전용 `$DT2_TMP 를 쓰는가" ($fixedTmp.Count -eq 0) `
+    ("위반: " + ($fixedTmp -join ", "))
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================

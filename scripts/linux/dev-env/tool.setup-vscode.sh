@@ -124,13 +124,13 @@ if [ "$_do_vscode" = true ]; then
         if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
             echo ""
             echo -n "   📋 VSCode 기존 확장 목록 조회 중..."
-            (code --list-extensions 2>/dev/null </dev/null > /tmp/_vscode_installed.tmp) &
+            (code --list-extensions 2>/dev/null </dev/null > $DT2_TMP/_vscode_installed.tmp) &
             _ext_list_pid=$!
             show_spinner "$_ext_list_pid"
             wait "$_ext_list_pid" 2>/dev/null || true
             echo " 완료"
-            _INSTALLED_EXTS=$(tr '[:upper:]' '[:lower:]' < /tmp/_vscode_installed.tmp 2>/dev/null || echo "")
-            rm -f /tmp/_vscode_installed.tmp 2>/dev/null
+            _INSTALLED_EXTS=$(tr '[:upper:]' '[:lower:]' < $DT2_TMP/_vscode_installed.tmp 2>/dev/null || echo "")
+            rm -f $DT2_TMP/_vscode_installed.tmp 2>/dev/null
 
             _ext_total=$(grep -v '^[[:space:]]*#' "$VSCODE_EXT_LIST" | grep -v '^[[:space:]]*$' | wc -l | tr -d ' ')
             print_info "VSCode 확장 프로그램 설치 중 (extensions.txt 기반, 총 ${_ext_total}개)..."
@@ -149,7 +149,7 @@ if [ "$_do_vscode" = true ]; then
                 else
                     echo -n "   📥 [${_ext_idx}/${_ext_total}] [설치] $ext ..."
                     _ok=0
-                    _ext_err_file="/tmp/_vscode_ext_err_$$.log"
+                    _ext_err_file="$DT2_TMP/_vscode_ext_err_$$.log"
                     for _retry in 1 2 3; do
                         if [ "$_retry" -gt 1 ]; then
                             echo -n " (재시도 ${_retry}/3)..."
