@@ -1,3 +1,7 @@
 # scripts 디렉토리의 모든 파일과 디렉터리는 형상관리에 추가
 !*
 
+
+# Zed jdtls 런처(scripts/java/jdtls)가 실행할 때 Mason 의 최신 java-debug-adapter jar 로 다시 만드는
+# 머신별 심볼릭 링크 — 버전이 경로에 들어가므로 추적하면 업데이트 때마다 작업 트리가 "변경됨"이 됨
+/java/com.microsoft.java.debug.plugin.jar

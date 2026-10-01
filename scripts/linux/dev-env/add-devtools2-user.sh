@@ -70,14 +70,24 @@ for USERNAME in "$@"; do
 
   # 여러 쉘 초기화 파일에 umask 설정을 추가하여 사용자 환경( bash, zsh 등)에서 동작하도록 함
   UMASK_SNIPPET="# DevTools2: 그룹 공유 디렉토리와 협업을 위한 umask 설정\nif [ -d \"$DEVTOOLS2\" ]; then\n  umask 002\nfi"
-  PROFILES=(".profile" ".bashrc" ".bash_profile" ".zshrc")
+  # .profile/.bashrc 는 없으면 만들고, .bash_profile/.zshrc 는 "이미 있을 때만" 추가합니다.
+  # ⚠️ 없는 ~/.bash_profile 을 새로 만들면 bash 로그인 셸이 ~/.profile 을 읽지 않게 되어
+  #    DevTools2 환경 로더(~/.config/devtools2/env.sh)와 ~/.bashrc 로드가 빠집니다.
+  PROFILES=(".profile" ".bashrc")
+  for P in ".bash_profile" ".zshrc"; do
+    [ -f "$USER_HOME/$P" ] && PROFILES+=("$P")
+  done
 
   for P in "${PROFILES[@]}"; do
     PROFILE_FILE="$USER_HOME/$P"
-    # 파일이 없으면 생성
+    # 파일이 없으면 생성 (.profile / .bashrc 만 해당)
     if [ ! -f "$PROFILE_FILE" ]; then
       echo "[작업] $PROFILE_FILE 파일이 없습니다. 새로 생성합니다."
-      touch "$PROFILE_FILE"
+      if [ -f "/etc/skel/$P" ]; then
+        cp "/etc/skel/$P" "$PROFILE_FILE"
+      else
+        touch "$PROFILE_FILE"
+      fi
       chown "$USERNAME:$USERNAME" "$PROFILE_FILE"
       chmod 644 "$PROFILE_FILE"
     fi
@@ -95,6 +105,8 @@ for USERNAME in "$@"; do
 
   # 5) 사용자의 변경된 그룹과 umask 적용 안내
   echo "[안내] 사용자가 변경된 그룹/umask를 바로 적용하려면 해당 사용자로 다시 로그인하세요"
+  echo "[안내] DevTools2 환경 변수(PATH, JAVA_HOME 등)와 설정 링크는 해당 사용자로 로그인한 뒤 아래를 한 번 실행해야 적용됩니다:"
+  echo "       bash $DEVTOOLS2/scripts/linux/dev-env/1.setup-env.sh"
 
 done
 

@@ -260,7 +260,8 @@ elif [[ "$ACTION" == *"SFTP 마운트"* ]]; then
                     source "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh" 2>/dev/null || true
                 fi
                 if type set_wsl_conf_key >/dev/null 2>&1; then
-                    set_wsl_conf_key "boot" "systemd" "true" "/etc/wsl.conf"
+                    set_wsl_conf_key "boot" "systemd" "true" "/etc/wsl.conf" \
+                        || { echo "❌ /etc/wsl.conf 수정에 실패했습니다(sudo 권한 필요). 직접 [boot] systemd=true 를 추가하세요."; exit 1; }
                 else
                     sudo python3 -c '
 import sys, os

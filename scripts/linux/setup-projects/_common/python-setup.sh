@@ -86,6 +86,8 @@ ensure_python_version() {
         if [ -f "$_PY_SWITCH_SCRIPT" ]; then
             local _SAVED_SCRIPT_DIR="${SCRIPT_DIR:-}"
             # ⚠️ set -e 상태에서 py_switch.sh 내부의 `return 1`이 스크립트를 조기 종료시키지 않도록 if로 감쌈
+            # DT2_SWITCH_NO_PERSIST=1: 이 셋업 셸에서만 전환하고 사용자의 기본 Python 설정은 바꾸지 않음
+            local DT2_SWITCH_NO_PERSIST=1
             if ! source "$_PY_SWITCH_SCRIPT" "$REQUIRED_PY_VERSION"; then
                 echo "❌ Python ${REQUIRED_PY_VERSION} 전환에 실패했습니다. py_switch.sh 스크립트를 확인해주세요."
                 return 1
