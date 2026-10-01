@@ -110,7 +110,7 @@ dpkg --configure -a 2>/dev/null
 setup_apt_mirror
 
 print_info "apt 패키지 다운로드 및 설치 중 (locales, language-pack-ko 포함)..."
-(apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko) > $DT2_TMP/_apt_install.log 2>&1 &
+(apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko acl) > $DT2_TMP/_apt_install.log 2>&1 &
 _apt_pid=$!
 run_with_spinner "apt 설치/다운로드 진행 중..." "$_apt_pid"
 APT_DIRECT_EXIT=0
@@ -125,7 +125,7 @@ if [ "$APT_DIRECT_EXIT" -ne 0 ]; then
     else
         rm -f /var/lib/apt/lists/lock 2>/dev/null
     fi
-    (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko) > $DT2_TMP/_apt_install.log 2>&1 &
+    (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko acl) > $DT2_TMP/_apt_install.log 2>&1 &
     _apt_pid=$!
     run_with_spinner "폴백 서버로 apt 재시도 중..." "$_apt_pid"
     APT_DIRECT_EXIT=0
@@ -354,6 +354,24 @@ if [ -d "$DEVTOOLS2/modules/rclone/.config" ]; then
     chmod 700 "$DEVTOOLS2/modules/rclone/.config"
     [ -f "$DEVTOOLS2/modules/rclone/.config/rclone.conf" ] && chmod 600 "$DEVTOOLS2/modules/rclone/.config/rclone.conf"
 fi
+
+# 4-5-1) 그룹 공유 자원(data, modules): 같은 그룹(devers) 사용자가 설치·업데이트까지 할 수 있게
+# - Neovim 플러그인(data/nvim/lazy)도 포함합니다. g+rw 는 git 이 추적하는 파일 모드(실행 비트)를 바꾸지 않아
+#   플러그인 저장소가 "변경됨" 상태가 되지 않습니다.
+# - 기본 ACL(setfacl -d): 앞으로 누가 어떤 umask 로 만들든(Neovim·Mason·npm·git 등) 새 파일이 그룹 쓰기
+#   가능하게 만들어집니다(umask 가 022 인 첫 설치자가 만든 파일 때문에 다른 사용자가 쓰지 못하던 문제).
+# - rclone 설정 폴더(SFTP 비밀번호)는 제외합니다.
+for _shared_dir in "$DEVTOOLS2/data" "$DEVTOOLS2/modules"; do
+    [ -d "$_shared_dir" ] || continue
+    find "$_shared_dir" -path "*/rclone/.config" -prune -o ! -path "*/.git/*" -type d -print0 \
+        | xargs -0 -r chmod g+rwxs,o-rwx 2>/dev/null || true
+    find "$_shared_dir" -path "*/rclone/.config" -prune -o -path "*/data/nvim/lazy/*" ! -path "*/.git/*" -type f -print0 \
+        | xargs -0 -r chmod g+rw,o-rwx 2>/dev/null || true
+    if command -v setfacl >/dev/null 2>&1; then
+        find "$_shared_dir" -path "*/rclone/.config" -prune -o -type d -print0 \
+            | xargs -0 -r setfacl -d -m u::rwx,g::rwx,o::--- 2>/dev/null || true
+    fi
+done
 
 # 4-6) 사용자에게 설치용 임시 passwordless sudo 권한을 부여하여 후속 패키지 설치 단계에서 암호 입력을 생략함
 # ⚠️ 회수 책임이 있는 마스터 스크립트(setup-devtools2.sh / setup-devtools2-wsl.ps1)가

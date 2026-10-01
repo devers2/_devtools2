@@ -268,8 +268,8 @@ return {
         _G.log_jdtls(string.format('Java Home    : %s', target_java_home))
 
         local jdtls_executable = vim.fn.exepath('jdtls')
-        local mason_bin_jdtls = _G.NVIM_DATA_DIR .. '/mason/bin/jdtls'
-        local real_bin = _G.NVIM_DATA_DIR .. '/mason/packages/jdtls/bin/jdtls'
+        local mason_bin_jdtls = _G.NVIM_SHARED_DIR .. '/mason/bin/jdtls'
+        local real_bin = _G.NVIM_SHARED_DIR .. '/mason/packages/jdtls/bin/jdtls'
 
         if (jdtls_executable == nil or jdtls_executable == '' or vim.fn.executable(jdtls_executable) == 0)
           and vim.fn.executable(mason_bin_jdtls) == 1
@@ -280,7 +280,7 @@ return {
         if jdtls_executable and jdtls_executable ~= '' and vim.fn.executable(jdtls_executable) == 1 then
           -- [jdtls 래퍼 자동 교정]
           -- Mason이 jdtls 래퍼 파일을 생성할 때 사용자 홈 디렉터리(~/.local/share/nvim)를
-          -- 하드코딩하는데, 이 프로젝트는 NVIM_DATA_DIR=/var/opt/_devtools2/data/nvim에
+          -- 하드코딩하는데, 이 프로젝트는 NVIM_SHARED_DIR=/var/opt/_devtools2/data/nvim에
           -- 데이터를 저장하므로 경로가 맞지 않아 exit code 127(파일 없음)이 발생할 수 있습니다.
           -- 래퍼 파일을 검사하여 실제 경로로 자동 교정합니다.
           local correct_line = 'exec python3 "' .. real_bin .. '" "$@"'
@@ -306,7 +306,7 @@ return {
         end
 
         local workspace_dir = _G.NVIM_CACHE_DIR .. '/jdtls/' .. p_name
-        local mason_lombok_path = _G.NVIM_DATA_DIR .. '/mason/packages/jdtls/lombok.jar'
+        local mason_lombok_path = _G.NVIM_SHARED_DIR .. '/mason/packages/jdtls/lombok.jar'
 
         -- [jdtls 힙 크기: 이 PC 의 전체 메모리에 맞춰 결정]
         -- 예전처럼 -Xms4G -Xmx12G 로 고정하면 메모리가 8GB 인 PC(WSL 은 기본으로 호스트 메모리의 절반)에서

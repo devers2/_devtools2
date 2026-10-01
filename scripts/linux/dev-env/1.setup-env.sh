@@ -428,7 +428,68 @@ fi
 mkdir -p "$nvim_data_dir" 2>/dev/null || true
 mkdir -p "$DEVTOOLS2/data/nvim" 2>/dev/null || true
 
-_run_symlink "$DEVTOOLS2/data/nvim" "$nvim_data_dir/nvim"
+# ── Neovim 데이터: 그룹 공유 자원 + 사용자별 데이터 분리 ──────────────────────
+# 한 사람이 설치한 플러그인(lazy)·Lua 패키지(lazy-rocks)·Mason 도구(mason)·Treesitter 파서(site)는
+# $DEVTOOLS2/data/nvim 에 두고 같은 그룹(devers) 사용자 모두가 함께 씁니다(init.lua 의 _G.NVIM_SHARED_DIR).
+# 나머지 Neovim 데이터(파일 검색 기록, 스크래치 메모, 플러그인 캐시)는 사용자마다 ~/.local/share/nvim 에 둡니다.
+# ⚠️ 예전에는 ~/.local/share/nvim 자체를 공유 폴더로 링크해서 snacks 등의 개인 기록이 공용 폴더에 섞이고,
+#    다른 사용자는 쓰기 권한이 없어 오류가 났습니다. 그 링크를 실제 폴더로 바꾸고 내 개인 데이터만 옮깁니다.
+_nvim_user_data="$nvim_data_dir/nvim"
+if [ -L "$_nvim_user_data" ] && [ "$(readlink -f "$_nvim_user_data" 2>/dev/null)" = "$(readlink -f "$DEVTOOLS2/data/nvim")" ]; then
+    rm -f "$_nvim_user_data"
+    mkdir -p "$_nvim_user_data"
+    for _item in "$DEVTOOLS2/data/nvim"/* "$DEVTOOLS2/data/nvim"/.[!.]*; do
+        [ -e "$_item" ] || continue
+        case "$(basename "$_item")" in
+            lazy|lazy-rocks|mason|site) continue ;;   # 그룹 공유 자원은 그대로 둠
+        esac
+        # 내 소유의 개인 데이터만 내 폴더로 옮깁니다(다른 사용자 것은 건드리지 않음).
+        if [ -O "$_item" ] && [ ! -e "$_nvim_user_data/$(basename "$_item")" ]; then
+            mv "$_item" "$_nvim_user_data/" 2>/dev/null || true
+        fi
+    done
+    print_done "Neovim 개인 데이터를 공유 폴더에서 분리했습니다: $_nvim_user_data"
+elif [ ! -e "$_nvim_user_data" ]; then
+    mkdir -p "$_nvim_user_data"
+fi
+
+# Mason 이 설치 당시의 절대경로(예: /home/<설치자>/.local/share/nvim/mason/...)를 실행 래퍼에 적어 둡니다.
+# 다른 사용자는 설치자의 홈에 접근할 수 없으므로 공유 경로로 고쳐 둡니다(멱등, 텍스트 파일만 대상).
+_nvim_shared="$DEVTOOLS2/data/nvim"
+while IFS= read -r -d '' _f; do
+    sed -i -E "s#/home/[^/\"' ]+/\.local/share/nvim/(mason|lazy-rocks|lazy|site)/#${_nvim_shared}/\1/#g" "$_f" 2>/dev/null || true
+done < <(grep -rlIZ -E '/home/[^/"'"'"' ]+/\.local/share/nvim/(mason|lazy-rocks|lazy|site)/' \
+            "$_nvim_shared/mason/bin" "$_nvim_shared/mason/packages" "$_nvim_shared/lazy-rocks" 2>/dev/null \
+            --exclude-dir=node_modules --exclude-dir=.git || true)
+
+# ── 그룹 공유 자원 권한: 같은 그룹 사용자가 설치·업데이트까지 할 수 있게 ────────────
+# - 내가 만든 파일/폴더에 그룹 쓰기 권한(g+rwX)과 폴더 SGID(그룹 devers 상속)를 줍니다(다른 사람 것은 건드릴 수 없음).
+# - 기본 ACL(setfacl -d): 앞으로 누가 어떤 umask 로 만들든(Neovim·Mason·npm·git 등) 새 파일이 그룹 쓰기 가능하게
+#   만들어집니다. acl 패키지는 0.init-devtools2.sh 가 설치합니다.
+# - others 접근은 계속 차단합니다(o-rwx). git 이 추적하는 파일 모드는 실행 비트뿐이라 플러그인 저장소가
+#   "변경됨" 상태가 되지 않습니다.
+_dt2_share_group_perms() {
+    local _dir="$1" _me
+    [ -d "$_dir" ] || return 0
+    _me="$(id -u)"
+    # ⚠️ rclone 설정 폴더(SFTP 비밀번호가 담긴 rclone.conf, 700/600)는 공유 대상에서 반드시 제외합니다.
+    find "$_dir" -path "*/rclone/.config" -prune -o -user "$_me" -type d -print0 2>/dev/null \
+        | xargs -0 -r chmod g+rwxs,o-rwx 2>/dev/null || true
+    find "$_dir" -path "*/rclone/.config" -prune -o -user "$_me" ! -type d ! -type l \
+        ! -name "rclone.conf" ! -name "*.key" ! -name "*.pem" ! -name "id_rsa*" ! -name "id_ed25519*" \
+        ! -name ".bw_session*" ! -name ".env*" ! -name "orca-pairing-link.txt" -print0 2>/dev/null \
+        | xargs -0 -r chmod g+rw,o-rwx 2>/dev/null || true
+    if command -v setfacl >/dev/null 2>&1; then
+        find "$_dir" -path "*/rclone/.config" -prune -o -user "$_me" -type d -print0 2>/dev/null \
+            | xargs -0 -r setfacl -d -m u::rwx,g::rwx,o::--- 2>/dev/null || true
+    fi
+}
+for _shared in "$DEVTOOLS2/data/nvim" "$DEVTOOLS2/data/.npm-packages" "$DEVTOOLS2/data/translations" "$DEVTOOLS2/modules"; do
+    _dt2_share_group_perms "$_shared"
+done
+if ! command -v setfacl >/dev/null 2>&1; then
+    print_warn "acl 패키지가 없어 새로 생기는 공유 파일의 그룹 쓰기 권한을 보장할 수 없습니다: sudo apt-get install -y acl 후 이 스크립트를 다시 실행하세요."
+fi
 
 # 대상에 대한 보안/권한 검사 함수
 check_target() {
