@@ -116,7 +116,7 @@ if [ "$_orca_proceed" = true ]; then
     if ! dpkg -s libfuse2 >/dev/null 2>&1 && ! dpkg -s libfuse2t64 >/dev/null 2>&1; then
         echo -n "   📦 필수 패키지 (libfuse2) 자동 설치 중..."
         (sudo apt-get update -qq >/dev/null 2>&1 || true; sudo apt-get install -y libfuse2t64 >/dev/null 2>&1 || sudo apt-get install -y libfuse2 >/dev/null 2>&1 || true) &
-        local _fuse_pid=$!
+        _fuse_pid=$!
         show_spinner $_fuse_pid
         wait $_fuse_pid 2>/dev/null || true
         echo " 완료"
@@ -124,7 +124,7 @@ if [ "$_orca_proceed" = true ]; then
     if ! dpkg -s zlib1g-dev >/dev/null 2>&1; then
         echo -n "   📦 필수 패키지 (zlib1g-dev) 자동 설치 중..."
         (sudo apt-get update -qq >/dev/null 2>&1 || true; sudo apt-get install -y zlib1g-dev >/dev/null 2>&1 || true) &
-        local _zlib_pid=$!
+        _zlib_pid=$!
         show_spinner $_zlib_pid
         wait $_zlib_pid 2>/dev/null || true
         echo " 완료"
