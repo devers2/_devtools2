@@ -51,6 +51,8 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 # --- 윈도우 PowerShell 기본 파란색 프로그레스바 팝업 끄기 (텍스트 깨짐 및 커서 겹침 방지)
 $ProgressPreference = 'SilentlyContinue'
+# 커밋 고정: 마스터 스크립트가 넘긴 DT2_REF(커밋 SHA)와 같은 커밋에서 하위 파일을 받습니다(단독 실행 시 main).
+$_dt2Ref = if ($env:DT2_REF) { $env:DT2_REF } else { 'main' }
 
 # ==============================================================================
 # 헬퍼 함수
@@ -61,7 +63,7 @@ $ProgressPreference = 'SilentlyContinue'
 # 버그(Pause-Script 문구)가 다른 사본에는 전파되지 않는 드리프트가 실제로 있었습니다.
 # 항상 온라인 최신본을 dot-source(다른 스크립트 스트리밍 실행과 동일한 캐시 우회 원칙).
 $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
+$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_commonContent))
 
 # 세션 한정 마우스 클릭 멈춤(프리징) 방지: QuickEdit 모드 안전 비활성화 (스크립트 종료/Ctrl+C 시 자동 복원)
@@ -308,9 +310,13 @@ if ($isUpdateRequired) {
 # 4. 'devtools2'가 이미 등록되어 있다면 신규 설치를 건너뛰고 계속 진행
 if ($registeredDistros -contains $wslName) {
     # 기존 배포판에 Step 3-5(사용자 계정 및 wsl.conf [user] default 설정)가 완료되었는지 확인
+    # ⚠️ 판정이 "확인 불가"(WSL 일시 오류로 명령 자체가 실패)인 경우를 "미완성"과 구분합니다.
+    #    확인하지 못했다는 이유만으로 배포판을 지우면 안의 데이터가 전부 사라지기 때문입니다.
     $hasDefaultUser = $false
+    $confReadOk = $false
     try {
-        $wslConfContent = [string](@(wsl.exe -d $wslName -u root -- cat /etc/wsl.conf 2>$null) | Out-String)
+        $wslConfContent = [string](@(wsl.exe -d $wslName -u root -- bash -c "cat /etc/wsl.conf 2>/dev/null; echo __DT2_OK__" 2>$null) | Out-String)
+        $confReadOk = ($wslConfContent -match "__DT2_OK__")
         if ($wslConfContent -match "\[user\][\s\S]*?default\s*=") {
             $hasDefaultUser = $true
         }
@@ -327,12 +333,28 @@ if ($registeredDistros -contains $wslName) {
         Write-Warn "---------------------------------------------------------------------------"
         Write-Host ""
         Write-Success "기존 배포판 사용 준비 완료. 다음 단계로 진행합니다."
+    } elseif (-not $confReadOk) {
+        Write-Fail "기존 배포판 '$wslName'의 상태(/etc/wsl.conf)를 확인하지 못했습니다(WSL 일시 오류일 수 있음)."
+        Write-Warn "데이터 보호를 위해 배포판을 삭제하지 않고 중단합니다. 잠시 후 다시 실행하거나 아래 명령으로 상태를 확인해 주세요:"
+        Write-Host "    wsl --shutdown" -ForegroundColor Gray
+        Write-Host "    wsl -d $wslName -u root -- cat /etc/wsl.conf" -ForegroundColor Gray
+        Pause-Script
+        exit 1
     } else {
         Write-Warn "기존 배포판 '$wslName'이 등록되어 있으나, 이전 실행 중단으로 인해 사용자 계정 및 환경 설정(Step 3-5)이 완료되지 않았습니다."
-        Write-Info "깨끗한 신규 설치를 위해 미완성 배포판을 초기화(unregister)하고 설치를 다시 시작합니다..."
-        wsl.exe --unregister $wslName 2>$null
-        Start-Sleep -Seconds 1
-        $registeredDistros = @()
+        Write-Warn "초기화(unregister)하면 이 배포판 안의 모든 파일이 영구적으로 삭제됩니다."
+        if (Prompt-Confirm "미완성 배포판 '$wslName'을 삭제하고 새로 설치하시겠습니까?" "N") {
+            Write-Info "미완성 배포판을 초기화(unregister)하고 설치를 다시 시작합니다..."
+            wsl.exe --unregister $wslName 2>$null
+            Start-Sleep -Seconds 1
+            $registeredDistros = @()
+        } else {
+            Write-Info "배포판을 그대로 두고 중단합니다. 필요한 파일을 백업한 뒤 다시 실행하거나, 직접 정리해 주세요:"
+            Write-Host "    wsl --export $wslName <백업파일.tar>" -ForegroundColor Gray
+            Write-Host "    wsl --unregister $wslName" -ForegroundColor Gray
+            Pause-Script
+            exit 1
+        }
     }
 }
 
@@ -425,10 +447,13 @@ if (Test-Path $existingVhdx) {
     Write-Success "지정된 경로에 기존 WSL2 가상 디스크(ext4.vhdx)가 발견되었습니다:"
     Write-Host "   $existingVhdx" -ForegroundColor Cyan
     Write-Host ""
-    $useExisting = Prompt-Confirm "기존 가상 디스크를 '$wslName' 배포판으로 즉시 재등록하여 사용하시겠습니까?" $true
+    $useExisting = Prompt-Confirm "기존 가상 디스크를 '$wslName' 배포판으로 즉시 재등록하여 사용하시겠습니까?" "Y"
     if ($useExisting) {
         Write-Info "기존 가상 디스크를 '$wslName'으로 등록 중..."
-        wsl --import $wslName $wslInstallPath $existingVhdx --vhd
+        # ⚠️ "wsl --import ... --vhd" 는 vhdx 를 설치 위치로 "복사"하므로, 원본이 이미 설치 위치
+        #    ($wslInstallPath\ext4.vhdx)에 있으면 같은 경로로 복사하려다 실패합니다.
+        #    이미 있는 가상 디스크를 그 자리에서 등록하는 명령은 --import-in-place 입니다.
+        wsl --import-in-place $wslName $existingVhdx
         if ($LASTEXITCODE -eq 0) {
             Write-Success "기존 가상 디스크 재등록 완료!"
             $skipDownload = $true
@@ -678,7 +703,10 @@ import configparser, sys
 
 path = '/etc/wsl.conf'
 username = sys.argv[1]
-c = configparser.ConfigParser()
+# optionxform=str: 기본값(str.lower)이면 appendWindowsPath 같은 키가 소문자로 바뀌어 기록됩니다.
+# interpolation=None: 값에 '%' 가 있어도(automount options 등) 오류 없이 그대로 보존합니다.
+c = configparser.ConfigParser(interpolation=None)
+c.optionxform = str
 c.read(path)
 
 for sec in ['boot', 'user', 'interop']:
@@ -729,6 +757,47 @@ Write-Info "Windows-WSL2 네트워크 포트 직통 연결(mirrored)을 위한 .
 $wslConfigFile = Join-Path $env:USERPROFILE ".wslconfig"
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
+# INI 텍스트의 [Section] 안에 Key=Value 를 upsert 하고 새 텍스트를 반환합니다.
+# - 같은 키(대소문자 무시, 주석 제외)가 섹션 안에 있으면 값만 바꿉니다(중복 키 방지).
+# - 섹션은 있는데 키가 없으면 "그 섹션의 마지막 줄 뒤"에 넣습니다. 파일 끝에 붙이면
+#   [wsl2] 뒤에 [experimental] 같은 다른 섹션이 있을 때 키가 엉뚱한 섹션으로 들어갑니다.
+# - 섹션이 없으면 파일 끝에 새 섹션을 만듭니다. 주석·다른 섹션·줄 순서는 그대로 보존합니다.
+function Set-IniKeyText {
+    param([string]$Text, [string]$Section, [string]$Key, [string]$Value)
+    $nl = if ($Text -match "`r`n") { "`r`n" } else { "`n" }
+    $lines = New-Object System.Collections.Generic.List[string]
+    if (-not [string]::IsNullOrEmpty($Text)) {
+        foreach ($l in ($Text -split "`r?`n")) { $lines.Add($l) }
+        # 마지막 개행으로 생긴 빈 원소 제거(다시 쓸 때 개행을 붙임)
+        if ($lines.Count -gt 0 -and $lines[$lines.Count - 1] -eq "") { $lines.RemoveAt($lines.Count - 1) }
+    }
+    $inSec = $false; $secFound = $false; $lastSecLine = -1; $done = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $t = $lines[$i].Trim()
+        if ($t -match '^\[(.+)\]$') {
+            $inSec = ($matches[1].Trim() -ieq $Section)
+            if ($inSec) { $secFound = $true; $lastSecLine = $i }
+            continue
+        }
+        if ($inSec) {
+            if ($t -ne "" -and -not $t.StartsWith("#") -and -not $t.StartsWith(";")) { $lastSecLine = $i }
+            if ($t -match '^([^=#;]+?)\s*=' -and $matches[1].Trim() -ieq $Key) {
+                $lines[$i] = "$Key=$Value"; $done = $true
+            }
+        }
+    }
+    if (-not $done) {
+        if ($secFound) {
+            $lines.Insert($lastSecLine + 1, "$Key=$Value")
+        } else {
+            if ($lines.Count -gt 0 -and $lines[$lines.Count - 1].Trim() -ne "") { $lines.Add("") }
+            $lines.Add("[$Section]")
+            $lines.Add("$Key=$Value")
+        }
+    }
+    return (($lines -join $nl) + $nl)
+}
+
 if (Test-Path $wslConfigFile) {
     $existing = Get-Content $wslConfigFile -Raw -ErrorAction SilentlyContinue
     if ($existing -notmatch "networkingMode\s*=\s*mirrored") {
@@ -736,12 +805,9 @@ if (Test-Path $wslConfigFile) {
         Write-Question "❓ .wslconfig 에 네트워크 미러링(networkingMode=mirrored)을 적용하시겠습니까?"
         Write-Info "   • 장점: 포트포워딩 없이 Windows localhost 에서 WSL2 포트(8080 등)에 바로 접속 가능"
         Write-Info "   • 주의: 모든 WSL2 배포판 및 Docker, VPN 환경에 전역 적용됩니다."
-        if (Prompt-Confirm "   네트워크 미러링 설정을 추가하시겠습니까?" $true) {
-            if ($existing -match "\[wsl2\]") {
-                $updated = $existing + "`nnetworkingMode=mirrored`nautoProxy=true`n"
-            } else {
-                $updated = $existing + "`n[wsl2]`nnetworkingMode=mirrored`nautoProxy=true`n"
-            }
+        if (Prompt-Confirm "   네트워크 미러링 설정을 추가하시겠습니까?" "Y") {
+            $updated = Set-IniKeyText -Text ([string]$existing) -Section "wsl2" -Key "networkingMode" -Value "mirrored"
+            $updated = Set-IniKeyText -Text $updated -Section "wsl2" -Key "autoProxy" -Value "true"
             [System.IO.File]::WriteAllText($wslConfigFile, $updated, $utf8NoBom)
             Write-Success ".wslconfig 에 네트워크 미러링(networkingMode=mirrored) 설정이 추가되었습니다."
         } else {
@@ -755,7 +821,7 @@ if (Test-Path $wslConfigFile) {
     Write-Question "❓ 새 .wslconfig 에 네트워크 미러링(networkingMode=mirrored)을 구성하시겠습니까?"
     Write-Info "   • 장점: 포트포워딩 없이 Windows localhost 에서 WSL2 포트에 바로 접속 가능"
     Write-Info "   • 주의: 모든 WSL2 배포판 및 Docker, VPN 환경에 전역 적용됩니다."
-    if (Prompt-Confirm "   새 .wslconfig 파일을 생성하시겠습니까?" $true) {
+    if (Prompt-Confirm "   새 .wslconfig 파일을 생성하시겠습니까?" "Y") {
         $defaultWslConfig = "[wsl2]`r`nnetworkingMode=mirrored`r`nautoProxy=true`r`n"
         [System.IO.File]::WriteAllText($wslConfigFile, $defaultWslConfig, $utf8NoBom)
         Write-Success "새 .wslconfig (networkingMode=mirrored) 파일 생성 완료!"

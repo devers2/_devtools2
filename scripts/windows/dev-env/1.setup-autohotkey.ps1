@@ -43,6 +43,8 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 # --- 윈도우 PowerShell 기본 파란색 프로그레스바 팝업 끄기 (텍스트 깨짐 및 커서 겹침 방지)
 $ProgressPreference = 'SilentlyContinue'
+# 커밋 고정: 마스터 스크립트가 넘긴 DT2_REF(커밋 SHA)와 같은 커밋에서 하위 파일을 받습니다(단독 실행 시 main).
+$_dt2Ref = if ($env:DT2_REF) { $env:DT2_REF } else { 'main' }
 
 # ==============================================================================
 # 헬퍼 함수
@@ -51,7 +53,7 @@ $ProgressPreference = 'SilentlyContinue'
 # 공용 파일로 통합했습니다(scripts/windows/dev-env/_common.ps1, bash _colors.sh와
 # 동일한 패턴). 항상 온라인 최신본을 dot-source합니다.
 $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
+$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_commonContent))
 
 # ==============================================================================
@@ -274,7 +276,7 @@ if (-not $installAhk) {
     # 구버전을 배포할 위험이 있으므로, 로컬/WSL 파일은 사용하지 않고 매번 GitHub main
     # 최신 버전을 캐시 우회 헤더와 함께 직접 받아옵니다.
     $ahkDest = Join-Path $ahkModuleDir "devtools2-hotkey.ahk"
-    $ahkRaw  = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/autohotkey/devtools2-hotkey.ahk"
+    $ahkRaw  = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/windows/autohotkey/devtools2-hotkey.ahk"
     $ahkNoCacheHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
     $ahkFetchError = $null
     # 임시 파일로 먼저 받아서 성공했을 때만 $ahkDest로 교체 — 다운로드 도중 실패해도

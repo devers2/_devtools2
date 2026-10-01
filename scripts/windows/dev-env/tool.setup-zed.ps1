@@ -31,9 +31,11 @@ param(
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ProgressPreference = 'SilentlyContinue'
+# 커밋 고정: 마스터 스크립트가 넘긴 DT2_REF(커밋 SHA)와 같은 커밋에서 하위 파일을 받습니다(단독 실행 시 main).
+$_dt2Ref = if ($env:DT2_REF) { $env:DT2_REF } else { 'main' }
 
 $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
+$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_commonContent))
 
 # ==============================================================================
@@ -130,6 +132,8 @@ if ($zedInstalled) {
     $zedInstallSuccess = $false
     foreach ($zedId in $zedIds) {
         $p = Start-Process winget -ArgumentList "install --id $zedId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_install.log" -RedirectStandardError "$env:TEMP\zed_install_err.log"
+        # PS 5.1: -Wait 없이 띄운 프로세스는 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
+        $null = $p.Handle
         Wait-ProcessWithSpinner -Process $p -Message "Zed 에디터 설치 진행 중 ($zedId)"
         if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
             Write-Success "Zed 에디터 설치/확인 완료 ($zedId)"
