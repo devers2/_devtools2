@@ -1,27 +1,64 @@
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const require = createRequire(import.meta.url);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// ⚠️ 패키지를 이름만으로 지정하면 이 설정 파일 위치(.config/stylelint/) 기준으로 찾게 되어
+//   전역 npm 패키지 폴더의 패키지를 찾지 못하고 실패합니다. CSS 설정(stylelint.config.mjs)과
+//   같은 방식으로 전역 npm 패키지 경로에서 직접 해석합니다.
+const globalNodeModules =
+  process.platform === 'win32'
+    ? path.join(__dirname, '../../data/.npm-packages/node_modules')
+    : path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
+// stylelint-config-*-scss 는 ESM 전용 패키지("exports"에 import 조건만 있음)라 require.resolve 로는
+// 찾지 못합니다(ERR_PACKAGE_PATH_NOT_EXPORTED, 실측). 그 경우 package.json 의 exports 를 직접 읽어
+// 진입 파일 경로를 만듭니다.
+const resolve = (name) => {
+  try {
+    return require.resolve(name, { paths: [globalNodeModules] });
+  } catch {
+    const [pkgName, ...sub] = name.split('/');
+    const pkgDir = path.join(globalNodeModules, pkgName);
+    const pkg = JSON.parse(readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+    const key = sub.length > 0 ? `./${sub.join('/')}` : '.';
+    let entry = pkg.exports && typeof pkg.exports === 'object' && key in pkg.exports ? pkg.exports[key] : undefined;
+    if (entry === undefined && key === '.') {
+      entry = pkg.exports;
+    }
+    while (entry && typeof entry === 'object') {
+      entry = entry.import || entry.default;
+    }
+    return path.join(pkgDir, typeof entry === 'string' ? entry : pkg.main || 'index.js');
+  }
+};
+
 /**
  * SCSS를 포함한 Stylelint 설정을 정의
  * @type {import('stylelint').Config}
  */
 const config = {
   // Stylelint가 SCSS 문법을 올바르게 파싱하도록 설정
-  customSyntax: 'postcss-scss',
+  customSyntax: resolve('postcss-scss'),
 
   // 플러그인 설정
   plugins: [
-    'stylelint-prettier' // Prettier와의 통합을 위한 플러그인
+    resolve('stylelint-prettier') // Prettier와의 통합을 위한 플러그인
   ],
 
   // SCSS 환경에 최적화된 표준 규칙 세트를 상속받아 사용
   extends: [
-    'stylelint-config-recommended-scss', // CSS + SCSS 문제 방지
-    'stylelint-config-standard-scss', // 최신 SCSS 표준 (CSS 규칙도 포함)
+    resolve('stylelint-config-recommended-scss'), // CSS + SCSS 문제 방지
+    resolve('stylelint-config-standard-scss'), // 최신 SCSS 표준 (CSS 규칙도 포함)
 
     /*
      * Prettier와 충돌 방지를 위해 반드시 마지막에 위치해야 함
-     * - stylelint-config-prettier-scss, stylelint-prettier/recommended 순서 중요
+     * ※ stylelint-config-prettier-scss 는 넣지 않습니다: Stylelint 15 부터 포맷팅 규칙이 제거되어
+     *   끌 규칙이 없으므로 결과가 완전히 같습니다(실측: 있을 때와 없을 때 검사 결과 동일).
      */
-    'stylelint-config-prettier-scss', // Prettier와 완벽 호환
-    'stylelint-prettier/recommended' // Prettier를 lint 규칙으로도 사용
+    resolve('stylelint-prettier/recommended') // Prettier를 lint 규칙으로도 사용
   ],
 
   /**

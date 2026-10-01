@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -9,6 +10,15 @@ const globalNodeModules =
   process.platform === 'win32'
     ? path.join(__dirname, '../../data/.npm-packages/node_modules')
     : path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
+
+// SCSS 전용 설정은 SCSS 패키지(stylelint-config-standard-scss 등)가 설치된 경우에만 불러옵니다.
+// (아직 npm 패키지를 갱신하지 않은 환경에서 import 실패로 CSS 검사까지 통째로 깨지지 않도록 함)
+let scssConfig = null;
+try {
+  scssConfig = (await import('./stylelint.scss.config.mjs')).default;
+} catch {
+  scssConfig = null;
+}
 
 /**
  * 순수 CSS 전용 Stylelint 설정을 정의 (SCSS는 stylelint.scss.config.mjs 참고)
@@ -50,7 +60,23 @@ const config = {
     {
       files: ['**/*.css'],
       customSyntax: 'postcss'
-    }
+    },
+    /*
+     * SCSS 파일은 SCSS 전용 설정(stylelint.scss.config.mjs)을 그대로 적용
+     * - VSCode 의 stylelint.configFile 은 파일 형식별로 나눠 지정할 수 없는 단일 값이라, 이 파일 하나로
+     *   CSS 와 SCSS 를 모두 처리합니다(없으면 SCSS 도 CSS 규칙으로만 검사되어 scss/* 규칙이 빠짐).
+     */
+    ...(scssConfig
+      ? [
+          {
+            files: ['**/*.scss'],
+            customSyntax: scssConfig.customSyntax,
+            plugins: scssConfig.plugins,
+            extends: scssConfig.extends,
+            rules: scssConfig.rules
+          }
+        ]
+      : [])
   ]
 };
 
