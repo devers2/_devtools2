@@ -149,9 +149,21 @@ if ($bashExe) {
         $_.Extension -in @(".sh", ".bash")
     }
 
+    # WSL 의 bash.exe(System32)는 Windows 경로를 이해하지 못하므로 리눅스 경로로 바꿔 넘깁니다.
+    #   \\wsl.localhost\<배포판>\var\opt\... → /var/opt/...   C:\Users\... → /mnt/c/Users/...
+    # Git Bash 는 슬래시 경로(C:/... 또는 //wsl.localhost/...)를 그대로 이해합니다.
+    $isWslBash = ($bashExe -like "*\System32\*")
     $bashErrors = @()
     foreach ($sh in $shFiles) {
-        $p = Start-Process $bashExe -ArgumentList "-n `"$($sh.FullName)`"" -Wait -PassThru -NoNewWindow -RedirectStandardError "$env:TEMP\bash_test_err.txt"
+        $shPath = $sh.FullName
+        if ($isWslBash -and $shPath -match '^\\\\wsl(?:\.localhost|\$)\\[^\\]+\\(.*)$') {
+            $shPath = '/' + ($matches[1] -replace '\\', '/')
+        } elseif ($isWslBash -and $shPath -match '^([A-Za-z]):\\(.*)$') {
+            $shPath = '/mnt/' + $matches[1].ToLower() + '/' + ($matches[2] -replace '\\', '/')
+        } else {
+            $shPath = $shPath -replace '\\', '/'
+        }
+        $p = Start-Process $bashExe -ArgumentList "-n `"$shPath`"" -Wait -PassThru -NoNewWindow -RedirectStandardError "$env:TEMP\bash_test_err.txt"
         if ($p.ExitCode -ne 0) {
             $errTxt = [string](Get-Content "$env:TEMP\bash_test_err.txt" -Raw -ErrorAction SilentlyContinue)
             $bashErrors += "$($sh.Name): $($errTxt.Trim())"
@@ -264,6 +276,57 @@ $installUtilsCode = [System.IO.File]::ReadAllText($installUtilsFile, [System.Tex
 $hasUnzipTest = ($installUtilsCode -match 'unzip\s+-tq\s+"\$tmp_archive"')
 $hasTarGzTest = ($installUtilsCode -match 'tar\s+-tzf\s+"\$tmp_archive"')
 Assert-Test "Linux safe_download_and_extract 가 URL 확장자 대신 파일 헤더 무결성(unzip -tq)으로 아카이브를 판별하는가" ($hasUnzipTest -and $hasTarGzTest)
+
+# ==============================================================================
+# [Suite 5] 2026-10 점검에서 찾은 결함 회귀 방지
+# ==============================================================================
+Write-TestHeader "[Suite 5] 2026-10 점검 결함 회귀 방지"
+
+# --- 5-1. CI 의 Windows PowerShell 5.1 단계(shell: powershell) 본문은 ASCII 전용이어야 함
+#     (러너가 BOM 없는 임시 .ps1 로 저장 → PS 5.1 이 cp1252 로 읽어 한글 바이트가 스마트 따옴표로 깨짐)
+$ciFile = Join-Path $repoRootPath ".github\workflows\ci.yml"
+$ciNonAscii = @()
+if (Test-Path $ciFile) {
+    $ciLines = [System.IO.File]::ReadAllLines($ciFile, [System.Text.Encoding]::UTF8)
+    $inPs51 = $false; $inRun = $false
+    for ($i = 0; $i -lt $ciLines.Count; $i++) {
+        $l = $ciLines[$i]
+        if ($l -match '^\s*-\s+name:') { $inPs51 = $false; $inRun = $false }
+        if ($l -match '^\s*shell:\s*powershell\s*$') { $inPs51 = $true }
+        if ($inPs51 -and $l -match '^\s*run:\s*\|') { $inRun = $true; continue }
+        if ($inPs51 -and $inRun -and $l -match '[^\x00-\x7F]') { $ciNonAscii += "ci.yml:$($i + 1)" }
+    }
+}
+Assert-Test "CI 의 'shell: powershell'(PS 5.1) 단계 본문이 ASCII 전용인가" ($ciNonAscii.Count -eq 0) `
+    ("비ASCII 줄: " + ($ciNonAscii -join ", "))
+
+# --- 5-2. Prompt-Confirm 의 기본값은 문자열 "Y"/"N" — $true/$false 를 넘기면 "True" 가 되어 기본값이 N 으로 바뀜
+$boolConfirm = @()
+foreach ($file in $psFiles) {
+    $code = [System.IO.File]::ReadAllText($file.FullName, [System.Text.Encoding]::UTF8)
+    if ($code -match 'Prompt-Confirm\s+"[^"]*"\s+\$(true|false)') { $boolConfirm += $file.Name }
+}
+Assert-Test "Prompt-Confirm 기본값에 `$true/`$false 대신 ""Y""/""N"" 문자열을 쓰는가" ($boolConfirm.Count -eq 0) `
+    ("위반 파일: " + ($boolConfirm -join ", "))
+
+# --- 5-3. 설치용 임시 sudo 회수: Windows 는 try/finally, 리눅스는 sudo -n 으로 존재 확인
+#     (/etc/sudoers.d 는 0750 root 라 일반 사용자의 [ -f ] 검사는 항상 거짓 → 회수가 실행되지 않던 결함)
+$winMaster = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\windows\setup-devtools2-wsl.ps1"), [System.Text.Encoding]::UTF8)
+$linuxMaster = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\linux\setup-devtools2.sh"), [System.Text.Encoding]::UTF8)
+$winFinally = ($winMaster -match '(?s)finally\s*\{[^}]*Revoke-WslTempSudo')
+$linuxNoPlainTest = ($linuxMaster -notmatch '\[\s+-[fe]\s+"/etc/sudoers\.d/')
+$linuxSudoTest = ($linuxMaster -match 'sudo -n test -e')
+Assert-Test "임시 sudo 회수가 Windows(try/finally)·리눅스(sudo -n test) 모두 실제로 동작하는 형태인가" ($winFinally -and $linuxNoPlainTest -and $linuxSudoTest)
+
+# --- 5-4. 포트 해제는 LISTEN 소켓만 대상 (lsof -ti :PORT 는 그 포트로 접속한 클라이언트까지 포함)
+$paletteCode = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\fzf\command-palette"), [System.Text.Encoding]::UTF8)
+$noClientKill = ($paletteCode -notmatch '(?m)^[^#\r\n]*lsof\s+-ti\s+:') -and ($paletteCode -match '-sTCP:LISTEN')
+Assert-Test "command-palette 포트 해제가 LISTEN 프로세스만 대상으로 하는가" $noClientKill
+
+# --- 5-5. launch.json 병합은 추가할 설정이 없으면 파일을 다시 쓰지 않아야 함 (사용자 주석 보존)
+$commonSetupCode = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\linux\setup-projects\_common\common-setup.sh"), [System.Text.Encoding]::UTF8)
+$skipsNoopWrite = ($commonSetupCode -match '(?s)if added_count == 0:\s*\n\s*print\([^\n]*\)\s*\n\s*sys\.exit\(0\)')
+Assert-Test "setup_vscode_launch_json 이 변경 없을 때 launch.json 을 다시 쓰지 않는가" $skipsNoopWrite
 
 # ==============================================================================
 # [최종 요약 결과]
