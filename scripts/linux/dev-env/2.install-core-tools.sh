@@ -122,12 +122,17 @@ echo "   ℹ️  Java, Gradle, Python, Neovim은 버전 고정 설치입니다."
 echo ""
 
 # ── 중복 처리 방식 선택 ──────────────────────────────────────────
-DUPLICATE_MODE="keep"
+# 환경변수 DT2_DUPLICATE_MODE(remove|reinstall|keep|skip|individual)가 있으면 질문 없이 그 값을 씁니다.
+DUPLICATE_MODE="${DT2_DUPLICATE_MODE:-keep}"
 _HAS_INSTALLED=false
 [ "$NODEJS_INSTALLED" = true ] && _HAS_INSTALLED=true
 [ "$IS_WSL2" = false ] && [ "$GHOSTTY_INSTALLED" = true ] && _HAS_INSTALLED=true
+[ -d "$DEVTOOLS2/modules/java" ] && [ -n "$(ls -A "$DEVTOOLS2/modules/java" 2>/dev/null)" ] && _HAS_INSTALLED=true
+[ -d "$DEVTOOLS2/modules/gradle/gradle-9" ] && _HAS_INSTALLED=true
 
-if [ "$_HAS_INSTALLED" = true ]; then
+if [ -n "${DT2_DUPLICATE_MODE:-}" ]; then
+    print_info "환경변수(DT2_DUPLICATE_MODE) 설정 적용됨: $DUPLICATE_MODE"
+elif [ "$_HAS_INSTALLED" = true ]; then
     print_question "⚠️  이미 설치된 도구가 감지되었습니다. 중복 처리 방식을 선택하세요:"
     echo ""
     print_option "1" "기존 도구 삭제 후 재설치 (덮어쓰기)"
@@ -196,9 +201,27 @@ install_adoptium_jdk() {
     local dest_dir="$2"
     local target_path="$DEVTOOLS2/modules/java/$dest_dir"
 
+    # 이미 설치되어 있으면 설치 버전과 지정 버전을 비교합니다. 같으면 건너뛰고, 다르면
+    # (TOML 에 보안 패치 버전이 올라온 경우 등) 중복 처리 방식에 따라 갱신 여부를 정합니다.
+    local _reinstall=false
     if [ -d "$target_path" ]; then
-        echo "   ⏭️ [건너뜀] JDK $major 설치 디렉토리($dest_dir)가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$target_path'"
-        return 0
+        local _cur_ver _want_ver
+        _cur_ver=$(_installed_jdk_version "$target_path")
+        _want_ver=$(get_pinned_version "jdk${major}")
+        if [ -n "$_cur_ver" ] && [ -n "$_want_ver" ] && ! _jdk_version_matches "$_cur_ver" "$_want_ver" "$major"; then
+            echo "   ⚠️  JDK $major 설치 버전($_cur_ver)이 지정 버전($_want_ver)과 다릅니다."
+            if [ "$(_resolve_action true "JDK $major")" = "reinstall" ]; then
+                _reinstall=true
+            else
+                echo "   ⏭️ [건너뜀] 기존 JDK $major 를 유지합니다. 갱신하려면 중복 처리에서 '삭제 후 재설치'를 고르거나 DT2_DUPLICATE_MODE=reinstall 로 다시 실행하세요."
+                return 0
+            fi
+        elif [ "$(_resolve_action true "JDK $major")" = "reinstall" ]; then
+            _reinstall=true
+        else
+            echo "   ⏭️ [건너뜀] JDK $major ($dest_dir${_cur_ver:+, $_cur_ver})가 이미 설치되어 있습니다."
+            return 0
+        fi
     fi
 
     local jdk_arch="$([ "$IS_ARM64" = true ] && echo 'aarch64' || echo 'x64')"
@@ -257,14 +280,50 @@ install_adoptium_jdk() {
     fi
 
     echo "   📦 JDK $major $actual_ver 다운로드 및 설치..."
+    # 재설치는 기존 JDK 를 옆으로 옮겨 두었다가, 새 설치가 실패하면 되돌립니다.
+    local _backup=""
+    if [ "$_reinstall" = true ]; then
+        _backup="${target_path}.dt2-old"
+        rm -rf "$_backup"
+        mv "$target_path" "$_backup"
+    fi
     if safe_download_and_extract "$dl_url" "$target_path" 1 "$checksum" "JDK $major"; then
+        [ -n "$_backup" ] && rm -rf "$_backup"
         echo "   ✅ JDK $major ($dest_dir) 설치 완료"
         if [ -n "$actual_ver" ] && [ "$actual_ver" != "$pinned_ver" ]; then
             update_pinned_version "jdk${major}" "$actual_ver"
         fi
     else
+        if [ -n "$_backup" ]; then
+            rm -rf "$target_path"
+            mv "$_backup" "$target_path"
+            echo "   ↩️  기존 JDK $major 를 복원했습니다." >&2
+        fi
         echo "   ❌ JDK $major 설치 실패" >&2
         return 1
+    fi
+}
+
+# 설치된 JDK 의 버전 문자열을 release 파일에서 읽습니다. (예: "21.0.12.1+1", JDK 8 은 "1.8.0_504")
+_installed_jdk_version() {
+    local rel="$1/release" v=""
+    [ -f "$rel" ] || return 0
+    v=$(grep -E '^JAVA_RUNTIME_VERSION=' "$rel" | head -1 | cut -d'"' -f2)
+    [ -z "$v" ] && v=$(grep -E '^JAVA_VERSION=' "$rel" | head -1 | cut -d'"' -f2)
+    echo "${v%-LTS}"
+}
+
+# 설치 버전과 지정 버전(tool-versions.toml 형식)이 같은지 비교합니다.
+# - JDK 8: 설치 "1.8.0_504" ↔ 지정 "8u504-b01" → 업데이트 번호(504)만 비교
+# - 그 외: 설치 "21.0.12.1+1" ↔ 지정 "21.0.12.1+1"
+_jdk_version_matches() {
+    local cur="$1" want="$2" major="$3"
+    if [ "$major" = "8" ]; then
+        local cur_u="${cur##*_}" want_u="${want#8u}"
+        want_u="${want_u%%-*}"
+        [ "$cur_u" = "$want_u" ]
+    else
+        [ "$cur" = "$want" ]
     fi
 }
 
@@ -291,16 +350,32 @@ cd "$DEVTOOLS2/modules/gradle"
 GRADLE_PINNED=$(get_pinned_version "gradle")
 GRADLE_VERSION="${GRADLE_PINNED:-9.7.1}"
 
+# 설치된 Gradle 버전(lib/gradle-core-api-<버전>.jar)과 지정 버전을 비교합니다.
+_GRADLE_CUR=""
+_GRADLE_REINSTALL=false
 if [ -d "$DEVTOOLS2/modules/gradle/gradle-9" ]; then
-    echo "   ⏭️ [건너뜀] gradle-9 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/gradle/gradle-9'"
+    _GRADLE_CUR=$(find "$DEVTOOLS2/modules/gradle/gradle-9/lib" -maxdepth 1 -name 'gradle-core-api-*.jar' 2>/dev/null \
+        | head -1 | sed -E 's|.*/gradle-core-api-(.+)\.jar$|\1|')
+    if [ -n "$_GRADLE_CUR" ] && [ "$_GRADLE_CUR" != "$GRADLE_VERSION" ]; then
+        echo "   ⚠️  Gradle 설치 버전($_GRADLE_CUR)이 지정 버전($GRADLE_VERSION)과 다릅니다."
+    fi
+    [ "$(_resolve_action true "Gradle")" = "reinstall" ] && _GRADLE_REINSTALL=true
+fi
+
+if [ -d "$DEVTOOLS2/modules/gradle/gradle-9" ] && [ "$_GRADLE_REINSTALL" != true ]; then
+    echo "   ⏭️ [건너뜀] Gradle(gradle-9${_GRADLE_CUR:+, $_GRADLE_CUR})이 이미 설치되어 있습니다. 갱신하려면 중복 처리에서 '삭제 후 재설치'를 고르거나 DT2_DUPLICATE_MODE=reinstall 로 다시 실행하세요."
 else
     _gradle_url="https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
     _gradle_sha="${_gradle_url}.sha256"
-    if safe_download_and_extract "$_gradle_url" "$DEVTOOLS2/modules/gradle" 0 "$_gradle_sha" "Gradle $GRADLE_VERSION"; then
-        [ -d "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" ] && mv -f "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" "$DEVTOOLS2/modules/gradle/gradle-9"
+    if safe_download_and_extract "$_gradle_url" "$DEVTOOLS2/modules/gradle" 0 "$_gradle_sha" "Gradle $GRADLE_VERSION" \
+        && [ -d "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" ]; then
+        # 재설치: 새 버전 압축 해제에 성공한 뒤에만 기존 gradle-9 를 교체합니다.
+        # (기존 gradle-9 가 남아 있는 채로 mv 하면 새 폴더가 gradle-9 "안으로" 들어갑니다)
+        rm -rf "$DEVTOOLS2/modules/gradle/gradle-9"
+        mv -f "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" "$DEVTOOLS2/modules/gradle/gradle-9"
         echo "   ✅ Gradle $GRADLE_VERSION 설치 완료"
     else
-        echo "   ❌ Gradle 설치 실패" >&2
+        echo "   ❌ Gradle 설치 실패 (기존 설치가 있으면 그대로 유지됩니다)" >&2
     fi
 fi
 

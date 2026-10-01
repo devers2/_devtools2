@@ -94,7 +94,9 @@ install_tool() {
 
     # 폴더 이름 정리 (패턴 매칭으로 이동 후 정리)
     local EXTRACTED_DIR
-    EXTRACTED_DIR=$(tar -tf "$FILE_NAME" 2>/dev/null | head -1 | cut -f1 -d"/")
+    # "|| true": head 가 첫 줄만 읽고 닫으면 tar 가 SIGPIPE(141)로 끝나, 호출한 스크립트가
+    # "set -o pipefail + set -e" 이면 여기서 즉시 종료됩니다(큰 아카이브에서 재현). 값은 그대로 얻어집니다.
+    EXTRACTED_DIR=$(tar -tf "$FILE_NAME" 2>/dev/null | head -1 | cut -f1 -d"/") || true
     if [ -n "$EXTRACTED_DIR" ] && [ "$EXTRACTED_DIR" != "$TARGET_DIR" ] && [ -e "$EXTRACTED_DIR" ]; then
         rm -rf "$TARGET_DIR"
         mv "$EXTRACTED_DIR" "$TARGET_DIR"
@@ -121,33 +123,55 @@ _read_toml() {
     fi
 }
 
-# 지정한 키의 설치된 버전(로컬 머신 상태 우선 → 없으면 tool-versions.toml 기본값)을 반환합니다.
+# tool-versions.toml 의 기본 고정 버전(배열 첫 항목)을 반환합니다.
+_get_toml_version() {
+    _read_toml \
+        | grep -E "^${1} = \[" 2>/dev/null \
+        | grep -oE '"[^"]+"' | head -1 | tr -d '"'
+}
+
+# 지정한 키의 "지정 버전"을 반환합니다.
+# - 이 PC 에서 TOML 과 다른 버전(최신 등)을 설치했다면 data/state 에 기록된 그 버전을 우선합니다.
+# - 단, 기록 당시의 TOML 기준값(<key>@toml)과 현재 TOML 값이 다르면(누군가 TOML 을 새 버전으로
+#   올렸다면) TOML 값을 따릅니다. 그렇지 않으면 TOML 의 보안 패치 갱신이 이미 설치한 PC 에는
+#   영원히 반영되지 않습니다. (기준값이 없는 예전 상태 파일도 TOML 을 따름)
 get_pinned_version() {
     local key="$1"
-    # 1순위: 머신별 로컬 상태 파일 (data/state/installed-tools.json)
+    local toml_ver
+    toml_ver=$(_get_toml_version "$key")
     if [ -f "$STATE_FILE" ]; then
         local local_ver
-        local_ver=$(python3 -c "import json, sys; d=json.load(open('$STATE_FILE')); print(d.get('$key', ''))" 2>/dev/null || true)
+        local_ver=$(python3 - "$STATE_FILE" "$key" "$toml_ver" <<'PY' 2>/dev/null || true
+import json, sys
+path, key, toml_ver = sys.argv[1:4]
+try:
+    d = json.load(open(path, encoding='utf-8'))
+except Exception:
+    d = {}
+ver = d.get(key, '')
+base = d.get(key + '@toml', None)
+if ver and (not toml_ver or base == toml_ver):
+    print(ver)
+PY
+)
         if [ -n "$local_ver" ]; then
             echo "$local_ver"
             return 0
         fi
     fi
-
-    # 2순위: tool-versions.toml 기본 고정 버전
-    _read_toml \
-        | grep -E "^${key} = \[" 2>/dev/null \
-        | grep -oE '"[^"]+"' | head -1 | tr -d '"'
+    echo "$toml_ver"
 }
 
 # 머신별 설치 버전 상태를 data/state/installed-tools.json 에 격리 기록합니다.
 # (Git 형상관리 대상인 tool-versions.toml 은 건드리지 않아 작업 트리 무결성을 보장합니다)
+# 기록 당시의 TOML 기준값도 함께 남겨, 이후 TOML 이 갱신되면 TOML 을 따르게 합니다.
+# 값은 인자(argv)로 넘겨 파이썬 코드에 직접 이어 붙이지 않습니다(태그 문자열에 따옴표가 있어도 안전).
 update_pinned_version() {
     local key="$1" new_ver="$2"
     mkdir -p "$STATE_DIR" 2>/dev/null || true
-    python3 -c "
-import json, os
-path = '$STATE_FILE'
+    python3 - "$STATE_FILE" "$key" "$new_ver" "$(_get_toml_version "$key")" <<'PY' 2>/dev/null || true
+import json, os, sys
+path, key, ver, toml_ver = sys.argv[1:5]
 data = {}
 if os.path.exists(path):
     try:
@@ -155,10 +179,11 @@ if os.path.exists(path):
             data = json.load(f)
     except Exception:
         data = {}
-data['$key'] = '$new_ver'
+data[key] = ver
+data[key + '@toml'] = toml_ver
 with open(path, 'w', encoding='utf-8') as f:
     json.dump(data, f, indent=2, ensure_ascii=False)
-" 2>/dev/null || true
+PY
     echo "   📝 [머신 상태: data/state] ${key} 버전 기록: \"${new_ver}\""
 }
 
@@ -200,7 +225,7 @@ _resolve_action() {
             echo "reinstall"
             ;;
         individual)
-            if [ "${DT2_NONINTERACTIVE:-0}" = "1" ] || [ ! -t 0 ] && [ ! -c /dev/tty ]; then
+            if dt2_is_noninteractive; then
                 echo "skip"
                 return
             fi
@@ -234,7 +259,7 @@ _select_version_mode() {
         print_info "환경변수(DT2_VERSION_MODE) 설정 적용됨: $VERSION_MODE"
         return 0
     fi
-    if [ "${DT2_NONINTERACTIVE:-0}" = "1" ] || [ ! -t 0 ] && [ ! -c /dev/tty ]; then
+    if dt2_is_noninteractive; then
         VERSION_MODE="pinned"
         print_info "비대화형 모드: 기본 고정(TOML) 버전으로 자동 진행됩니다."
         return 0
@@ -396,7 +421,7 @@ verify_sha256() {
 # 📥 안전한 공용 다운로드 유틸리티 (HTTP 에러 검출, 체크섬 검증 및 원자적 처리)
 # ─────────────────────────────────────────────────────────────────
 # 1) 압축 아카이브(tar.gz, zip) 안전 다운로드 및 압축 해제
-#    성공 시 0, 실패 시 1 반환 (실패 시 대상 디렉터리 오염 방지)
+#    성공 시 0, 실패 시 1 반환 (스테이징 디렉터리에 먼저 풀어, 실패 시 대상 디렉터리 오염 방지)
 #    인수: $1 = URL, $2 = 대상 디렉터리, $3 = strip_count(기본 0),
 #          $4 = sha256_or_url(선택), $5 = label(선택, 프로그레스 바 표시용)
 #    다운로드 시 download_with_progress 프로그레스 바를 표시하고,
@@ -434,29 +459,55 @@ safe_download_and_extract() {
         fi
     fi
 
-    mkdir -p "$target_dir"
+    # ⚠️ 대상 디렉터리에 바로 풀지 않고, 같은 파일시스템의 임시 스테이징 디렉터리에 먼저 풉니다.
+    #    압축 해제가 중간에 실패하면 대상에는 아무것도 남지 않아, 다음 실행이 "반쯤 풀린 폴더"를
+    #    "이미 설치됨"으로 오판해 건너뛰는 일을 막습니다. 성공했을 때만 대상에 합칩니다.
+    local parent_dir
+    parent_dir=$(dirname "$target_dir")
+    mkdir -p "$parent_dir"
+    local stage_dir
+    stage_dir=$(mktemp -d "$parent_dir/.dt2_stage_XXXXXX")
     local strip_opt=""
     [ "$strip_count" -gt 0 ] && strip_opt="--strip-components=$strip_count"
 
     # 스피너와 함께 압축 해제 (URL 확장자 의존 탈피 - 파일 헤더 무결성 검사 기반 자동 판별)
     echo -n "   📦 $label 압축 해제 중..."
     if unzip -tq "$tmp_archive" >/dev/null 2>&1; then
-        unzip -q -o "$tmp_archive" -d "$target_dir" &
+        unzip -q -o "$tmp_archive" -d "$stage_dir" &
     elif [[ "$url" == *.zip ]]; then
-        unzip -q -o "$tmp_archive" -d "$target_dir" &
+        unzip -q -o "$tmp_archive" -d "$stage_dir" &
     elif tar -tzf "$tmp_archive" >/dev/null 2>&1; then
-        tar -xzf "$tmp_archive" -C "$target_dir" $strip_opt &
+        tar -xzf "$tmp_archive" -C "$stage_dir" $strip_opt &
     elif tar -tf "$tmp_archive" >/dev/null 2>&1; then
-        tar -xf "$tmp_archive" -C "$target_dir" $strip_opt &
+        tar -xf "$tmp_archive" -C "$stage_dir" $strip_opt &
     else
-        tar -xzf "$tmp_archive" -C "$target_dir" $strip_opt &
+        tar -xzf "$tmp_archive" -C "$stage_dir" $strip_opt &
     fi
     local _ext_pid=$!
     show_spinner $_ext_pid
     if ! wait $_ext_pid 2>/dev/null; then
         echo " ❌ 압축 해제 실패" >&2
+        rm -rf "$stage_dir"
         return 1
     fi
+
+    # 대상 디렉터리에 합치기 (대상에 이미 있는 다른 파일은 보존, 같은 이름은 덮어씀)
+    # ⚠️ "cp -a stage/. target/" 은 mktemp -d 의 700 권한을 대상 디렉터리 자체에 덮어써
+    #    공유 디렉터리(2770)의 그룹 접근을 막으므로, 스테이징 "안의 항목"만 복사합니다.
+    mkdir -p "$target_dir"
+    local -a _entries
+    _entries=( "$stage_dir"/* "$stage_dir"/.[!.]* "$stage_dir"/..?* )
+    local _e _copy_ok=true
+    for _e in "${_entries[@]}"; do
+        [ -e "$_e" ] || [ -L "$_e" ] || continue
+        cp -a "$_e" "$target_dir/" || { _copy_ok=false; break; }
+    done
+    if [ "$_copy_ok" != true ]; then
+        echo " ❌ 설치 위치로 복사 실패: $target_dir" >&2
+        rm -rf "$stage_dir"
+        return 1
+    fi
+    rm -rf "$stage_dir"
     echo " 완료"
 
     return 0
