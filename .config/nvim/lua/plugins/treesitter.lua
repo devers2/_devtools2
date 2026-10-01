@@ -163,11 +163,15 @@ end
 ---@param is_light boolean 경량 모드 여부
 local function configure_buffer_tier(buf, is_light)
   if is_light then
-    -- 1. 코드 접기(Folds) 연산을 manual로 전환하여 타이핑/스크롤 렉 차단
-    vim.opt_local.foldmethod = 'manual'
-    vim.opt_local.foldexpr = '0'
+    -- ⚠️ vim.opt_local 은 "현재" 버퍼/창에 적용됩니다. 파서 자동 설치 완료 콜백처럼 buf 가 현재 버퍼가
+    --   아닐 때 엉뚱한 버퍼에 경량 설정이 걸리지 않도록 대상 buf 와 그 buf 를 표시 중인 창에만 적용합니다.
+    -- 1. 코드 접기(Folds) 연산을 manual로 전환하여 타이핑/스크롤 렉 차단 (창-버퍼 로컬 옵션)
+    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+      vim.wo[win][0].foldmethod = 'manual'
+      vim.wo[win][0].foldexpr = '0'
+    end
     -- 2. 자동 들여쓰기(Indent) Treesitter 연산 차단 (기본 내장 들여쓰기로 폴백하여 엔터 렉 차단)
-    vim.opt_local.indentexpr = ''
+    vim.bo[buf].indentexpr = ''
     -- 3. treesitter-context 상단 고정창 비활성화는 stop_treesitter() 또는 FileType 콜백 말미의
     --    sync_ts_context(buf)가 담당합니다 (treesitter-context는 버퍼별 API가 없고 전역 API만 제공)
   end

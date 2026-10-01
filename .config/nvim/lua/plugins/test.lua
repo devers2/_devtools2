@@ -57,8 +57,8 @@ lazyvim.json 의 lazyvim.plugins.extras.test.core 익스트라가 neotest 코어
 [동작 방식]
   - Java: 클래스명이 test_classname_patterns(기본값 XxxTest/XxxTests/XxxIT/XxxSpec)에
     맞아야 인식됩니다. Gradle/Maven, 멀티모듈 프로젝트 자동 감지.
-  - Python: pytest 러너 고정. 인터프리터는 dap.lua/keymaps.lua의 FastAPI 디버깅 설정과
-    동일하게 프로젝트 venv(VIRTUAL_ENV)를 우선 사용하고, 없으면 PATH의 기본 python으로 폴백.
+  - Python: pytest 러너 고정. 인터프리터는 neotest-python 기본 탐색을 그대로 사용
+    (VIRTUAL_ENV → 프로젝트 .venv/venv → pipenv/poetry → uv → python3).
 ===========================================================================================
 --]]
 return {
@@ -80,21 +80,12 @@ return {
     opts = function(_, opts)
       opts.adapters = opts.adapters or {}
       opts.adapters['neotest-java'] = {}
+      -- python 인터프리터는 지정하지 않습니다: neotest-python 기본 탐색이
+      -- VIRTUAL_ENV → 프로젝트 .venv/venv → pipenv/poetry → uv → python3 순으로 찾아 줍니다.
+      -- (VIRTUAL_ENV 만 보고 'python' 으로 폴백하면, venv 를 활성화하지 않고 nvim 을 연 경우
+      --  프로젝트 .venv 의 pytest 를 못 찾고, python 명령이 없는 Ubuntu 에서는 실행 자체가 실패함)
       opts.adapters['neotest-python'] = {
         runner = 'pytest',
-        python = function()
-          local venv = os.getenv('VIRTUAL_ENV')
-          if venv then
-            local win_py = venv .. '/Scripts/python.exe'
-            local unix_py = venv .. '/bin/python'
-            if vim.fn.filereadable(win_py) == 1 then
-              return win_py
-            elseif vim.fn.filereadable(unix_py) == 1 then
-              return unix_py
-            end
-          end
-          return 'python'
-        end,
       }
       return opts
     end,

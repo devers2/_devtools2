@@ -29,9 +29,18 @@ return {
         },
       })
 
-      -- 순성 Neovim의 기본 인라인 가상 텍스트를 비활성화 (tiny-inline과 겹침 방지)
+      -- 순정 Neovim의 기본 인라인 가상 텍스트를 비활성화 (tiny-inline과 겹침 방지)
       vim.diagnostic.config({ virtual_text = false })
     end,
+  },
+
+  -- ⚠️ 위 config()의 virtual_text = false 만으로는 부족합니다: LazyVim lspconfig 가 파일을 열 때
+  --   (LazyFile 이벤트) opts.diagnostics 로 vim.diagnostic.config()를 다시 호출해 virtual_text 를
+  --   되살립니다(실측: nvim 파일 지정 시작·빈 시작 후 :e 두 경우 모두 기본 가상 텍스트 + tiny-inline 이
+  --   이중으로 표시됨). tiny-inline-diagnostic 공식 README 의 LazyVim 안내대로 opts 에서 끕니다.
+  {
+    'neovim/nvim-lspconfig',
+    opts = { diagnostics = { virtual_text = false } },
   },
 
   -- [iamcco/markdown-preview.nvim 비활성화]

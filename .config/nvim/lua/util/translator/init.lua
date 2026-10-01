@@ -359,7 +359,9 @@ function M.process_queue()
   end
 
   local json_payload = vim.json.encode(batch)
-  pcall(vim.system, { python_cmd, '-c', _python_trans_script }, {
+  -- vim.system 실행 자체가 실패하면(pcall false) 콜백이 오지 않으므로 처리 중 플래그를 직접 풀어야 함
+  -- (안 풀면 이후 모든 번역 요청이 영구히 대기열에만 쌓임)
+  local spawned = pcall(vim.system, { python_cmd, '-c', _python_trans_script }, {
     stdin = json_payload,
     text = true,
   }, function(obj)
@@ -386,6 +388,9 @@ function M.process_queue()
       end
     end)
   end)
+  if not spawned then
+    M._is_processing = false
+  end
 end
 
 function M.request_translation_async(text)
