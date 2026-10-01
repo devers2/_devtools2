@@ -146,24 +146,8 @@ return {
         },
       },
 
-      setup = {
-        -- 2. 모든 LSP 서버 공통: 텍스트 변경사항 디바운스 전역 설정
-        ['*'] = (function()
-          local _flags_applied = false
-          return function(server, opts)
-            local lspconfig = require('lspconfig')
-            if not _flags_applied then
-              _flags_applied = true
-              lspconfig.util.default_config = vim.tbl_deep_extend('force', lspconfig.util.default_config, {
-                flags = {
-                  debounce_text_changes = 150, -- 코드가 바뀐 뒤 150ms 후 lsp 전송
-                },
-              })
-            end
-            return false -- false 리턴 시 기존 setup 흐름을 정상 진행시킵니다.
-          end
-        end)(),
-      },
+      -- (예전의 setup['*'] 에서 lspconfig.util.default_config 로 debounce_text_changes = 150 을 넣던 코드는
+      --  Neovim 0.11+ 의 기본값과 같아 효과가 없고, 사용 중단된 lspconfig 내부 API 를 건드려 제거했습니다.)
     },
   },
 }

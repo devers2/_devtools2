@@ -271,6 +271,15 @@ vim.api.nvim_create_autocmd('FileType', {
         return
       end
 
+      -- [중복 실행 방지] lazy.nvim 은 플러그인을 늦게 불러온 뒤 FileType 이벤트를 한 번 더 발생시키므로,
+      -- 처음 연 파일에서는 이 콜백이 두 번 실행되어 treesitter 시작·상태 메시지가 중복됩니다.
+      -- 같은 파일타입으로 이미 처리했고 하이라이터가 붙어 있으면 건너뜁니다.
+      local cur_ft = vim.bo[buf].filetype or ''
+      if vim.b[buf].dt2_ts_checked_ft == cur_ft and vim.treesitter.highlighter.active[buf] then
+        return
+      end
+      vim.b[buf].dt2_ts_checked_ft = cur_ft
+
       -- 특수 UI/플로팅 버퍼(도움말, 알림, 대시보드 등)는 검사 및 메시지 출력에서 제외
       local buftype = vim.bo[buf].buftype or ''
       if buftype ~= '' or not vim.bo[buf].buflisted then
@@ -367,9 +376,10 @@ vim.api.nvim_create_autocmd('FileType', {
 
       if is_light_tier then
         local reason_detail = is_inline_light and '인라인 script/style 최적화' or '중대형 파일 최적화'
-        vim.api.nvim_echo({ { string.format('Treesitter: 경량 적용 (%s) [%s]', reason_detail, basename), 'DiagnosticOk' } }, true, {})
+        -- 정상 적용 메시지는 화면에만 표시하고 :messages 이력에는 남기지 않음 (파일을 열 때마다 쌓이지 않도록)
+        vim.api.nvim_echo({ { string.format('Treesitter: 경량 적용 (%s) [%s]', reason_detail, basename), 'DiagnosticOk' } }, false, {})
       else
-        vim.api.nvim_echo({ { string.format('Treesitter: 적용 [%s]', basename), 'DiagnosticOk' } }, true, {})
+        vim.api.nvim_echo({ { string.format('Treesitter: 적용 [%s]', basename), 'DiagnosticOk' } }, false, {})
       end
     end)
   end,
