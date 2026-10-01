@@ -140,9 +140,10 @@ sys.exit(0 if sig.search(content) else 1)
         return 0
     fi
 
-    # 2. expected user.name 및 PAT 추출
+    # 2. 기대값(gpr.user / gpr.key) 추출
+    #    gpr.user 는 GitHub 로그인 아이디여야 하므로 Bitwarden 항목의 user.name(GitHub 아이디)을 우선합니다.
+    #    git config user.name 은 커밋 표시 이름(예: 실명)일 수 있어 다른 값이 없을 때만 대안으로 씁니다.
     local EXPECTED_USER=""
-    EXPECTED_USER=$(git config user.name 2>/dev/null || git config --global user.name 2>/dev/null || echo "")
 
     # bw_find_item_live 반환 형식: username\temail\tpassword\tpat\tnotes
     # (username 은 사용자 지정 필드 "user.name" 값, 없으면 이메일의 @ 앞부분)
@@ -157,9 +158,10 @@ sys.exit(0 if sig.search(content) else 1)
         fi
     fi
 
-    if [ -z "$EXPECTED_USER" ] && [ -n "$_BW_USERNAME" ]; then
-        EXPECTED_USER="$_BW_USERNAME"
-    fi
+    # 비교에 쓸 "확실한" 기대값: Bitwarden 에서 얻은 값만 (세션이 없으면 비교 불가 → 불일치로 보지 않음)
+    local VERIFIED_USER="$_BW_USERNAME"
+    local VERIFIED_PAT="$EXPECTED_PAT"
+    EXPECTED_USER="$_BW_USERNAME"
 
     # 3. ~/.gradle/gradle.properties 확인
     local GRADLE_PROPS_DIR="$HOME/.gradle"
@@ -178,11 +180,14 @@ sys.exit(0 if sig.search(content) else 1)
     # 4. 검증 및 수정 필요 여부 판단
     local NEEDS_UPDATE=false
 
-    if [ "$FILE_EXISTS" = "false" ]; then
+    # - 값이 비어 있으면 갱신 필요
+    # - Bitwarden 에서 기대값을 얻은 경우에만 값 비교 (세션이 없을 때 "빈 기대값 ≠ 저장값"으로
+    #   매번 다시 묻던 문제 방지)
+    if [ "$FILE_EXISTS" = "false" ] || [ -z "$CURRENT_USER" ] || [ -z "$CURRENT_KEY" ]; then
         NEEDS_UPDATE=true
-    elif [ -z "$CURRENT_USER" ] || [ "$CURRENT_USER" != "$EXPECTED_USER" ]; then
+    elif [ -n "$VERIFIED_USER" ] && [ "$CURRENT_USER" != "$VERIFIED_USER" ]; then
         NEEDS_UPDATE=true
-    elif [ -z "$CURRENT_KEY" ] || [ "$CURRENT_KEY" != "$EXPECTED_PAT" ]; then
+    elif [ -n "$VERIFIED_PAT" ] && [ "$CURRENT_KEY" != "$VERIFIED_PAT" ]; then
         NEEDS_UPDATE=true
     fi
 
@@ -234,7 +239,10 @@ sys.exit(0 if sig.search(content) else 1)
     chmod 600 "$GRADLE_PROPS_FILE" 2>/dev/null || true
 
     if [ -z "$EXPECTED_USER" ]; then
-        read -rp "🔑 gpr.user 에 설정할 GitHub 계정명(user.name)을 입력하세요: " EXPECTED_USER
+        # 기본값 후보: 이미 저장된 gpr.user → git 표시 이름 (엔터로 채택)
+        local _DEFAULT_USER="${CURRENT_USER:-$(git config --global user.name 2>/dev/null || true)}"
+        read -rp "🔑 gpr.user 에 설정할 GitHub 로그인 아이디를 입력하세요 [기본값: ${_DEFAULT_USER}]: " EXPECTED_USER
+        EXPECTED_USER="${EXPECTED_USER:-$_DEFAULT_USER}"
     fi
     if [ -z "$EXPECTED_PAT" ]; then
         read -rsp "🔑 gpr.key 에 설정할 GitHub PAT(Personal Access Token)을 입력하세요 (보안 마스킹): " EXPECTED_PAT
@@ -302,7 +310,8 @@ setup_rclone_sftp_mount() {
                     source "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh" 2>/dev/null || true
                 fi
                 if type set_wsl_conf_key >/dev/null 2>&1; then
-                    set_wsl_conf_key "boot" "systemd" "true" "$WSL_CONF"
+                    set_wsl_conf_key "boot" "systemd" "true" "$WSL_CONF" \
+                        || { echo "❌ /etc/wsl.conf 수정에 실패했습니다(sudo 권한 필요). 직접 [boot] systemd=true 를 추가하세요."; return 1; }
                 else
                     sudo python3 -c '
 import sys, os

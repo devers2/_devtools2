@@ -489,10 +489,16 @@ except Exception as e:
     sys.exit(1)
 '
 
-    if [ -w "$conf_file" ] || [ ! -e "$conf_file" -a -w "$conf_dir" ] || [ "$(id -u)" -eq 0 ]; then
+    # 쓰기 권한이 없으면 sudo 로 실행합니다. 비밀번호 없는 sudo 가 아니면 비밀번호를 묻습니다
+    # (예전에는 "sudo -n" 일 때만 실행해서, 일반 사용 중에는 아무것도 바꾸지 못한 채 호출부가 "완료"를 출력했음).
+    # 반환: 0 = 기록 성공, 1 = 실패(권한 없음 등)
+    if [ -w "$conf_file" ] || { [ ! -e "$conf_file" ] && [ -w "$conf_dir" ]; } || [ "$(id -u)" -eq 0 ]; then
         python3 -c "$py_script" "$conf_file" "$section" "$key" "$value"
-    elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    elif command -v sudo >/dev/null 2>&1; then
+        normalize_tty
         sudo python3 -c "$py_script" "$conf_file" "$section" "$key" "$value"
+    else
+        return 1
     fi
 }
 

@@ -68,7 +68,12 @@ export PATH="$JAVA_HOME/bin:$CURRENT_PATH_WITHOUT_OLD_JAVA_BIN"
 # 사용자의 로그인 셸이 zsh여도 이 스크립트 자신은 항상 bash 프로세스이므로 $BASH_VERSION만
 # 잡혀 .bashrc에 잘못 기록되고 zsh 세션에는 영구 반영되지 않습니다. 로그인 셸을 정확히
 # 반영하는 $SHELL(로그인 시 설정되어 하위 프로세스에도 상속됨)을 우선 사용합니다.
+# DT2_SWITCH_NO_PERSIST=1 이면 현재 셸에만 적용하고 영구 저장(local.sh / .zshrc)은 건너뜁니다.
+# (프로젝트 셋업 스크립트가 빌드에 필요한 버전으로 잠깐 전환할 때 사용자 기본값을 바꾸지 않기 위함)
 SHELL_RC=""
+if [ "${DT2_SWITCH_NO_PERSIST:-0}" = "1" ]; then
+    echo "[정보] 현재 셸에만 적용합니다 (DT2_SWITCH_NO_PERSIST=1, 기본 JDK 설정은 변경하지 않음)."
+else
 case "$SHELL" in
 */zsh) SHELL_RC="$HOME/.zshrc" ;;
 */bash) SHELL_RC="$HOME/.bashrc" ;;
@@ -121,6 +126,7 @@ elif [ -f "$SHELL_RC" ]; then
     fi
 else
     echo "[경고] 쉘 설정 파일(.bashrc 또는 .zshrc)을 찾을 수 없어 영구 적용은 수동으로 진행해야 합니다."
+fi
 fi
 
 echo "[완료] 현재 쉘에 Java $VERSION 버전이 적용되었습니다."
