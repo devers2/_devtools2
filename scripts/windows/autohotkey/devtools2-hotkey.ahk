@@ -112,7 +112,10 @@ _CleanupOnExit(reason, code) {
 
     if !_capsUsedAsCtrl {
         Send "{Esc}"
-        _SetImeToEnglish()  ; CapsLock 탭(→ Esc) 시 개발툴이면 즉시 영문 전환
+        ; CapsLock 탭(→ Esc) 시 개발툴이면 즉시 영문 전환 (Esc·Ctrl+[ 와 같은 조건).
+        ; 조건 없이 전환하면 브라우저·워드 등 일반 앱에서도 CapsLock 만 눌러 한글 입력이 영문으로 바뀜.
+        if _IsDevWindow()
+            _SetImeToEnglish()
     }
 
     _capsUsedAsCtrl := false

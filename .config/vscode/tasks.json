@@ -13,7 +13,16 @@
         // ⚠️ Out-File -Encoding utf8은 PS 5.1/7 모두 BOM을 붙입니다(이 저장소의 "순수
         // UTF-8 NoBOM 보장" 원칙 위반). 이 태스크는 powershell(PS 5.1 고정)로 실행되어
         // -Encoding utf8NoBOM(PS7 전용)도 쓸 수 없으므로, .NET API로 직접 BOM 없이 씁니다.
-        "command": "powershell -Command \"$exts = code --list-extensions | Where-Object { $_ -match '^[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+$' }; [System.IO.File]::WriteAllLines('$env:DEVTOOLS2\\.config\\vscode\\extensions.txt', $exts, (New-Object System.Text.UTF8Encoding $false))\""
+        // ⚠️ type=process 로 셸을 거치지 않고 powershell.exe 에 인자를 직접 넘깁니다. shell 타입이면
+        //   VSCode 기본 터미널(PowerShell)이 "..." 안의 $exts/$_ 를 먼저 빈 값으로 확장해 버립니다.
+        //   경로도 '...' 안의 $env:DEVTOOLS2 는 확장되지 않으므로(실측) Join-Path 로 만듭니다.
+        "type": "process",
+        "command": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-Command",
+          "$exts = code --list-extensions | Where-Object { $_ -match '^[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+$' }; [System.IO.File]::WriteAllLines((Join-Path $env:DEVTOOLS2 '.config\\vscode\\extensions.txt'), [string[]]$exts, (New-Object System.Text.UTF8Encoding $false)); Write-Output 'extensions.txt saved'"
+        ]
       },
       "problemMatcher": [],
       "presentation": {
