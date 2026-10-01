@@ -265,12 +265,14 @@ get_pids_by_port() {
             | sort -u)
     elif $IS_MAC; then
         if command -v lsof &>/dev/null; then
-            pids=$(lsof -ti :"$port" 2>/dev/null | sort -u)
+            pids=$(lsof -nP -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
         fi
     else
         # Linux / WSL2: lsof, ss, fuser 순차 시도
+        # ⚠️ 반드시 LISTEN 소켓만 봅니다. "lsof -ti :PORT" 는 로컬/원격 포트를 모두 매칭해서
+        #    그 포트로 "접속한 클라이언트"(예: 8080 백엔드로 프록시하는 vite 개발 서버)까지 종료합니다.
         if command -v lsof &>/dev/null; then
-            pids=$(lsof -ti :"$port" 2>/dev/null | sort -u)
+            pids=$(lsof -nP -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
         elif command -v ss &>/dev/null; then
             pids=$(ss -ltnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u)
         elif command -v fuser &>/dev/null; then
@@ -321,10 +323,22 @@ kill_pids() {
             fi
         done
     else
+        # SIGTERM 으로 먼저 정상 종료(Spring 종료 훅·임시 파일 정리 등)를 기회를 주고,
+        # 3초 안에 끝나지 않은 프로세스만 SIGKILL 합니다.
         for pid in $pids; do
             local pname
             pname=$(ps -p "$pid" -o comm= 2>/dev/null || echo "알 수 없음")
-            if kill -9 "$pid" 2>/dev/null; then
+            kill -TERM "$pid" 2>/dev/null || true
+            local _w=0
+            while kill -0 "$pid" 2>/dev/null && [[ $_w -lt 30 ]]; do
+                sleep 0.1
+                ((_w++))
+            done
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -9 "$pid" 2>/dev/null || true
+                sleep 0.2
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then
                 echo "  ✅ PID $pid ($pname) 종료 완료"
                 ((KILLED++))
             else
@@ -1324,7 +1338,7 @@ elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
             win_pids=$(netstat -ano 2>/dev/null | grep -E ":${PORT}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
             kill_pids "$win_pids"
         elif $IS_MAC; then
-            mac_pids=$(lsof -ti :"$PORT" 2>/dev/null)
+            mac_pids=$(lsof -nP -ti tcp:"$PORT" -sTCP:LISTEN 2>/dev/null)
             [[ -n "$mac_pids" ]] && kill_pids "$mac_pids"
         elif command -v fuser &>/dev/null; then
             fuser -k -9 "$PORT/tcp" &>/dev/null || true

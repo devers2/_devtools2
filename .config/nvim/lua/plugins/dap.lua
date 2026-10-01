@@ -117,7 +117,55 @@ return {
       -- [프로젝트 종속 디버기 프로세스 판별 헬퍼]
       -- IDE, LSP, Mason, 빌드 데몬(JDTLS, GradleDaemon)은 절대 건드리지 않고
       -- 오직 현재 프로젝트(cwd/MAIN_CLASS)의 런타임 디버깅 인스턴스만 정확히 식별합니다.
-      local function is_project_debuggee(cmd, root, main_class)
+      -- lang: 시작하려는 디버그 설정의 종류('java' | 'python' | 'node' | 'go' | 'native' | nil)
+      --   지정되면 그 언어의 런타임만 대상으로 삼습니다. 예) Java 디버그를 시작할 때 같은 저장소에서
+      --   돌고 있는 프론트엔드 vite/node 개발 서버를 함께 종료하지 않도록 합니다. nil 이면 전체 규칙 적용.
+
+      -- 명령행 첫 토큰(실행 파일)의 파일명만 소문자로 반환 (예: "/opt/jdk/bin/java" → "java")
+      local function exe_name(cmd_lower)
+        local exe = cmd_lower:match('^"([^"]+)"') or cmd_lower:match('^(%S+)') or ''
+        return exe:match('([^/\\]+)$') or exe
+      end
+
+      -- 명령행에 프로젝트 경로가 "경로 단위로" 들어 있는지 검사합니다.
+      -- 단순 부분 문자열 비교는 /a/proj 가 /a/proj-old, /a/project 에도 매치되므로,
+      -- 매치 바로 뒤 문자가 경로 구분자·공백·따옴표·콜론(클래스패스)·끝인 경우만 인정합니다.
+      local function contains_path(cmd_lower, root_lower)
+        if root_lower == '' then
+          return false
+        end
+        local init = 1
+        while true do
+          local s_idx, e_idx = cmd_lower:find(root_lower, init, true)
+          if not s_idx then
+            return false
+          end
+          local next_ch = cmd_lower:sub(e_idx + 1, e_idx + 1)
+          if next_ch == '' or next_ch:match('[/\\%s"\':;=]') then
+            return true
+          end
+          init = e_idx + 1
+        end
+      end
+
+      -- DAP 설정 type → 런타임 종류
+      local function lang_of(config_type)
+        local t = type(config_type) == 'string' and config_type:lower() or ''
+        if t == 'java' then
+          return 'java'
+        elseif t == 'python' or t == 'debugpy' then
+          return 'python'
+        elseif t == 'pwa-node' or t == 'node' or t == 'node2' or t == 'node-terminal' then
+          return 'node'
+        elseif t == 'go' or t == 'delve' then
+          return 'go'
+        elseif t == 'codelldb' or t == 'lldb' or t == 'cppdbg' or t == 'gdb' or t == 'rust' then
+          return 'native'
+        end
+        return nil
+      end
+
+      local function is_project_debuggee(cmd, root, main_class, lang)
         if not cmd or cmd == '' then
           return false
         end
@@ -147,75 +195,61 @@ return {
           return false
         end
 
-        local root_lower = root:lower()
+        local root_lower = (root or ''):lower()
+        local in_root = contains_path(cmd_lower, root_lower)
+        local exe = exe_name(cmd_lower)
+        local want = function(l)
+          return lang == nil or lang == l
+        end
 
         -- 2) Java / Spring Boot: MAIN_CLASS 일치 또는 프로젝트 경로 포함 java 런타임
-        if main_class and main_class ~= '' and cmd:find(main_class, 1, true) then
-          return true
-        end
-        if (cmd_lower:find('java', 1, true) or cmd_lower:find('javaw', 1, true)) and root ~= '' and cmd_lower:find(root_lower, 1, true) then
-          return true
+        --    (실행 파일 이름으로 판별 — "javascript" 같은 경로 문자열에 오탐하지 않도록)
+        if want('java') then
+          local is_java = exe == 'java' or exe == 'javaw' or exe == 'java.exe' or exe == 'javaw.exe'
+          if is_java and main_class and main_class ~= '' and cmd:find(main_class, 1, true) then
+            return true
+          end
+          if is_java and in_root then
+            return true
+          end
         end
 
         -- 3) Python: 현재 프로젝트 경로에서 실행 중인 python / uvicorn / gunicorn / debugpy
-        if
-          (
-            cmd_lower:find('python', 1, true)
-            or cmd_lower:find('uvicorn', 1, true)
-            or cmd_lower:find('debugpy', 1, true)
-            or cmd_lower:find('gunicorn', 1, true)
-          )
-          and root ~= ''
-          and cmd_lower:find(root_lower, 1, true)
-        then
-          return true
+        if want('python') and in_root then
+          if exe:match('^python') or exe == 'uvicorn' or exe == 'gunicorn' or cmd_lower:find('debugpy', 1, true) then
+            return true
+          end
         end
 
-        -- 4) Node.js / TypeScript: 현재 프로젝트 경로에서 실행 중인 node / tsx / next / vite
-        if
-          (
-            cmd_lower:find('node', 1, true)
-            or cmd_lower:find('tsx', 1, true)
-            or cmd_lower:find('ts-node', 1, true)
-            or cmd_lower:find('vite', 1, true)
-            or cmd_lower:find('next', 1, true)
-          )
-          and root ~= ''
-          and cmd_lower:find(root_lower, 1, true)
-        then
-          return true
+        -- 4) Node.js / TypeScript: 현재 프로젝트 경로에서 실행 중인 node / tsx / ts-node (vite, next 는 node 로 실행됨)
+        if want('node') and in_root then
+          if exe == 'node' or exe == 'node.exe' or exe == 'tsx' or exe == 'ts-node' or exe == 'bun' or exe == 'deno' then
+            return true
+          end
         end
 
         -- 5) Go: 현재 프로젝트 경로에서 실행 중인 dlv / go 디버그 바이너리
-        if
-          (
-            cmd_lower:find('dlv', 1, true)
-            or cmd_lower:find('__debug_bin', 1, true)
-          )
-          and root ~= ''
-          and cmd_lower:find(root_lower, 1, true)
-        then
-          return true
+        if want('go') and in_root then
+          if exe == 'dlv' or exe:find('__debug_bin', 1, true) then
+            return true
+          end
         end
 
-        -- 6) Rust: 현재 프로젝트 경로의 target/debug 또는 target/release 바이너리
-        if
-          (
-            cmd_lower:find('target/debug', 1, true)
-            or cmd_lower:find('target/release', 1, true)
-          )
-          and root ~= ''
-          and cmd_lower:find(root_lower, 1, true)
-        then
-          return true
+        -- 6) Rust/C/C++: 현재 프로젝트 경로의 target/debug 또는 target/release 바이너리
+        if want('native') and in_root then
+          if cmd_lower:find('target/debug/', 1, true) or cmd_lower:find('target/release/', 1, true) then
+            return true
+          end
         end
 
         return false
       end
 
-      local function kill_debuggee_process(session, on_done, target_main_class)
+      local function kill_debuggee_process(session, on_done, target_main_class, config_type)
         local cb = on_done or function() end
         local cur_session = session or dap.session()
+        -- 정리 대상 런타임 종류: 명시된 설정 type → 세션 설정 type 순으로 결정 (모르면 nil = 전체 규칙)
+        local lang = lang_of(config_type or (cur_session and cur_session.config and cur_session.config.type))
 
         -- Attach(외부 프로세스 연결) 세션인 경우 외부 프로세스는 절대 종료하지 않고 리턴
         if cur_session and cur_session.config and cur_session.config.request == 'attach' then
@@ -323,7 +357,7 @@ return {
               for line in out:gmatch('[^\r\n]+') do
                 local pid_str, cmd = line:match('^%s*(%d+)%s+(.*)$')
                 local pid = tonumber(pid_str)
-                if pid and pid ~= my_pid and is_project_debuggee(cmd, root, main_class) then
+                if pid and pid ~= my_pid and is_project_debuggee(cmd, root, main_class, lang) then
                   to_kill[pid] = true
                 end
               end
@@ -1117,7 +1151,7 @@ return {
           end
 
           orig_run(config, run_opts)
-        end, config and config.mainClass)
+        end, config and config.mainClass, config and config.type)
       end
 
 

@@ -112,6 +112,57 @@ clear_clipboard_delayed() {
     ( sleep "$sec" && clear_clipboard ) >/dev/null 2>&1 &
 }
 
+# ── 호출자 trap 보존 헬퍼 ────────────────────────────────────────────────────
+# bw-lib 은 다른 스크립트에 source 되므로, 임시 파일 정리용 trap 을 걸었다가 "trap -"로 지우면
+# 호출한 스크립트가 걸어 둔 EXIT/INT/TERM trap(예: 임시 권한 회수)까지 사라집니다.
+# 걸기 전에 기존 trap 을 저장(_bw_trap_save)하고, 끝나면 그대로 복원(_bw_trap_restore)합니다.
+_bw_trap_save() {
+    _BW_SAVED_TRAPS="$(trap -p EXIT INT TERM)"
+}
+_bw_trap_restore() {
+    trap - EXIT INT TERM
+    [ -n "${_BW_SAVED_TRAPS:-}" ] && eval "$_BW_SAVED_TRAPS"
+    _BW_SAVED_TRAPS=""
+}
+
+# ── rclone 공용 헬퍼 (bw-server-manager, setup-projects/common-setup.sh 공용) ──────
+# rclone.conf 경로: 사용자 홈(~/.config/rclone/rclone.conf, rclone 기본 위치)을 사용합니다.
+# - 예전에는 공유 트리($DEVTOOLS2/modules/rclone/.config)에 두어, 여러 사용자가 쓰는 서버에서
+#   한 파일을 같이 쓰거나(600 이면 다른 사용자는 읽지 못해 실패) 그룹원이 2770 디렉터리 안의
+#   파일을 바꿔치기할 수 있었습니다. 비밀(난독화된 SFTP 비밀번호)은 각자 홈에 둡니다.
+dt2_rclone_conf_path() {
+    local _legacy="${DEVTOOLS2:-/var/opt/_devtools2}/modules/rclone/.config/rclone.conf"
+    if [ -n "${RCLONE_CONFIG:-}" ] && [ "$RCLONE_CONFIG" != "$_legacy" ]; then
+        echo "$RCLONE_CONFIG"
+    else
+        echo "$HOME/.config/rclone/rclone.conf"
+    fi
+}
+
+# rclone 리모트의 pass 값을 설정 파일에 직접 기록합니다.
+# 사용법: printf '%s' "$OBSCURED_PASS" | dt2_rclone_set_pass <리모트이름> <rclone.conf 경로>
+# ⚠️ "rclone config create ... pass <값>" 처럼 인자로 넘기면 ps//proc 에 보이고,
+#    rclone obscure 값은 "rclone reveal" 로 평문 복원이 가능하므로 사실상 평문 노출입니다.
+#    그래서 값은 stdin 으로만 받아 파이썬이 파일(0600)에 씁니다.
+dt2_rclone_set_pass() {
+    python3 -c '
+import configparser, os, sys
+remote, path = sys.argv[1:3]
+value = sys.stdin.read().strip()
+c = configparser.ConfigParser(interpolation=None)
+c.optionxform = str
+c.read(path, encoding="utf-8")
+if not c.has_section(remote):
+    sys.stderr.write("rclone 리모트를 찾을 수 없습니다: %s\n" % remote)
+    sys.exit(1)
+c.set(remote, "pass", value)
+fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w", encoding="utf-8") as f:
+    c.write(f)
+os.chmod(path, 0o600)
+' "$1" "$2"
+}
+
 # ── 인메모리 비ASCII 문자 검사 함수 (프로세스 인자 노출 방지) ─────────────────
 # C 로케일에서 [:print:] 는 0x20~0x7E 이므로, 그 밖의 바이트가 하나라도 있으면 참
 has_non_ascii() ( LC_ALL=C; [[ "$1" == *[![:print:]]* ]] )
@@ -610,6 +661,7 @@ bw_save_git_credentials() {
     local _cred_line="https://${_cred_user}:${_pat}@${_cred_host}"
     local _tmp_creds
     _tmp_creds=$(umask 077 && mktemp /tmp/bw_cred_XXXXXX 2>/dev/null || mktemp)
+    _bw_trap_save
     trap 'rm -f "$_tmp_creds"' EXIT INT TERM
     (umask 077 && touch ~/.git-credentials)
     chmod 600 ~/.git-credentials 2>/dev/null || true
@@ -617,7 +669,7 @@ bw_save_git_credentials() {
     echo "$_cred_line" >> "$_tmp_creds"
     chmod 600 "$_tmp_creds"
     mv "$_tmp_creds" ~/.git-credentials
-    trap - EXIT INT TERM
+    _bw_trap_restore
     echo "✅ PAT 가 ~/.git-credentials 에 저장되었습니다. (host: $_cred_host)"
 }
 
@@ -676,6 +728,7 @@ case "$1" in
   Password*) printf '%s\n' "$BW_ASKPASS_PAT"  ;;
 esac
 ASKEOF
+    _bw_trap_save
     trap 'rm -f "$_ASKPASS"' EXIT INT TERM
 
     echo "🚀 저장소 클론 중: $_REPO_URL -> $_TARGET_DIR"
@@ -686,7 +739,7 @@ ASKEOF
     git clone "$_REPO_URL" "$_TARGET_DIR"
     local _RC=$?
     rm -f "$_ASKPASS"
-    trap - EXIT INT TERM
+    _bw_trap_restore
 
     if [ $_RC -eq 0 ]; then
         echo "✅ 깃 클론 완료!"
