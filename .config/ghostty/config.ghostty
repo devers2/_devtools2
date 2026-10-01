@@ -63,7 +63,3 @@ mouse-hide-while-typing = true
 # 스크롤백 히스토리 제한 (메모리 부족 OOM 방지)
 scrollback-limit = 10000
 
-# Windows/Linux 공통 설정: 기본 실행 셸로 pwsh.exe 설정
-# (윈도우에서는 PowerShell 7이 열리며, 리눅스에서는 scripts/linux/cmd/pwsh.exe 래퍼가 가로채어 bash를 띄웁니다)
-command = "pwsh.exe"
-

@@ -288,7 +288,7 @@ local function detect_default_entry(lang)
       app_files = vim.fn.globpath(cwd, 'src/main/kotlin/**/*Application.kt', false, true)
     end
     if #app_files > 0 then
-      local normalized = app_files[1]:gsub('\\', '/')
+      local normalized = app_files[1]
       local rel = normalized:gsub('.*/src/main/[^/]+/', ''):gsub('%.java$', ''):gsub('%.kt$', '')
       return rel:gsub('/', '.')
     end
@@ -335,7 +335,7 @@ local function detect_default_entry(lang)
       -- cwd 기준 상대경로 추출 (상위 경로에 'cmd'가 포함되어도 안전)
       local abs = vim.fn.fnamemodify(cmd_mains[1], ':p')
       local cwd_normalized = vim.fn.fnamemodify(cwd, ':p')
-      local rel = abs:sub(#cwd_normalized + 1):gsub('\\', '/')
+      local rel = abs:sub(#cwd_normalized + 1)
       -- ':p' modifier가 trailing slash를 붙이지 않는 엣지케이스 방어
       rel = rel:gsub('^/', '')
       return rel
@@ -597,7 +597,7 @@ local function build_configuration(lang, answers)
     return config
   elseif lang == 'python' then
     local cwd = vim.fn.getcwd()
-    local clean_q2 = q2:gsub('^[/\\]+', ''):gsub('[/\\]+$', '')
+    local clean_q2 = q2:gsub('^/+', ''):gsub('/+$', '')
     local venv_name = clean_q2 ~= '' and clean_q2 or '.venv'
     local python_bin = '${workspaceFolder}/' .. venv_name .. '/bin/python3'
 
@@ -628,7 +628,7 @@ local function build_configuration(lang, answers)
       end
       return config
     else
-      local clean_q1 = q1:gsub('^[/\\]+', '')
+      local clean_q1 = q1:gsub('^/+', '')
       local config = {
         type = 'debugpy',
         name = display_name,
@@ -646,8 +646,8 @@ local function build_configuration(lang, answers)
       return config
     end
   elseif lang == 'node' then
-    local clean_q1 = q1:gsub('^[/\\]+', '')
-    local clean_q2 = q2:gsub('^[/\\]+', ''):gsub('[/\\]+$', '')
+    local clean_q1 = q1:gsub('^/+', '')
+    local clean_q2 = q2:gsub('^/+', ''):gsub('/+$', '')
     local display_name = 'Node: '
       .. (clean_q2 ~= '' and (clean_q2 .. ' - ') or '')
       .. clean_q1
@@ -666,8 +666,8 @@ local function build_configuration(lang, answers)
     end
     return config
   elseif lang == 'go' then
-    local clean_q1 = q1:gsub('^[/\\]+', '')
-    local clean_q2 = q2:gsub('^[/\\]+', ''):gsub('[/\\]+$', '')
+    local clean_q1 = q1:gsub('^/+', '')
+    local clean_q2 = q2:gsub('^/+', ''):gsub('/+$', '')
     local display_name = 'Go: '
       .. (clean_q2 ~= '' and (clean_q2 .. ' - ') or '')
       .. clean_q1
@@ -687,7 +687,7 @@ local function build_configuration(lang, answers)
     end
     return config
   elseif lang == 'rust' then
-    local clean_q1 = q1:gsub('^[/\\]+', ''):gsub('%.exe$', '')
+    local clean_q1 = q1:gsub('^/+', '')
     local mode = (q2 == 'release') and 'release' or 'debug'
     local display_name = 'Rust: ' .. clean_q1 .. ' (' .. mode .. ')'
 

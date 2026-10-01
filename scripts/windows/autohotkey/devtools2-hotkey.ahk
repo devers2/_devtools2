@@ -41,7 +41,8 @@ _SetImeToEnglish() {
     }
 }
 
-; 개발툴(Windows Terminal / VS Code / Cursor / Zed / Neovim GUI 등) 활성 여부 판별
+; 개발툴(Windows Terminal / VS Code / Cursor / Zed / Neovide) 활성 여부 판별
+; (Neovide 는 neovide --wsl 로 WSL 안의 Neovim 에 붙어 쓰는 GUI 라 포함합니다)
 _IsDevWindow() {
     return WinActive("ahk_exe WindowsTerminal.exe")
         or WinActive("ahk_exe WindowsTerminalPreview.exe")
@@ -50,8 +51,6 @@ _IsDevWindow() {
         or WinActive("ahk_exe Cursor.exe")
         or WinActive("ahk_exe zed.exe")
         or WinActive("ahk_exe neovide.exe")
-        or WinActive("ahk_exe nvim-qt.exe")
-        or WinActive("ahk_exe ghostty.exe")
 }
 
 ; ------------------------------------------------------------------------------

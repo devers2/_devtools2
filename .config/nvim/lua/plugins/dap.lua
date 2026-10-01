@@ -124,7 +124,7 @@ return {
       -- 명령행 첫 토큰(실행 파일)의 파일명만 소문자로 반환 (예: "/opt/jdk/bin/java" → "java")
       local function exe_name(cmd_lower)
         local exe = cmd_lower:match('^"([^"]+)"') or cmd_lower:match('^(%S+)') or ''
-        return exe:match('([^/\\]+)$') or exe
+        return exe:match('([^/]+)$') or exe
       end
 
       -- 명령행에 프로젝트 경로가 "경로 단위로" 들어 있는지 검사합니다.
@@ -141,7 +141,7 @@ return {
             return false
           end
           local next_ch = cmd_lower:sub(e_idx + 1, e_idx + 1)
-          if next_ch == '' or next_ch:match('[/\\%s"\':;=]') then
+          if next_ch == '' or next_ch:match('[/%s"\':;=]') then
             return true
           end
           init = e_idx + 1
@@ -205,7 +205,7 @@ return {
         -- 2) Java / Spring Boot: MAIN_CLASS 일치 또는 프로젝트 경로 포함 java 런타임
         --    (실행 파일 이름으로 판별 — "javascript" 같은 경로 문자열에 오탐하지 않도록)
         if want('java') then
-          local is_java = exe == 'java' or exe == 'javaw' or exe == 'java.exe' or exe == 'javaw.exe'
+          local is_java = exe == 'java'
           if is_java and main_class and main_class ~= '' and cmd:find(main_class, 1, true) then
             return true
           end
@@ -223,7 +223,7 @@ return {
 
         -- 4) Node.js / TypeScript: 현재 프로젝트 경로에서 실행 중인 node / tsx / ts-node (vite, next 는 node 로 실행됨)
         if want('node') and in_root then
-          if exe == 'node' or exe == 'node.exe' or exe == 'tsx' or exe == 'ts-node' or exe == 'bun' or exe == 'deno' then
+          if exe == 'node' or exe == 'tsx' or exe == 'ts-node' or exe == 'bun' or exe == 'deno' then
             return true
           end
         end
@@ -266,7 +266,7 @@ return {
         local my_pid = vim.uv.os_getpid()
         ---@diagnostic disable-next-line: undefined-field
         local root = (_G.PROJECT_ROOT and vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p')) or vim.fn.getcwd()
-        root = root:gsub('\\', '/'):gsub('/+$', '')
+        root = root:gsub('/+$', '')
         ---@diagnostic disable-next-line: undefined-field
         local main_class = target_main_class or _G.MAIN_CLASS
 

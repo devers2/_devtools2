@@ -657,8 +657,8 @@ vim.api.nvim_create_autocmd('BufWritePost', {
         return
       end
 
-      -- 절대 경로 정규화 (상대경로, ~경로, 윈도우 역슬래시 모두 대응)
-      local normalized_path = vim.fn.fnamemodify(fname, ':p'):gsub('\\', '/')
+      -- 절대 경로 정규화 (상대경로, ~경로 대응)
+      local normalized_path = vim.fn.fnamemodify(fname, ':p')
       if not normalized_path:match('/%.vscode/launch%.json$') then
         return
       end

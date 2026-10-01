@@ -106,7 +106,7 @@ return {
           end,
           settings = (function()
             local raw_config = _G.DEVTOOLS2_DIR .. '/.config/eslint/eslint.config.mjs'
-            local config_file = (vim.uv.fs_realpath(raw_config) or raw_config):gsub('\\', '/')
+            local config_file = vim.uv.fs_realpath(raw_config) or raw_config
             local node_path = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/lib/node_modules'
             return {
               workingDirectory = { mode = 'location' },
