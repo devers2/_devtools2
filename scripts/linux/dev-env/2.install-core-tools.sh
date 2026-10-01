@@ -85,6 +85,8 @@ fetch_latest_nodejs() {
 LOG_DIR="$DEVTOOLS2/data/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/deploy_$(date +%Y%m%d_%H%M%S).log"
+# 설치 로그는 최근 20개만 남기고 정리합니다 (실행할 때마다 무한히 쌓이지 않도록)
+ls -1t "$LOG_DIR"/deploy_*.log 2>/dev/null | tail -n +20 | xargs -r rm -f -- 2>/dev/null || true
 
 # ARCH/IS_ARM64/IS_WSL2/show_spinner/install_tool 은 _install-utils.sh / _common.sh 에서 로드됨
 

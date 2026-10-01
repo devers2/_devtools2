@@ -98,11 +98,18 @@ if [ "$_do_vscode" = true ]; then
                 fi
                 if download_with_progress "https://code.visualstudio.com/sha/download?build=stable&os=${_deb_os}" "$_vscode_tmp" "VSCode .deb 패키지"; then
                     echo -n "   📦 VSCode 패키지 설치 중..."
-                    (sudo dpkg -i "$_vscode_tmp" 2>/dev/null || sudo apt-get install -f -y 2>/dev/null || true) &
+                    (sudo dpkg -i "$_vscode_tmp" >/dev/null 2>&1 || sudo apt-get install -f -y >/dev/null 2>&1 || true) &
                     show_spinner $!
-                    echo " 완료"
+                    wait $! 2>/dev/null || true
                     rm -f "$_vscode_tmp"
-                    print_done "VSCode 설치 완료"
+                    # 설치 성공 여부는 code 명령이 실제로 생겼는지로 판단합니다(예전에는 실패해도 "완료" 출력).
+                    if command -v code >/dev/null 2>&1; then
+                        echo " 완료"
+                        print_done "VSCode 설치 완료"
+                    else
+                        echo " 실패"
+                        print_warn "VSCode 패키지 설치에 실패했습니다. 수동으로 설치하세요: https://code.visualstudio.com/"
+                    fi
                 else
                     print_warn "VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
                     rm -f "$_vscode_tmp"

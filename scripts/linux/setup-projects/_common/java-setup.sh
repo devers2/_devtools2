@@ -393,10 +393,13 @@ setup_gradle_spring_project() {
 
     # 1-1. SFTP 마운트 설정 (선택, SFTP 옵션 지정 시)
     if [ -n "$SFTP_SPEC" ] || [ -n "$SFTP_USER" ]; then
+        # 반환 2 = WSL systemd 미활성(재시작 필요). 마운트만 나중으로 미루고 나머지 셋업은 계속합니다
+        # (예전에는 여기서 return 0 으로 gpr·.nvim.lua·VSCode 설정까지 조용히 건너뛰었음).
+        local _sftp_pending=false
         handle_sftp_mount_options "$SFTP_SPEC" "$SFTP_USER" "$SFTP_HOST" "$SFTP_PORT" "$SFTP_REMOTE_PATH" "$SFTP_LOCAL_PATH" "$APP_NAME" || {
             local _exit_code=$?
             if [ "$_exit_code" -eq 2 ]; then
-                return 0
+                _sftp_pending=true
             fi
         }
     fi
@@ -419,5 +422,8 @@ setup_gradle_spring_project() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "🎉 [$APP_NAME] Gradle Spring Boot 프로젝트 설정이 성공적으로 완료되었습니다!"
     echo "📁 프로젝트 위치: $TARGET_DIR"
+    if [ "${_sftp_pending:-false}" = true ]; then
+        echo "⚠️  SFTP 마운트는 아직 설정되지 않았습니다. 'wsl --shutdown' 으로 WSL 을 재시작한 뒤 이 스크립트를 다시 실행하세요."
+    fi
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }

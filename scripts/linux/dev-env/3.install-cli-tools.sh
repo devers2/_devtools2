@@ -495,12 +495,16 @@ install_cli_tool() {
         fi
     else
         echo " ❌ $id 다운로드/설치 실패" >&2
+        _CLI_FAILED+=("$id")
     fi
 }
 
 # ─────────────────────────────────────────────────────────────────
 # 각 CLI 도구 순차 설치 실행
 # ─────────────────────────────────────────────────────────────────
+# 설치에 실패한 도구 목록 (마지막에 요약 출력)
+# 도구 하나가 실패해도 나머지 설치는 계속하므로 종료 코드는 바꾸지 않고, 실패 내역을 눈에 띄게 알립니다.
+_CLI_FAILED=()
 install_cli_tool "fzf" "fzf - 터미널용 퍼지 파인더" "junegunn/fzf" "$FZF_PINNED" "$FZF_VERSION" "$FZF_INSTALLED" "fzf/fzf" 0 "fzf"
 install_cli_tool "lazygit" "lazygit - 터미널 UI Git 도구" "jesseduffield/lazygit" "$LAZYGIT_PINNED" "$LAZYGIT_VERSION" "$LAZYGIT_INSTALLED" "lazygit/lazygit" 0 "lazygit"
 install_cli_tool "ripgrep" "ripgrep (rg) - 코드 검색 도구" "BurntSushi/ripgrep" "$RIPGREP_PINNED" "$RIPGREP_VERSION" "$RIPGREP_INSTALLED" "ripgrep/rg" 1 "ripgrep"
@@ -530,7 +534,12 @@ for cmd in "$MODULES_DIR/ripgrep/rg" "$MODULES_DIR/fd/fd" "$MODULES_DIR/fzf/fzf"
     fi
 done
 
-print_done "모든 바이너리 도구($ARCH) 설치가 완료되었습니다!"
+if [ ${#_CLI_FAILED[@]} -gt 0 ]; then
+    print_warn "설치에 실패한 도구 ${#_CLI_FAILED[@]}개: ${_CLI_FAILED[*]}"
+    print_info "  네트워크 확인 후 이 스크립트를 다시 실행하면 실패한 도구만 다시 설치합니다."
+else
+    print_done "모든 바이너리 도구($ARCH) 설치가 완료되었습니다!"
+fi
 echo ""
 
 echo "---------------------------------------------------------------------------"
@@ -594,13 +603,23 @@ cd "$HEREROCKS_DIR"
 # 임시 PATH 추가 (pip로 설치된 hererocks 바이너리를 현재 셸 환경에 즉시 연동)
 export PATH="$HOME/.local/bin:$PATH"
 
-echo -n "   ⚙️ hererocks 구성 중 (Lua 5.1 / Luarocks 최신)..."
-(hererocks . -l 5.1 -r latest >/tmp/_hererocks_install.log 2>&1) &
-_hero_pid=$!
-show_spinner "$_hero_pid"
+# 이미 구성되어 있으면(lua·luarocks 실행 파일 존재) Lua 를 다시 컴파일하지 않습니다.
+# 다시 만들려면 중복 처리 방식에서 '삭제 후 재설치'를 고르거나 DT2_DUPLICATE_MODE=reinstall 로 실행하세요.
 _hero_ec=0
-wait "$_hero_pid" 2>/dev/null || _hero_ec=$?
-if [ "$_hero_ec" -eq 0 ]; then
+if [ -x "$HEREROCKS_DIR/bin/lua" ] && [ -x "$HEREROCKS_DIR/bin/luarocks" ] \
+    && [ "$DUPLICATE_MODE" != "remove" ] && [ "$DUPLICATE_MODE" != "reinstall" ]; then
+    echo "   ⏭️  [건너뜀] hererocks(Lua 5.1 / Luarocks)가 이미 구성되어 있습니다."
+    _hero_ec=skip
+else
+    echo -n "   ⚙️ hererocks 구성 중 (Lua 5.1 / Luarocks 최신)..."
+    (hererocks . -l 5.1 -r latest >/tmp/_hererocks_install.log 2>&1) &
+    _hero_pid=$!
+    show_spinner "$_hero_pid"
+    wait "$_hero_pid" 2>/dev/null || _hero_ec=$?
+fi
+if [ "$_hero_ec" = "skip" ]; then
+    :
+elif [ "$_hero_ec" -eq 0 ]; then
     rm -f /tmp/_hererocks_install.log 2>/dev/null
     echo " 완료"
     print_done "hererocks / Lua 환경 구성 완료"

@@ -437,10 +437,11 @@ setup_python_fastapi_project() {
 
     # 3. SFTP 마운트 설정 (선택, SFTP 옵션 지정 시)
     if [ -n "$SFTP_SPEC" ] || [ -n "$SFTP_USER" ]; then
+        # 반환 2 = WSL systemd 미활성(재시작 필요). 마운트만 나중으로 미루고 나머지 셋업은 계속합니다.
         handle_sftp_mount_options "$SFTP_SPEC" "$SFTP_USER" "$SFTP_HOST" "$SFTP_PORT" "$SFTP_REMOTE_PATH" "$SFTP_LOCAL_PATH" "$APP_NAME" || {
             local _exit_code=$?
             if [ "$_exit_code" -eq 2 ]; then
-                return 0
+                echo "⚠️  SFTP 마운트는 WSL 재시작('wsl --shutdown') 후 이 스크립트를 다시 실행하면 설정됩니다. 나머지 설정은 계속 진행합니다."
             fi
         }
     fi

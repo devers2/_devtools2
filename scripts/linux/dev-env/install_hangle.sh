@@ -22,8 +22,11 @@ if ! im-config -n fcitx5; then
     exit 1
 fi
 
-echo ">>> .bashrc 파일 백업 생성 중..."
-cp ~/.bashrc ~/.bashrc.bak
+# 원본 .bashrc 백업은 처음 한 번만 만듭니다(재실행할 때마다 덮어쓰면 원래 백업이 사라짐).
+if [ ! -f ~/.bashrc.bak ]; then
+    echo ">>> .bashrc 파일 백업 생성 중..."
+    cp ~/.bashrc ~/.bashrc.bak
+fi
 
 echo ">>> 환경 변수 등록 중..."
 
