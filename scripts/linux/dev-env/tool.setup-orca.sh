@@ -67,12 +67,69 @@ fi
 ORCA_APPIMAGE="$ORCA_DIR/$ORCA_APPIMAGE_NAME"
 
 _orca_proceed=false
+_orca_updated=false
+ORCA_VERSION_FILE="$ORCA_DIR/.version"
+
+# 최신 릴리스 태그(예: v1.4.218)를 받아 SHA256 검증 후 원자적으로 설치하고 버전을 기록합니다.
+# ⚠️ 임시 파일로 받아 검증한 뒤 옮기는 safe_download_binary 를 씁니다. 대상 경로에 바로 받으면
+#   다운로드가 중간에 끊겼을 때 깨진 AppImage 가 남고, 다음 실행부터는 "이미 존재"로 판정되어
+#   다시 받지 않습니다. 실행 중인 orca serve 가 있어도 mv 교체는 안전합니다(기존 프로세스는 옛 파일을 계속 씀).
+# 인수: $1 = 설치할 태그(빈 값이면 latest 로 받되 체크섬 검증은 생략)
+_orca_download() {
+    local tag="$1" url sha=""
+    url="https://github.com/stablyai/orca/releases/latest/download/${ORCA_APPIMAGE_NAME}"
+    if [ -n "$tag" ]; then
+        url="https://github.com/stablyai/orca/releases/download/${tag}/${ORCA_APPIMAGE_NAME}"
+        sha=$(github_asset_sha256 "stablyai/orca" "$tag" "$ORCA_APPIMAGE_NAME")
+    fi
+    [ -z "$sha" ] && print_warn "Orca SHA256 을 조회하지 못해 체크섬 검증 없이 다운로드합니다."
+    mkdir -p "$ORCA_DIR"
+    if safe_download_binary "$url" "$ORCA_APPIMAGE" 755 "$sha" "Orca AppImage${tag:+ ${tag}}"; then
+        if [ -n "$tag" ]; then
+            echo "$tag" > "$ORCA_VERSION_FILE"
+        else
+            rm -f "$ORCA_VERSION_FILE"
+        fi
+        return 0
+    fi
+    print_error "Orca AppImage 다운로드 실패 (기존 파일이 있었다면 그대로 유지됩니다)"
+    return 1
+}
+
+_orca_latest=$(fetch_latest_github "stablyai/orca")
 
 if [ -f "$ORCA_APPIMAGE" ]; then
-    echo "   ⏭️ [건너뜀] orca AppImage가 이미 존재합니다. (재설치하려면 삭제: sudo rm -rf '$ORCA_DIR')"
-    echo "   ℹ️  이미 설치되어 있어도 아래 systemd/페어링 상태는 매번 다시 점검합니다"
-    echo "      (예: systemd 활성화를 위해 WSL을 재시작하고 이 스크립트를 다시 실행한 경우)."
     _orca_proceed=true
+    _orca_cur=""
+    [ -f "$ORCA_VERSION_FILE" ] && _orca_cur=$(head -n1 "$ORCA_VERSION_FILE" 2>/dev/null | tr -d '[:space:]')
+
+    # ── 이미 설치됨: 새 버전이 있으면 업데이트 여부를 묻습니다 ──
+    # (Windows Orca 앱은 스스로 업데이트되므로, WSL 쪽 서버만 옛 버전에 머물면 페어링·기능이 어긋날 수 있음)
+    if [ -z "$_orca_latest" ]; then
+        echo "   ℹ️  Orca 가 설치되어 있습니다(${_orca_cur:-버전 기록 없음}). 최신 버전 확인에 실패해 업데이트 확인은 건너뜁니다."
+    elif [ "$_orca_cur" = "$_orca_latest" ]; then
+        echo "   ✅ Orca 가 최신 버전입니다 ($_orca_cur)."
+    else
+        echo "   🆕 Orca 새 버전이 있습니다: ${_orca_cur:-알 수 없음(버전 기록 없음)} → $_orca_latest"
+        _do_update=false
+        if [ -n "${DT2_ORCA_UPDATE:-}" ]; then
+            [ "${DT2_ORCA_UPDATE,,}" = "y" ] && _do_update=true
+        elif dt2_is_noninteractive; then
+            # 무인 실행에서는 다른 도구들과 같은 규칙(기존 설치 유지)을 따릅니다.
+            echo "   ⏭️  비대화형 실행이라 업데이트를 건너뜁니다 (DT2_ORCA_UPDATE=y 로 강제 가능)."
+        elif prompt_confirm "👉 Orca 를 $_orca_latest 로 업데이트할까요? (실행 중인 orca serve 가 재시작되어 진행 중 세션이 끊길 수 있음)" "Y"; then
+            _do_update=true
+        fi
+        if [ "$_do_update" = true ]; then
+            if _orca_download "$_orca_latest"; then
+                echo "   ✅ Orca 업데이트 완료 → $_orca_latest"
+                _orca_updated=true
+            fi
+        else
+            echo "   ⏭️  Orca 업데이트를 건너뜁니다 (현재 버전 유지)."
+        fi
+    fi
+    echo "   ℹ️  아래 의존성·에이전트·systemd·페어링 상태는 매번 다시 점검합니다."
 else
     echo "   ℹ️  Orca는 여러 코딩 에이전트를 Git worktree로 격리해 병렬로 실행/조율하는"
     echo "      에이전트 오케스트레이션 도구입니다 (Claude Code, Codex, Gemini 등 지원)."
@@ -85,33 +142,16 @@ else
     fi
 
     if [ "$_do_orca" = true ]; then
-            if [ "$IS_WSL2" = true ]; then
-                echo "   ⚠️  [WSL2 환경 감지] Orca 실행부(orca serve)는 CLI 에이전트가 실제로 설치된"
-                echo "      이 WSL2 내부에 헤드리스로 설치합니다. Windows 쪽에는 여기 페어링만 하는"
-                echo "      GUI 클라이언트가 별도로 설치됩니다(tool.setup-orca.ps1)."
-                echo ""
-            fi
-
-            mkdir -p "$ORCA_DIR"
-            # ⚠️ 임시 파일로 받아 검증한 뒤 옮기는 safe_download_binary 를 씁니다. 대상 경로에 바로 받으면
-            #   다운로드가 중간에 끊겼을 때 깨진 AppImage 가 남고, 다음 실행부터는 "이미 존재"로 판정되어
-            #   다시 받지 않습니다. 최신 태그를 확인해 GitHub API 의 SHA256(digest)으로 무결성도 검증합니다
-            #   (태그/digest 조회 실패 시에는 검증 없이 latest 로 받되, 원자적 교체는 그대로 유지).
-            _orca_tag=$(fetch_latest_github "stablyai/orca")
-            _orca_url="https://github.com/stablyai/orca/releases/latest/download/${ORCA_APPIMAGE_NAME}"
-            _orca_sha=""
-            if [ -n "$_orca_tag" ]; then
-                _orca_url="https://github.com/stablyai/orca/releases/download/${_orca_tag}/${ORCA_APPIMAGE_NAME}"
-                _orca_sha=$(github_asset_sha256 "stablyai/orca" "$_orca_tag" "$ORCA_APPIMAGE_NAME")
-            fi
-            [ -z "$_orca_sha" ] && print_warn "Orca SHA256 을 조회하지 못해 체크섬 검증 없이 다운로드합니다."
-            if safe_download_binary "$_orca_url" "$ORCA_APPIMAGE" 755 "$_orca_sha" "Orca AppImage${_orca_tag:+ ${_orca_tag}}"; then
-                echo "   ✅ orca ($ARCH${_orca_tag:+, ${_orca_tag}}) 설치 완료 → $ORCA_APPIMAGE"
-                _orca_proceed=true
-            else
-                print_error "Orca AppImage 다운로드 실패"
-                _orca_proceed=false
-            fi
+        if [ "$IS_WSL2" = true ]; then
+            echo "   ⚠️  [WSL2 환경 감지] Orca 실행부(orca serve)는 CLI 에이전트가 실제로 설치된"
+            echo "      이 WSL2 내부에 헤드리스로 설치합니다. Windows 쪽에는 여기 페어링만 하는"
+            echo "      GUI 클라이언트가 별도로 설치됩니다(tool.setup-orca.ps1)."
+            echo ""
+        fi
+        if _orca_download "$_orca_latest"; then
+            echo "   ✅ orca ($ARCH${_orca_latest:+, ${_orca_latest}}) 설치 완료 → $ORCA_APPIMAGE"
+            _orca_proceed=true
+        fi
     else
         echo "   ⏭️ Orca 설치를 건너뜁니다."
     fi
@@ -141,6 +181,63 @@ if [ "$_orca_proceed" = true ]; then
         echo " 완료"
     fi
 
+    # Orca(Electron) 실행 파일이 직접 링크하는 시스템 라이브러리.
+    # ⚠️ 최소 설치 Ubuntu(WSL rootfs 포함)에는 libnss3·libnspr4·libasound2 등이 없어 AppImage 가
+    #   "error while loading shared libraries: libnspr4.so" 로 바로 종료됩니다(실측: orca-ide 의 NEEDED 목록 기준).
+    #   "a|b" 는 Ubuntu 24.04(t64 이름) / 22.04 이전 이름 순서로 시도합니다.
+    _orca_runtime_pkgs=(
+        "libnss3" "libnspr4" "libasound2t64|libasound2" "libgtk-3-0t64|libgtk-3-0" "libgbm1"
+        "libatk1.0-0t64|libatk1.0-0" "libatk-bridge2.0-0t64|libatk-bridge2.0-0" "libcups2t64|libcups2"
+        "libxcomposite1" "libxdamage1" "libxrandr2" "libxkbcommon0" "libpango-1.0-0" "libcairo2"
+    )
+    _orca_missing_pkgs=()
+    for _spec in "${_orca_runtime_pkgs[@]}"; do
+        _have=false
+        IFS='|' read -ra _alts <<< "$_spec"
+        for _alt in "${_alts[@]}"; do
+            dpkg -s "$_alt" >/dev/null 2>&1 && { _have=true; break; }
+        done
+        [ "$_have" = false ] && _orca_missing_pkgs+=("$_spec")
+    done
+    if [ "${#_orca_missing_pkgs[@]}" -gt 0 ]; then
+        echo -n "   📦 Orca 실행 라이브러리 (${#_orca_missing_pkgs[@]}개) 자동 설치 중..."
+        (
+            sudo apt-get update -qq >/dev/null 2>&1 || true
+            for _spec in "${_orca_missing_pkgs[@]}"; do
+                IFS='|' read -ra _alts <<< "$_spec"
+                for _alt in "${_alts[@]}"; do
+                    sudo apt-get install -y "$_alt" >/dev/null 2>&1 && break
+                done
+            done
+        ) &
+        _libs_pid=$!
+        show_spinner $_libs_pid
+        wait $_libs_pid 2>/dev/null || true
+        _still_missing=()
+        for _spec in "${_orca_missing_pkgs[@]}"; do
+            _have=false
+            IFS='|' read -ra _alts <<< "$_spec"
+            for _alt in "${_alts[@]}"; do
+                dpkg -s "$_alt" >/dev/null 2>&1 && { _have=true; break; }
+            done
+            [ "$_have" = false ] && _still_missing+=("${_alts[0]}")
+        done
+        if [ "${#_still_missing[@]}" -eq 0 ]; then
+            echo " 완료"
+        else
+            echo " 일부 실패"
+            print_warn "설치하지 못한 라이브러리: ${_still_missing[*]} (sudo apt-get install -y ${_still_missing[*]})"
+        fi
+    fi
+
+    # 실제로 실행되는지 확인 (라이브러리 누락·FUSE 문제를 설치 단계에서 바로 드러냄)
+    if timeout 60 "$ORCA_APPIMAGE" --help >/dev/null 2>&1; then
+        echo "   ✅ Orca 실행 확인 완료"
+    else
+        print_warn "Orca 실행 확인에 실패했습니다. 원인 확인: $ORCA_APPIMAGE --help"
+        print_warn "  (공유 라이브러리 오류라면 위 라이브러리 설치가 실패한 것입니다: sudo apt-get install -y libnss3 libnspr4)"
+    fi
+
     # PATH에서 'orca'라는 짧은 이름으로 바로 실행할 수 있도록 심볼릭 링크 생성
     # (상대 경로 링크라 $DEVTOOLS2가 통째로 이동해도 깨지지 않음). ln -sf라 재실행해도 안전.
     ln -sf "$ORCA_APPIMAGE_NAME" "$ORCA_DIR/orca"
@@ -157,23 +254,86 @@ if [ "$_orca_proceed" = true ]; then
         fi
     done
 
+    # ⚠️ WSL 에는 OS 키링이 없어 Orca 가 계정 토큰을 암호화하지 않고 평문 파일로 저장합니다(실측 로그:
+    #   "The OS keyring is unavailable, so secrets are stored unencrypted"). 또 ~/.orca/agent-hooks 의
+    #   스크립트는 Claude/Codex 가 실행하는데 그룹 공유 umask(002)에서는 그룹 쓰기 권한으로 만들어집니다.
+    #   이미 있는 파일은 여기서 소유자 전용으로 맞추고, 새로 생기는 파일은 서비스의 UMask=0077 이 막습니다.
+    for _orca_cfg in "$HOME/.config/orca" "$HOME/.config/Orca" "$HOME/.orca"; do
+        if [ -d "$_orca_cfg" ] && [ ! -L "$_orca_cfg" ]; then
+            chmod -R go-rwx "$_orca_cfg" 2>/dev/null || true
+        fi
+    done
+
+    # ── 바로 쓰기 위한 에이전트 CLI 점검/설치 ──
+    # Orca 는 오케스트레이터일 뿐이라 claude/codex/gemini 같은 에이전트 CLI 를 PATH 에서 찾아 실행합니다.
+    # 하나도 없으면 Orca 를 띄워도 할 수 있는 일이 없으므로, 없는 것만 골라 설치 여부를 묻습니다.
+    # - Claude Code: 공식 네이티브 설치 프로그램(~/.local/bin/claude, 자동 업데이트)
+    # - Codex / Gemini CLI: npm 전역 설치(DevTools2 공용 npm prefix: $DEVTOOLS2/data/.npm-packages)
+    # 무인 실행에서는 묻지 않고 건너뜁니다. DT2_ORCA_AGENTS="claude,codex,gemini" 로 지정할 수 있습니다(none=설치 안 함).
+    case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
+    if ! command -v npm >/dev/null 2>&1 && [ -f "$HOME/.config/devtools2/env.sh" ]; then
+        # shellcheck disable=SC1091
+        . "$HOME/.config/devtools2/env.sh" >/dev/null 2>&1 || true
+    fi
+    echo ""
+    echo "   🤖 에이전트 CLI 점검 (Orca 가 실제로 실행할 대상)"
+    _orca_agent_names=("claude" "codex" "gemini")
+    _orca_agent_labels=("Claude Code" "Codex" "Gemini CLI")
+    _orca_agent_defaults=("Y" "N" "N")
+    for _i in "${!_orca_agent_names[@]}"; do
+        _cmd="${_orca_agent_names[$_i]}"
+        _label="${_orca_agent_labels[$_i]}"
+        if command -v "$_cmd" >/dev/null 2>&1; then
+            echo "      ✅ $_label: 설치됨 ($(command -v "$_cmd"))"
+            continue
+        fi
+        _want=false
+        if [ -n "${DT2_ORCA_AGENTS:-}" ]; then
+            [[ ",${DT2_ORCA_AGENTS,,}," == *",$_cmd,"* ]] && _want=true
+        elif dt2_is_noninteractive; then
+            echo "      ⬜ $_label: 미설치 (비대화형 실행이라 건너뜀)"
+            continue
+        elif prompt_confirm "      👉 $_label 이(가) 없습니다. 설치하시겠습니까?" "${_orca_agent_defaults[$_i]}"; then
+            _want=true
+        fi
+        [ "$_want" = true ] || { echo "      ⬜ $_label: 미설치 (건너뜀)"; continue; }
+
+        case "$_cmd" in
+            claude)
+                _claude_installer=$(mktemp)
+                if curl -fsSL --max-time 60 https://claude.ai/install.sh -o "$_claude_installer" && bash "$_claude_installer"; then
+                    hash -r
+                fi
+                rm -f "$_claude_installer"
+                ;;
+            codex) { command -v npm >/dev/null 2>&1 && npm install -g --no-audit --no-fund @openai/codex; } || true ;;
+            gemini) { command -v npm >/dev/null 2>&1 && npm install -g --no-audit --no-fund @google/gemini-cli; } || true ;;
+        esac
+        hash -r
+        if command -v "$_cmd" >/dev/null 2>&1; then
+            echo "      ✅ $_label 설치 완료 ($(command -v "$_cmd"))"
+        else
+            print_warn "$_label 설치에 실패했습니다. 나중에 직접 설치하세요(아래 안내 참고)."
+        fi
+    done
+
     # ── 권장 스킬 전역 설치 (베스트 에포트) ──
-    # orca-cli/orchestration은 공식 문서가 일반적인 기본 조합으로 예시하는 스킬입니다.
-    # CLI 에이전트(claude/codex 등)가 아직 없으면 그냥 아무것도 안 하고 넘어갑니다
-    # (에이전트 설치 후 'orca skills install --all' 로 나중에 다시 돌리면 됩니다).
-    # orca serve 데몬을 아직 띄우기 전에 실행합니다 — 같은 AppImage를 동시에 두 번
-    # 띄웠을 때 생길 수 있는 Electron 단일 인스턴스 락 충돌 가능성을 애초에 피하기 위함.
-    # timeout으로 감싸는 이유: 실패해도 무해해야 할 이 단계가 혹시라도 응답 없이 멈추면
-    # (예: 디스플레이 요구) 전체 devtools2 설치가 그 자리에서 무한 대기하게 되기 때문.
-    # 공식 문서(onorca.dev/docs/cli/skills)가 헤드리스 호스트(SSH/컨테이너/CI/orca serve)용으로
-    # 정확히 명시한 명령입니다: "orca skills install --skill orca-cli --skill orchestration"
-    # (--global 플래그는 문서 예시에 없어 임의로 추가하지 않음 — 헤드리스 CLI 래퍼는 애초에
-    # 전역 스코프만 의미가 있어 기본값이 global인 것으로 보입니다).
+    # 공식 문서(onorca.dev/docs/cli/skills)가 헤드리스 호스트용으로 명시한 명령입니다.
+    # ⚠️ 에이전트 CLI 를 먼저 설치한 뒤 실행해야 합니다: Orca 가 감지한 에이전트가 하나도 없으면
+    #   "--agent 지정 필요"로 실패합니다(orca skills install --help). 내부적으로 npx 를 써서 첫 실행은
+    #   패키지를 내려받으므로 넉넉한 timeout 을 둡니다(무한 대기로 전체 설치가 멈추지 않게).
+    # orca serve 를 (재)시작하기 전에 실행해 같은 AppImage 의 단일 인스턴스 락 충돌을 피합니다.
     echo ""
     echo "   🧩 권장 스킬(orca-cli, orchestration) 설치 시도 중..."
-    timeout 20 "$ORCA_DIR/orca" skills install --skill orca-cli --skill orchestration >/dev/null 2>&1 \
-        && echo "   ✅ 스킬 설치 완료 (감지된 에이전트가 없었다면 지금은 조용히 아무 일도 안 했을 수 있음)" \
-        || echo "   ⚠️  스킬 설치를 건너뜁니다(타임아웃 또는 미감지 — 에이전트 CLI 설치 후 'orca skills install --all'로 다시 시도 가능)"
+    _skills_log=$(mktemp)
+    if timeout 180 "$ORCA_APPIMAGE" skills install --skill orca-cli --skill orchestration >"$_skills_log" 2>&1; then
+        echo "   ✅ 스킬 설치 완료"
+    else
+        echo "   ⚠️  스킬 설치를 건너뜁니다(에이전트 CLI 미감지 또는 네트워크 문제)."
+        echo "      에이전트 CLI 설치 후 다시 시도: orca skills install --skill orca-cli --skill orchestration"
+        tail -n 3 "$_skills_log" 2>/dev/null | sed 's/^/      │ /'
+    fi
+    rm -f "$_skills_log"
 
     # ── WSL2: orca serve 헤드리스 자동 실행 등록 + 페어링 링크 자동 확보 ──
     # systemd가 이미 활성화돼 있으면 바로 등록하고, 아직이면 common-setup.sh의
@@ -187,11 +347,28 @@ if [ "$_orca_proceed" = true ]; then
         # 바뀔 수 있어 systemd 유닛 파일에 고정 IP를 박아두면 재부팅 후 깨지기 때문입니다.
         # LIBGL_ALWAYS_SOFTWARE=1도 여기 직접 넣어둡니다 — systemd의 Environment= 줄에만
         # 있으면 "systemctl 없음" 폴백으로 이 파일을 수동 실행할 때는 안 먹기 때문입니다.
-        cat > "$ORCA_DIR/orca-serve-wrapper.sh" <<EOF
+        # ⚠️ systemd 사용자 서비스는 ~/.bashrc 를 읽지 않고, environment.d 의 PATH 에는 ~/.local/bin 이 없습니다.
+        #   그러면 Claude Code 네이티브 설치(~/.local/bin/claude)와 Orca 가 설치하는 orca 명령을 서비스에서
+        #   찾지 못해 에이전트를 실행할 수 없습니다. 그래서 래퍼가 셸과 같은 env.sh(→ secrets.env 의 API 키 포함)를
+        #   직접 읽고 ~/.local/bin 을 PATH 앞에 붙입니다.
+        # ⚠️ umask 077: WSL 에는 OS 키링이 없어 Orca 가 계정 토큰을 평문 파일로 저장하므로 새 파일을 소유자 전용으로 만듭니다.
+        _orca_wrapper_new=$(cat <<EOF
 #!/bin/bash
+# tool.setup-orca.sh 가 생성 — 직접 수정하면 다음 설치 때 덮어써집니다.
+umask 077
+[ -f "\$HOME/.config/devtools2/env.sh" ] && . "\$HOME/.config/devtools2/env.sh" >/dev/null 2>&1
+[ -f "\$HOME/.config/devtools2/secrets.env" ] && . "\$HOME/.config/devtools2/secrets.env" >/dev/null 2>&1
+case ":\$PATH:" in *":\$HOME/.local/bin:"*) ;; *) PATH="\$HOME/.local/bin:\$PATH" ;; esac
+export PATH
 export LIBGL_ALWAYS_SOFTWARE=1
 exec "$ORCA_APPIMAGE" serve --port 6768 --pairing-address "\$(hostname -I | awk '{print \$1}')"
 EOF
+)
+        _orca_cfg_changed=false
+        if [ "$(cat "$ORCA_DIR/orca-serve-wrapper.sh" 2>/dev/null)" != "$_orca_wrapper_new" ]; then
+            printf '%s\n' "$_orca_wrapper_new" > "$ORCA_DIR/orca-serve-wrapper.sh"
+            _orca_cfg_changed=true
+        fi
         chmod +x "$ORCA_DIR/orca-serve-wrapper.sh"
 
         # ⚠️ command -v systemctl 만으로는 부족합니다 — Ubuntu는 systemd 패키지가
@@ -207,7 +384,7 @@ EOF
             # RestartPreventExitStatus=3(= "이미 같은 userData 프로필을 쓰는 다른 인스턴스가
             # 떠 있음" — 재시작해봐야 성공할 수 없는 경우라 그냥 멈춤), KillMode=mixed로
             # 내부 Xvfb가 깨끗이 종료되도록 함.
-            cat > "$HOME/.config/systemd/user/orca-serve.service" <<EOF
+            _orca_unit_new=$(cat <<EOF
 [Unit]
 Description=Orca headless agent orchestration server
 After=network-online.target
@@ -219,6 +396,7 @@ StartLimitBurst=5
 Type=simple
 WorkingDirectory=%h
 ExecStart=$ORCA_DIR/orca-serve-wrapper.sh
+UMask=0077
 KillMode=mixed
 Restart=on-failure
 RestartPreventExitStatus=3
@@ -227,8 +405,24 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 EOF
+)
+            _orca_unit_file="$HOME/.config/systemd/user/orca-serve.service"
+            if [ "$(cat "$_orca_unit_file" 2>/dev/null)" != "$_orca_unit_new" ]; then
+                printf '%s\n' "$_orca_unit_new" > "$_orca_unit_file"
+                _orca_cfg_changed=true
+            fi
             systemctl --user daemon-reload 2>/dev/null || true
+            # 이번 실행에서 (재)시작한 경우 그 이후 로그에서만 페어링 링크를 찾습니다(재시작 전 옛 링크 방지).
+            _orca_was_active=false
+            systemctl --user is-active --quiet orca-serve.service 2>/dev/null && _orca_was_active=true
+            _orca_since=$(date '+%Y-%m-%d %H:%M:%S')
             if systemctl --user enable --now orca-serve.service 2>/dev/null; then
+                # 이미 실행 중이었다면 enable --now 는 재시작하지 않으므로, 업데이트했거나
+                # 래퍼/유닛 설정이 바뀐 경우에만 재시작해 새 버전·설정을 반영합니다.
+                if [ "$_orca_updated" = true ] || [ "$_orca_cfg_changed" = true ]; then
+                    echo "   🔄 새 버전/설정 반영을 위해 orca-serve 를 재시작합니다..."
+                    systemctl --user restart orca-serve.service 2>/dev/null || true
+                fi
                 echo "   ✅ orca-serve.service 등록 및 실행 완료 (포트 6768)"
 
                 # 페어링 링크 자동 확보 시도(베스트 에포트, 최대 20초 폴링). 헤드리스
@@ -237,7 +431,11 @@ EOF
                 _orca_pair_link=""
                 for _i in 1 2 3 4 5 6 7 8 9 10; do
                     sleep 2
-                    _orca_pair_link=$(journalctl --user -u orca-serve.service --no-pager -n 80 2>/dev/null | grep -oE 'orca://pair[^[:space:]]*' | tail -1)
+                    if [ "$_orca_was_active" = true ] && [ "$_orca_updated" != true ] && [ "$_orca_cfg_changed" != true ]; then
+                        _orca_pair_link=$(journalctl --user -u orca-serve.service --no-pager -n 200 2>/dev/null | grep -oE 'orca://pair[^[:space:]]*' | tail -1)
+                    else
+                        _orca_pair_link=$(journalctl --user -u orca-serve.service --no-pager --since "$_orca_since" 2>/dev/null | grep -oE 'orca://pair[^[:space:]]*' | tail -1)
+                    fi
                     [ -n "$_orca_pair_link" ] && break
                 done
                 mkdir -p "$DEVTOOLS2/data"
@@ -313,38 +511,34 @@ EOF
     # 정리된 것과 동일한 CLI라서 이미 그쪽을 설정했다면 이 단계는 생략 가능.
     echo ""
     echo "   ---------------------------------------------------------------------"
-    echo "   📋 실제로 사용하려면 (에이전트 CLI 설치 + 로그인, 1회만):"
+    echo "   📋 바로 사용하기 (에이전트 로그인, 1회만):"
     echo "   ---------------------------------------------------------------------"
-    echo "   Orca는 오케스트레이터일 뿐이라, 아래 CLI들을 PATH에서 찾아 그대로 실행합니다."
-    echo "   설치 + 로그인은 각 CLI 자체 방식으로 1회만 하면 됩니다:"
+    echo "   Orca는 오케스트레이터일 뿐이라, 위에서 점검한 에이전트 CLI를 PATH에서 찾아 그대로 실행합니다."
+    echo "   각 CLI를 한 번 실행해 로그인하세요(구독 계정 로그인 또는 API 키 중 하나):"
     echo ""
-    echo "     • Claude Code : npm i -g @anthropic-ai/claude-code  →  claude  (최초 실행 시 로그인)"
-    echo "     • Codex       : npm i -g @openai/codex             →  codex   (최초 실행 시 로그인)"
-    echo "     • Gemini CLI  : npm i -g @google/gemini-cli        →  gemini  (최초 실행 시 로그인)"
+    echo "     • Claude Code : claude   (처음 실행 시 로그인 / 미설치: curl -fsSL https://claude.ai/install.sh | bash)"
+    echo "     • Codex       : codex    (처음 실행 시 로그인 / 미설치: npm i -g @openai/codex)"
+    echo "     • Gemini CLI  : gemini   (처음 실행 시 로그인 / 미설치: npm i -g @google/gemini-cli)"
     echo "     • OpenCode    : opencode.ai 설치 스크립트 →  opencode auth login"
     echo "     • Goose       : Block의 Goose CLI 설치    →  goose configure"
     echo ""
-    echo "   ⚠️  ANTHROPIC_API_KEY 등을 .bashrc에 export해두신 게 있어도, orca serve가"
-    echo "      systemd(또는 데스크톱 런처)로 뜬 경우엔 .bashrc를 거치지 않아 그 값을 못 봅니다"
-    echo "      (WSL2 터미널에서 직접 치는 orca account add 같은 명령은 대화형 셸이라 문제없음)."
-    echo "      orca serve 데몬에서도 보이게 하려면 아래처럼 등록해주세요(로그인마다 자동 반영):"
-    echo "      (API 키가 담기므로 소유자만 읽을 수 있게 umask 077 로 만듭니다 — 그룹 공유 umask 002 환경 대비)"
-    echo "        mkdir -p ~/.config/environment.d"
-    echo "        (umask 077 && printf 'ANTHROPIC_API_KEY=%s\\n' \"\$ANTHROPIC_API_KEY\" >> ~/.config/environment.d/orca.conf)"
-    echo "        chmod 600 ~/.config/environment.d/orca.conf"
-    echo "      등록 후에는 'systemctl --user restart orca-serve.service'로 반영하거나 WSL2를"
-    echo "      재시작하면 적용됩니다."
+    echo "   🔐 API 키 방식이라면 키는 저장소 밖의 ~/.config/devtools2/secrets.env (권한 600)에만 넣으세요:"
+    echo "        export ANTHROPIC_API_KEY='...'"
+    echo "      셸·Neovim(CodeCompanion)·orca serve 가 모두 이 파일을 읽습니다. 수정 후 orca serve 반영:"
+    echo "        systemctl --user restart orca-serve.service"
+    echo "      ⚠️ 키를 저장소 안 파일(.config, scripts 등)에 적지 마세요 — 공개 GitHub 저장소입니다."
+    echo "         (커밋 직전에 scripts/git-hooks/pre-commit 이 키·인증 파일을 검사해 막습니다)"
     echo ""
     echo "   Claude/Codex는 Orca 자체 계정 전환/사용량 추적 기능도 지원합니다(선택 사항):"
     echo "     orca account add --agent claude"
     echo "     orca account add --agent codex"
     echo "     orca account list"
     echo ""
-    echo "   에이전트 CLI를 새로 설치했다면 스킬 인식을 갱신해주세요(위에서 자동 설치는 이미 됨):"
-    echo "     orca skills install --all"
+    echo "   에이전트 CLI를 나중에 새로 설치했다면 스킬을 다시 설치해주세요:"
+    echo "     orca skills install --skill orca-cli --skill orchestration"
     echo ""
-    echo "   설치 확인 후에는 Orca에서 바로 에이전트를 지정해 워크트리를 만들 수 있습니다:"
-    echo "     orca worktree create --agent claude --prompt \"할 일\""
+    echo "   준비가 끝나면 Orca에서 에이전트를 지정해 워크트리를 만들 수 있습니다:"
+    echo "     orca worktree create --name 작업이름 --agent claude --prompt \"할 일\""
     echo "   ---------------------------------------------------------------------"
 fi
 echo ""

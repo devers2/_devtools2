@@ -160,15 +160,17 @@ Write-Host "  소스 (WSL2): $WslZedConfig" -ForegroundColor DarkGray
 Write-Host "  대상 (Win) : $WinZedDir" -ForegroundColor DarkGray
 Write-Host ""
 
+# ⚠️ wsl -e(--exec): "wsl -- 명령" 은 리눅스 기본 셸을 한 번 더 거쳐 ${...} 가 그 단계에서 미리 확장됩니다.
+#    또 PS 5.1 은 인자 안의 큰따옴표를 제대로 넘기지 못하므로 명령 안에는 작은따옴표만 씁니다.
 if (-not (Test-Path $WslZedConfig)) {
     Write-Warn "WSL2에 Zed 설정 폴더가 없습니다. 기본 폴더를 생성합니다..."
-    wsl -d $WslDistro -- bash -c 'mkdir -p ${DEVTOOLS2:-/var/opt/_devtools2}/.config/zed'
+    wsl -d $WslDistro -e bash -c 'mkdir -p ${DEVTOOLS2:-/var/opt/_devtools2}/.config/zed'
 }
 if (-not (Test-Path "$WslZedConfig\settings.json")) {
-    wsl -d $WslDistro -- bash -c 'echo "{}" > ${DEVTOOLS2:-/var/opt/_devtools2}/.config/zed/settings.json'
+    wsl -d $WslDistro -e bash -c 'printf ''{}\n'' > ${DEVTOOLS2:-/var/opt/_devtools2}/.config/zed/settings.json'
 }
 if (-not (Test-Path "$WslZedConfig\keymap.json")) {
-    wsl -d $WslDistro -- bash -c 'echo "[]" > ${DEVTOOLS2:-/var/opt/_devtools2}/.config/zed/keymap.json'
+    wsl -d $WslDistro -e bash -c 'printf ''[]\n'' > ${DEVTOOLS2:-/var/opt/_devtools2}/.config/zed/keymap.json'
 }
 
 if (Test-Path $WinZedDir) {

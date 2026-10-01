@@ -8,9 +8,11 @@ param(
 #
 # 주요 기능:
 #   0. Orca 설치 의사 확인 ([y/N], 기본값 N) — 단독 실행/마스터 호출 모두 여기서 질문
-#   1. winget 을 통해 Orca 데스크톱 앱을 자동 설치 (이미 설치되어 있으면 건너뜀)
-#   2. WSL2 내부에서 'orca serve' 헤드리스 서버가 떠 있는지 확인/기동
-#   3. Windows Orca 앱 ↔ WSL2 orca serve 페어링 방법 안내
+#   1. WSL2 쪽 Orca 서버 설치/점검 (tool.setup-orca.sh) — 새 버전 업데이트 여부와
+#      없는 에이전트 CLI(Claude Code/Codex/Gemini) 설치 여부를 여기서 묻고 넘겨줌
+#   2. winget 을 통해 Orca 데스크톱 앱을 자동 설치 (이미 있으면 최신 버전 업데이트 확인)
+#   3. WSL2 내부에서 'orca serve' 헤드리스 서버가 떠 있는지 확인/기동
+#   4. Windows Orca 앱 ↔ WSL2 orca serve 페어링 방법 안내
 #
 # ------------------------------------------------------------------------------
 # ⚠️ [Zed(tool.setup-zed.ps1)와 구조가 다른 이유]
@@ -94,25 +96,76 @@ Write-Step "[Step 2] WSL2 배포판 감지"
 $WslDistro = Resolve-WslDistro $WslDistro
 Write-Host "  적용 대상 WSL 배포판: $WslDistro" -ForegroundColor White
 
-# WSL2 쪽 Orca(orca serve 헤드리스)가 먼저 설치되어 있어야 이 스크립트의 나머지 단계가
-# 의미가 있습니다(tool.setup-orca.sh). 없으면 WSL2 내부의 tool.setup-orca.sh를
-# DT2_ORCA_CHOICE=y 로 자동 실행하여 헤드리스 백엔드를 먼저 구축합니다.
-[string]$orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f /var/opt/_devtools2/modules/orca/orca-linux.AppImage -o -f /var/opt/_devtools2/modules/orca/orca-linux-arm64.AppImage && echo FOUND")
-if ($orcaAppImageCheck.Trim() -ne "FOUND") {
+# WSL2 쪽 Orca(orca serve 헤드리스)를 먼저 설치/점검합니다(tool.setup-orca.sh).
+# 이미 설치되어 있어도 매번 실행합니다: 새 버전 업데이트, 실행 라이브러리, 에이전트 CLI, 서비스 설정을
+# 다시 점검하기 위해서입니다. 리눅스 스크립트의 질문은 wsl 출력을 Out-Host 로 넘기는 구조에서 입력이
+# 불안정할 수 있어, 여기 PowerShell 에서 먼저 묻고 환경변수(DT2_ORCA_*)로 답을 넘깁니다.
+$orcaRoot = "/var/opt/_devtools2/modules/orca"
+[string]$orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f $orcaRoot/orca-linux.AppImage -o -f $orcaRoot/orca-linux-arm64.AppImage && echo FOUND")
+$orcaServerInstalled = ($orcaAppImageCheck.Trim() -eq "FOUND")
+
+# 1) 업데이트 여부 (설치된 버전 기록 .version 과 GitHub 최신 태그 비교)
+$orcaUpdate = "n"
+if ($orcaServerInstalled) {
+    [string]$orcaCurrent = (wsl -d $WslDistro -- bash -c "cat $orcaRoot/.version 2>/dev/null")
+    $orcaCurrent = $orcaCurrent.Trim()
+    $orcaLatest = ""
+    try {
+        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/stablyai/orca/releases/latest" -Headers @{ 'User-Agent' = 'devtools2' } -TimeoutSec 15 -ErrorAction Stop
+        if ($rel -and $rel.tag_name) { $orcaLatest = [string]$rel.tag_name }
+    } catch {}
+    $orcaCurrentLabel = if ([string]::IsNullOrWhiteSpace($orcaCurrent)) { "알 수 없음(버전 기록 없음)" } else { $orcaCurrent }
+    if ([string]::IsNullOrWhiteSpace($orcaLatest)) {
+        Write-Info "WSL2 Orca 서버 버전: $orcaCurrentLabel (최신 버전 확인 실패 - 업데이트 확인 건너뜀)"
+    } elseif ($orcaCurrent -eq $orcaLatest) {
+        Write-Success "WSL2 Orca 서버가 최신 버전입니다 ($orcaCurrent)."
+    } else {
+        Write-Info "WSL2 Orca 서버 새 버전이 있습니다: $orcaCurrentLabel -> $orcaLatest"
+        if (Prompt-Confirm "👉 WSL2 Orca 서버를 $orcaLatest 로 업데이트할까요? (실행 중인 orca serve 가 재시작됩니다)" "Y") {
+            $orcaUpdate = "y"
+        }
+    }
+}
+
+# 2) 에이전트 CLI (Orca 가 실제로 실행할 대상) — 없는 것만 설치 여부를 묻습니다.
+#    bash -lc: 로그인 셸이라 DevTools2 env.sh 와 ~/.local/bin 이 PATH 에 들어갑니다.
+#    ⚠️ "wsl -- 명령" 은 리눅스 기본 셸을 한 번 더 거쳐 $c 같은 변수가 미리 빈 값으로 확장됩니다(실측: 없는
+#       에이전트가 하나도 안 잡힘). -e(--exec)로 셸을 거치지 않고 bash 에 그대로 넘깁니다.
+$missingAgents = @(wsl -d $WslDistro -e bash -lc 'for c in claude codex gemini; do command -v $c >/dev/null 2>&1 || echo $c; done' 2>$null) |
+    ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -ne "" }
+$agentLabels = @{ "claude" = "Claude Code"; "codex" = "Codex"; "gemini" = "Gemini CLI" }
+$agentDefaults = @{ "claude" = "Y"; "codex" = "N"; "gemini" = "N" }
+$wantAgents = @()
+foreach ($a in $missingAgents) {
+    if (-not $agentLabels.ContainsKey($a)) { continue }
+    if (Prompt-Confirm "👉 에이전트 CLI '$($agentLabels[$a])' 가 WSL2 에 없습니다. 설치하시겠습니까?" $agentDefaults[$a]) {
+        $wantAgents += $a
+    }
+}
+$orcaAgents = if ($wantAgents.Count -gt 0) { $wantAgents -join "," } else { "none" }
+
+if (-not $orcaServerInstalled) {
     Write-Info "WSL2 ($WslDistro) 내부에 Orca 헤드리스 서버가 설치되어 있지 않습니다."
     Write-Info "  → WSL2용 tool.setup-orca.sh 를 자동 실행하여 서버를 먼저 구축합니다..."
-    # ⚠️ "| Out-Host": 마스터가 이 스크립트의 반환값을 변수($userChoseOrca)로 받기 때문에,
-    #    파이프라인으로 흘러나가는 wsl 출력(설치 진행·페어링 안내)이 전부 그 변수에 담겨 화면에 안 보입니다.
-    #    출력은 화면으로 직접 보내고, 반환값은 마지막의 $true/$false 하나만 남깁니다.
-    $rawLinuxOrca = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/linux/dev-env/tool.setup-orca.sh"
-    wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxOrca' -o /tmp/_dt2_orca.sh && DT2_REF='$_dt2Ref' DT2_ORCA_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 bash /tmp/_dt2_orca.sh; rm -f /tmp/_dt2_orca.sh 2>/dev/null" | Out-Host
+} else {
+    Write-Info "WSL2용 tool.setup-orca.sh 로 서버 상태(업데이트·라이브러리·에이전트·서비스)를 점검합니다..."
+}
+# ⚠️ "| Out-Host": 마스터가 이 스크립트의 반환값을 변수($userChoseOrca)로 받기 때문에,
+#    파이프라인으로 흘러나가는 wsl 출력(설치 진행·페어링 안내)이 전부 그 변수에 담겨 화면에 안 보입니다.
+#    출력은 화면으로 직접 보내고, 반환값은 마지막의 $true/$false 하나만 남깁니다.
+# 임시 파일은 mktemp 로 만들어 다른 사용자가 /tmp 에 미리 만든 파일·링크를 덮어쓰지 않게 합니다.
+# ⚠️ -e(--exec): "wsl -- 명령" 은 리눅스 기본 셸을 한 번 더 거쳐 $f 가 미리 빈 값으로 확장됩니다.
+#    또 PS 5.1 은 인자 안의 큰따옴표를 제대로 넘기지 못하므로 명령 안에는 작은따옴표만 씁니다.
+$rawLinuxOrca = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/linux/dev-env/tool.setup-orca.sh"
+$orcaEnv = "DT2_REF='$_dt2Ref' DT2_ORCA_CHOICE=y DT2_ORCA_UPDATE=$orcaUpdate DT2_ORCA_AGENTS=$orcaAgents DEVTOOLS2=/var/opt/_devtools2"
+$orcaCmd = "f=`$(mktemp) && curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxOrca' -o `$f && $orcaEnv bash `$f; rm -f `$f"
+wsl -d $WslDistro -e bash -c $orcaCmd | Out-Host
 
-    $orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f /var/opt/_devtools2/modules/orca/orca-linux.AppImage -o -f /var/opt/_devtools2/modules/orca/orca-linux-arm64.AppImage && echo FOUND")
-    if ($orcaAppImageCheck.Trim() -ne "FOUND") {
-        Write-Fail "WSL2 Orca 서버 설치에 실패했습니다."
-        Read-Host "계속하려면 엔터를 누르세요"
-        return
-    }
+$orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f $orcaRoot/orca-linux.AppImage -o -f $orcaRoot/orca-linux-arm64.AppImage && echo FOUND")
+if (([string]$orcaAppImageCheck).Trim() -ne "FOUND") {
+    Write-Fail "WSL2 Orca 서버 설치에 실패했습니다."
+    Read-Host "계속하려면 엔터를 누르세요"
+    return
 }
 
 # ==============================================================================
@@ -146,6 +199,26 @@ try {
 
 if ($orcaInstalled) {
     Write-Skip "Orca 데스크톱 앱이 이미 설치되어 있습니다."
+    # WSL2 서버와 버전을 맞추기 위해 Windows 앱 업데이트도 제안합니다(앱이 스스로 업데이트했다면 "이미 최신").
+    if (Prompt-Confirm "👉 Windows Orca 앱도 최신 버전인지 확인하고 업데이트할까요?" "Y") {
+        $pu = Start-Process winget -ArgumentList "upgrade --id StablyAI.Orca --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\orca_upgrade.log" -RedirectStandardError "$env:TEMP\orca_upgrade_err.log" -ErrorAction SilentlyContinue
+        if ($pu) {
+            # PS 5.1: 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
+            $null = $pu.Handle
+            Wait-ProcessWithSpinner -Process $pu -Message "Orca 데스크톱 앱 업데이트 확인 중"
+            # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전)
+            if ($pu.ExitCode -eq 0) {
+                Write-Success "Orca 데스크톱 앱 업데이트 완료"
+            } elseif ($pu.ExitCode -eq -1978335189) {
+                Write-Success "Orca 데스크톱 앱이 이미 최신 버전입니다."
+            } else {
+                Write-Warn "Orca 데스크톱 앱 업데이트를 확인하지 못했습니다(종료 코드: $($pu.ExitCode)). 앱의 자체 업데이트 기능을 이용해 주세요."
+            }
+        } else {
+            Write-Warn "winget 을 실행하지 못해 Windows Orca 앱 업데이트를 건너뜁니다."
+        }
+        Remove-Item "$env:TEMP\orca_upgrade.log", "$env:TEMP\orca_upgrade_err.log" -Force -ErrorAction SilentlyContinue
+    }
 } else {
     Write-Host "  Orca 데스크톱 앱을 winget으로 설치합니다..." -ForegroundColor White
     $p = Start-Process winget -ArgumentList "install --id StablyAI.Orca --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\orca_install.log" -RedirectStandardError "$env:TEMP\orca_install_err.log"
