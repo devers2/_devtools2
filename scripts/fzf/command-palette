@@ -47,17 +47,18 @@ _restore_tty() {
 trap '_restore_tty' EXIT INT TERM
 normalize_tty
 
-# 1. 현재 작업 환경 분석 및 OS 판별 (IS_WINDOWS, IS_MAC, IS_WSL 은 bw-lib 에서 기본 제공)
+# 1. 현재 작업 환경 분석 및 OS 판별 (IS_MAC, IS_WSL)
+# ⚠️ Windows 네이티브(Git Bash 등)는 지원하지 않습니다(WSL·리눅스·macOS 전용).
 CWD=$(pwd)
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
+    echo "❌ Windows 네이티브(Git Bash 등)는 지원하지 않습니다. WSL 터미널에서 실행해 주세요." >&2
+    exit 1
+fi
+IS_MAC=false
+[[ "$OSTYPE" == "darwin"* ]] && IS_MAC=true
 if [ -z "${IS_WSL+x}" ]; then
-    IS_WINDOWS=false
-    IS_MAC=false
     IS_WSL=false
-    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-        IS_WINDOWS=true
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        IS_MAC=true
-    elif [[ "$OSTYPE" == linux-gnu* ]] && grep -qi microsoft /proc/version 2>/dev/null; then
+    if [[ "$OSTYPE" == linux-gnu* ]] && grep -qi microsoft /proc/version 2>/dev/null; then
         IS_WSL=true
     fi
 fi
@@ -124,7 +125,7 @@ save_state() {
 # 표준 입력을 클립보드에 복사 (개행 없이 그대로)
 # 반환: 0 = 성공, 1 = 사용 가능한 클립보드 도구 없음
 copy_to_clipboard() {
-    if $IS_WINDOWS || $IS_WSL; then
+    if $IS_WSL; then
         # 네이티브 Windows(Git Bash)에서도, WSL interop을 통해서도 동일하게 동작
         if command -v clip.exe &>/dev/null; then
             clip.exe
@@ -152,7 +153,7 @@ copy_to_clipboard() {
 # 클립보드 내용을 표준 출력으로 반환 (끝 개행/캐리지리턴 제거)
 # 반환: 0 = 성공(클립보드가 비어있어도 성공), 1 = 사용 가능한 클립보드 도구 없음
 paste_from_clipboard() {
-    if $IS_WINDOWS || $IS_WSL; then
+    if $IS_WSL; then
         if command -v powershell.exe &>/dev/null; then
             powershell.exe -NoProfile -Command "[Console]::Out.Write((Get-Clipboard -Raw))" 2>/dev/null | tr -d '\r\n'
             return 0
@@ -220,10 +221,7 @@ port_to_hex() {
 is_port_in_use() {
     local port="$1"
 
-    if $IS_WINDOWS; then
-        # Windows: netstat -ano LISTENING 포트 검사
-        netstat -ano 2>/dev/null | grep -E ":${port}[[:space:]].*LISTENING" &>/dev/null
-    elif $IS_MAC; then
+    if $IS_MAC; then
         # macOS (BSD): lsof 비블로킹 LISTEN 검사 (macOS 표준)
         if command -v lsof &>/dev/null; then
             lsof -n -iTCP:"$port" -sTCP:LISTEN &>/dev/null
@@ -256,14 +254,7 @@ get_pids_by_port() {
     local port="$1"
     local pids=""
 
-    if $IS_WINDOWS; then
-        # Windows: netstat -ano 의 LISTENING 행에서 PID 추출
-        pids=$(netstat -ano 2>/dev/null \
-            | grep -E ":${port}[[:space:]].*LISTENING" \
-            | awk '{print $NF}' \
-            | grep -E '^[0-9]+$' \
-            | sort -u)
-    elif $IS_MAC; then
+    if $IS_MAC; then
         if command -v lsof &>/dev/null; then
             pids=$(lsof -nP -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
         fi
@@ -287,22 +278,13 @@ get_pids_by_port() {
 print_pids_info() {
     local pids="$1"
 
-    if $IS_WINDOWS; then
-        for pid in $pids; do
-            local pname
-            pname=$(tasklist /fi "PID eq $pid" /fo csv /nh 2>/dev/null \
-                | cut -d',' -f1 | tr -d '"' | head -1)
-            echo "  PID: $pid  |  프로세스: ${pname:-알 수 없음}"
-        done
-    else
-        for pid in $pids; do
-            local pname pcmd
-            pname=$(ps -p "$pid" -o comm= 2>/dev/null || echo "알 수 없음")
-            pcmd=$(ps -p "$pid" -o args= 2>/dev/null | cut -c1-72 || echo "")
-            echo "  PID: $pid  |  프로세스: $pname"
-            [[ -n "$pcmd" ]] && echo "  명령어: $pcmd"
-        done
-    fi
+    for pid in $pids; do
+        local pname pcmd
+        pname=$(ps -p "$pid" -o comm= 2>/dev/null || echo "알 수 없음")
+        pcmd=$(ps -p "$pid" -o args= 2>/dev/null | cut -c1-72 || echo "")
+        echo "  PID: $pid  |  프로세스: $pname"
+        [[ -n "$pcmd" ]] && echo "  명령어: $pcmd"
+    done
 }
 
 # 지정한 PID 목록을 강제 종료하고 결과를 출력, 종료 건수와 실패 건수를 전역 변수에 저장
@@ -312,41 +294,29 @@ kill_pids() {
     KILLED=0
     FAILED=0
 
-    if $IS_WINDOWS; then
-        for pid in $pids; do
-            if taskkill /f /pid "$pid" &>/dev/null; then
-                echo "  ✅ PID $pid 종료 완료"
-                ((KILLED++))
-            else
-                echo "  ❌ PID $pid 종료 실패"
-                ((FAILED++))
-            fi
+    # SIGTERM 으로 먼저 정상 종료(Spring 종료 훅·임시 파일 정리 등)를 기회를 주고,
+    # 3초 안에 끝나지 않은 프로세스만 SIGKILL 합니다.
+    for pid in $pids; do
+        local pname
+        pname=$(ps -p "$pid" -o comm= 2>/dev/null || echo "알 수 없음")
+        kill -TERM "$pid" 2>/dev/null || true
+        local _w=0
+        while kill -0 "$pid" 2>/dev/null && [[ $_w -lt 30 ]]; do
+            sleep 0.1
+            ((_w++))
         done
-    else
-        # SIGTERM 으로 먼저 정상 종료(Spring 종료 훅·임시 파일 정리 등)를 기회를 주고,
-        # 3초 안에 끝나지 않은 프로세스만 SIGKILL 합니다.
-        for pid in $pids; do
-            local pname
-            pname=$(ps -p "$pid" -o comm= 2>/dev/null || echo "알 수 없음")
-            kill -TERM "$pid" 2>/dev/null || true
-            local _w=0
-            while kill -0 "$pid" 2>/dev/null && [[ $_w -lt 30 ]]; do
-                sleep 0.1
-                ((_w++))
-            done
-            if kill -0 "$pid" 2>/dev/null; then
-                kill -9 "$pid" 2>/dev/null || true
-                sleep 0.2
-            fi
-            if ! kill -0 "$pid" 2>/dev/null; then
-                echo "  ✅ PID $pid ($pname) 종료 완료"
-                ((KILLED++))
-            else
-                echo "  ❌ PID $pid ($pname) 종료 실패"
-                ((FAILED++))
-            fi
-        done
-    fi
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null || true
+            sleep 0.2
+        fi
+        if ! kill -0 "$pid" 2>/dev/null; then
+            echo "  ✅ PID $pid ($pname) 종료 완료"
+            ((KILLED++))
+        else
+            echo "  ❌ PID $pid ($pname) 종료 실패"
+            ((FAILED++))
+        fi
+    done
 }
 
 # 포트 해제 여부를 재확인하고 결과 메시지 출력 (최대 wait_max 초 대기)
@@ -370,9 +340,7 @@ verify_port_released() {
         echo "✅ 포트 $port 가 정상적으로 해제되었습니다."
     else
         echo "⚠️  아직 포트 $port 를 점유하는 프로세스가 남아 있습니다: $remaining"
-        if ! $IS_WINDOWS; then
-            echo "   sudo kill -9 $remaining 으로 강제 종료를 시도해 보세요."
-        fi
+        echo "   sudo kill -9 $remaining 으로 강제 종료를 시도해 보세요."
     fi
 }
 
@@ -432,11 +400,7 @@ check_and_resolve_port_conflict() {
         kill_pids "$target_pids"
     else
         # PID를 직접 찾지 못한 경우의 폴백
-        if $IS_WINDOWS; then
-            local win_pids
-            win_pids=$(netstat -ano 2>/dev/null | grep -E ":${detected_port}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
-            kill_pids "$win_pids"
-        elif command -v fuser &>/dev/null; then
+        if command -v fuser &>/dev/null; then
             fuser -k -9 "$detected_port/tcp" &>/dev/null || true
         fi
     fi
@@ -456,9 +420,6 @@ GRADLEW_EXISTS=false
 GW_NAME="./gradlew"
 if [ -f "$CWD/gradlew" ] || [ -f "$CWD/build.gradle" ] || [ -f "$CWD/build.gradle.kts" ] || [ -f "$CWD/settings.gradle" ] || [ -f "$CWD/settings.gradle.kts" ]; then
     GRADLEW_EXISTS=true
-    if $IS_WINDOWS; then
-        GW_NAME="gradlew.bat"
-    fi
 fi
 
 # CentralPortal 설정 여부 확인 (build.gradle 또는 build.gradle.kts 확인)
@@ -838,11 +799,7 @@ if [[ "$CHOICE" == *"실행"* ]]; then
 
     # 3. 안전하게 배열로 인수 조립 (eval 대신 직접 실행)
     CMD_ARGS=()
-    if $IS_WINDOWS; then
-        CMD_ARGS+=("cmd.exe" "/c" "$GW_NAME")
-    else
-        CMD_ARGS+=("$GW_NAME")
-    fi
+    CMD_ARGS+=("$GW_NAME")
 
     if [[ -n "$TARGET_MOD" ]]; then
         CMD_ARGS+=(":$TARGET_MOD:bootRun")
@@ -951,11 +908,7 @@ elif [[ "$CHOICE" == *"빌드"* ]]; then
     fi
 
     CMD_ARGS=()
-    if $IS_WINDOWS; then
-        CMD_ARGS+=("cmd.exe" "/c" "$GW_NAME")
-    else
-        CMD_ARGS+=("$GW_NAME")
-    fi
+    CMD_ARGS+=("$GW_NAME")
 
     if [[ "${CLEAN,,}" == "y" ]]; then
         CMD_ARGS+=("clean")
@@ -1192,11 +1145,7 @@ except Exception:
     # 읽도록 구성돼 있어야 실제로 적용됩니다(흔한 관례지만 프로젝트마다 다를 수
     # 있으니, 배포 후 실제 게시된 버전이 의도한 값인지 한 번 확인해주세요).
     CMD_ARGS=()
-    if $IS_WINDOWS; then
-        CMD_ARGS+=("cmd.exe" "/c" "$GW_NAME")
-    else
-        CMD_ARGS+=("$GW_NAME")
-    fi
+    CMD_ARGS+=("$GW_NAME")
     CMD_ARGS+=("clean")
     if [ -n "$_CP_TARGET_MODULE" ]; then
         CMD_ARGS+=(":${_CP_TARGET_MODULE}:publishAllPublicationsToCentralPortalRepository")
@@ -1223,14 +1172,8 @@ elif [[ "$CHOICE" == *"JDTLS"* ]]; then
     PROJ_NAME=$(basename "$CWD")
 
     # OS별 캐시 디렉토리 판단
-    if $IS_WINDOWS; then
-        TEMP_DIR="${TEMP:-$LOCALAPPDATA/Temp}"
-        TEMP_DIR=$(echo "$TEMP_DIR" | tr '\\' '/')
-        JDTLS_CACHE="$TEMP_DIR/nvim/jdtls/$PROJ_NAME"
-    else
-        XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME_DIR/.cache}"
-        JDTLS_CACHE="$XDG_CACHE_HOME/nvim/jdtls/$PROJ_NAME"
-    fi
+    XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME_DIR/.cache}"
+    JDTLS_CACHE="$XDG_CACHE_HOME/nvim/jdtls/$PROJ_NAME"
 
     if [ -d "$JDTLS_CACHE" ]; then
         read -p "🗑️ JDTLS 캐시를 삭제하시겠습니까? (경로: $JDTLS_CACHE) (y/N): " CONFIRM
@@ -1253,14 +1196,7 @@ elif [[ "$CHOICE" == *"포트 확인"* ]]; then
         if ! is_port_in_use "$PORT"; then
             echo "  (해당 포트를 사용하는 프로세스 없음)"
         else
-            if $IS_WINDOWS; then
-                # Windows: netstat -ano & tasklist
-                # ⚠️ 이 if/elif 분기는 함수 안이 아닌 최상위 스크립트 레벨이라 local을 쓰면
-                # "local: can only be used in a function" 에러가 매번 출력됩니다(기능은
-                # 깨지지 않지만 지저분한 에러가 뜸). 전역 변수로 선언합니다.
-                win_pids=$(netstat -ano 2>/dev/null | grep -E ":${PORT}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
-                print_pids_info "$win_pids"
-            elif $IS_MAC; then
+            if $IS_MAC; then
                 # macOS: lsof -i :PORT
                 lsof -i :"$PORT" 2>/dev/null || echo "  (포트 $PORT 점유 중)"
             else
@@ -1280,12 +1216,8 @@ elif [[ "$CHOICE" == *"프로세스 확인"* ]]; then
     if [[ -n "$KWD" ]]; then
         echo "📋 '$KWD' 관련 프로세스 목록:"
         echo "─────────────────────────────────────────"
-        if $IS_WINDOWS; then
-            tasklist | findstr /i "$KWD"
-        else
-            # Linux / macOS / WSL 공통: ps aux
-            ps aux | grep -i "$KWD" | grep -v grep
-        fi
+        # Linux / macOS / WSL 공통: ps aux
+        ps aux | grep -i "$KWD" | grep -v grep
         echo "─────────────────────────────────────────"
     fi
 
@@ -1334,10 +1266,7 @@ elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
         kill_pids "$target_pids"
     else
         # get_pids_by_port 로 PID를 직접 특정하지 못한 경우의 폴백
-        if $IS_WINDOWS; then
-            win_pids=$(netstat -ano 2>/dev/null | grep -E ":${PORT}[[:space:]].*LISTENING" | awk '{print $NF}' | grep -E '^[0-9]+$' | sort -u)
-            kill_pids "$win_pids"
-        elif $IS_MAC; then
+        if $IS_MAC; then
             mac_pids=$(lsof -nP -ti tcp:"$PORT" -sTCP:LISTEN 2>/dev/null)
             [[ -n "$mac_pids" ]] && kill_pids "$mac_pids"
         elif command -v fuser &>/dev/null; then
@@ -1386,42 +1315,24 @@ elif [[ "$CHOICE" == *"JDK 버전 변경"* ]]; then
         echo ""
     fi
 
-    if $IS_WINDOWS; then
-        JDK_SWITCH_PS1="$DEV_ROOT/scripts/windows/cmd/jdk_switch.ps1"
-        if [[ -f "$JDK_SWITCH_PS1" ]]; then
-            if command -v cygpath &>/dev/null; then
-                PS1_PATH=$(cygpath -w "$JDK_SWITCH_PS1")
-            else
-                PS1_PATH=$(echo "$JDK_SWITCH_PS1" | sed 's|^\/\([a-zA-Z]\)\/|\1:\\|' | tr '/' '\\')
-            fi
-            powershell.exe -ExecutionPolicy Bypass -File "$PS1_PATH" "$JDK_CHOICE"
-        else
-            echo "❌ 스위치 스크립트를 찾을 수 없습니다: $JDK_SWITCH_PS1"
-        fi
+    # Linux (WSL 포함) / macOS 공통
+    JDK_SWITCH_SCRIPT="$DEV_ROOT/scripts/linux/cmd/jdk_switch.sh"
+    if [[ -f "$JDK_SWITCH_SCRIPT" ]]; then
+        source "$JDK_SWITCH_SCRIPT" "$JDK_CHOICE"
     else
-        # Linux (WSL 포함) / macOS 공통
-        JDK_SWITCH_SCRIPT="$DEV_ROOT/scripts/linux/cmd/jdk_switch.sh"
-        if [[ -f "$JDK_SWITCH_SCRIPT" ]]; then
-            source "$JDK_SWITCH_SCRIPT" "$JDK_CHOICE"
-        else
-            echo "❌ 스위치 스크립트를 찾을 수 없습니다: $JDK_SWITCH_SCRIPT"
-        fi
+        echo "❌ 스위치 스크립트를 찾을 수 없습니다: $JDK_SWITCH_SCRIPT"
     fi
 
     echo ""
     echo "📢 안내:"
     echo "  - 환경 변수 영구 설정이 변경되었습니다."
-    if $IS_WINDOWS; then
-        echo "  - 변경 사항을 완전히 적용하려면 현재 터미널 창을 닫고 새로 열어주세요."
+    echo "  - 현재 터미널 세션에 즉시 적용하려면 다음 명령을 실행하십시오:"
+    if [[ "$SHELL" == *"zsh"* ]]; then
+        echo "    source ~/.zshrc"
     else
-        echo "  - 현재 터미널 세션에 즉시 적용하려면 다음 명령을 실행하십시오:"
-        if [[ "$SHELL" == *"zsh"* ]]; then
-            echo "    source ~/.zshrc"
-        else
-            echo "    source ~/.bashrc"
-        fi
-        echo "  - 또는 터미널을 다시 시작(새 창/새 탭)하십시오."
+        echo "    source ~/.bashrc"
     fi
+    echo "  - 또는 터미널을 다시 시작(새 창/새 탭)하십시오."
 
 # ── Python 버전 변경 (Python Switch) ─────────────────────────────────────────
 elif [[ "$CHOICE" == *"Python 버전 변경"* ]]; then
@@ -1455,42 +1366,24 @@ elif [[ "$CHOICE" == *"Python 버전 변경"* ]]; then
         exit 0
     fi
 
-    if $IS_WINDOWS; then
-        PY_SWITCH_PS1="$DEV_ROOT/scripts/windows/cmd/py_switch.ps1"
-        if [[ -f "$PY_SWITCH_PS1" ]]; then
-            if command -v cygpath &>/dev/null; then
-                PS1_PATH=$(cygpath -w "$PY_SWITCH_PS1")
-            else
-                PS1_PATH=$(echo "$PY_SWITCH_PS1" | sed 's|^\/\([a-zA-Z]\)\/|\1:\\|' | tr '/' '\\')
-            fi
-            powershell.exe -ExecutionPolicy Bypass -File "$PS1_PATH" "$PY_CHOICE"
-        else
-            echo "❌ 스위치 스크립트를 찾을 수 없습니다: $PY_SWITCH_PS1"
-        fi
+    # Linux (WSL 포함) / macOS 공통
+    PY_SWITCH_SCRIPT="$DEV_ROOT/scripts/linux/cmd/py_switch.sh"
+    if [[ -f "$PY_SWITCH_SCRIPT" ]]; then
+        source "$PY_SWITCH_SCRIPT" "$PY_CHOICE"
     else
-        # Linux (WSL 포함) / macOS 공통
-        PY_SWITCH_SCRIPT="$DEV_ROOT/scripts/linux/cmd/py_switch.sh"
-        if [[ -f "$PY_SWITCH_SCRIPT" ]]; then
-            source "$PY_SWITCH_SCRIPT" "$PY_CHOICE"
-        else
-            echo "❌ 스위치 스크립트를 찾을 수 없습니다: $PY_SWITCH_SCRIPT"
-        fi
+        echo "❌ 스위치 스크립트를 찾을 수 없습니다: $PY_SWITCH_SCRIPT"
     fi
 
     echo ""
     echo "📢 안내:"
     echo "  - 환경 변수 영구 설정이 변경되었습니다."
-    if $IS_WINDOWS; then
-        echo "  - 변경 사항을 완전히 적용하려면 현재 터미널 창을 닫고 새로 열어주세요."
+    echo "  - 현재 터미널 세션에 즉시 적용하려면 다음 명령을 실행하십시오:"
+    if [[ "$SHELL" == *"zsh"* ]]; then
+        echo "    source ~/.zshrc"
     else
-        echo "  - 현재 터미널 세션에 즉시 적용하려면 다음 명령을 실행하십시오:"
-        if [[ "$SHELL" == *"zsh"* ]]; then
-            echo "    source ~/.zshrc"
-        else
-            echo "    source ~/.bashrc"
-        fi
-        echo "  - 또는 터미널을 다시 시작(새 창/새 탭)하십시오."
+        echo "    source ~/.bashrc"
     fi
+    echo "  - 또는 터미널을 다시 시작(새 창/새 탭)하십시오."
 
 # ── [Project] 프로젝트 설정 (setup-projects/ 하위 스크립트 동적 탐색 실행) ────
 # scripts/linux/setup-projects/ 아래(단, _common/ 제외) .sh 스크립트를 재귀적으로
