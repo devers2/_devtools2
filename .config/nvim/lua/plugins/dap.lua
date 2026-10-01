@@ -942,34 +942,35 @@ return {
         local java_home = (java_ver >= 21) and (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-' .. java_ver)
           or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
 
+        -- gradlew/mvnw 에 실행 권한이 없으면(Windows 에서 만든 저장소·zip 압축 해제 등) vim.system 이
+        -- EACCES 오류를 즉시 던져 디버그 시작 자체가 중단됩니다(실측). 그런 경우 sh 로 실행하고,
+        -- 그래도 프로세스를 띄우지 못하면 리소스 처리 없이 빌드 확인으로 넘어갑니다.
+        local function run_resources_task(script, task)
+          local name = vim.fn.fnamemodify(script, ':t')
+          vim.notify(string.format('📦 리소스 및 빌드 프로필 처리 중 (%s %s)...', name, task), vim.log.levels.INFO, { title = 'Java Launch' })
+          local cmd = vim.fn.executable(script) == 1 and { script, task } or { 'sh', script, task }
+          local spawned = pcall(vim.system, cmd, {
+            cwd = root,
+            env = { JAVA_HOME = java_home },
+            text = true,
+          }, function(obj)
+            vim.schedule(function()
+              if obj.code ~= 0 then
+                vim.notify(string.format('⚠️ %s %s 실패:\n', name, task) .. (obj.stderr or obj.stdout or ''), vim.log.levels.WARN, { title = 'Java Launch' })
+              end
+              build_workspace_with_watchdog(on_done)
+            end)
+          end)
+          if not spawned then
+            vim.notify(string.format('⚠️ %s 를 실행하지 못해 리소스 처리 없이 진행합니다.', name), vim.log.levels.WARN, { title = 'Java Launch' })
+            build_workspace_with_watchdog(on_done)
+          end
+        end
+
         if has_gradlew then
-          vim.notify('📦 리소스 및 빌드 프로필 처리 중 (gradlew processResources)...', vim.log.levels.INFO, { title = 'Java Launch' })
-          vim.system({ gradlew, 'processResources' }, {
-            cwd = root,
-            env = { JAVA_HOME = java_home },
-            text = true,
-          }, function(obj)
-            vim.schedule(function()
-              if obj.code ~= 0 then
-                vim.notify('⚠️ gradlew processResources 실패:\n' .. (obj.stderr or obj.stdout or ''), vim.log.levels.WARN, { title = 'Java Launch' })
-              end
-              build_workspace_with_watchdog(on_done)
-            end)
-          end)
+          run_resources_task(gradlew, 'processResources')
         elseif has_mvnw then
-          vim.notify('📦 리소스 및 빌드 프로필 처리 중 (mvnw process-resources)...', vim.log.levels.INFO, { title = 'Java Launch' })
-          vim.system({ mvnw, 'process-resources' }, {
-            cwd = root,
-            env = { JAVA_HOME = java_home },
-            text = true,
-          }, function(obj)
-            vim.schedule(function()
-              if obj.code ~= 0 then
-                vim.notify('⚠️ mvnw process-resources 실패:\n' .. (obj.stderr or obj.stdout or ''), vim.log.levels.WARN, { title = 'Java Launch' })
-              end
-              build_workspace_with_watchdog(on_done)
-            end)
-          end)
+          run_resources_task(mvnw, 'process-resources')
         else
           build_workspace_with_watchdog(on_done)
         end

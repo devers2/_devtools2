@@ -777,19 +777,10 @@ function M.ensure_launch_json(on_ready)
         return
       end
 
-      local lang = 'java'
-      local choice_lower = choice:lower()
-      if choice_lower:find('java') then
-        lang = 'java'
-      elseif choice_lower:find('python') then
-        lang = 'python'
-      elseif choice_lower:find('node') then
-        lang = 'node'
-      elseif choice_lower:find('go') then
-        lang = 'go'
-      elseif choice_lower:find('rust') then
-        lang = 'rust'
-      end
+      -- 항목 앞의 번호로 판별합니다. 문자열 포함 여부로 판별하면
+      -- "3. Node.js (TypeScript / JavaScript)" 가 "java"(javascript)에 걸려 Java 로 처리됩니다.
+      local by_number = { ['1'] = 'java', ['2'] = 'python', ['3'] = 'node', ['4'] = 'go', ['5'] = 'rust' }
+      local lang = by_number[choice:match('^(%d)%.')] or 'java'
       proceed_with_lang(lang)
     end)
   end

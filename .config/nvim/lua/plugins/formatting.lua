@@ -81,6 +81,36 @@ local function get_smart_prettier_prepend_args(self, ctx)
   end
 end
 
+-- 헬퍼 함수: 스마트 Ruff 인자 빌더 (Prettier 와 같은 원칙)
+-- 프로젝트에 ruff 설정(ruff.toml / .ruff.toml / pyproject.toml 의 [tool.ruff])이 있으면 그 설정을 따르고,
+-- 없을 때만 글로벌 _devtools2 ruff.toml 을 지정합니다.
+-- (항상 --config 로 전역 설정을 강제하면 프로젝트의 line-length 등이 무시되어 CI 와 다르게 포맷됨)
+local function has_project_ruff_config(filename)
+  if not filename or filename == '' then
+    return false
+  end
+  if vim.fs.root(filename, { 'ruff.toml', '.ruff.toml' }) then
+    return true
+  end
+  local root = vim.fs.root(filename, { 'pyproject.toml' })
+  if root then
+    local f = io.open(root .. '/pyproject.toml', 'r')
+    if f then
+      local content = f:read('*a') or ''
+      f:close()
+      return content:find('%[tool%.ruff') ~= nil
+    end
+  end
+  return false
+end
+
+local function get_smart_ruff_prepend_args(_, ctx)
+  if has_project_ruff_config(ctx.filename) then
+    return {}
+  end
+  return { '--config', _G.DEVTOOLS2_DIR .. '/.config/ruff/ruff.toml' }
+end
+
 return {
   {
     'stevearc/conform.nvim',
@@ -254,11 +284,12 @@ return {
         },
 
         -- Python
+        -- Python: 프로젝트 ruff 설정 우선, 없으면 글로벌 설정
         ruff_format = {
-          prepend_args = { '--config', _G.DEVTOOLS2_DIR .. '/.config/ruff/ruff.toml' },
+          prepend_args = get_smart_ruff_prepend_args,
         },
         ruff_fix = {
-          prepend_args = { '--config', _G.DEVTOOLS2_DIR .. '/.config/ruff/ruff.toml' },
+          prepend_args = get_smart_ruff_prepend_args,
         },
       },
     },
