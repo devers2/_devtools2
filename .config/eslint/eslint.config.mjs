@@ -236,7 +236,7 @@ export default [
    * 위 섹션 3의 모든 규칙 및 globals는 상속받고 sourceType: 'commonjs' 부분만 재정의
    */
   {
-    files: ['**/*.{cjs}'],
+    files: ['**/*.cjs'], // ⚠️ '**/*.{cjs}' 처럼 항목이 하나뿐인 중괄호는 확장되지 않아 아무 파일에도 매칭되지 않음(실측)
     languageOptions: {
       // .cjs 파일은 CommonJS이므로 sourceType을 commonjs로 명확히 지정하여 재정의
       sourceType: 'commonjs'

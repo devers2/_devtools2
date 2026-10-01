@@ -237,7 +237,8 @@
   "java.eclipse.downloadSources": true, // Gradle(Eclipse 프로젝트 모델 경유) 의존성의 소스 jar 자동 다운로드 → true: 위와 동일한 효과를 Gradle 프로젝트에도 적용
 
   "python.analysis.typeCheckingMode": "standard", // 파이썬 코드의 타입(Data Type) 오류 검사 모드 → standard: 명백한 타입 불일치, 존재하지 않는 속성 접근 등을 경고(가장 권장됨)
-  "ruff.configuration": "/var/opt/_devtools2/.config/ruff/ruff.toml", // Ruff(린터/포맷터) 설정 파일 경로 고정 → 프로젝트에 별도 ruff.toml/pyproject.toml 이 없어도 공통 스타일(line-length, quote-style)이 항상 적용됨
+  "ruff.configuration": "/var/opt/_devtools2/.config/ruff/ruff.toml", // Ruff(린터/포맷터) 공통 설정 파일 경로 → 프로젝트에 별도 ruff.toml/pyproject.toml 이 없어도 공통 스타일(line-length, quote-style)이 적용됨
+  "ruff.configurationPreference": "filesystemFirst", // 프로젝트에 ruff.toml/.ruff.toml/pyproject.toml([tool.ruff]) 이 있으면 그 설정을 우선 → 기본값 editorFirst 는 위 공통 설정이 프로젝트 설정(line-length 등)을 덮어써서 CI 와 포맷 결과가 달라짐 (Neovim formatting.lua 와 동일한 원칙)
 
   /* 에디터 기본 설정 */
   "editor.formatOnSave": true, // 저장 시 자동 포맷팅 여부, 포맷팅 없이 저장: 시퀀스(연속) 단축키 "Ctrl + K Ctrl + S" 또는 명령어 팔레트(Ctrl + Shift + P) 에서 "Save without Formatting" 명령어 실행
