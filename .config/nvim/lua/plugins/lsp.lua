@@ -25,7 +25,6 @@ return {
         ltex = {
           enabled = false,
         },
-        eslint = {},
         -- TypeScript(vtsls)는 기본 설정을 따르도록 빈 객체로 설정
         vtsls = {},
 

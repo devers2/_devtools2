@@ -197,6 +197,12 @@ vim.api.nvim_create_autocmd('FileType', {
     end
     jinja_setup_checked[project_root] = true
 
+    -- Jinja 템플릿 폴더(templates/)가 있는 프로젝트에서만 묻습니다.
+    -- (템플릿이 없는 순수 Python 프로젝트에서 파일을 열 때마다 질문이 뜨지 않도록)
+    if vim.fn.isdirectory(project_root .. '/templates') == 0 then
+      return
+    end
+
     -- 프로젝트 루트 내의 prettier 설정 파일들 확인
     local config_files = vim.fs.find({
       'prettier.config.js',
@@ -493,8 +499,9 @@ do
         if not s then
           break
         end
-        -- nvim_buf_add_highlight: 0-indexed, byte 단위, end는 exclusive
-        vim.api.nvim_buf_add_highlight(0, ns, 'Search', row, s - 1, s - 1 + sel_len)
+        -- extmark 하이라이트: 0-indexed, byte 단위, end_col 은 exclusive
+        -- (nvim_buf_add_highlight 는 Neovim 0.11 부터 사용 중단)
+        vim.api.nvim_buf_set_extmark(0, ns, row, s - 1, { end_col = s - 1 + sel_len, hl_group = 'Search' })
         col = e + 1
       end
     end
@@ -589,6 +596,53 @@ vim.api.nvim_create_autocmd('FileType', {
 --    - 비동기 스케줄링(vim.schedule): 에디터 UI 블로킹 없이 저장 완료 후 백그라운드에서 조용히 수행됩니다.
 --    - 변경 감지(Idempotency): 내용 변경이 없을 때는 불필요한 디스크 쓰기(I/O)를 건너뜁니다.
 -- ===========================================================================================
+-- JSONC(주석·후행 콤마 허용 JSON)를 표준 JSON 으로 정리합니다.
+-- ⚠️ 문자열 안의 내용은 건드리지 않습니다. 단순 패턴('//[^\r\n]*')으로 지우면
+--    "jdbc:mysql://localhost/db" 같은 URL 의 '//' 뒤가 잘려 JSON 이 깨지고 동기화가 조용히 실패합니다.
+local function strip_jsonc(text)
+  local out = {}
+  local i, n = 1, #text
+  local in_str = false
+  while i <= n do
+    local c = text:sub(i, i)
+    if in_str then
+      out[#out + 1] = c
+      if c == '\\' then
+        out[#out + 1] = text:sub(i + 1, i + 1)
+        i = i + 1
+      elseif c == '"' then
+        in_str = false
+      end
+      i = i + 1
+    elseif c == '"' then
+      in_str = true
+      out[#out + 1] = c
+      i = i + 1
+    elseif c == '/' and text:sub(i + 1, i + 1) == '/' then
+      local nl = text:find('\n', i, true)
+      i = nl or (n + 1)
+    elseif c == '/' and text:sub(i + 1, i + 1) == '*' then
+      local close = text:find('*/', i + 2, true)
+      i = close and (close + 2) or (n + 1)
+    elseif c == ',' then
+      -- 후행 콤마: 다음 비공백 문자가 ] 또는 } 이면 버림
+      local j = i + 1
+      while j <= n and text:sub(j, j):match('%s') do
+        j = j + 1
+      end
+      local nxt = text:sub(j, j)
+      if nxt ~= ']' and nxt ~= '}' then
+        out[#out + 1] = c
+      end
+      i = i + 1
+    else
+      out[#out + 1] = c
+      i = i + 1
+    end
+  end
+  return table.concat(out)
+end
+
 vim.api.nvim_create_autocmd('BufWritePost', {
   group = vim.api.nvim_create_augroup('sync_launch_json_to_zed', { clear = true }),
   pattern = '*launch.json',
@@ -624,10 +678,8 @@ vim.api.nvim_create_autocmd('BufWritePost', {
           return
         end
 
-        -- 주석(// 및 /* */) 및 trailing comma 제거 후 파싱
-        local no_block = content:gsub('/%*.-%*/', '')
-        local clean_json = no_block:gsub('//[^\r\n]*', '')
-        clean_json = clean_json:gsub(',%s*([%]}])', '%1')
+        -- 주석(// 및 /* */) 및 trailing comma 제거 후 파싱 (문자열 내부는 보존)
+        local clean_json = strip_jsonc(content)
 
         local ok, data = pcall(vim.json.decode, clean_json)
         if not ok or type(data) ~= 'table' or not data.configurations then
@@ -675,7 +727,7 @@ vim.api.nvim_create_autocmd('BufWritePost', {
           local e_content = ef:read('*a')
           ef:close()
           -- 주석 제거 후 내용 비교
-          local clean_e = e_content:gsub('//[^\r\n]*', ''):gsub('/%*.-%*/', '')
+          local clean_e = strip_jsonc(e_content)
           local e_ok, e_data = pcall(vim.json.decode, clean_e)
           if e_ok and vim.deep_equal(e_data, zed_configs) then
             return

@@ -74,8 +74,6 @@ if ($wtInstalled) {
 } else {
     Write-Info "Windows Terminal을 winget으로 설치합니다..."
     $p = Start-Process winget -ArgumentList "install --id Microsoft.WindowsTerminal --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru -Wait
-    # PS 5.1: -Wait 없이 띄운 프로세스는 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
-    $null = $p.Handle
     $successCodes = @(0, 3010, -1978335189, -1978335212)
     if ($successCodes -contains $p.ExitCode -or (Get-Command wt.exe -ErrorAction SilentlyContinue)) {
         Write-Success "Windows Terminal 설치/확인 완료"
@@ -94,12 +92,8 @@ Write-Host ""
 Write-Host "  터미널 폰트를 선택하세요:" -ForegroundColor Cyan
 Write-Host "    [Y] D2KodingLigature Nerd Font Mono - 한글 자체 지원, 리거처 포함 (권장, 기본값)" -ForegroundColor Green
 Write-Host "    [N] JetBrainsMono NFM               - 영문 전용, 한글은 OS 대체 폰트로 렌더링" -ForegroundColor Gray
-Write-Host "👉 D2KodingLigature로 설치할까요? [" -ForegroundColor Yellow -NoNewline
-Write-Host "Y" -ForegroundColor Green -NoNewline
-Write-Host "/n]: " -ForegroundColor Yellow -NoNewline
-$fontChoice = Read-Host
-
-if ($fontChoice -match '^[Nn]') {
+# Prompt-Confirm 은 DT2_NONINTERACTIVE=1 이면 묻지 않고 기본값(Y)을 씁니다.
+if (-not (Prompt-Confirm "👉 D2KodingLigature로 설치할까요?" "Y")) {
     $fontFiles = @("JetBrainsMonoNerdFontMono-Regular.ttf", "JetBrainsMonoNerdFontMono-Bold.ttf")
     $fontFace  = "JetBrainsMono NFM"
 } else {
@@ -205,7 +199,12 @@ Write-Step "[Step 3] Windows Terminal settings.json 갱신"
 
 
 # MSIX 패키지 폴더는 설치마다 조금씩 다를 수 있어 동적으로 찾습니다 (Store/Preview 겸용)
-$wtPackageDir = Get-ChildItem "$env:LOCALAPPDATA\Packages" -Filter "Microsoft.WindowsTerminal*" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+# 정식판(Microsoft.WindowsTerminal_...)을 우선합니다. "Microsoft.WindowsTerminal*" 로 찾아 첫 항목을 고르면
+# Preview 가 함께 설치된 PC 에서는 이름 정렬상 Preview(..TerminalPreview_)가 먼저 와서 Preview 설정을 고치게 됩니다.
+$wtPackageDir = Get-ChildItem "$env:LOCALAPPDATA\Packages" -Filter "Microsoft.WindowsTerminal_*" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $wtPackageDir) {
+    $wtPackageDir = Get-ChildItem "$env:LOCALAPPDATA\Packages" -Filter "Microsoft.WindowsTerminalPreview_*" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+}
 $settingsPath = if ($wtPackageDir) {
     Join-Path $wtPackageDir.FullName "LocalState\settings.json"
 } else {
@@ -224,6 +223,12 @@ if (-not (Test-Path $settingsPath)) {
 
     try {
         $raw = Get-Content -Path $settingsPath -Raw -Encoding UTF8
+        # Windows Terminal 의 settings.json 은 주석(//, /* */)과 후행 콤마를 허용하는 JSONC 입니다.
+        # PowerShell 7 의 ConvertFrom-Json 은 이를 읽지만 Windows PowerShell 5.1 은 파싱에 실패하므로(실측),
+        # 문자열 내부는 보존한 채 주석과 후행 콤마를 먼저 제거합니다. (저장 시 주석은 유지되지 않으며 원본은 .bak 에 있음)
+        $jsoncPattern = '("(?:\\.|[^"\\])*")|(/\*[\s\S]*?\*/|//[^\r\n]*)'
+        $raw = [regex]::Replace($raw, $jsoncPattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($m) if ($m.Groups[1].Success) { $m.Value } else { '' } })
+        $raw = [regex]::Replace($raw, '("(?:\\.|[^"\\])*")|,(\s*[\]}])', [System.Text.RegularExpressions.MatchEvaluator]{ param($m) if ($m.Groups[1].Success) { $m.Value } else { $m.Groups[2].Value } })
         $settings = $raw | ConvertFrom-Json
 
         # ── Kanagawa 색 배열 추가 (이미 있으면 건너뜀) ──────────────────────────

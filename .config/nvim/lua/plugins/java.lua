@@ -314,12 +314,36 @@ return {
 
         local workspace_dir = _G.NVIM_CACHE_DIR .. '/jdtls/' .. p_name
         local mason_lombok_path = _G.NVIM_DATA_DIR .. '/mason/packages/jdtls/lombok.jar'
+
+        -- [jdtls 힙 크기: 이 PC 의 전체 메모리에 맞춰 결정]
+        -- 예전처럼 -Xms4G -Xmx12G 로 고정하면 메모리가 8GB 인 PC(WSL 은 기본으로 호스트 메모리의 절반)에서
+        -- 시작부터 4GB 를 잡아 다른 프로그램이 느려지거나 메모리가 부족해집니다.
+        -- 최대 힙 = 전체 메모리의 1/4 (최소 2GB, 최대 12GB), 초기 힙 = 최대 힙의 1/4 (최대 2GB).
+        local function jdtls_heap_mb()
+          local total_mb = 0
+          local f = io.open('/proc/meminfo', 'r')
+          if f then
+            local kb = (f:read('*a') or ''):match('MemTotal:%s+(%d+)%s+kB')
+            f:close()
+            total_mb = math.floor((tonumber(kb) or 0) / 1024)
+          end
+          if total_mb <= 0 then
+            local ok, bytes = pcall(vim.uv.get_total_memory)
+            total_mb = (ok and bytes) and math.floor(bytes / 1024 / 1024) or 16384
+          end
+          local xmx = math.max(2048, math.min(12288, math.floor(total_mb / 4)))
+          local xms = math.min(2048, math.floor(xmx / 4))
+          return xms, xmx
+        end
+        local heap_xms, heap_xmx = jdtls_heap_mb()
+        _G.log_jdtls(string.format('jdtls heap: -Xms%dm -Xmx%dm', heap_xms, heap_xmx))
+
         local cmd = {
           'env',
           'JAVA_HOME=' .. effective_jdk_home,
           jdtls_executable,
-          '--jvm-arg=-Xms4G',
-          '--jvm-arg=-Xmx12G',
+          '--jvm-arg=-Xms' .. heap_xms .. 'm',
+          '--jvm-arg=-Xmx' .. heap_xmx .. 'm',
           '--jvm-arg=-XX:+UseG1GC',
           '--jvm-arg=-XX:+UseStringDeduplication',
           '--jvm-arg=-javaagent:' .. mason_lombok_path,
