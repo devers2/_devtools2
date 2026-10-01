@@ -107,12 +107,19 @@ jobs:
               echo "  ✓ $file 구문 정상"
           done
 
+      # error 등급(예: set -e 스크립트의 함수 밖 local → 그 줄에서 즉시 종료)은 CI 를 실패시키고,
+      # warning 등급은 기존 경고가 남아 있어 보고만 합니다.
+      # 확장자가 없는 fzf 도구(bw-lib, bw-server-manager, command-palette)도 함께 검사합니다.
       - name: Run ShellCheck
         run: |
-          echo "=== ShellCheck 정적 분석 (경고/오류 검출) ==="
-          find . -type f \( -name "*.sh" -o -name "*.bash" \) | while read -r file; do
-              shellcheck -S warning -e SC1090,SC1091 "$file" || echo "⚠️  ShellCheck 발견: $file"
+          echo "=== ShellCheck 정적 분석 (error 는 실패, warning 은 보고) ==="
+          files=$( (find . -type f \( -name "*.sh" -o -name "*.bash" \); ls scripts/fzf/bw-lib scripts/fzf/bw-server-manager scripts/fzf/command-palette) )
+          failed=0
+          for file in $files; do
+              shellcheck -s bash -S error -e SC1090,SC1091 "$file" || { echo "❌ ShellCheck error: $file"; failed=1; }
+              shellcheck -s bash -S warning -e SC1090,SC1091 "$file" >/dev/null || echo "⚠️  ShellCheck warning: $file"
           done
+          exit $failed
 
   # ── 3. Ubuntu 24.04 컨테이너 무인 설치 및 doctor 검증 ──────────────────────
   container-install-test:
