@@ -123,8 +123,10 @@ save_state() {
 # ==============================================================================
 
 # 표준 입력을 클립보드에 복사 (개행 없이 그대로)
+# ⚠️ bw-lib 의 copy_to_clipboard(인자로 문자열을 받음)와 이름이 겹치면 이 정의가 그것을 덮어써서,
+#    bw-lib 의 clear_clipboard(copy_to_clipboard "") 같은 호출이 터미널 입력을 기다리며 멈춥니다. 이름을 분리합니다.
 # 반환: 0 = 성공, 1 = 사용 가능한 클립보드 도구 없음
-copy_to_clipboard() {
+cp_copy_stdin_to_clipboard() {
     if $IS_WSL; then
         # 네이티브 Windows(Git Bash)에서도, WSL interop을 통해서도 동일하게 동작
         if command -v clip.exe &>/dev/null; then
@@ -233,12 +235,14 @@ is_port_in_use() {
         local hex_port
         hex_port=$(port_to_hex "$port")
 
-        if [[ -f /proc/net/tcp ]] && grep -qi ":${hex_port}[[:space:]].*0A" /proc/net/tcp 2>/dev/null; then
-            return 0
-        fi
-        if [[ -f /proc/net/tcp6 ]] && grep -qi ":${hex_port}[[:space:]].*0A" /proc/net/tcp6 2>/dev/null; then
-            return 0
-        fi
+        # 로컬 주소(2번째 칸)의 포트와 상태(4번째 칸, 0A = LISTEN)를 정확히 비교합니다.
+        # (줄 전체에서 ":포트 ... 0A" 를 찾으면 그 포트로 "접속한" 클라이언트 연결이나 다른 칸의 0A 도 걸림)
+        local _f
+        for _f in /proc/net/tcp /proc/net/tcp6; do
+            if [[ -f "$_f" ]] && awk -v p=":${hex_port}" 'toupper(substr($2, length($2)-4)) == p && $4 == "0A" { found=1; exit } END { exit !found }' "$_f" 2>/dev/null; then
+                return 0
+            fi
+        done
 
         # /proc 접근 불가 시 Linux 폴백
         if command -v ss &>/dev/null; then
@@ -811,10 +815,26 @@ if [[ "$CHOICE" == *"실행"* ]]; then
         CMD_ARGS+=("--args=--spring.profiles.active=$TARGET_PROF")
     fi
 
+    # launch.json 의 vmArgs(-D...)는 "실행되는 앱 JVM" 에 넣어야 합니다.
+    # ⚠️ "./gradlew bootRun -Dkey=val" 처럼 Gradle 명령 인자로 주면 Gradle 자체 JVM 에만 적용되고
+    #    bootRun 이 띄우는 앱에는 전달되지 않습니다(build.gradle 이 직접 넘기지 않는 한).
+    #    그래서 작은 init 스크립트로 bootRun 태스크의 jvmArgs 에만 추가합니다(Neovim/VSCode 디버그 실행과 동일).
+    BOOTRUN_ENV=()
     if [[ -n "$TARGET_VM_EXTRA" ]]; then
-        for vm_token in $TARGET_VM_EXTRA; do
-            CMD_ARGS+=("$vm_token")
-        done
+        BOOTRUN_INIT="$STATE_DIR/bootrun-jvm-args.init.gradle"
+        cat > "$BOOTRUN_INIT" <<'GRADLE_INIT'
+// command-palette 가 생성: DT2_BOOTRUN_JVM_ARGS 환경 변수의 JVM 인자를 bootRun 앱 JVM 에 추가
+allprojects {
+    tasks.matching { it.name == 'bootRun' }.configureEach { task ->
+        def extra = System.getenv('DT2_BOOTRUN_JVM_ARGS')
+        if (extra) {
+            task.jvmArgs(extra.trim().split(/\s+/) as List)
+        }
+    }
+}
+GRADLE_INIT
+        CMD_ARGS+=("--init-script" "$BOOTRUN_INIT")
+        BOOTRUN_ENV=(env "DT2_BOOTRUN_JVM_ARGS=$TARGET_VM_EXTRA")
     fi
 
     # 기본 백그라운드 컴파일 감시(-t), 병렬 빌드, 빌드 캐시 활성화
@@ -833,9 +853,9 @@ if [[ "$CHOICE" == *"실행"* ]]; then
         mkdir -p "$LOG_DIR"
         LOG_FILE="$LOG_DIR/gradle-$(date +%Y%m%d-%H%M%S).log"
         echo "📁 로그 저장 경로: $LOG_FILE"
-        "${CMD_ARGS[@]}" 2>&1 | tee "$LOG_FILE"
+        "${BOOTRUN_ENV[@]}" "${CMD_ARGS[@]}" 2>&1 | tee "$LOG_FILE"
     else
-        "${CMD_ARGS[@]}"
+        "${BOOTRUN_ENV[@]}" "${CMD_ARGS[@]}"
     fi
 
 # ── [Gradle] 빌드 (build) ────────────────────────────────────────────────────
@@ -1534,7 +1554,7 @@ elif [[ "$CHOICE" == *"Base64"* && "$CHOICE" == *"인코딩"* ]]; then
     _B64_SIZE=$(wc -c <"$_B64_SRC" | tr -d ' ')
 
     echo ""
-    if printf '%s' "$_B64_OUT" | copy_to_clipboard; then
+    if printf '%s' "$_B64_OUT" | cp_copy_stdin_to_clipboard; then
         echo "✅ Base64로 인코딩하여 클립보드에 복사했습니다."
         echo "   원본 파일 : $_B64_SRC (${_B64_SIZE} bytes)"
         echo "   Bitwarden 항목의 '사용자 지정 필드' 값에 그대로 붙여넣으세요."
@@ -1588,19 +1608,22 @@ elif [[ "$CHOICE" == *"Base64"* && "$CHOICE" == *"복원"* ]]; then
 
     mkdir -p "$(dirname "$_B64_DST")"
 
+    # 같은 폴더의 임시 파일에 먼저 디코딩하고, 성공했을 때만 대상 파일과 교체합니다.
+    # (대상에 바로 쓰고 실패 시 지우면, 덮어쓰기에 동의한 기존 파일까지 사라짐)
+    _B64_TMP=$(mktemp "$(dirname "$_B64_DST")/.b64restore.XXXXXX")
     _B64_DECODE_OK=false
-    if $IS_MAC && printf '%s' "$_B64_IN" | base64 -D >"$_B64_DST" 2>/dev/null; then
+    if $IS_MAC && printf '%s' "$_B64_IN" | base64 -D >"$_B64_TMP" 2>/dev/null; then
         _B64_DECODE_OK=true
-    elif printf '%s' "$_B64_IN" | base64 -d >"$_B64_DST" 2>/dev/null; then
+    elif printf '%s' "$_B64_IN" | base64 -d >"$_B64_TMP" 2>/dev/null; then
         _B64_DECODE_OK=true
     fi
 
-    if $_B64_DECODE_OK; then
+    if $_B64_DECODE_OK && mv -f "$_B64_TMP" "$_B64_DST"; then
         _B64_OUT_SIZE=$(wc -c <"$_B64_DST" | tr -d ' ')
         echo "✅ 파일을 복원했습니다: $_B64_DST (${_B64_OUT_SIZE} bytes)"
     else
-        echo "❌ Base64 디코딩에 실패했습니다. 클립보드/입력 값이 올바른 Base64인지 확인해주세요."
-        rm -f "$_B64_DST"
+        echo "❌ Base64 디코딩에 실패했습니다. 클립보드/입력 값이 올바른 Base64인지 확인해주세요. (기존 파일은 그대로 둡니다)"
+        rm -f "$_B64_TMP"
         exit 1
     fi
 
