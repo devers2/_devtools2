@@ -1,3 +1,46 @@
 # apps 디렉토리의 모든 파일과 디렉터리는 형상관리에 추가
 !*
 
+
+# ── 🔐 비밀 정보 차단 (AI API 키·토큰·인증 파일) ─────────────────────────────
+# 이 폴더는 위의 "!*" 로 전부 추적되므로, 도구가 만든 인증 파일이 실수로 커밋되지 않게 여기서 다시 막습니다.
+# (루트 .gitignore 의 규칙은 하위 폴더의 "!*" 보다 우선순위가 낮아 여기서 반복해야 합니다)
+# 커밋 직전 내용 검사는 scripts/git-hooks/pre-commit 이 추가로 담당합니다.
+# API 키는 저장소 밖의 ~/.config/devtools2/secrets.env (권한 600)에 두세요.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.env
+secrets.*
+*.secret
+*.secrets
+*.token
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ecdsa*
+id_ed25519*
+.netrc
+.git-credentials
+.pypirc
+*credentials*.json
+client_secret*.json
+service-account*.json
+auth.json
+oauth_creds.json
+token.json
+.bw_session*
+rclone.conf
+.claude/
+.claude.json
+.codex/
+.gemini/
+.anthropic/
+.openai/
+orca-pairing-link.txt

@@ -109,6 +109,8 @@ _DT2_PATH_DIRS=(
 # - env.sh 는 설치 스크립트가 매번 다시 만들지만 local.sh 는 건드리지 않으므로 선택이 유지됩니다.
 cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
 [ -f "$HOME/.config/devtools2/local.sh" ] && . "$HOME/.config/devtools2/local.sh"
+# AI API 키 등 비밀 값 (저장소 밖, 소유자 전용 600 — 1.setup-env.sh 가 서식 파일을 만들어 둠)
+[ -f "$HOME/.config/devtools2/secrets.env" ] && . "$HOME/.config/devtools2/secrets.env"
 
 # PATH 앞에 디렉터리를 추가하되 이미 있으면 건너뜁니다(.profile 과 .bashrc 가 모두 이 파일을
 # 읽거나, 셸 안에서 셸을 다시 띄워도 PATH 가 계속 길어지지 않도록).
@@ -217,6 +219,44 @@ chmod 644 "$_TARGET_ENV"
 rm -f "$_DEVTOOLS2_ENV_TMP"
 trap - EXIT
 print_done "독립 환경 설정 파일 생성 완료: $_TARGET_ENV"
+
+# 1-1) AI API 키 등 비밀 값 전용 파일 (~/.config/devtools2/secrets.env)
+# - 저장소(공개 GitHub) 밖에 두고 소유자만 읽을 수 있게(600) 만듭니다. env.sh 가 이 파일을 읽으므로
+#   셸·Neovim(CodeCompanion)·orca serve(래퍼가 env.sh 를 읽음) 모두 같은 키를 씁니다.
+# - 이미 있으면 내용은 건드리지 않고 권한만 600 으로 맞춥니다(멱등).
+# - environment.d(systemd 전역 환경)에는 키를 넣지 않습니다: generate_environment_d 는 정해진 변수만 옮겨 적습니다.
+_SECRETS_ENV="$HOME/.config/devtools2/secrets.env"
+if [ ! -f "$_SECRETS_ENV" ]; then
+    (umask 077 && cat > "$_SECRETS_ENV" <<'EOF'
+# ==============================================================================
+# DevTools2 비밀 값 (AI API 키 등) — 이 파일은 저장소 밖에 있고 소유자만 읽을 수 있습니다(600).
+# env.sh 가 로그인할 때마다 읽습니다. 필요한 줄의 # 을 지우고 값을 채운 뒤 새 셸을 여세요.
+# orca serve 에 반영하려면: systemctl --user restart orca-serve.service
+# ⚠️ 키를 저장소 안(.config, scripts 등) 파일에 직접 적지 마세요(공개 저장소에 올라갈 수 있음).
+# ==============================================================================
+# export ANTHROPIC_API_KEY=''
+# export OPENAI_API_KEY=''
+# export GEMINI_API_KEY=''
+# export GITHUB_TOKEN=''      # GitHub API 호출 한도 완화(설치 스크립트의 SHA256 조회 등)
+EOF
+    )
+    print_done "비밀 값 파일 생성 완료(권한 600): $_SECRETS_ENV"
+fi
+chmod 600 "$_SECRETS_ENV" 2>/dev/null || true
+
+# 1-2) 비밀 정보 커밋 차단 훅 활성화 (scripts/git-hooks/pre-commit)
+# - 공개 저장소에 키·토큰·인증 파일이 실수로 커밋되지 않도록 커밋 직전에 검사합니다.
+# - 사용자가 이미 다른 hooksPath 를 쓰고 있으면 덮어쓰지 않습니다(멱등, 기존 설정 보존).
+if [ -d "$DEVTOOLS2/.git" ] && [ -f "$DEVTOOLS2/scripts/git-hooks/pre-commit" ]; then
+    _cur_hooks=$(git -C "$DEVTOOLS2" config --get core.hooksPath 2>/dev/null || true)
+    if [ -z "$_cur_hooks" ]; then
+        if git -C "$DEVTOOLS2" config core.hooksPath scripts/git-hooks 2>/dev/null; then
+            print_done "비밀 정보 커밋 차단 훅 활성화: $DEVTOOLS2/scripts/git-hooks/pre-commit"
+        fi
+    elif [ "$_cur_hooks" != "scripts/git-hooks" ]; then
+        print_warn "git core.hooksPath 가 이미 '$_cur_hooks' 로 설정되어 있어 비밀 정보 차단 훅을 연결하지 않았습니다."
+    fi
+fi
 
 # 2) systemd 사용자 서비스 및 데스크톱 앱 연동용 ~/.config/environment.d/devtools2.conf 생성
 # environment.d 는 셸 문법을 쓸 수 없으므로(KEY=VALUE + ${VAR} 확장만 지원), 방금 만든 env.sh 를
