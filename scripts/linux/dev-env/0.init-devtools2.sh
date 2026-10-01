@@ -175,21 +175,32 @@ if [ -d "$TARGET_DIR" ] && [ -d "$TARGET_DIR/.git" ]; then
     print_info "설치 스크립트는 멱등성이 보장되므로 그대로 이어서 진행합니다."
 
     # ── 커밋 일치 확인 및 자동 맞춤 (작업 트리가 깨끗할 때 최신 원격 커밋 동기화) ──
+    # ⚠️ git 명령은 모두 저장소 소유자($INVOKER) 권한으로 실행합니다. root 로 실행하면
+    #    git 이 사용자 소유 저장소를 "dubious ownership"으로 거부해(SUDO_UID 가 없는 wsl -u root 경로)
+    #    깨끗한 저장소도 "미커밋 변경 사항"으로 오판합니다.
+    # ⚠️ DT2_REF 가 커밋 SHA 여도 SHA 를 직접 checkout 하지 않습니다(detached HEAD 가 되면 이후
+    #    dotfiles 수정 커밋이 브랜치에 남지 않음). main 브랜치에 머문 채 그 커밋까지만 fast-forward 합니다.
     _target_ref="${DT2_REF:-main}"
+    _git_u() { sudo -u "$INVOKER" git -C "$TARGET_DIR" "$@"; }
     _is_clean=false
-    if git -C "$TARGET_DIR" diff --quiet 2>/dev/null && git -C "$TARGET_DIR" diff --staged --quiet 2>/dev/null; then
+    if _git_u diff --quiet 2>/dev/null && _git_u diff --staged --quiet 2>/dev/null; then
         _is_clean=true
     fi
 
-    if [ "$_is_clean" = true ]; then
-        print_info "로컬 저장소($TARGET_DIR)를 최신 원격 커밋($_target_ref)으로 동기화합니다..."
-        if sudo -u "$INVOKER" git -C "$TARGET_DIR" fetch --quiet origin 2>/dev/null && \
-           sudo -u "$INVOKER" git -C "$TARGET_DIR" checkout --quiet "$_target_ref" 2>/dev/null && \
-           sudo -u "$INVOKER" git -C "$TARGET_DIR" pull --ff-only --quiet origin "$_target_ref" 2>/dev/null; then
-            _new_head=$(git -C "$TARGET_DIR" rev-parse --short HEAD 2>/dev/null || true)
+    _cur_branch=$(_git_u symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+    if [ "$_is_clean" = true ] && [ -n "$_cur_branch" ] && [ "$_cur_branch" != "main" ]; then
+        print_warn "⚠️  로컬 저장소가 main 이 아닌 '$_cur_branch' 브랜치에 있어 자동 커밋 동기화를 건너뜁니다."
+    elif [ "$_is_clean" = true ]; then
+        print_info "로컬 저장소($TARGET_DIR)를 원격 커밋($_target_ref)으로 동기화합니다..."
+        _merge_target="$_target_ref"
+        [ "$_target_ref" = "main" ] && _merge_target="origin/main"
+        if _git_u fetch --quiet origin 2>/dev/null && \
+           _git_u checkout --quiet main 2>/dev/null && \
+           _git_u merge --ff-only --quiet "$_merge_target" 2>/dev/null; then
+            _new_head=$(_git_u rev-parse --short HEAD 2>/dev/null || true)
             print_done "로컬 저장소 커밋 동기화 완료: $_new_head"
         else
-            print_warn "로컬 저장소 커밋 동기화 건너뜀 또는 실패 (기존 버전으로 계속 진행)"
+            print_warn "로컬 저장소 커밋 동기화 건너뜀 또는 실패 (로컬 커밋이 앞서 있거나 갈라짐 — 기존 버전으로 계속 진행)"
         fi
     else
         print_warn "⚠️  로컬 저장소에 미커밋 변경 사항이 있어 자동 커밋 동기화를 건너뜁니다."
@@ -344,11 +355,21 @@ if [ -d "$DEVTOOLS2/modules/rclone/.config" ]; then
     [ -f "$DEVTOOLS2/modules/rclone/.config/rclone.conf" ] && chmod 600 "$DEVTOOLS2/modules/rclone/.config/rclone.conf"
 fi
 
-# 4-1) 사용자에게 passwordless sudo 권한을 부여하여 후속 패키지 설치 단계에서 암호 입력을 생략함
-if [ "$INVOKER" != "root" ]; then
-    echo "[작업] 사용자 '$INVOKER'에게 passwordless sudo 설정을 부여합니다..."
-    echo "$INVOKER ALL=(ALL) NOPASSWD: ALL" > "/etc/sudoers.d/$INVOKER"
-    chmod 0440 "/etc/sudoers.d/$INVOKER"
+# 4-6) 사용자에게 설치용 임시 passwordless sudo 권한을 부여하여 후속 패키지 설치 단계에서 암호 입력을 생략함
+# ⚠️ 회수 책임이 있는 마스터 스크립트(setup-devtools2.sh / setup-devtools2-wsl.ps1)가
+#    DT2_GRANT_TEMP_SUDO=1 로 요청했을 때만 부여합니다. 이 스크립트를 단독으로
+#    "sudo 0.init-devtools2.sh" 실행하면 회수할 주체가 없어 권한이 영구히 남기 때문입니다.
+if [ "$INVOKER" != "root" ] && [ "${DT2_GRANT_TEMP_SUDO:-0}" = "1" ]; then
+    # 사용자가 직접 만든 /etc/sudoers.d/<사용자> 파일을 덮어쓰거나 회수 단계에서 지우지 않도록
+    # devtools2 전용 파일명(devtools2-temp-<사용자>)을 사용합니다. 회수는 이 파일만 지웁니다.
+    _dt2_sudoers="/etc/sudoers.d/devtools2-temp-$INVOKER"
+    echo "[작업] 사용자 '$INVOKER'에게 설치용 임시 passwordless sudo 설정을 부여합니다... ($_dt2_sudoers)"
+    (umask 0337; echo "$INVOKER ALL=(ALL) NOPASSWD: ALL" > "$_dt2_sudoers")
+    chmod 0440 "$_dt2_sudoers"
+    if command -v visudo >/dev/null 2>&1 && ! visudo -cf "$_dt2_sudoers" >/dev/null 2>&1; then
+        rm -f "$_dt2_sudoers"
+        print_warn "임시 sudoers 파일 문법 검사 실패로 부여를 취소했습니다(이후 단계에서 sudo 비밀번호를 물을 수 있습니다)."
+    fi
 fi
 
 # DEVTOOLS2와 DEVTOOLS2_GROUP은 이 스크립트 실행 시 고정(할당)되어 스크립트 내에서 사용됩니다.

@@ -128,11 +128,20 @@ done
 print_section "3. 보안 및 권한 점검"
 
 # 1) 잔존 sudoers 검사
+# ⚠️ /etc/sudoers.d 는 root 전용(0750)이라 일반 사용자의 [ -f ] 검사는 항상 거짓입니다.
+#    비밀번호 없이 sudo 가 되는지로 판정하되, "sudo -k <명령>" 으로 캐시된 sudo 자격(타임스탬프)은
+#    무시합니다(캐시를 지우지는 않음). 그래야 NOPASSWD 설정만 감지됩니다.
 _current_user="${USER:-$(id -un 2>/dev/null || true)}"
-if [ -f "/etc/sudoers.d/$_current_user" ]; then
-    check_fail "임시 passwordless sudo 설정이 회수되지 않고 남아있습니다: /etc/sudoers.d/$_current_user"
+if [ "$(id -u)" -eq 0 ]; then
+    check_pass "root 로 실행 중 (passwordless sudo 점검 생략)"
+elif sudo -n -k true 2>/dev/null; then
+    if sudo -n -k test -e "/etc/sudoers.d/devtools2-temp-$_current_user" 2>/dev/null; then
+        check_fail "설치용 임시 passwordless sudo 가 회수되지 않았습니다: sudo rm -f /etc/sudoers.d/devtools2-temp-$_current_user"
+    else
+        check_warn "비밀번호 없이 sudo 가 가능합니다(직접 설정한 NOPASSWD 일 수 있음). 의도한 설정인지 확인하세요: sudo -l"
+    fi
 else
-    check_pass "임시 sudoers 잔존 파일 없음 (/etc/sudoers.d/$_current_user 안전)"
+    check_pass "passwordless sudo 비활성 (sudo 사용 시 비밀번호 필요)"
 fi
 
 # 2) 비밀 파일 권한 검사 (rclone.conf, SSH 키, 토큰 등)
@@ -149,7 +158,7 @@ while IFS= read -r _file; do
         check_fail "보안 민감 파일 권한 과다 ($_perm, 600 필수): $_file"
         _sensitive_insecure=$((_sensitive_insecure + 1))
     fi
-done < <(find "$DEVTOOLS2" -type f \( -name "rclone.conf" -o -name "*.key" -o \( -name "*.pem" ! -name "cacert.pem" \) -o -name "id_rsa*" -o -name "id_ed25519*" -o -name ".bw_session*" \) 2>/dev/null || true)
+done < <(find "$DEVTOOLS2" "$HOME/.config/rclone" -type f \( -name "rclone.conf" -o -name "*.key" -o \( -name "*.pem" ! -name "cacert.pem" \) -o -name "id_rsa*" -o -name "id_ed25519*" -o -name ".bw_session*" \) 2>/dev/null || true)
 
 if [ "$_sensitive_found" -eq 0 ]; then
     check_pass "보안 민감 파일 점검: 현재 저장소 트리에 노출된 비밀 파일 없음"
