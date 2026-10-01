@@ -248,7 +248,20 @@ as_target() {
         mkdir -p "$runtime_dir"
         env XDG_RUNTIME_DIR="$runtime_dir" HOME="$TARGET_HOME" "$@"
     else
-        "${SUDO[@]}" -u "$TARGET_USER" -H env XDG_RUNTIME_DIR="$runtime_dir" sh -c 'mkdir -p "$XDG_RUNTIME_DIR" && exec "$@"' sh "$@"
+        run_as "$TARGET_USER" env XDG_RUNTIME_DIR="$runtime_dir" HOME="$TARGET_HOME" sh -c 'mkdir -p "$XDG_RUNTIME_DIR" && exec "$@"' sh "$@"
+    fi
+}
+
+# 다른 계정으로 실행. root 면 runuser (sudo 가 없는 최소 설치 서버 대비), 아니면 sudo
+run_as() {
+    local user="$1"
+    shift
+    if [ "$(id -u)" -eq 0 ] && command -v runuser >/dev/null 2>&1; then
+        runuser -u "$user" -- "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo -u "$user" -H "$@"
+    else
+        fail "다른 계정으로 실행하려면 sudo 또는 runuser 가 필요합니다."
     fi
 }
 podman_target() {
@@ -803,7 +816,10 @@ mode_offline() {
         if [ "$(distro_family "$BUNDLE_TARGET")" = apt ]; then
             local debs=("$dir/podman-packages/"*.deb)
             [ ${#debs[@]} -gt 0 ] || fail "설치 파일에 Podman 패키지가 없습니다."
-            "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-download "${debs[@]}" >/dev/null
+            # No --no-download: apt 2.7 then fails on local files ("Pathname to install is not absolute"). Every
+            # dependency is in the file, so nothing is fetched | --no-download 를 쓰면 apt 2.7 이 로컬 파일에서 실패함. 의존성이
+            # 모두 들어 있어 받을 것이 없음
+            "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${debs[@]}" >/dev/null
         else
             local rpms=("$dir/podman-packages/"*.rpm)
             [ ${#rpms[@]} -gt 0 ] || fail "설치 파일에 Podman 패키지가 없습니다."
