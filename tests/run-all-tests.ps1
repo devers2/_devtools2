@@ -328,6 +328,51 @@ $commonSetupCode = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scrip
 $skipsNoopWrite = ($commonSetupCode -match '(?s)if added_count == 0:\s*\n\s*print\([^\n]*\)\s*\n\s*sys\.exit\(0\)')
 Assert-Test "setup_vscode_launch_json 이 변경 없을 때 launch.json 을 다시 쓰지 않는가" $skipsNoopWrite
 
+# --- 5-6. 비밀 정보 유출 방지: "!*"(전부 추적) 폴더마다 차단 목록 + 커밋 차단 훅 + 훅 자동 활성화
+#     (루트 .gitignore 의 규칙은 하위 폴더의 "!*" 보다 우선순위가 낮아 각 폴더에 따로 있어야 함)
+$trackAllIgnores = Get-ChildItem -Path $repoRootPath -Filter ".gitignore" -Recurse -Force -File |
+    Where-Object { $_.FullName -notmatch '[\\/](data|modules|\.git)[\\/]' } |
+    Where-Object { [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8) -match '(?m)^!\*\s*$' }
+$missingDeny = @()
+foreach ($gi in $trackAllIgnores) {
+    $giCode = [System.IO.File]::ReadAllText($gi.FullName, [System.Text.Encoding]::UTF8)
+    if (($giCode -notmatch '(?m)^\.env\s*$') -or ($giCode -notmatch '(?m)^auth\.json\s*$') -or ($giCode -notmatch '(?m)^\.claude/\s*$')) {
+        $missingDeny += $gi.FullName.Substring($repoRootPath.Length)
+    }
+}
+Assert-Test "전부 추적('!*')하는 폴더의 .gitignore 마다 비밀 정보 차단 목록이 있는가" ($missingDeny.Count -eq 0) `
+    ("차단 목록 없는 파일: " + ($missingDeny -join ", "))
+
+$hookFile = Join-Path $repoRootPath "scripts\git-hooks\pre-commit"
+$hookOk = $false
+if (Test-Path $hookFile) {
+    $hookCode = [System.IO.File]::ReadAllText($hookFile, [System.Text.Encoding]::UTF8)
+    $hookOk = ($hookCode -match 'sk-ant-') -and ($hookCode -match 'AIza') -and ($hookCode -match 'PRIVATE KEY') -and ($hookCode -match 'exit 1')
+}
+$setupEnvCode = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\linux\dev-env\1.setup-env.sh"), [System.Text.Encoding]::UTF8)
+$hookWired = ($setupEnvCode -match 'core\.hooksPath scripts/git-hooks') -and ($setupEnvCode -match 'secrets\.env') -and ($setupEnvCode -match 'chmod 600 "\$_SECRETS_ENV"')
+Assert-Test "비밀 정보 커밋 차단 훅이 있고 1.setup-env.sh 가 훅·secrets.env(600)를 설정하는가" ($hookOk -and $hookWired)
+
+# --- 5-7. "wsl -- bash -c" 는 리눅스 기본 셸을 한 번 더 거쳐 리눅스 변수($f, $c)가 미리 빈 값으로 확장됨
+#     → 리눅스 변수를 쓰는 명령은 wsl -e(--exec)로 넘겨야 함 (Orca 에이전트 감지가 항상 비던 결함)
+$wslDollarViolations = @()
+foreach ($file in $psFiles) {
+    $lines = [System.IO.File]::ReadAllLines($file.FullName, [System.Text.Encoding]::UTF8)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i]
+        if ($l -match '^\s*#') { continue }
+        # 큰따옴표 안의 `$ 든 작은따옴표 안의 $ 든 (PS 가 인자를 큰따옴표로 감싸 넘기므로) 둘 다 미리 확장됨
+        if ($l -match 'wsl(\.exe)?\s[^#]*\s--\s+(bash|sh)\s+-l?c\s+("[^"]*`\$|''[^'']*\$)') { $wslDollarViolations += "$($file.Name):$($i + 1)" }
+    }
+}
+Assert-Test "리눅스 변수를 쓰는 wsl 명령이 'wsl -- bash -c' 대신 'wsl -e' 를 쓰는가" ($wslDollarViolations.Count -eq 0) `
+    ("위반: " + ($wslDollarViolations -join ", "))
+
+# --- 5-8. RETURN 트랩은 전역이라 스스로 해제하지 않으면 바깥 함수가 끝날 때 다시 실행되어 set -u 로 죽음
+$installUtils = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\linux\dev-env\_install-utils.sh"), [System.Text.Encoding]::UTF8)
+$badReturnTrap = ([regex]::Matches($installUtils, "trap '[^']*' RETURN") | Where-Object { $_.Value -notmatch 'trap - RETURN' }).Count
+Assert-Test "_install-utils.sh 의 RETURN 트랩이 실행 후 스스로 해제되는가" ($badReturnTrap -eq 0)
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================

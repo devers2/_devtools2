@@ -467,7 +467,10 @@ safe_download_and_extract() {
 
     local tmp_archive
     tmp_archive=$(mktemp "/tmp/dt2_dl_XXXXXX")
-    trap 'rm -f "$tmp_archive"' RETURN
+    # ⚠️ RETURN 트랩은 전역이라 지우지 않으면 이 함수를 부른 "바깥 함수"가 끝날 때도 다시 실행되고,
+    #   그때는 local 변수가 없어 set -u 에서 "바인딩 해제한 변수"로 스크립트가 죽습니다(실측: Orca 설치).
+    #   그래서 한 번 실행되면 스스로 트랩을 해제합니다.
+    trap 'rm -f "${tmp_archive:-}"; trap - RETURN' RETURN
 
     # 프로그레스 바와 함께 다운로드 (download_with_progress 는 _common.sh 에서 로드됨)
     if ! download_with_progress "$url" "$tmp_archive" "$label"; then
@@ -562,7 +565,10 @@ safe_download_binary() {
 
     local tmp_file
     tmp_file=$(mktemp "/tmp/dt2_bin_XXXXXX")
-    trap 'rm -f "$tmp_file"' RETURN
+    # ⚠️ RETURN 트랩은 전역이라 지우지 않으면 이 함수를 부른 "바깥 함수"가 끝날 때도 다시 실행되고,
+    #   그때는 local 변수가 없어 set -u 에서 "바인딩 해제한 변수"로 스크립트가 죽습니다(실측: Orca 설치).
+    #   그래서 한 번 실행되면 스스로 트랩을 해제합니다.
+    trap 'rm -f "${tmp_file:-}"; trap - RETURN' RETURN
 
     # 프로그레스 바와 함께 다운로드
     if ! download_with_progress "$url" "$tmp_file" "$label"; then
