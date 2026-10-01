@@ -167,6 +167,13 @@ print_subsep
 # /etc/keyd 디렉토리 생성
 mkdir -p /etc/keyd
 
+# 직접 수정한 기존 설정을 잃지 않도록, 내용이 다른 기존 파일은 덮어쓰기 전에 한 번 백업합니다.
+if [ -f "$KEYD_CONF_DEST" ] && [ -f "$KEYD_CONF_SRC" ] && ! cmp -s "$KEYD_CONF_SRC" "$KEYD_CONF_DEST"; then
+    _keyd_bak="${KEYD_CONF_DEST}.bak.$(date +%Y%m%d%H%M%S)"
+    cp -p "$KEYD_CONF_DEST" "$_keyd_bak"
+    print_info "기존 keyd 설정을 백업했습니다: $_keyd_bak"
+fi
+
 if [ -f "$KEYD_CONF_SRC" ]; then
     print_info "로컬 설정 파일 복사: $KEYD_CONF_SRC → $KEYD_CONF_DEST"
     cp -f "$KEYD_CONF_SRC" "$KEYD_CONF_DEST"
