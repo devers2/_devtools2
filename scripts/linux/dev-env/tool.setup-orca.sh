@@ -93,9 +93,20 @@ else
             fi
 
             mkdir -p "$ORCA_DIR"
-            if download_with_progress "https://github.com/stablyai/orca/releases/latest/download/${ORCA_APPIMAGE_NAME}" "$ORCA_APPIMAGE" "Orca AppImage"; then
-                chmod +x "$ORCA_APPIMAGE"
-                echo "   ✅ orca ($ARCH) 설치 완료 → $ORCA_APPIMAGE"
+            # ⚠️ 임시 파일로 받아 검증한 뒤 옮기는 safe_download_binary 를 씁니다. 대상 경로에 바로 받으면
+            #   다운로드가 중간에 끊겼을 때 깨진 AppImage 가 남고, 다음 실행부터는 "이미 존재"로 판정되어
+            #   다시 받지 않습니다. 최신 태그를 확인해 GitHub API 의 SHA256(digest)으로 무결성도 검증합니다
+            #   (태그/digest 조회 실패 시에는 검증 없이 latest 로 받되, 원자적 교체는 그대로 유지).
+            _orca_tag=$(fetch_latest_github "stablyai/orca")
+            _orca_url="https://github.com/stablyai/orca/releases/latest/download/${ORCA_APPIMAGE_NAME}"
+            _orca_sha=""
+            if [ -n "$_orca_tag" ]; then
+                _orca_url="https://github.com/stablyai/orca/releases/download/${_orca_tag}/${ORCA_APPIMAGE_NAME}"
+                _orca_sha=$(github_asset_sha256 "stablyai/orca" "$_orca_tag" "$ORCA_APPIMAGE_NAME")
+            fi
+            [ -z "$_orca_sha" ] && print_warn "Orca SHA256 을 조회하지 못해 체크섬 검증 없이 다운로드합니다."
+            if safe_download_binary "$_orca_url" "$ORCA_APPIMAGE" 755 "$_orca_sha" "Orca AppImage${_orca_tag:+ ${_orca_tag}}"; then
+                echo "   ✅ orca ($ARCH${_orca_tag:+, ${_orca_tag}}) 설치 완료 → $ORCA_APPIMAGE"
                 _orca_proceed=true
             else
                 print_error "Orca AppImage 다운로드 실패"
@@ -257,7 +268,9 @@ EOF
 
             _WSL_CONF="/etc/wsl.conf"
             _NEEDS_SYSTEMD=true
-            if grep -q 'systemd\s*=\s*true' "$_WSL_CONF" 2>/dev/null; then
+            # 줄 맨 앞 기준으로 검사합니다(앵커 없이 검사하면 "# systemd=true" 같은 주석 줄도
+            # "이미 설정됨"으로 판정되어 실제로는 systemd 를 켜지 않고 넘어감 — 실측).
+            if grep -qE '^\s*systemd\s*=\s*true' "$_WSL_CONF" 2>/dev/null; then
                 _NEEDS_SYSTEMD=false
             fi
 
@@ -315,8 +328,10 @@ EOF
     echo "      systemd(또는 데스크톱 런처)로 뜬 경우엔 .bashrc를 거치지 않아 그 값을 못 봅니다"
     echo "      (WSL2 터미널에서 직접 치는 orca account add 같은 명령은 대화형 셸이라 문제없음)."
     echo "      orca serve 데몬에서도 보이게 하려면 아래처럼 등록해주세요(로그인마다 자동 반영):"
+    echo "      (API 키가 담기므로 소유자만 읽을 수 있게 umask 077 로 만듭니다 — 그룹 공유 umask 002 환경 대비)"
     echo "        mkdir -p ~/.config/environment.d"
-    echo "        printf 'ANTHROPIC_API_KEY=%s\\n' \"\$ANTHROPIC_API_KEY\" >> ~/.config/environment.d/orca.conf"
+    echo "        (umask 077 && printf 'ANTHROPIC_API_KEY=%s\\n' \"\$ANTHROPIC_API_KEY\" >> ~/.config/environment.d/orca.conf)"
+    echo "        chmod 600 ~/.config/environment.d/orca.conf"
     echo "      등록 후에는 'systemctl --user restart orca-serve.service'로 반영하거나 WSL2를"
     echo "      재시작하면 적용됩니다."
     echo ""
