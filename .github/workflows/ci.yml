@@ -56,10 +56,13 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+      # ⚠️ 이 단계(shell: powershell)의 run 본문에는 ASCII 문자만 사용하십시오.
+      # 러너가 이 본문을 BOM 없는 임시 .ps1 로 저장하고 Windows PowerShell 5.1 이 이를 cp1252 로 읽어서,
+      # 한글 UTF-8 바이트(0x93/0x94)가 스마트 따옴표(“ ”)로 해석되어 문자열이 깨집니다(파싱 에러로 단계 실패).
       - name: Windows PowerShell 5.1 Parse Test
         shell: powershell
         run: |
-          Write-Host "=== Windows PowerShell 5.1 구문 파싱 검사 ==="
+          Write-Host "=== Windows PowerShell 5.1 parse check ==="
           $failed = $false
           Get-ChildItem -Recurse -Filter *.ps1 | ForEach-Object {
               try {
@@ -68,13 +71,13 @@ jobs:
                   $errors = $null
                   $null = [System.Management.Automation.Language.Parser]::ParseInput($code, $_.FullName, [ref]$null, [ref]$errors)
                   if ($errors.Count -gt 0) {
-                      Write-Error "[$($_.Name)] PS 5.1 Parser 에러: $($errors | Out-String)"
+                      Write-Error "[$($_.Name)] PS 5.1 parser error: $($errors | Out-String)"
                       $failed = $true
                   } else {
-                      Write-Host "  ✓ $($_.Name) PS 5.1 파싱 통과"
+                      Write-Host "  OK $($_.Name) (PS 5.1 parse)"
                   }
               } catch {
-                  Write-Error "[$($_.Name)] PS 5.1 ScriptBlock 파싱 실패: $_"
+                  Write-Error "[$($_.Name)] PS 5.1 ScriptBlock parse failed: $_"
                   $failed = $true
               }
           }
