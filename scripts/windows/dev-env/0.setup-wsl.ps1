@@ -614,6 +614,36 @@ if (-not $skipDownload) {
         exit 1
     }
 
+    # ── RootFS SHA256 무결성 검증 (같은 폴더의 공식 SHA256SUMS 기준) ──
+    # 불일치하면 손상·변조된 이미지로 배포판을 만들지 않도록 중단합니다.
+    # SHA256SUMS 자체를 받지 못한 경우에만 경고 후 계속합니다.
+    $expectedSha = $null
+    foreach ($u in $rootfsUrls) {
+        $sumsUrl = ($u -replace '/[^/]+$', '') + '/SHA256SUMS'
+        try {
+            $sums = [string](Invoke-RestMethod -Uri $sumsUrl -TimeoutSec 15 -ErrorAction Stop)
+            foreach ($line in ($sums -split "`n")) {
+                $parts = $line.Trim() -split '\s+'
+                if ($parts.Count -ge 2 -and $parts[1].TrimStart('*') -eq $rootfsFileName) { $expectedSha = $parts[0].ToLower(); break }
+            }
+        } catch {}
+        if ($expectedSha) { break }
+    }
+    if ($expectedSha) {
+        $actualSha = (Get-FileHash -Path $tempTarPath -Algorithm SHA256).Hash.ToLower()
+        if ($actualSha -ne $expectedSha) {
+            Write-Fail "Ubuntu RootFS SHA256 불일치 — 손상되었거나 변조된 파일일 수 있어 설치를 중단합니다."
+            Write-Host "    예상: $expectedSha" -ForegroundColor Gray
+            Write-Host "    실제: $actualSha" -ForegroundColor Gray
+            Remove-Item $tempTarPath -Force -ErrorAction SilentlyContinue
+            Pause-Script
+            exit 1
+        }
+        Write-Success "Ubuntu RootFS SHA256 무결성 검증 통과"
+    } else {
+        Write-Warn "SHA256SUMS 를 받지 못해 RootFS 체크섬 검증 없이 계속합니다."
+    }
+
     # ── 4. 지정 경로에 WSL2 배포판 직접 Import ─────────────────────────────
     Write-Step "[Step 3-4] WSL2 배포판 직접 생성 (wsl --import)"
     if (-not (Test-Path $wslInstallPath)) {

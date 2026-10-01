@@ -145,7 +145,6 @@ if ($zedInstalled) {
     }
     if (-not $zedInstallSuccess) {
         Write-Warn "Zed winget 설치 실패. 수동 설치: https://zed.dev/download"
-        Write-Warn "(Zed Windows 버전이 아직 Preview 상태일 수 있습니다)"
     }
 }
 
@@ -188,7 +187,14 @@ if (Test-Path "$WslZedConfig\settings.json") {
     $targetFile = "$WinZedDir\settings.json"
     if (Test-Path $targetFile) {
         $fi = Get-Item $targetFile -Force
-        if ($fi.LinkType -eq "SymbolicLink") { Remove-Item $targetFile -Force }
+        if ($fi.LinkType -eq "SymbolicLink") {
+            Remove-Item $targetFile -Force
+        } elseif ((Get-FileHash $targetFile).Hash -ne (Get-FileHash "$WslZedConfig\settings.json").Hash) {
+            # Zed 화면에서 바꾼 Windows 쪽 설정을 잃지 않도록, 내용이 다르면 덮어쓰기 전에 백업합니다.
+            $bak = "$targetFile.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
+            Copy-Item -Path $targetFile -Destination $bak -Force
+            Write-Info "기존 Windows Zed settings.json 를 백업했습니다: $bak"
+        }
     }
     Copy-Item -Path "$WslZedConfig\settings.json" -Destination $targetFile -Force
     Write-Success "settings.json 파일 복사 완료"
@@ -198,7 +204,14 @@ if (Test-Path "$WslZedConfig\keymap.json") {
     $targetFile = "$WinZedDir\keymap.json"
     if (Test-Path $targetFile) {
         $fi = Get-Item $targetFile -Force
-        if ($fi.LinkType -eq "SymbolicLink") { Remove-Item $targetFile -Force }
+        if ($fi.LinkType -eq "SymbolicLink") {
+            Remove-Item $targetFile -Force
+        } elseif ((Get-FileHash $targetFile).Hash -ne (Get-FileHash "$WslZedConfig\keymap.json").Hash) {
+            # Zed 화면에서 바꾼 Windows 쪽 설정을 잃지 않도록, 내용이 다르면 덮어쓰기 전에 백업합니다.
+            $bak = "$targetFile.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
+            Copy-Item -Path $targetFile -Destination $bak -Force
+            Write-Info "기존 Windows Zed keymap.json 를 백업했습니다: $bak"
+        }
     }
     Copy-Item -Path "$WslZedConfig\keymap.json" -Destination $targetFile -Force
     Write-Success "keymap.json 파일 복사 완료"
