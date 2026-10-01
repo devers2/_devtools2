@@ -1,4 +1,6 @@
-local lazypath = vim.fn.stdpath('data') .. '/lazy/lazy.nvim'
+-- 플러그인은 그룹 공유 폴더(_G.NVIM_SHARED_DIR, init.lua 참고)에 설치합니다.
+local lazy_root = _G.NVIM_SHARED_DIR .. '/lazy'
+local lazypath = lazy_root .. '/lazy.nvim'
 if not vim.uv.fs_stat(lazypath) then
   local lazyrepo = 'https://github.com/folke/lazy.nvim.git'
   local out = vim.fn.system({ 'git', 'clone', '--filter=blob:none', '--branch=stable', lazyrepo, lazypath })
@@ -14,7 +16,26 @@ if not vim.uv.fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
+-- [그룹 공유 플러그인의 git "소유자 불일치" 허용]
+-- 공유 플러그인 폴더는 처음 설치한 사람 소유라서, 같은 그룹의 다른 사용자가 :Lazy update 등으로
+-- git 을 실행하면 "detected dubious ownership" 으로 거부됩니다. Neovim 이 띄우는 git 프로세스에만
+-- 공유 플러그인 폴더를 safe.directory 로 넘깁니다(GIT_CONFIG_* 는 git 이 신뢰하는 "command" 범위 설정).
+-- 전역 ~/.gitconfig 를 건드리지 않고, 다른 저장소의 소유자 검사는 그대로 유지됩니다.
+do
+  local n = tonumber(vim.env.GIT_CONFIG_COUNT or '0') or 0
+  for name, kind in vim.fs.dir(lazy_root) do
+    if kind == 'directory' then
+      vim.env['GIT_CONFIG_KEY_' .. n] = 'safe.directory'
+      vim.env['GIT_CONFIG_VALUE_' .. n] = lazy_root .. '/' .. name
+      n = n + 1
+    end
+  end
+  vim.env.GIT_CONFIG_COUNT = tostring(n)
+end
+
 require('lazy').setup({
+  root = lazy_root,
+  rocks = { root = _G.NVIM_SHARED_DIR .. '/lazy-rocks' },
   spec = {
     -- add LazyVim and import its plugins
     { 'LazyVim/LazyVim', import = 'lazyvim.plugins' },

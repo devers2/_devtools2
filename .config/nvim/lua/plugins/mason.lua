@@ -22,6 +22,8 @@ return {
     keys = { { '<leader>cm', '<cmd>Mason<cr>', desc = 'Mason 패키지 관리자 (Mason)' } },
     build = ':MasonUpdate',
     opts = function(_, opts)
+      -- 그룹 공유 폴더에 설치 (init.lua 의 _G.NVIM_SHARED_DIR 참고)
+      opts.install_root_dir = _G.NVIM_SHARED_DIR .. '/mason'
       opts.ui = opts.ui or {}
       opts.ui.border = 'rounded'
       opts.ui.icons = {

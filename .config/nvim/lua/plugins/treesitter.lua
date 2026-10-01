@@ -431,6 +431,10 @@ return {
       vim.treesitter.language.register('properties', 'jproperties')
     end,
     opts = function(_, opts)
+      -- 파서는 그룹 공유 폴더에 설치합니다(init.lua 의 _G.NVIM_SHARED_DIR 참고).
+      -- nvim-treesitter 가 setup 시 이 경로를 runtimepath 앞에 붙여 파서·쿼리를 찾습니다.
+      opts.install_dir = _G.NVIM_SHARED_DIR .. '/site'
+
       -- 🚀 [사전 설치 목록 완전 제거 및 순수 동적(On-demand) 자동 설치]
       -- =========================================================================
       -- ⚠️ [CRITICAL RULE: ensure_installed 등록 대상 절대 원칙]

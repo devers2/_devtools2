@@ -386,6 +386,18 @@ foreach ($sh in (Get-ChildItem -Path (Join-Path $repoRootPath "scripts\linux") -
 Assert-Test "리눅스 설치 스크립트가 /tmp 고정 이름 대신 사용자 전용 `$DT2_TMP 를 쓰는가" ($fixedTmp.Count -eq 0) `
     ("위반: " + ($fixedTmp -join ", "))
 
+# --- 5-10. 그룹 공유 nvim 자원: 플러그인·Lua 패키지·Mason·Treesitter 만 공유 폴더, 나머지는 사용자별
+#     (~/.local/share/nvim 전체를 공유하면 snacks 기록 등이 섞이고 다른 사용자는 쓰기 오류)
+$nvimRoot = Join-Path $repoRootPath ".config\nvim"
+$lazyCode = [System.IO.File]::ReadAllText((Join-Path $nvimRoot "lua\config\lazy.lua"), [System.Text.Encoding]::UTF8)
+$masonCode = [System.IO.File]::ReadAllText((Join-Path $nvimRoot "lua\plugins\mason.lua"), [System.Text.Encoding]::UTF8)
+$tsCode = [System.IO.File]::ReadAllText((Join-Path $nvimRoot "lua\plugins\treesitter.lua"), [System.Text.Encoding]::UTF8)
+$setupEnv2 = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\linux\dev-env\1.setup-env.sh"), [System.Text.Encoding]::UTF8)
+$sharedOk = ($lazyCode -match 'root = lazy_root') -and ($lazyCode -match "rocks = \{ root = _G\.NVIM_SHARED_DIR") -and ($lazyCode -match "safe\.directory") `
+    -and ($masonCode -match "install_root_dir = _G\.NVIM_SHARED_DIR") -and ($tsCode -match "install_dir = _G\.NVIM_SHARED_DIR") `
+    -and ($setupEnv2 -notmatch '_run_symlink "\$DEVTOOLS2/data/nvim"') -and ($setupEnv2 -match 'prune -o -user') -and ($setupEnv2 -match 'setfacl -d -m')
+Assert-Test "nvim 공유 자원(플러그인·Mason·파서)만 그룹 공유하고 개인 데이터는 사용자별로 분리하는가" $sharedOk
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================
