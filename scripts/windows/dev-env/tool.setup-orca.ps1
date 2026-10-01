@@ -101,8 +101,11 @@ Write-Host "  적용 대상 WSL 배포판: $WslDistro" -ForegroundColor White
 if ($orcaAppImageCheck.Trim() -ne "FOUND") {
     Write-Info "WSL2 ($WslDistro) 내부에 Orca 헤드리스 서버가 설치되어 있지 않습니다."
     Write-Info "  → WSL2용 tool.setup-orca.sh 를 자동 실행하여 서버를 먼저 구축합니다..."
+    # ⚠️ "| Out-Host": 마스터가 이 스크립트의 반환값을 변수($userChoseOrca)로 받기 때문에,
+    #    파이프라인으로 흘러나가는 wsl 출력(설치 진행·페어링 안내)이 전부 그 변수에 담겨 화면에 안 보입니다.
+    #    출력은 화면으로 직접 보내고, 반환값은 마지막의 $true/$false 하나만 남깁니다.
     $rawLinuxOrca = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/linux/dev-env/tool.setup-orca.sh"
-    wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxOrca' -o /tmp/_dt2_orca.sh && DT2_REF='$_dt2Ref' DT2_ORCA_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 bash /tmp/_dt2_orca.sh; rm -f /tmp/_dt2_orca.sh 2>/dev/null"
+    wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxOrca' -o /tmp/_dt2_orca.sh && DT2_REF='$_dt2Ref' DT2_ORCA_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 bash /tmp/_dt2_orca.sh; rm -f /tmp/_dt2_orca.sh 2>/dev/null" | Out-Host
 
     $orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f /var/opt/_devtools2/modules/orca/orca-linux.AppImage -o -f /var/opt/_devtools2/modules/orca/orca-linux-arm64.AppImage && echo FOUND")
     if ($orcaAppImageCheck.Trim() -ne "FOUND") {
