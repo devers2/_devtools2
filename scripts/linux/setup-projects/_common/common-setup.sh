@@ -449,10 +449,10 @@ PYEOF
     # ── 5. rclone 리모트 설정 생성 ────────────────────────────────────────────
     local SERVICE_NAME="rclone-${ACTUAL_USERNAME}@${ACTUAL_HOST}_${ACTUAL_PORT}"
 
-    # ── 6. rclone.conf 경로 결정 (포터블 개발 환경 우선)
+    # ── 6. rclone.conf 경로 결정 (사용자 홈 — bw-lib 의 dt2_rclone_conf_path 와 동일 기준)
     local RCLONE_CONF
-    if [ -n "${DEVTOOLS2:-}" ]; then
-        RCLONE_CONF="${DEVTOOLS2}/modules/rclone/.config/rclone.conf"
+    if command -v dt2_rclone_conf_path >/dev/null 2>&1; then
+        RCLONE_CONF=$(dt2_rclone_conf_path)
     else
         RCLONE_CONF="$HOME/.config/rclone/rclone.conf"
     fi
@@ -468,16 +468,21 @@ PYEOF
     echo "⏳ Rclone SFTP 리모트 ($SERVICE_NAME) 설정 중..."
     local RCLONE_ARGS
     RCLONE_ARGS=(config create "$SERVICE_NAME" sftp host "$ACTUAL_HOST" user "$ACTUAL_USERNAME" port "$ACTUAL_PORT" --config "$RCLONE_CONF")
+    # umask 077: rclone 이 새 설정 파일을 만들 때부터 소유자 전용이 되도록 함
+    (umask 077 && "$RCLONE_BIN" "${RCLONE_ARGS[@]}" >/dev/null 2>&1)
     if [ -n "$SERVER_PASS" ]; then
         # rclone pass 파라미터는 rclone obscure 로 난독화된 값을 요구함 (평문 불가)
-        # ⚠️ 커맨드라인 인자로 평문 비밀번호를 넘기지 않고 stdin(-)으로 주입하여 노출 방지
+        # ⚠️ 평문은 stdin(-)으로 obscure 에 넘기고, 난독화된 값도 "config create ... pass <값>" 인자로
+        #    넘기지 않습니다(obscure 값은 rclone reveal 로 복원 가능 → ps 에 보이면 사실상 평문 노출).
+        #    stdin 으로 dt2_rclone_set_pass 에 넘겨 설정 파일에 직접 기록합니다.
         local OBSCURED_PASS
         OBSCURED_PASS=$(printf '%s' "$SERVER_PASS" | "$RCLONE_BIN" obscure - 2>/dev/null || echo "")
         if [ -n "$OBSCURED_PASS" ]; then
-            RCLONE_ARGS+=(pass "$OBSCURED_PASS")
+            printf '%s' "$OBSCURED_PASS" | dt2_rclone_set_pass "$SERVICE_NAME" "$RCLONE_CONF" \
+                || echo "⚠️  rclone 비밀번호 기록에 실패했습니다. 'rclone config' 로 직접 설정해 주세요."
         fi
+        OBSCURED_PASS=""
     fi
-    "$RCLONE_BIN" "${RCLONE_ARGS[@]}" >/dev/null 2>&1
     # rclone.conf 에 SSH/SFTP 비밀번호(obscure 난독화)가 저장되므로 소유자 전용 600 으로 보호
     chmod 600 "$RCLONE_CONF" 2>/dev/null || true
     echo "✅ Rclone 리모트 설정 완료! (config: $RCLONE_CONF)"
@@ -635,10 +640,15 @@ vscode_dir = os.path.join(target_dir, '.vscode')
 os.makedirs(vscode_dir, exist_ok=True)
 launch_file = os.path.join(vscode_dir, 'launch.json')
 
+COMMENT_RE = re.compile(r'(/\*.*?\*/|//[^\r\n]*)|("(?:\\.|[^"\\])*")', re.DOTALL)
+
+def strip_comments(raw_text):
+    # 문자열 리터럴을 보존하면서 주석(/* ... */, // ...) 제거
+    return COMMENT_RE.sub(lambda m: '' if m.group(1) else m.group(2), raw_text)
+
 def parse_jsonc(raw_text):
-    # 1) 문자열 리터럴을 보존하면서 주석(/* ... */, // ...) 제거
-    pattern = re.compile(r'(/\*.*?\*/|//[^\r\n]*)|("(?:\\.|[^"\\])*")', re.DOTALL)
-    no_comments = pattern.sub(lambda m: '' if m.group(1) else m.group(2), raw_text)
+    # 1) 주석 제거
+    no_comments = strip_comments(raw_text)
     # 2) 닫는 괄호 앞의 후행 콤마(trailing comma) 제거: , ] -> ] 및 , } -> }
     clean_text = re.sub(r',\s*([\]}])', r'\1', no_comments)
     return json.loads(clean_text)
@@ -655,12 +665,14 @@ except Exception as e:
 
 existing_data = {'version': '0.2.0', 'configurations': []}
 file_existed = os.path.isfile(launch_file)
+had_comments = False
 
 if file_existed and not overwrite:
     try:
         with open(launch_file, 'r', encoding='utf-8') as f:
             content = f.read().strip()
         if content:
+            had_comments = strip_comments(content) != content
             existing_data = parse_jsonc(content)
             if not isinstance(existing_data, dict):
                 raise ValueError('launch.json 최상위는 객체({ ... }) 형태여야 합니다.')
@@ -685,6 +697,11 @@ if file_existed and not overwrite:
                 existing_data['configurations'].append(cfg)
                 existing_names.add(name)
                 added_count += 1
+    # ⚠️ 추가할 설정이 없으면 파일을 다시 쓰지 않습니다. json.dump 로 다시 쓰면 사용자가 단
+    #    주석과 서식이 사라지고, 재실행할 때마다 .bak 까지 주석 없는 버전으로 덮여 원본을 잃습니다(멱등성).
+    if added_count == 0:
+        print('ℹ️  .vscode/launch.json 에 동일한 디버그 설정이 이미 존재합니다. (파일 변경 없음)')
+        sys.exit(0)
 else:
     existing_data['configurations'] = [cfg for cfg in new_configs if isinstance(cfg, dict)]
     added_count = len(existing_data['configurations'])
@@ -695,6 +712,8 @@ if file_existed:
         shutil.copy2(launch_file, launch_file + '.bak')
     except Exception:
         pass
+    if had_comments:
+        print(f'⚠️ [안내] 기존 launch.json 의 주석은 새로 쓰는 파일에 유지되지 않습니다. 원본은 {launch_file}.bak 에 보관했습니다.', file=sys.stderr)
 
 with open(launch_file, 'w', encoding='utf-8') as f:
     json.dump(existing_data, f, indent=2, ensure_ascii=False)
@@ -704,10 +723,8 @@ if not file_existed:
     print(f'✅ .vscode/launch.json 생성 완료 ({len(new_configs)}개 디버그 설정 등록)')
 elif overwrite:
     print(f'✅ .vscode/launch.json 갱신 완료 ({len(existing_data["configurations"])}개 디버그 설정 재작성)')
-elif added_count > 0:
-    print(f'✅ .vscode/launch.json 갱신 완료 ({added_count}개 신규 디버그 설정 추가)')
 else:
-    print('ℹ️  .vscode/launch.json 에 동일한 디버그 설정이 이미 존재합니다.')
+    print(f'✅ .vscode/launch.json 갱신 완료 ({added_count}개 신규 디버그 설정 추가)')
 PYEOF
 }
 
