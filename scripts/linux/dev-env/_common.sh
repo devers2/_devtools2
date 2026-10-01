@@ -62,6 +62,16 @@ normalize_tty() {
 }
 
 # ── 프롬프트 / 질문 헬퍼 ──────────────────────────────────────────────
+# 비대화형 판정: DT2_NONINTERACTIVE=1 이거나, 질문을 읽을 터미널이 없을 때 참(0)
+# ⚠️ "A || B && C" 는 bash 에서 "(A || B) && C" 로 평가되어 DT2_NONINTERACTIVE=1 이 터미널에서
+#    무시됐습니다. 또 /dev/tty 장치 파일은 제어 터미널이 없어도 항상 존재하므로 [ -c /dev/tty ]
+#    대신 실제로 열 수 있는지로 판정합니다.
+dt2_is_noninteractive() {
+    [ "${DT2_NONINTERACTIVE:-0}" = "1" ] && return 0
+    [ -t 0 ] && return 1
+    { : </dev/tty; } 2>/dev/null && return 1
+    return 0
+}
 print_question() { printf "${_C_BOLD}${_C_CYAN}%s${_C_RESET}\n" "$*"; }
 print_option() {
     local num="$1" text="$2" default_tag="${3:-}"
@@ -77,7 +87,7 @@ prompt_input() { printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$*"; }
 # 사용법: prompt_read my_var "선택하세요 [y/N]: "
 prompt_read() {
     local _pr_var="$1"; shift
-    if [ "${DT2_NONINTERACTIVE:-0}" = "1" ] || [ ! -t 0 ] && [ ! -c /dev/tty ]; then
+    if dt2_is_noninteractive; then
         eval "$_pr_var=\"\""
         return 0
     fi
@@ -97,7 +107,7 @@ prompt_confirm() {
     local _ans=""
 
     # 비대화형 모드(DT2_NONINTERACTIVE=1 또는 tty 부재) 시 기본값 즉시 적용
-    if [ "${DT2_NONINTERACTIVE:-0}" = "1" ] || [ ! -t 0 ] && [ ! -c /dev/tty ]; then
+    if dt2_is_noninteractive; then
         print_info "비대화형 모드: ${_msg} → 기본값($_def) 자동 선택"
         if [ "$_def" = "Y" ] || [ "$_def" = "y" ]; then
             return 0
@@ -223,8 +233,9 @@ download_with_progress() {
             -H 'Pragma: no-cache' \
             "$url" -o "$dest" 2>&1 | \
         awk -v RS='[\r\n]' '
-        match($0, /([0-9]+(\.[0-9]+)?)%/, arr) {
-            pct = arr[1] + 0
+        # POSIX awk 문법만 사용합니다(3인자 match 는 gawk 전용 — mawk 만 있는 Debian/최소 Ubuntu 에서 문법 오류).
+        match($0, /[0-9]+(\.[0-9]+)?%/) {
+            pct = substr($0, RSTART, RLENGTH - 1) + 0
             bar_len = 50
             filled = int(bar_len * (pct / 100))
             pct_str = sprintf(" %5.1f%% ", pct)
@@ -256,7 +267,11 @@ download_with_progress() {
 }
 
 # ── PATH 중복 방지 동적 추가 공통 함수 ──────────────────────────────
-# 도구 설치 시점에 필요한 PATH만 ~/.bashrc의 DEVTOOLS2 블록 내부에 동적으로 추가합니다.
+# 도구 설치 시점에 필요한 PATH 를 사용자 로컬 환경 파일(~/.config/devtools2/local.sh)에 추가합니다.
+# - local.sh 는 env.sh 가 맨 처음 읽으므로(~/.bashrc 맨 앞, ~/.profile) 대화형·비대화형·로그인 셸
+#   모두에 적용됩니다. ~/.bashrc 끝에 붙이면 Ubuntu 기본 .bashrc 의 비대화형 가드 뒤라 반영되지 않습니다.
+# - env.sh 는 1.setup-env.sh 가 다시 만들지만 local.sh 는 보존되므로 재설치해도 유지됩니다.
+# (함수 이름은 기존 호출부 호환을 위해 유지)
 # 사용법: ensure_path_in_bashrc "/path/to/bin"
 ensure_path_in_bashrc() {
     local target_path="$1"
@@ -268,15 +283,12 @@ ensure_path_in_bashrc() {
         export PATH="$PATH:$target_path"
     fi
 
-    # 2. ~/.bashrc 파일 내부에 중복 없이 안전하게 등록
-    if [ -f "$HOME/.bashrc" ]; then
-        if ! grep -qF "$target_path" "$HOME/.bashrc" 2>/dev/null; then
-            if grep -qF "# === DEVTOOLS2 환경 변수 끝 ===" "$HOME/.bashrc" 2>/dev/null; then
-                sed -i "/# === DEVTOOLS2 환경 변수 끝 ===/i export PATH=\"\$PATH:$target_path\"" "$HOME/.bashrc"
-            else
-                echo "export PATH=\"\$PATH:$target_path\"" >> "$HOME/.bashrc"
-            fi
-        fi
+    # 2. ~/.config/devtools2/local.sh 에 중복 없이 등록 (실행 시점에도 중복 추가 방지)
+    local local_env="$HOME/.config/devtools2/local.sh"
+    mkdir -p "$(dirname "$local_env")"
+    touch "$local_env"
+    if ! grep -qF ":$target_path:" "$local_env" 2>/dev/null; then
+        printf 'case ":$PATH:" in *":%s:"*) ;; *) PATH="$PATH:%s" ;; esac\n' "$target_path" "$target_path" >> "$local_env"
     fi
 }
 
@@ -356,6 +368,16 @@ extra-index-url = https://pypi.org/simple
 EOF
         cp -f "$HOME/.pip/pip.conf" "$HOME/.config/pip/pip.conf" 2>/dev/null || true
         print_info "한국 카카오 PyPI 고속 미러 서버(HTTPS)를 pip 저장소로 적용했습니다."
+    else
+        # 미러에 접속할 수 없을 때, 예전 버전이 남긴 평문 HTTP + trusted-host 설정(인증서 검증 끔)이
+        # 그대로 남아 있으면 지웁니다(공식 pypi.org 기본값 사용).
+        local _pc
+        for _pc in "$HOME/.pip/pip.conf" "$HOME/.config/pip/pip.conf"; do
+            if [ -f "$_pc" ] && grep -q 'http://mirror.kakao.com' "$_pc" 2>/dev/null; then
+                rm -f "$_pc"
+                print_info "예전 평문 HTTP pip 미러 설정을 제거했습니다: $_pc"
+            fi
+        done
     fi
 }
 

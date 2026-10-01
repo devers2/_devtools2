@@ -3,7 +3,8 @@
 # =================================================================
 # 프로그램명: jdk_switch.sh
 # 기능: 상대 경로를 기반으로 JAVA_HOME 버전을 전환 (25, 21, 17, 8)
-#       - ~/.bashrc 또는 ~/.zshrc 등에 JAVA_HOME을 업데이트합니다.
+#       - bash: ~/.config/devtools2/local.sh 에 DT2_JAVA_HOME 로 저장 (env.sh 가 JAVA_HOME·PATH 생성)
+#       - zsh: ~/.zshrc 의 JAVA_HOME 를 업데이트합니다.
 #       - 기존 JAVA_HOME 설정이 존재하면 해당 라인을 수정하고, 없으면 추가합니다.
 # 사용법: source jdk_switch.sh 25  (또는 21, 17, 8)
 #         또는 . jdk_switch.sh 25
@@ -81,7 +82,33 @@ case "$SHELL" in
     ;;
 esac
 
-if [ -f "$SHELL_RC" ]; then
+# bash: ~/.config/devtools2/local.sh 의 DT2_JAVA_HOME 에 저장합니다.
+#   ~/.bashrc 맨 앞에서 읽는 env.sh 가 이 값으로 JAVA_HOME 와 PATH 를 함께 만들기 때문에,
+#   ~/.bashrc 끝에 "export JAVA_HOME=" 만 덧붙이던 예전 방식(PATH 는 그대로라 java/python 명령과
+#   JAVA_HOME 가 서로 다른 버전을 가리킴, 비대화형 셸에는 반영 안 됨)을 쓰지 않습니다.
+if [ "$SHELL_RC" = "$HOME/.bashrc" ]; then
+    _DT2_LOCAL_ENV="$HOME/.config/devtools2/local.sh"
+    mkdir -p "$(dirname "$_DT2_LOCAL_ENV")"
+    touch "$_DT2_LOCAL_ENV"
+    if grep -q "^DT2_JAVA_HOME=" "$_DT2_LOCAL_ENV"; then
+        sed -i "s|^DT2_JAVA_HOME=.*|DT2_JAVA_HOME=\"$TARGET_PATH\"|" "$_DT2_LOCAL_ENV"
+    else
+        echo "DT2_JAVA_HOME=\"$TARGET_PATH\"" >>"$_DT2_LOCAL_ENV"
+    fi
+    echo "[확인] $_DT2_LOCAL_ENV 에 JDK 선택(DT2_JAVA_HOME)을 저장했습니다. (새 셸·비대화형 셸 모두 적용)"
+    # 예전 방식으로 ~/.bashrc 에 남은 "export JAVA_HOME=" 줄은 env.sh 의 값을 덮어써 PATH 와 어긋나게 하므로 제거
+    if [ -f "$SHELL_RC" ] && grep -q "^export JAVA_HOME=" "$SHELL_RC"; then
+        sed -i "/^export JAVA_HOME=/d" "$SHELL_RC"
+        echo "[정리] $SHELL_RC 에 남아 있던 예전 'export JAVA_HOME=' 줄을 제거했습니다."
+    fi
+    # systemd 사용자 서비스용 environment.d 에도 반영 (파일이 있을 때만)
+    _DT2_ENVD="$HOME/.config/environment.d/devtools2.conf"
+    if [ -f "$_DT2_ENVD" ]; then
+        _old_home=$(grep "^JAVA_HOME=" "$_DT2_ENVD" | head -1 | cut -d= -f2-)
+        sed -i "s|^JAVA_HOME=.*|JAVA_HOME=$TARGET_PATH|" "$_DT2_ENVD"
+        [ -n "$_old_home" ] && sed -i "s|$_old_home/bin|$TARGET_PATH/bin|g" "$_DT2_ENVD"
+    fi
+elif [ -f "$SHELL_RC" ]; then
     # 기존 'export JAVA_HOME=' 문자열로 시작하는 라인이 있는지 검사
     if grep -q "^export JAVA_HOME=" "$SHELL_RC"; then
         # 기존 설정이 존재하면 해당 라인을 새로운 TARGET_PATH 값으로 치환 (구분자로 | 사용)

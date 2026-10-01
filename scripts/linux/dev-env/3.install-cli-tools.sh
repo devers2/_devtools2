@@ -76,15 +76,14 @@ MODULES_DIR="$DEVTOOLS2/modules"
 # 각 도구별로 독립된 폴더를 생성하여 관리를 용이하게 합니다.
 mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODULES_DIR/fd" "$MODULES_DIR/ast-grep" "$MODULES_DIR/bitwarden" "$MODULES_DIR/rclone"
 
-# rclone 구성 파일 디렉터리 사전 확보 ($DEVTOOLS2/modules/rclone/.config — git 미추적 영역)
-mkdir -p "$MODULES_DIR/rclone/.config"
-chmod 700 "$MODULES_DIR/rclone/.config"
-if [ -d "$DEVTOOLS2/.config/rclone" ]; then
-    if [ -f "$DEVTOOLS2/.config/rclone/rclone.conf" ]; then
-        mv -f "$DEVTOOLS2/.config/rclone/rclone.conf" "$MODULES_DIR/rclone/.config/rclone.conf" 2>/dev/null || true
-        chmod 600 "$MODULES_DIR/rclone/.config/rclone.conf" 2>/dev/null || true
-    fi
-    rm -rf "$DEVTOOLS2/.config/rclone" 2>/dev/null || true
+# rclone 구성 파일 디렉터리 사전 확보 (사용자 홈 ~/.config/rclone — 사용자별 격리, 700)
+# (공유 트리 modules/rclone/.config 에 있던 예전 설정은 1.setup-env.sh 가 사용자 홈으로 옮깁니다)
+mkdir -p "$HOME/.config/rclone"
+chmod 700 "$HOME/.config/rclone"
+if [ -f "$DEVTOOLS2/.config/rclone/rclone.conf" ] && [ ! -e "$HOME/.config/rclone/rclone.conf" ]; then
+    mv -f "$DEVTOOLS2/.config/rclone/rclone.conf" "$HOME/.config/rclone/rclone.conf" 2>/dev/null || true
+    chmod 600 "$HOME/.config/rclone/rclone.conf" 2>/dev/null || true
+    rmdir "$DEVTOOLS2/.config/rclone" 2>/dev/null || true
 fi
 
 # TOOL_VERSIONS_TOML/_read_toml/get_pinned_version/update_pinned_version/fetch_latest_github 는
@@ -497,8 +496,6 @@ install_cli_tool "ast-grep" "ast-grep (sg) - 구조적 코드 검색 도구" "as
 install_cli_tool "bitwarden" "Bitwarden CLI (bw)" "bitwarden/clients" "$BITWARDEN_ARM_PINNED" "$BITWARDEN_ARM_VERSION" "$BITWARDEN_INSTALLED" "bitwarden/bw" 0 "bitwarden_arm"
 install_cli_tool "rclone" "rclone - 클라우드 동기화 도구" "rclone/rclone" "$RCLONE_PINNED" "$RCLONE_VERSION" "$RCLONE_INSTALLED" "rclone/rclone" 0 "rclone"
 
-# rclone 구성 파일 디렉터리 보장 ($DEVTOOLS2/modules/rclone/.config — git 미추적 영역)
-mkdir -p "$MODULES_DIR/rclone/.config"
 
 if [ "$IS_WSL2" = true ]; then
     install_cli_tool "win32yank" "win32yank - 클립보드 공유 도구" "equalsraf/win32yank" "$WIN32YANK_PINNED" "$WIN32YANK_VERSION" "$WIN32YANK_INSTALLED" "win32yank/win32yank.exe" 0 "win32yank"

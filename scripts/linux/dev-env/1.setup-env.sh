@@ -78,7 +78,47 @@ echo "" >>"$_DEVTOOLS2_ENV_TMP"
 
 # 나머지 설정들을 .bashrc 파일에 주입한다.
 # cat << 'EOF' 구문을 사용하면 내부의 $ 기호 등이 치환되지 않고 텍스트 그대로 들어간다.
+# DEVTOOLS2 PATH 디렉터리 목록 (단일 원천)
+# - env.sh(셸용)와 ~/.config/environment.d/devtools2.conf(systemd 사용자 서비스용)를 모두
+#   이 목록 하나로 생성해 두 파일의 PATH 가 서로 어긋나지 않게 합니다.
+# - 앞에 있을수록 우선순위가 높습니다. $DEVTOOLS2/$JAVA_HOME 등은 env.sh 안에서 해석됩니다.
+_DT2_PATH_DIRS=(
+    '$NODE_HOME/bin'
+    '$NPM_CONFIG_PREFIX/bin'
+    '$JAVA_HOME/bin'
+    '$GRADLE_HOME/bin'
+    '$PYTHON_HOME/bin'
+    '$PYTHONUSERBASE/bin'
+    '$NEOVIM_HOME/bin'
+    '$DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin'
+    '$DEVTOOLS2/data/nvim/mason/bin'
+    '$DEVTOOLS2/scripts/linux/cmd'
+    '$DEVTOOLS2/modules/ripgrep'
+    '$DEVTOOLS2/modules/fd'
+    '$DEVTOOLS2/modules/fzf'
+    '$DEVTOOLS2/modules/lazygit'
+    '$DEVTOOLS2/modules/ast-grep'
+    '$DEVTOOLS2/modules/bitwarden'
+    '$DEVTOOLS2/modules/rclone'
+    '$DEVTOOLS2/modules/orca'
+)
+
+# 사용자별 로컬 설정(~/.config/devtools2/local.sh) 로더
+# - jdk_switch.sh / py_switch.sh 가 고른 JDK·Python(DT2_JAVA_HOME / DT2_PYTHON_HOME)과
+#   도구 설치 스크립트가 추가한 PATH(ensure_path_in_bashrc)가 여기에 저장됩니다.
+# - env.sh 는 설치 스크립트가 매번 다시 만들지만 local.sh 는 건드리지 않으므로 선택이 유지됩니다.
 cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
+[ -f "$HOME/.config/devtools2/local.sh" ] && . "$HOME/.config/devtools2/local.sh"
+
+# PATH 앞에 디렉터리를 추가하되 이미 있으면 건너뜁니다(.profile 과 .bashrc 가 모두 이 파일을
+# 읽거나, 셸 안에서 셸을 다시 띄워도 PATH 가 계속 길어지지 않도록).
+_dt2_path_prepend() {
+    case ":$PATH:" in
+        *":$1:"*) ;;
+        *) PATH="$1${PATH:+:$PATH}" ;;
+    esac
+}
+
 export NODE_HOME="$DEVTOOLS2/modules/nodejs/node-v24"
 export NPM_CONFIG_GLOBALCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
 
@@ -91,46 +131,46 @@ cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
 export NPM_CONFIG_PREFIX="$DEVTOOLS2/data/.npm-packages"
 export NODE_PATH="$NPM_CONFIG_PREFIX/lib/node_modules"
 
-export JAVA_HOME="$DEVTOOLS2/modules/java/jdk-21"
+# jdk_switch.sh 로 고른 JDK(DT2_JAVA_HOME)가 있으면 그 값을, 없으면 기본 JDK 21 을 사용합니다.
+if [ -n "${DT2_JAVA_HOME:-}" ] && [ -d "$DT2_JAVA_HOME" ]; then
+    export JAVA_HOME="$DT2_JAVA_HOME"
+else
+    export JAVA_HOME="$DEVTOOLS2/modules/java/jdk-21"
+fi
 
 export GRADLE_HOME="$DEVTOOLS2/modules/gradle/gradle-9"
 
-export PYTHON_HOME="$DEVTOOLS2/modules/python/python-314"
+# py_switch.sh 로 고른 Python(DT2_PYTHON_HOME)이 있으면 그 값을, 없으면 기본 Python 3.14 를 사용합니다.
+if [ -n "${DT2_PYTHON_HOME:-}" ] && [ -d "$DT2_PYTHON_HOME" ]; then
+    export PYTHON_HOME="$DT2_PYTHON_HOME"
+else
+    export PYTHON_HOME="$DEVTOOLS2/modules/python/python-314"
+fi
 export PYTHONUSERBASE="$DEVTOOLS2/data/python"
 export PIP_CACHE_DIR="$DEVTOOLS2/data/.cache/pip"
 
 export NEOVIM_HOME="$DEVTOOLS2/modules/neovim/nvim"
 export NVIM_APPNAME="nvim"
-export RCLONE_CONFIG="$DEVTOOLS2/modules/rclone/.config/rclone.conf"
+# rclone 설정(SFTP 비밀번호 포함)은 공유 트리가 아니라 사용자 홈에 둡니다(사용자별 격리, 600).
+export RCLONE_CONFIG="$HOME/.config/rclone/rclone.conf"
 export PIP_CONFIG_FILE="$HOME/.pip/pip.conf"
 
 # 한글 파일명 및 문자 깨짐 방지 (UTF-8 로케일 & Git gettext 한국어 활성화)
 export LANG="ko_KR.UTF-8"
 export LANGUAGE="ko_KR:ko"
 
-# 시스템 코어 PATH (기본 공통 도구)
-export PATH="\
-$NODE_HOME/bin:\
-$NPM_CONFIG_PREFIX/bin:\
-$JAVA_HOME/bin:\
-$GRADLE_HOME/bin:\
-$PYTHON_HOME/bin:\
-$PYTHONUSERBASE/bin:\
-$NEOVIM_HOME/bin:\
-$DEVTOOLS2/data/nvim/lazy-rocks/hererocks/bin:\
-$DEVTOOLS2/data/nvim/mason/bin:\
-$DEVTOOLS2/scripts/linux/cmd:\
-$DEVTOOLS2/modules/ripgrep:\
-$DEVTOOLS2/modules/fd:\
-$DEVTOOLS2/modules/fzf:\
-$DEVTOOLS2/modules/lazygit:\
-$DEVTOOLS2/modules/ast-grep:\
-$DEVTOOLS2/modules/bitwarden:\
-$DEVTOOLS2/modules/rclone:\
-$DEVTOOLS2/modules/orca:\
-$PATH"
-
 EOF
+
+# 시스템 코어 PATH (기본 공통 도구) — 목록의 뒤에서부터 앞에 붙여 목록 순서대로 우선순위가 정해집니다.
+{
+    echo "# 시스템 코어 PATH (기본 공통 도구, 중복 없이 앞에 추가)"
+    for (( _i=${#_DT2_PATH_DIRS[@]}-1; _i>=0; _i-- )); do
+        echo "_dt2_path_prepend \"${_DT2_PATH_DIRS[$_i]}\""
+    done
+    echo "export PATH"
+    echo "unset -f _dt2_path_prepend"
+    echo ""
+} >>"$_DEVTOOLS2_ENV_TMP"
 
 # WSL2 환경 추가 설정 (NTFS LS_COLORS 및 userprofile)
 if [ "$IS_WSL2" = true ]; then
@@ -157,12 +197,12 @@ fi
 # 환경별 추가 도구(Ghostty, Zed, win32yank) 경로를 env.sh에 직접 통합
 if [ "$IS_WSL2" = false ]; then
     cat << 'EOF' >> "$_DEVTOOLS2_ENV_TMP"
-[ -d "$DEVTOOLS2/modules/ghostty" ] && export PATH="$DEVTOOLS2/modules/ghostty:$PATH"
-[ -d "$DEVTOOLS2/modules/zed/bin" ] && export PATH="$DEVTOOLS2/modules/zed/bin:$PATH"
+case ":$PATH:" in *":$DEVTOOLS2/modules/ghostty:"*) ;; *) [ -d "$DEVTOOLS2/modules/ghostty" ] && export PATH="$DEVTOOLS2/modules/ghostty:$PATH" ;; esac
+case ":$PATH:" in *":$DEVTOOLS2/modules/zed/bin:"*) ;; *) [ -d "$DEVTOOLS2/modules/zed/bin" ] && export PATH="$DEVTOOLS2/modules/zed/bin:$PATH" ;; esac
 EOF
 else
     cat << 'EOF' >> "$_DEVTOOLS2_ENV_TMP"
-[ -d "$DEVTOOLS2/modules/win32yank" ] && export PATH="$DEVTOOLS2/modules/win32yank:$PATH"
+case ":$PATH:" in *":$DEVTOOLS2/modules/win32yank:"*) ;; *) [ -d "$DEVTOOLS2/modules/win32yank" ] && export PATH="$DEVTOOLS2/modules/win32yank:$PATH" ;; esac
 EOF
 fi
 
@@ -179,21 +219,22 @@ trap - EXIT
 print_done "독립 환경 설정 파일 생성 완료: $_TARGET_ENV"
 
 # 2) systemd 사용자 서비스 및 데스크톱 앱 연동용 ~/.config/environment.d/devtools2.conf 생성
+# environment.d 는 셸 문법을 쓸 수 없으므로(KEY=VALUE + ${VAR} 확장만 지원), 방금 만든 env.sh 를
+# 깨끗한 bash 에서 실제로 실행해 나온 값을 그대로 옮겨 적습니다. 그래야 env.sh 와 PATH 목록,
+# local.sh 의 JDK/Python 선택이 항상 같습니다.
 mkdir -p "$HOME/.config/environment.d"
-cat <<EOF > "$HOME/.config/environment.d/devtools2.conf"
-DEVTOOLS2=$DEVTOOLS2
-NODE_HOME=$DEVTOOLS2/modules/nodejs/node-v24
-JAVA_HOME=$DEVTOOLS2/modules/java/jdk-21
-GRADLE_HOME=$DEVTOOLS2/modules/gradle/gradle-9
-PYTHON_HOME=$DEVTOOLS2/modules/python/python-314
-PYTHONUSERBASE=$DEVTOOLS2/data/python
-NEOVIM_HOME=$DEVTOOLS2/modules/neovim/nvim
-NPM_CONFIG_GLOBALCONFIG=$DEVTOOLS2/.config/nodejs/.npmrc
-NPM_CONFIG_PREFIX=$DEVTOOLS2/data/.npm-packages
-NODE_PATH=$DEVTOOLS2/data/.npm-packages/lib/node_modules
-RCLONE_CONFIG=$DEVTOOLS2/modules/rclone/.config/rclone.conf
-PATH=$DEVTOOLS2/data/.npm-packages/bin:$DEVTOOLS2/modules/java/jdk-21/bin:$DEVTOOLS2/modules/gradle/gradle-9/bin:$DEVTOOLS2/modules/nodejs/node-v24/bin:$DEVTOOLS2/modules/python/python-314/bin:$DEVTOOLS2/data/python/bin:$DEVTOOLS2/modules/neovim/nvim/bin:$DEVTOOLS2/scripts/linux/cmd:$DEVTOOLS2/modules/ripgrep:$DEVTOOLS2/modules/fd:$DEVTOOLS2/modules/fzf:$DEVTOOLS2/modules/lazygit:$DEVTOOLS2/modules/bitwarden:$DEVTOOLS2/modules/orca:\${PATH}
-EOF
+generate_environment_d() {
+    env -i HOME="$HOME" PATH="/usr/local/bin:/usr/bin:/bin" bash --noprofile --norc -c '
+        . "$HOME/.config/devtools2/env.sh" >/dev/null 2>&1
+        for k in DEVTOOLS2 NODE_HOME JAVA_HOME GRADLE_HOME PYTHON_HOME PYTHONUSERBASE NEOVIM_HOME \
+                 NPM_CONFIG_GLOBALCONFIG NPM_CONFIG_PREFIX NODE_PATH RCLONE_CONFIG LANG; do
+            printf "%s=%s\n" "$k" "${!k}"
+        done
+        # 기본 시스템 경로는 빼고 DEVTOOLS2 쪽 경로만 앞에 붙인 뒤 기존 PATH 를 이어 붙입니다.
+        printf "PATH=%s\${PATH}\n" "${PATH%/usr/local/bin:/usr/bin:/bin}"
+    ' > "$HOME/.config/environment.d/devtools2.conf"
+}
+generate_environment_d
 chmod 644 "$HOME/.config/environment.d/devtools2.conf"
 print_done "systemd 사용자 환경 설정 생성 완료: ~/.config/environment.d/devtools2.conf"
 
@@ -391,6 +432,31 @@ if command -v fc-cache >/dev/null 2>&1; then
     fc-cache -fv >/dev/null 2>&1 || true
 fi
 echo "[완료] 폰트 설치 완료!"
+echo ""
+
+print_subsep
+print_step "[Step 5-1] rclone 설정 파일을 사용자 홈으로 이전"
+# 예전 위치($DEVTOOLS2/modules/rclone/.config/rclone.conf, 공유 트리)에 내 소유 설정이 있고
+# 새 위치(~/.config/rclone/rclone.conf)에 아직 없으면 옮긴 뒤, 기존 systemd 마운트 유닛의
+# --config= 경로가 계속 동작하도록 예전 위치에는 새 파일을 가리키는 심볼릭 링크를 남깁니다.
+_RCLONE_NEW="$HOME/.config/rclone/rclone.conf"
+_RCLONE_OLD="$DEVTOOLS2/modules/rclone/.config/rclone.conf"
+mkdir -p "$(dirname "$_RCLONE_NEW")" && chmod 700 "$(dirname "$_RCLONE_NEW")" 2>/dev/null || true
+if [ -f "$_RCLONE_OLD" ] && [ ! -L "$_RCLONE_OLD" ] && [ -O "$_RCLONE_OLD" ] && [ ! -e "$_RCLONE_NEW" ]; then
+    if mv "$_RCLONE_OLD" "$_RCLONE_NEW" && chmod 600 "$_RCLONE_NEW"; then
+        ln -s "$_RCLONE_NEW" "$_RCLONE_OLD" 2>/dev/null || true
+        print_done "rclone.conf 를 사용자 홈으로 옮겼습니다: $_RCLONE_NEW"
+        # 예전 위치에 있던 SSH 키 디렉터리도 함께 이전 (bw-server-manager 의 rclone 마운트용 키)
+        if [ -d "$(dirname "$_RCLONE_OLD")/keys" ] && [ ! -e "$(dirname "$_RCLONE_NEW")/keys" ]; then
+            mv "$(dirname "$_RCLONE_OLD")/keys" "$(dirname "$_RCLONE_NEW")/keys" 2>/dev/null \
+                && sed -i "s|$(dirname "$_RCLONE_OLD")/keys/|$(dirname "$_RCLONE_NEW")/keys/|g" "$_RCLONE_NEW" 2>/dev/null || true
+        fi
+    else
+        print_warn "rclone.conf 이전에 실패했습니다(기존 위치 유지): $_RCLONE_OLD"
+    fi
+elif [ -f "$_RCLONE_OLD" ] && [ ! -L "$_RCLONE_OLD" ] && [ -e "$_RCLONE_NEW" ]; then
+    print_warn "rclone.conf 가 두 곳에 있습니다. 예전 공유 위치($_RCLONE_OLD)는 확인 후 지워 주세요."
+fi
 echo ""
 
 print_subsep
