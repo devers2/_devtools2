@@ -49,12 +49,15 @@
 # ── PAT 인증 관련 함수들이 공유하는 기본 Bitwarden 아이템 이름 ─────────────────
 BW_DEFAULT_PAT_ITEM="${BW_DEFAULT_PAT_ITEM:-github.com-main}"
 
-# ── OS 판별 (Windows / WSL / Linux) ─────────────────────────────────────────
-IS_WINDOWS=false
-IS_WSL=false
+# ── OS 판별 (WSL / Linux) ───────────────────────────────────────────────────
+# ⚠️ Windows 네이티브(Git Bash/MSYS/Cygwin)는 지원하지 않습니다. 이 도구들은 WSL 또는
+#    리눅스에서만 실행합니다(Alt+c / Alt+h 도 WSL bash 의 readline 바인딩으로만 동작).
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
-    IS_WINDOWS=true
-elif grep -qi microsoft /proc/version 2>/dev/null; then
+    echo "❌ Windows 네이티브(Git Bash 등)는 지원하지 않습니다. WSL 터미널에서 실행해 주세요." >&2
+    return 1 2>/dev/null || exit 1
+fi
+IS_WSL=false
+if grep -qi microsoft /proc/version 2>/dev/null; then
     IS_WSL=true
 fi
 
@@ -82,7 +85,7 @@ copy_to_clipboard() {
         text=$(cat)
     fi
 
-    if $IS_WINDOWS || $IS_WSL; then
+    if $IS_WSL; then
         if command -v clip.exe &>/dev/null; then
             printf "%s" "$text" | clip.exe
             return 0

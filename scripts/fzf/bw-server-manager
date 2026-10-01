@@ -146,9 +146,7 @@ echo "🖥️  [$HOST_NAME]  →  $USERNAME@$ACTUAL_HOST:$PORT"
 echo ""
 
 ACTION_OPTIONS=("1. 원격 접속 (SSH)" "2. 파일 전송 (SFTP)")
-if ! $IS_WINDOWS; then
-    ACTION_OPTIONS+=("3. 파일 동기화 (Rsync)" "4. SFTP 마운트 (Rclone)")
-fi
+ACTION_OPTIONS+=("3. 파일 동기화 (Rsync)" "4. SFTP 마운트 (Rclone)")
 
 ACTION=$(
     printf "%s\n" "${ACTION_OPTIONS[@]}" | fzf \
