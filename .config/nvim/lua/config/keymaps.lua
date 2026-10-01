@@ -232,18 +232,7 @@ local function run_manual_eslint()
     return
   end
 
-  local is_win = _G.OS_TYPE == _G.OS.WINDOWS
-  local eslint_bin
-  if is_win then
-    local win_cmd = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/eslint.cmd'
-    if vim.fn.filereadable(win_cmd) == 1 then
-      eslint_bin = win_cmd
-    else
-      eslint_bin = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/node_modules/.bin/eslint.cmd'
-    end
-  else
-    eslint_bin = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/lib/node_modules/.bin/eslint'
-  end
+  local eslint_bin = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/lib/node_modules/.bin/eslint'
   local config_file = _G.DEVTOOLS2_DIR .. '/.config/eslint/eslint.config.mjs'
 
   -- eslint 바이너리가 존재하는지 미리 확인

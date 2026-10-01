@@ -4,8 +4,7 @@
 --   2. Neovim이 생성하는 모든 하위 프로세스(LSP, 포맷터 등)가 경로를 상속
 local mason_bin = vim.fn.stdpath('data') .. '/mason/bin'
 if vim.fn.isdirectory(mason_bin) == 1 and not (vim.env.PATH or ''):find(mason_bin, 1, true) then
-  local path_sep = (vim.fn.has('win32') == 1) and ';' or ':'
-  vim.env.PATH = mason_bin .. path_sep .. (vim.env.PATH or '')
+  vim.env.PATH = mason_bin .. ':' .. (vim.env.PATH or '')
 end
 
 -- 전역 공통 디렉토리 경로 설정 (환경변수 DEVTOOLS2 값 우선, 없으면 설정 폴더 기준 상대 경로)
@@ -16,26 +15,22 @@ local resolved = vim.uv.fs_realpath(raw_devtools2)
 _G.DEVTOOLS2_DIR = ((resolved or raw_devtools2):gsub('\\', '/')):gsub('/$', '')
 
 -- 운영체제 식별 전역 상수 및 변수 설정
+-- ⚠️ 이 설정은 리눅스(WSL2 포함)와 macOS 전용입니다. Windows 네이티브 Neovim 은 지원하지 않으므로
+--    Windows 분기(PowerShell 셸, USERPROFILE, .cmd/.exe 경로 등)를 두지 않습니다.
+--    WSL 안의 Neovim 은 has('win32') == 0 이라 Linux 로 판별됩니다.
 _G.OS = {
-  WINDOWS = 'Windows',
   MACOS = 'macOS',
   LINUX = 'Linux',
 }
 
-if vim.fn.has('win32') == 1 then
-  _G.OS_TYPE = _G.OS.WINDOWS
-elseif vim.fn.has('macunix') == 1 then
+if vim.fn.has('macunix') == 1 then
   _G.OS_TYPE = _G.OS.MACOS
 else
   _G.OS_TYPE = _G.OS.LINUX
 end
 
 -- 전역 사용자 홈 디렉토리
-if _G.OS_TYPE == _G.OS.WINDOWS then
-  _G.HOME_DIR = ((os.getenv('USERPROFILE') or os.getenv('HOMEPATH') or '.'):gsub('\\', '/'))
-else
-  _G.HOME_DIR = os.getenv('HOME') or '.'
-end
+_G.HOME_DIR = os.getenv('HOME') or '.'
 
 -- 전역 캐시 및 데이터 디렉토리 (Neovim의 stdpath를 활용하여 OS별 환경변수 자동 적용)
 _G.NVIM_DATA_DIR = vim.fn.stdpath('data'):gsub('\\', '/')
@@ -96,28 +91,8 @@ vim.opt.termguicolors = true
 -- 노멀(n), 비주얼(v), 커맨드(c) 모드에서는 block, 인서트(i) 모드에서는 세로선(ver25) 지정을 확실히 명시
 vim.opt.guicursor = 'n-v-c:block,i-ci-ve:ver25,r-cr:hor20,o:hor50'
 
--- 터미널 셸 설정 (PowerShell 7 우선 사용)
-if _G.OS_TYPE == _G.OS.WINDOWS then
-  -- Windows에서만 적용
-  if vim.fn.executable('pwsh.exe') == 1 then
-    -- PowerShell 7 사용
-    vim.opt.shell = 'pwsh.exe'
-    vim.opt.shellcmdflag =
-      '-NoLogo -NoProfile -ExecutionPolicy RemoteSigned -Command [Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;'
-  else
-    -- PowerShell 5 사용
-    vim.opt.shell = 'powershell.exe'
-    vim.opt.shellcmdflag =
-      '-NoLogo -NoProfile -ExecutionPolicy RemoteSigned -Command [Console]::InputEncoding=[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;'
-  end
-
-  -- 경로 구분자 및 인용 부호 설정
-  vim.opt.shellquote = ''
-  vim.opt.shellxquote = ''
-else
-  -- Linux/macOS: 대화형 로그인 셸(bash/zsh 등)과 무관하게 Neovim 내부 셸 실행은
-  -- 항상 bash로 고정합니다. 플러그인이 system()/jobstart()로 조립하는 셸 명령은
-  -- POSIX(bash) 기준으로 작성되는 경우가 많아서, 로그인 셸을 zsh 등으로 바꿔도
-  -- Neovim 내부 동작(LSP 설치, 포매터 실행, :! 등)이 영향받지 않도록 분리해둡니다.
-  vim.opt.shell = '/bin/bash'
-end
+-- 터미널 셸 설정: 대화형 로그인 셸(bash/zsh 등)과 무관하게 Neovim 내부 셸 실행은
+-- 항상 bash로 고정합니다. 플러그인이 system()/jobstart()로 조립하는 셸 명령은
+-- POSIX(bash) 기준으로 작성되는 경우가 많아서, 로그인 셸을 zsh 등으로 바꿔도
+-- Neovim 내부 동작(LSP 설치, 포매터 실행, :! 등)이 영향받지 않도록 분리해둡니다.
+vim.opt.shell = '/bin/bash'

@@ -10,8 +10,8 @@ return {
 
     -- 플러그인 로드 조건: 각 OS에서 필요한 IME 제어 바이너리가 있을 때만 활성화
     cond = function()
-      if _G.OS_TYPE == _G.OS.WINDOWS or vim.fn.has('wsl') == 1 then
-        -- Windows / WSL: Windows 호스트의 AutoHotkey 가 0ms 무지연으로 IME 전환을 전담하므로 비활성화
+      if vim.fn.has('wsl') == 1 then
+        -- WSL: Windows 호스트의 AutoHotkey 가 0ms 무지연으로 IME 전환을 전담하므로 비활성화
         return false
       elseif _G.OS_TYPE == _G.OS.MACOS then
         -- macOS: macism 또는 im-select 도구가 있을 때 활성화

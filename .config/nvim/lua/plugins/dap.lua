@@ -277,30 +277,16 @@ return {
           if session_id then
             active_debug_pids[session_id] = nil
           end
-          if _G.OS_TYPE == _G.OS.WINDOWS then
-            local cmd = string.format('Stop-Process -Id %d -Force -ErrorAction SilentlyContinue', direct_pid)
-            pcall(vim.system, { 'powershell.exe', '-NoProfile', '-Command', cmd }, { text = true }, function()
-              vim.schedule(function()
-                vim.notify(
-                  string.format('디버깅 프로세스(PID: %d)를 종료했습니다.', direct_pid),
-                  vim.log.levels.INFO,
-                  { title = 'DAP 프로세스 정리' }
-                )
-                cb()
-              end)
+          pcall(vim.system, { 'kill', '-9', tostring(direct_pid) }, {}, function()
+            vim.schedule(function()
+              vim.notify(
+                string.format('디버깅 프로세스(PID: %d)를 종료했습니다.', direct_pid),
+                vim.log.levels.INFO,
+                { title = 'DAP 프로세스 정리' }
+              )
+              cb()
             end)
-          else
-            pcall(vim.system, { 'kill', '-9', tostring(direct_pid) }, {}, function()
-              vim.schedule(function()
-                vim.notify(
-                  string.format('디버깅 프로세스(PID: %d)를 종료했습니다.', direct_pid),
-                  vim.log.levels.INFO,
-                  { title = 'DAP 프로세스 정리' }
-                )
-                cb()
-              end)
-            end)
-          end
+          end)
           return
         end
 
@@ -311,81 +297,42 @@ return {
           return
         end
 
-        if _G.OS_TYPE == _G.OS.WINDOWS then
-          -- Windows: Get-CimInstance Win32_Process 비동기 스캔 및 타겟 프로세스 종료
-          local pwsh_cmd = string.format([=[
-            $pids = @()
-            Get-CimInstance Win32_Process | ForEach-Object {
-              $cmd = $_.CommandLine
-              $pid = $_.ProcessId
-              if ($pid -ne %d -and $cmd) {
-                $cmd_norm = $cmd -replace '\\','/'
-                $match = $false
-                if ('%s' -ne '' -and $cmd -like '*%s*') { $match = $true }
-                if ('%s' -ne '' -and ($cmd_norm -like '*%s*') -and ($cmd -match 'java|python|node|uvicorn|debugpy|gunicorn|dlv|target')) { $match = $true }
-                if ($match -and ($cmd -notmatch 'jdtls|GradleDaemon|org\.gradle|equinox|nvim|code|pwsh|language-server|vtsls|pyright|basedpyright|ruff|eslint|tailwindcss|gopls|rust-analyzer|clangd|mason')) {
-                  $pids += $pid
-                }
-              }
-            }
-            $pids = $pids | Select-Object -Unique
-            foreach ($p in $pids) {
-              Stop-Process -Id $p -Force -ErrorAction SilentlyContinue
-            }
-            $pids -join ','
-          ]=], my_pid, main_class or '', main_class or '', root, root)
-
-          pcall(vim.system, { 'powershell.exe', '-NoProfile', '-Command', pwsh_cmd }, { text = true }, function(obj)
-            vim.schedule(function()
-              local killed = (obj.stdout or ''):gsub('%s+', '')
-              if killed ~= '' then
-                vim.notify(
-                  string.format('기존 디버깅 프로세스(PID: %s)를 정리했습니다.', killed),
-                  vim.log.levels.INFO,
-                  { title = 'DAP 프로세스 정리' }
-                )
+        -- Linux / WSL / macOS: ps -eo pid,args 기반 비동기 스캔 및 kill -9
+        pcall(vim.system, { 'ps', '-eo', 'pid,args' }, { text = true }, function(obj)
+          vim.schedule(function()
+            local to_kill = {}
+            local out = obj.stdout or ''
+            for line in out:gmatch('[^\r\n]+') do
+              local pid_str, cmd = line:match('^%s*(%d+)%s+(.*)$')
+              local pid = tonumber(pid_str)
+              if pid and pid ~= my_pid and is_project_debuggee(cmd, root, main_class, lang) then
+                to_kill[pid] = true
               end
-              cb()
-            end)
-          end)
-        else
-          -- Linux / WSL / macOS: ps -eo pid,args 기반 비동기 스캔 및 kill -9
-          pcall(vim.system, { 'ps', '-eo', 'pid,args' }, { text = true }, function(obj)
-            vim.schedule(function()
-              local to_kill = {}
-              local out = obj.stdout or ''
-              for line in out:gmatch('[^\r\n]+') do
-                local pid_str, cmd = line:match('^%s*(%d+)%s+(.*)$')
-                local pid = tonumber(pid_str)
-                if pid and pid ~= my_pid and is_project_debuggee(cmd, root, main_class, lang) then
-                  to_kill[pid] = true
-                end
-              end
+            end
 
-              local pids_list = {}
-              for pid in pairs(to_kill) do
-                table.insert(pids_list, tostring(pid))
-              end
+            local pids_list = {}
+            for pid in pairs(to_kill) do
+              table.insert(pids_list, tostring(pid))
+            end
 
-              if #pids_list > 0 then
-                local kill_args = { 'kill', '-9' }
-                vim.list_extend(kill_args, pids_list)
-                pcall(vim.system, kill_args, {}, function()
-                  vim.schedule(function()
-                    vim.notify(
-                      string.format('기존 디버깅 프로세스(PID: %s)를 정리했습니다.', table.concat(pids_list, ', ')),
-                      vim.log.levels.INFO,
-                      { title = 'DAP 프로세스 정리' }
-                    )
-                    cb()
-                  end)
+            if #pids_list > 0 then
+              local kill_args = { 'kill', '-9' }
+              vim.list_extend(kill_args, pids_list)
+              pcall(vim.system, kill_args, {}, function()
+                vim.schedule(function()
+                  vim.notify(
+                    string.format('기존 디버깅 프로세스(PID: %s)를 정리했습니다.', table.concat(pids_list, ', ')),
+                    vim.log.levels.INFO,
+                    { title = 'DAP 프로세스 정리' }
+                  )
+                  cb()
                 end)
-              else
-                cb()
-              end
-            end)
+              end)
+            else
+              cb()
+            end
           end)
-        end
+        end)
       end
       _G.kill_debuggee_process = kill_debuggee_process
 
@@ -976,16 +923,8 @@ return {
           root = root .. '/'
         end
 
-        local is_win = (_G.OS_TYPE == _G.OS.WINDOWS) or (vim.fn.has('win32') == 1)
-        local gradlew = is_win and (root .. 'gradlew.bat') or (root .. 'gradlew')
-        local mvnw = is_win and (root .. 'mvnw.cmd') or (root .. 'mvnw')
-        -- bat/cmd 파일이 없는 경우 기본 파일명 폴백
-        if is_win and vim.fn.filereadable(gradlew) == 0 and vim.fn.filereadable(root .. 'gradlew') == 1 then
-          gradlew = root .. 'gradlew'
-        end
-        if is_win and vim.fn.filereadable(mvnw) == 0 and vim.fn.filereadable(root .. 'mvnw') == 1 then
-          mvnw = root .. 'mvnw'
-        end
+        local gradlew = root .. 'gradlew'
+        local mvnw = root .. 'mvnw'
         local has_gradlew = vim.fn.filereadable(gradlew) == 1
         local has_mvnw = vim.fn.filereadable(mvnw) == 1
 
@@ -1249,7 +1188,7 @@ return {
         if ok and registry.is_installed('debugpy') then
           local pkg = registry.get_package('debugpy')
           local p = pkg:get_install_path()
-          local venv_py = p .. (vim.fn.has('win32') == 1 and '/venv/Scripts/python.exe' or '/venv/bin/python')
+          local venv_py = p .. '/venv/bin/python'
           if vim.fn.executable(venv_py) == 1 then
             python_path = venv_py
           end
