@@ -52,9 +52,15 @@ if [ ! -d "$DEVTOOLS2" ]; then
         sudo chown -R "$USER" "$DEVTOOLS2" 2>/dev/null || true
     fi
 fi
-if [ ! -w "$DEVTOOLS2" ] && [ "$(id -u)" -ne 0 ]; then
-    sudo chown -R "$USER" "$DEVTOOLS2" 2>/dev/null || true
-    sudo chmod -R u+w "$DEVTOOLS2" 2>/dev/null || true
+# ⚠️ 쓰기 권한이 없다고 "sudo chown -R $USER" 로 저장소 전체 소유자를 바꾸지 않습니다.
+#    여러 사용자가 그룹(devers)으로 공유하는 서버에서 두 번째 사용자가 설치를 실행하면
+#    공유 저장소를 통째로 가져가 다른 사용자의 접근을 깨뜨리기 때문입니다.
+#    (공유 런타임 폴더 data/modules 는 0.init-devtools2.sh 가 그룹 쓰기(2770)로 설정합니다.)
+if [ ! -w "$DEVTOOLS2/modules" ] && [ -d "$DEVTOOLS2/modules" ] && [ "$(id -u)" -ne 0 ]; then
+    print_error "$DEVTOOLS2/modules 에 쓰기 권한이 없습니다 (소유자: $(stat -c '%U:%G' "$DEVTOOLS2/modules" 2>/dev/null))."
+    print_info "  그룹(devers)에 추가된 직후라면 다시 로그인하거나 'newgrp devers' 후 다시 실행하세요."
+    print_info "  그룹에 없다면 관리자가 실행: sudo $DEVTOOLS2/scripts/linux/dev-env/add-devtools2-user.sh $USER"
+    exit 1
 fi
 
 _ensure_pkg unzip
@@ -283,7 +289,8 @@ install_adoptium_jdk() {
     # 재설치는 기존 JDK 를 옆으로 옮겨 두었다가, 새 설치가 실패하면 되돌립니다.
     local _backup=""
     if [ "$_reinstall" = true ]; then
-        _backup="${target_path}.dt2-old"
+        # 백업 이름은 "jdk-*" 패턴(Gradle 툴체인 목록, 설치 검증)에 걸리지 않도록 점으로 시작합니다.
+        _backup="$(dirname "$target_path")/.dt2-old-${dest_dir}"
         rm -rf "$_backup"
         mv "$target_path" "$_backup"
     fi
@@ -678,28 +685,43 @@ cd "$DEVTOOLS2/modules/neovim"
 NEOVIM_PINNED=$(get_pinned_version "neovim")
 NEOVIM_VERSION="${NEOVIM_PINNED:-v0.12.5}"
 _nvim_arch="$([ "$IS_ARM64" = true ] && echo 'arm64' || echo 'x86_64')"
-_nvim_url="https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/nvim-linux-${_nvim_arch}.tar.gz"
-_nvim_sha="${_nvim_url}.sha256sum"
+_nvim_asset="nvim-linux-${_nvim_arch}.tar.gz"
+_nvim_url="https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/${_nvim_asset}"
+
+# Neovim 은 체크섬 파일(.sha256sum)을 배포하지 않으므로(404 확인) GitHub API 의 자산 SHA256 으로 검증합니다.
+# - 조회되면 반드시 검증하고, 불일치하면 설치하지 않습니다(예전처럼 "검증 없이 재시도"하지 않음).
+# - API 호출 한도 초과 등으로 조회하지 못한 경우에만 경고 후 검증 없이 설치합니다.
+install_neovim() {
+    local _sha
+    _sha=$(github_asset_sha256 "neovim/neovim" "$NEOVIM_VERSION" "$_nvim_asset")
+    if [ -z "$_sha" ]; then
+        print_warn "Neovim SHA256 을 GitHub API 에서 조회하지 못해 체크섬 검증 없이 설치합니다 (API 호출 한도 초과일 수 있음, GITHUB_TOKEN 설정 시 완화)."
+    fi
+    safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "$_sha" "Neovim $NEOVIM_VERSION"
+}
 
 if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
     if prompt_confirm "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까?" "N"; then
-        echo "   🗑️  기존 디렉토리 삭제 중..."
-        rm -rf "$DEVTOOLS2/modules/neovim/nvim"
-        if safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "$_nvim_sha" "Neovim $NEOVIM_VERSION"; then
+        # 새 버전 설치에 성공했을 때만 기존 설치를 지웁니다(실패 시 기존 Neovim 유지).
+        _nvim_old="$DEVTOOLS2/modules/neovim/.dt2-old-nvim"
+        rm -rf "$_nvim_old"
+        mv "$DEVTOOLS2/modules/neovim/nvim" "$_nvim_old"
+        if install_neovim; then
+            rm -rf "$_nvim_old"
             echo "   ✅ Neovim $NEOVIM_VERSION 설치 완료"
         else
-            echo "   ⚠️  체크섬 검증 또는 다운로드 실패. 체크섬 검증 없이 재시도합니다..."
-            safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "" "Neovim $NEOVIM_VERSION"
+            rm -rf "$DEVTOOLS2/modules/neovim/nvim"
+            mv "$_nvim_old" "$DEVTOOLS2/modules/neovim/nvim"
+            echo "   ❌ Neovim 설치 실패 — 기존 Neovim 을 복원했습니다." >&2
         fi
     else
         echo "   ⏭️ [건너뜀] neovim 디렉토리가 이미 존재합니다."
     fi
 else
-    if safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "$_nvim_sha" "Neovim $NEOVIM_VERSION"; then
+    if install_neovim; then
         echo "   ✅ Neovim $NEOVIM_VERSION 설치 완료"
     else
-        echo "   ⚠️  체크섬 검증 또는 다운로드 실패. 체크섬 검증 없이 재시도합니다..."
-        safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "" "Neovim $NEOVIM_VERSION"
+        echo "   ❌ Neovim 설치 실패 (체크섬 불일치 또는 다운로드 오류)" >&2
     fi
 fi
 
@@ -750,7 +772,10 @@ else
         fi
         echo -n "   📦 Ghostty $GHOSTTY_VERSION AppImage 다운로드 중..."
         _gh_url="https://github.com/pkgforge-dev/ghostty-appimage/releases/download/v${GHOSTTY_VERSION}/Ghostty-${GHOSTTY_VERSION}-${ARCH}.AppImage"
-        if safe_download_binary "$_gh_url" "$DEVTOOLS2/modules/ghostty/ghostty" 755; then
+        # 체크섬 파일이 없어 GitHub API 의 자산 SHA256 으로 검증 (조회 실패 시에만 검증 없이 설치)
+        _gh_sha=$(github_asset_sha256 "pkgforge-dev/ghostty-appimage" "v${GHOSTTY_VERSION}" "Ghostty-${GHOSTTY_VERSION}-${ARCH}.AppImage")
+        [ -z "$_gh_sha" ] && echo "" && print_warn "Ghostty SHA256 을 GitHub API 에서 조회하지 못해 체크섬 검증 없이 설치합니다."
+        if safe_download_binary "$_gh_url" "$DEVTOOLS2/modules/ghostty/ghostty" 755 "$_gh_sha"; then
             echo " 완료"
 
             # 설정 파일 경로 심볼릭 링크 생성

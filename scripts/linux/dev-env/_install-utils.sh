@@ -208,6 +208,33 @@ fetch_latest_github() {
         | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' || true
 }
 
+# GitHub 릴리스 자산의 SHA256 을 GitHub API(assets[].digest)에서 조회합니다.
+# 체크섬 파일을 따로 배포하지 않는 저장소(Neovim, fd, ast-grep, Ghostty 등)도 이 값으로 검증할 수 있습니다.
+# 사용법: github_asset_sha256 <owner/repo> <tag | latest> <자산 파일명>
+# 출력: 64자리 16진수 SHA256 (조회 실패·digest 미제공이면 빈 문자열)
+# ⚠️ 비인증 API 는 시간당 60회 제한이 있으므로, GITHUB_TOKEN 이 있으면 인증 헤더로 사용합니다.
+github_asset_sha256() {
+    local repo="$1" tag="$2" asset="$3"
+    local api="https://api.github.com/repos/${repo}/releases/tags/${tag}"
+    [ "$tag" = "latest" ] && api="https://api.github.com/repos/${repo}/releases/latest"
+    local -a auth=()
+    [ -n "${GITHUB_TOKEN:-}" ] && auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+    curl -fsSL --max-time 10 "${auth[@]}" "$api" 2>/dev/null \
+        | python3 -c '
+import json, sys
+asset = sys.argv[1]
+try:
+    for a in json.load(sys.stdin).get("assets", []):
+        if a.get("name") == asset:
+            d = a.get("digest") or ""
+            if d.startswith("sha256:") and len(d) == 71:
+                print(d[7:])
+            break
+except Exception:
+    pass
+' "$asset" 2>/dev/null || true
+}
+
 # ─────────────────────────────────────────────────────────────────
 # 도구별 설치 액션(install/reinstall/skip) 결정 헬퍼
 # 사용법: _resolve_action <IS_INSTALLED> <TOOL_DISPLAY_NAME>

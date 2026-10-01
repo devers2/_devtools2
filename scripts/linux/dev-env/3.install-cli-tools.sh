@@ -164,14 +164,17 @@ fi
 echo ""
 
 # ── 중복 처리 방식 선택 ──────────────────────────────────────────
-DUPLICATE_MODE="keep"
+# 환경변수 DT2_DUPLICATE_MODE(remove|reinstall|keep|skip|individual)가 있으면 질문 없이 그 값을 씁니다.
+DUPLICATE_MODE="${DT2_DUPLICATE_MODE:-keep}"
 _HAS_INSTALLED=false
 for _b in "$FZF_INSTALLED" "$LAZYGIT_INSTALLED" "$RIPGREP_INSTALLED" \
            "$FD_INSTALLED" "$ASTGREP_INSTALLED" "$BITWARDEN_INSTALLED" "$RCLONE_INSTALLED" "$WIN32YANK_INSTALLED"; do
     [ "$_b" = true ] && _HAS_INSTALLED=true && break
 done
 
-if [ "$_HAS_INSTALLED" = true ]; then
+if [ -n "${DT2_DUPLICATE_MODE:-}" ]; then
+    print_info "환경변수(DT2_DUPLICATE_MODE) 설정 적용됨: $DUPLICATE_MODE"
+elif [ "$_HAS_INSTALLED" = true ]; then
     print_question "⚠️  이미 설치된 도구가 감지되었습니다. 중복 처리 방식을 선택하세요:"
     echo ""
     print_option "1" "기존 도구 삭제 후 재설치 (덮어쓰기)"
@@ -432,6 +435,16 @@ install_cli_tool() {
     local dl_url dl_checksum
     dl_url=$(get_cli_tool_url "$id" "$selected_ver")
     dl_checksum=$(get_cli_tool_checksum_url "$id" "$selected_ver")
+    # 체크섬 파일을 배포하지 않는 도구(fd, ast-grep, Bitwarden ARM64, win32yank)는
+    # GitHub API 의 자산 SHA256 으로 검증합니다(조회 실패 시에만 경고 후 검증 없이 설치).
+    if [ -z "$dl_checksum" ] && [[ "$dl_url" == https://github.com/* ]]; then
+        local _gh_tag
+        _gh_tag=$(echo "$dl_url" | sed -E 's#^https://github.com/[^/]+/[^/]+/releases/download/([^/]+)/.*#\1#')
+        dl_checksum=$(github_asset_sha256 "$repo" "$_gh_tag" "$(basename "$dl_url")")
+        if [ -z "$dl_checksum" ]; then
+            print_warn "$id SHA256 을 GitHub API 에서 조회하지 못해 체크섬 검증 없이 설치합니다."
+        fi
+    fi
 
     # 5. 다운로드 및 설치
     local install_ok=false
