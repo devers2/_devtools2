@@ -103,8 +103,8 @@ else
     done
     dpkg --configure -a 2>/dev/null || true
 
-    apt-get update -qq >/tmp/_keyd_apt_update.log 2>&1 || true
-    if apt-get install -y keyd >/tmp/_keyd_apt.log 2>&1; then
+    apt-get update -qq >$DT2_TMP/_keyd_apt_update.log 2>&1 || true
+    if apt-get install -y keyd >$DT2_TMP/_keyd_apt.log 2>&1; then
         print_success "apt 로 keyd 설치 완료."
     else
         # ── (1-B) 소스 빌드 설치 ──────────────────────────────────────────────
@@ -112,48 +112,48 @@ else
 
         # 빌드 의존성 설치
         print_info "빌드 의존성 설치 중 (make, gcc)..."
-        apt-get install -y make gcc git >/tmp/_keyd_deps.log 2>&1 || {
-            print_error "빌드 의존성 설치 실패. 로그: /tmp/_keyd_deps.log"
+        apt-get install -y make gcc git >$DT2_TMP/_keyd_deps.log 2>&1 || {
+            print_error "빌드 의존성 설치 실패. 로그: $DT2_TMP/_keyd_deps.log"
             exit 1
         }
 
         # 소스 클론 또는 업데이트 (스피너 표시)
         if [ -d "$KEYD_MODULE_DIR/.git" ]; then
-            (cd "$KEYD_MODULE_DIR" && git pull --ff-only) >/tmp/_keyd_git.log 2>&1 &
+            (cd "$KEYD_MODULE_DIR" && git pull --ff-only) >$DT2_TMP/_keyd_git.log 2>&1 &
             _pull_pid=$!
             run_with_spinner "keyd 소스 업데이트 진행 중..." "$_pull_pid"
             wait "$_pull_pid" 2>/dev/null || print_warn "git pull 실패. 기존 소스 그대로 사용합니다."
-            rm -f /tmp/_keyd_git.log
+            rm -f $DT2_TMP/_keyd_git.log
         else
             mkdir -p "$(dirname "$KEYD_MODULE_DIR")"
-            git clone https://github.com/rvaiya/keyd "$KEYD_MODULE_DIR" >/tmp/_keyd_git.log 2>&1 &
+            git clone https://github.com/rvaiya/keyd "$KEYD_MODULE_DIR" >$DT2_TMP/_keyd_git.log 2>&1 &
             _clone_pid=$!
             run_with_spinner "keyd 소스 클론 진행 중..." "$_clone_pid"
             if ! wait "$_clone_pid" 2>/dev/null; then
-                print_error "keyd 소스 클론 실패. 로그: /tmp/_keyd_git.log"
+                print_error "keyd 소스 클론 실패. 로그: $DT2_TMP/_keyd_git.log"
                 exit 1
             fi
-            rm -f /tmp/_keyd_git.log
+            rm -f $DT2_TMP/_keyd_git.log
         fi
 
         # 빌드 및 설치 (스피너 표시)
-        (cd "$KEYD_MODULE_DIR" && make >/tmp/_keyd_make.log 2>&1) &
+        (cd "$KEYD_MODULE_DIR" && make >$DT2_TMP/_keyd_make.log 2>&1) &
         _make_pid=$!
         run_with_spinner "keyd 컴파일 및 빌드 중 (make)..." "$_make_pid"
         if ! wait "$_make_pid" 2>/dev/null; then
-            print_error "keyd 빌드 실패. 로그: /tmp/_keyd_make.log"
+            print_error "keyd 빌드 실패. 로그: $DT2_TMP/_keyd_make.log"
             exit 1
         fi
-        rm -f /tmp/_keyd_make.log
+        rm -f $DT2_TMP/_keyd_make.log
 
-        (cd "$KEYD_MODULE_DIR" && make install >/tmp/_keyd_install.log 2>&1) &
+        (cd "$KEYD_MODULE_DIR" && make install >$DT2_TMP/_keyd_install.log 2>&1) &
         _inst_pid=$!
         run_with_spinner "keyd 시스템 설치 중 (make install)..." "$_inst_pid"
         if ! wait "$_inst_pid" 2>/dev/null; then
-            print_error "keyd 설치 실패. 로그: /tmp/_keyd_install.log"
+            print_error "keyd 설치 실패. 로그: $DT2_TMP/_keyd_install.log"
             exit 1
         fi
-        rm -f /tmp/_keyd_install.log
+        rm -f $DT2_TMP/_keyd_install.log
 
         print_success "keyd 소스 빌드 및 설치 완료: $(command -v keyd)"
     fi

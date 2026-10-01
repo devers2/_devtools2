@@ -558,11 +558,11 @@ done
 sudo dpkg --configure -a 2>/dev/null
 
 echo -n "   - apt 패키지 인덱스 업데이트 중..."
-(sudo apt-get update -qq >/tmp/_apt_update.log 2>&1) &
+(sudo apt-get update -qq >$DT2_TMP/_apt_update.log 2>&1) &
 _apt_upd_pid=$!
 show_spinner "$_apt_upd_pid"
 wait "$_apt_upd_pid" 2>/dev/null || true
-rm -f /tmp/_apt_update.log 2>/dev/null
+rm -f $DT2_TMP/_apt_update.log 2>/dev/null
 echo " 완료"
 
 echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli, xclip, wl-clipboard, sqlite3) 설치 중..."
@@ -574,20 +574,20 @@ echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli, xc
 # - sqlite3/libsqlite3-dev: Neovim Snacks.picker의 frecency(최근·자주 쓴 파일 우선순위)/히스토리 저장용.
 #   없어도 파일 기반으로 폴백되어 동작은 하지만, 세션이 쌓일수록 느려지고 :checkhealth snacks에
 #   경고가 뜸. lazy.nvim/Mason 대상이 아닌 OS 공유 라이브러리라 여기 apt 등급에 포함(버전 고정 없음).
-(sudo apt-get install -y build-essential libreadline-dev git trash-cli xclip wl-clipboard sqlite3 libsqlite3-dev -qq >/tmp/_apt_install.log 2>&1) &
+(sudo apt-get install -y build-essential libreadline-dev git trash-cli xclip wl-clipboard sqlite3 libsqlite3-dev -qq >$DT2_TMP/_apt_install.log 2>&1) &
 _apt_inst_pid=$!
 show_spinner "$_apt_inst_pid"
 _apt_inst_ec=0
 wait "$_apt_inst_pid" 2>/dev/null || _apt_inst_ec=$?
 if [ "$_apt_inst_ec" -eq 0 ]; then
-    rm -f /tmp/_apt_install.log 2>/dev/null
+    rm -f $DT2_TMP/_apt_install.log 2>/dev/null
     echo " 완료"
     print_done "apt 패키지 설치 완료"
 else
     echo " ⚠️  실패"
     print_error "apt 패키지 설치 중 오류가 발생했습니다. 상세 로그:"
-    cat /tmp/_apt_install.log 2>/dev/null || true
-    rm -f /tmp/_apt_install.log 2>/dev/null
+    cat $DT2_TMP/_apt_install.log 2>/dev/null || true
+    rm -f $DT2_TMP/_apt_install.log 2>/dev/null
 fi
 echo ""
 
@@ -612,7 +612,7 @@ if [ -x "$HEREROCKS_DIR/bin/lua" ] && [ -x "$HEREROCKS_DIR/bin/luarocks" ] \
     _hero_ec=skip
 else
     echo -n "   ⚙️ hererocks 구성 중 (Lua 5.1 / Luarocks 최신)..."
-    (hererocks . -l 5.1 -r latest >/tmp/_hererocks_install.log 2>&1) &
+    (hererocks . -l 5.1 -r latest >$DT2_TMP/_hererocks_install.log 2>&1) &
     _hero_pid=$!
     show_spinner "$_hero_pid"
     wait "$_hero_pid" 2>/dev/null || _hero_ec=$?
@@ -620,14 +620,14 @@ fi
 if [ "$_hero_ec" = "skip" ]; then
     :
 elif [ "$_hero_ec" -eq 0 ]; then
-    rm -f /tmp/_hererocks_install.log 2>/dev/null
+    rm -f $DT2_TMP/_hererocks_install.log 2>/dev/null
     echo " 완료"
     print_done "hererocks / Lua 환경 구성 완료"
 else
     echo " ⚠️  실패"
     print_error "hererocks 구성 중 오류가 발생했습니다. 상세 로그:"
-    cat /tmp/_hererocks_install.log 2>/dev/null || true
-    rm -f /tmp/_hererocks_install.log 2>/dev/null
+    cat $DT2_TMP/_hererocks_install.log 2>/dev/null || true
+    rm -f $DT2_TMP/_hererocks_install.log 2>/dev/null
 fi
 echo ""
 

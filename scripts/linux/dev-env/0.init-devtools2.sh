@@ -110,7 +110,7 @@ dpkg --configure -a 2>/dev/null
 setup_apt_mirror
 
 print_info "apt 패키지 다운로드 및 설치 중 (locales, language-pack-ko 포함)..."
-(apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko) > /tmp/_apt_install.log 2>&1 &
+(apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko) > $DT2_TMP/_apt_install.log 2>&1 &
 _apt_pid=$!
 run_with_spinner "apt 설치/다운로드 진행 중..." "$_apt_pid"
 APT_DIRECT_EXIT=0
@@ -125,7 +125,7 @@ if [ "$APT_DIRECT_EXIT" -ne 0 ]; then
     else
         rm -f /var/lib/apt/lists/lock 2>/dev/null
     fi
-    (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko) > /tmp/_apt_install.log 2>&1 &
+    (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko) > $DT2_TMP/_apt_install.log 2>&1 &
     _apt_pid=$!
     run_with_spinner "폴백 서버로 apt 재시도 중..." "$_apt_pid"
     APT_DIRECT_EXIT=0
@@ -134,18 +134,18 @@ fi
 
 if [ "${APT_DIRECT_EXIT:-0}" -ne 0 ]; then
     print_error "패키지 설치에 실패했습니다. 로그:"
-    cat /tmp/_apt_install.log >&2
+    cat $DT2_TMP/_apt_install.log >&2
     exit 1
 fi
-rm -f /tmp/_apt_install.log
+rm -f $DT2_TMP/_apt_install.log
 
 # 한글 UTF-8 로케일 생성 및 시스템 전역 로케일 설정 (스피너 표시)
 if command -v locale-gen >/dev/null 2>&1; then
-    (locale-gen ko_KR.UTF-8 && update-locale LANG=ko_KR.UTF-8) >/tmp/_locale.log 2>&1 &
+    (locale-gen ko_KR.UTF-8 && update-locale LANG=ko_KR.UTF-8) >$DT2_TMP/_locale.log 2>&1 &
     _loc_pid=$!
     run_with_spinner "한글 로케일(ko_KR.UTF-8) 생성 및 설정 중..." "$_loc_pid"
     wait "$_loc_pid" 2>/dev/null || true
-    rm -f /tmp/_locale.log 2>/dev/null
+    rm -f $DT2_TMP/_locale.log 2>/dev/null
 fi
 
 print_done "필수 패키지 및 로케일 설치 완료!"
@@ -225,16 +225,16 @@ else
     chown -R "$INVOKER" "$TARGET_DIR"
 
     # 공개 저장소이므로 토큰 인증 없이 호출자 권한으로 클론을 진행합니다 (스피너 표시)
-    sudo -u "$INVOKER" git clone https://github.com/devers2/_devtools2.git "$TARGET_DIR" >/tmp/_dt2_clone.log 2>&1 &
+    sudo -u "$INVOKER" git clone https://github.com/devers2/_devtools2.git "$TARGET_DIR" >$DT2_TMP/_dt2_clone.log 2>&1 &
     _clone_pid=$!
     run_with_spinner "GitHub 저장소(_devtools2) 복제 진행 중..." "$_clone_pid"
     if ! wait "$_clone_pid" 2>/dev/null; then
         echo "[오류] 깃 클론에 실패했습니다. 로그:"
-        cat /tmp/_dt2_clone.log >&2
-        rm -f /tmp/_dt2_clone.log
+        cat $DT2_TMP/_dt2_clone.log >&2
+        rm -f $DT2_TMP/_dt2_clone.log
         exit 1
     fi
-    rm -f /tmp/_dt2_clone.log
+    rm -f $DT2_TMP/_dt2_clone.log
     echo "  ✅ 깃 클론 완료!"
 
     DEVTOOLS2="$TARGET_DIR"
