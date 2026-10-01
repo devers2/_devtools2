@@ -134,21 +134,17 @@ if [ "$_orca_proceed" = true ]; then
     # (상대 경로 링크라 $DEVTOOLS2가 통째로 이동해도 깨지지 않음). ln -sf라 재실행해도 안전.
     ln -sf "$ORCA_APPIMAGE_NAME" "$ORCA_DIR/orca"
 
-    # 설정/상태 디렉터리 심볼릭 링크. Orca는 아래 세 곳을 모두 씁니다(공식 문서 확인):
-    # 소문자 ~/.config/orca, Electron GUI용 대문자 ~/.config/Orca, 그리고 keybindings.json
-    # 등 CLI 전역 설정용 ~/.orca. 안 쓰는 게 있어도 빈 심볼릭 링크라 해될 게 없어 셋 다 둡니다.
-    _orca_symlink_script="$DEVTOOLS2/scripts/linux/cmd/create-symbolic-link.sh"
-    _orca_link() {
-        if [ -f "$_orca_symlink_script" ]; then
-            "$_orca_symlink_script" "$1" "$2"
-        else
-            curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/scripts/linux/cmd/create-symbolic-link.sh" \
-                | bash -s -- "$1" "$2"
+    # 설정/상태 디렉터리(~/.config/orca, ~/.config/Orca, ~/.orca)는 공유 저장소로 링크하지 않고
+    # Orca 기본 위치(사용자 홈)에 둡니다.
+    # ⚠️ 이 폴더들에는 Orca 계정 정보와 Electron 사용자 데이터(쿠키·토큰)가 저장됩니다.
+    #    예전처럼 $DEVTOOLS2/.config 아래로 링크하면 .config/.gitignore 의 "!*"(전부 추적) 때문에
+    #    git 추적 대상이 되어 공개 저장소에 커밋될 위험이 있고, 다중 사용자 서버에서는 그룹원이 읽을 수 있습니다.
+    for _orca_cfg in "$HOME/.config/orca" "$HOME/.config/Orca" "$HOME/.orca"; do
+        if [ -L "$_orca_cfg" ] && [[ "$(readlink -f "$_orca_cfg" 2>/dev/null)" == "$DEVTOOLS2/"* ]]; then
+            print_warn "Orca 데이터가 공유 저장소로 링크되어 있습니다: $_orca_cfg -> $(readlink -f "$_orca_cfg")"
+            print_warn "  계정 정보 보호를 위해 링크를 지우고 내용을 사용자 홈으로 옮기는 것을 권장합니다."
         fi
-    }
-    _orca_link "$DEVTOOLS2/.config/orca" "$HOME/.config/orca"
-    _orca_link "$DEVTOOLS2/.config/Orca" "$HOME/.config/Orca"
-    _orca_link "$DEVTOOLS2/.config/orca-home" "$HOME/.orca"
+    done
 
     # ── 권장 스킬 전역 설치 (베스트 에포트) ──
     # orca-cli/orchestration은 공식 문서가 일반적인 기본 조합으로 예시하는 스킬입니다.
@@ -235,7 +231,10 @@ EOF
                 done
                 mkdir -p "$DEVTOOLS2/data"
                 if [ -n "$_orca_pair_link" ]; then
-                    echo "$_orca_pair_link" > "$DEVTOOLS2/data/orca-pairing-link.txt"
+                    # 페어링 링크에는 접속 토큰이 들어 있어 소유자 전용(600)으로 저장합니다
+                    # (공유 폴더 data/ 의 기본 권한이면 같은 그룹 사용자가 읽고 내 orca serve 에 페어링할 수 있음).
+                    (umask 077 && echo "$_orca_pair_link" > "$DEVTOOLS2/data/orca-pairing-link.txt")
+                    chmod 600 "$DEVTOOLS2/data/orca-pairing-link.txt" 2>/dev/null || true
                     echo "   🔗 페어링 링크 확보: $_orca_pair_link"
                     echo "      (Windows 쪽 tool.setup-orca.ps1 이 이 링크를 자동으로 읽어갑니다)"
                 else
@@ -264,8 +263,12 @@ EOF
 
             if [ "$_NEEDS_SYSTEMD" = true ]; then
                 echo "   ⏳ /etc/wsl.conf 에 systemd 활성화 설정을 안전하게 병합합니다... (sudo 필요)"
-                set_wsl_conf_key "boot" "systemd" "true" "$_WSL_CONF"
-                echo "   ✅ /etc/wsl.conf 에 systemd=true 추가 완료!"
+                if set_wsl_conf_key "boot" "systemd" "true" "$_WSL_CONF" \
+                    && grep -qE '^\s*systemd\s*=\s*true' "$_WSL_CONF" 2>/dev/null; then
+                    echo "   ✅ /etc/wsl.conf 에 systemd=true 추가 완료!"
+                else
+                    print_warn "/etc/wsl.conf 를 수정하지 못했습니다(sudo 권한 필요). 직접 추가하세요: sudo nano /etc/wsl.conf → [boot] systemd=true"
+                fi
             else
                 echo "   ℹ️  /etc/wsl.conf 에는 이미 systemd=true 가 설정되어 있습니다."
                 echo "      WSL 인스턴스가 아직 재시작되지 않아 systemd가 비활성 상태입니다."

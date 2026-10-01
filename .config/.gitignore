@@ -3,6 +3,12 @@
 
 /github-copilot/
 
+# 런타임 데이터·인증 정보가 저장되는 도구 폴더 (공개 저장소 커밋 방지)
+# Orca: 계정 정보와 Electron 사용자 데이터(쿠키·토큰)
+/orca/
+/Orca/
+/orca-home/
+
 # vim 스왑 파일 제외 (vim 편집 중 자동 생성)
 .*.swp
 .*.swo
