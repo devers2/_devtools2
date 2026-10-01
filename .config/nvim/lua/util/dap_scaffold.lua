@@ -399,12 +399,11 @@ end
 -- Python 가상환경(venv) 폴더명 자동 감지
 local function detect_python_venv_name()
   local cwd = vim.fn.getcwd()
-  local is_win = vim.fn.has('win32') == 1
 
   local function is_valid_venv(folder_name)
     local dir = cwd .. '/' .. folder_name
-    local bin_path = is_win and (dir .. '/Scripts/python.exe') or (dir .. '/bin/python3')
-    local bin_alt = is_win and (dir .. '/Scripts/python.exe') or (dir .. '/bin/python')
+    local bin_path = dir .. '/bin/python3'
+    local bin_alt = dir .. '/bin/python'
     return vim.fn.filereadable(bin_path) == 1 or vim.fn.filereadable(bin_alt) == 1
   end
 
@@ -600,8 +599,7 @@ local function build_configuration(lang, answers)
     local cwd = vim.fn.getcwd()
     local clean_q2 = q2:gsub('^[/\\]+', ''):gsub('[/\\]+$', '')
     local venv_name = clean_q2 ~= '' and clean_q2 or '.venv'
-    local is_win = vim.fn.has('win32') == 1
-    local python_bin = '${workspaceFolder}/' .. venv_name .. (is_win and '/Scripts/python.exe' or '/bin/python3')
+    local python_bin = '${workspaceFolder}/' .. venv_name .. '/bin/python3'
 
     local display_name = 'Python: '
       .. q1
@@ -692,13 +690,12 @@ local function build_configuration(lang, answers)
     local clean_q1 = q1:gsub('^[/\\]+', ''):gsub('%.exe$', '')
     local mode = (q2 == 'release') and 'release' or 'debug'
     local display_name = 'Rust: ' .. clean_q1 .. ' (' .. mode .. ')'
-    local is_win = vim.fn.has('win32') == 1
 
     local config = {
       type = 'lldb',
       name = display_name,
       request = 'launch',
-      program = '${workspaceFolder}/target/' .. mode .. '/' .. clean_q1 .. (is_win and '.exe' or ''),
+      program = '${workspaceFolder}/target/' .. mode .. '/' .. clean_q1,
       cwd = '${workspaceFolder}',
       stopOnEntry = false,
     }

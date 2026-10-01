@@ -108,8 +108,7 @@ return {
           settings = (function()
             local raw_config = _G.DEVTOOLS2_DIR .. '/.config/eslint/eslint.config.mjs'
             local config_file = (vim.uv.fs_realpath(raw_config) or raw_config):gsub('\\', '/')
-            local is_win = _G.OS_TYPE == _G.OS.WINDOWS
-            local node_path = _G.DEVTOOLS2_DIR .. (is_win and '/data/.npm-packages/node_modules' or '/data/.npm-packages/lib/node_modules')
+            local node_path = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/lib/node_modules'
             return {
               workingDirectory = { mode = 'location' },
               nodePath = node_path,
