@@ -338,7 +338,7 @@ if (-not $installAhk) {
 
             $task = $ts.NewTask(0)
             $task.Settings.ExecutionTimeLimit         = "PT0S"  # 시간제한 없음
-            $task.Settings.MultipleInstances          = 3        # 이미 실행 중이면 무시
+            $task.Settings.MultipleInstances          = 3        # 3 = TASK_INSTANCES_STOP_EXISTING: 재실행하면 기존 인스턴스를 끄고 새로 실행(재배포 시 최신 AHK 반영)
             $task.Settings.StopIfGoingOnBatteries     = $false
             $task.Settings.DisallowStartIfOnBatteries = $false
 

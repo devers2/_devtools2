@@ -72,8 +72,8 @@ function Get-AhkFileStatus($filePath) {
     return "관계 없음(dotfiles 무관)"
 }
 
-function Guess-AhkPurpose($name, $path, $args) {
-    $combined = "$name $path $args".ToLower()
+function Guess-AhkPurpose($name, $path, $cmdArgs) {
+    $combined = "$name $path $cmdArgs".ToLower()
     if ($combined -match "capslock|keyboard|remap|ime|devtools2-hotkey") { return "CapsLock 리매핑 / IME 자동 영문 전환 (devtools2)" }
     if ($combined -match "wezterm") { return "WezTerm 터미널 단축키 [구버전 devtools2 — 삭제 권장]" }
     if ($combined -match "terminal|wt\.exe") { return "Windows Terminal 단축키" }

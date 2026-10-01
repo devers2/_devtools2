@@ -304,7 +304,9 @@ function Test-WslDistroRunning {
     param([string]$Distro)
     $raw   = wsl.exe -l -v 2>$null
     $lines = $raw -split "`r?`n" | ForEach-Object { $_ -replace "`0", "" }
-    return [bool]($lines | Where-Object { $_ -match $Distro -and $_ -match 'Running' })
+    # 배포판 이름은 단어 단위로 정확히 비교합니다("devtools2" 가 "devtools2-old" 에 매치되지 않도록).
+    $namePattern = '(^|\s)\*?\s*' + [regex]::Escape($Distro) + '\s'
+    return [bool]($lines | Where-Object { $_ -match $namePattern -and $_ -match 'Running' })
 }
 
 # wsl --shutdown 을 실행한 뒤 지정한 디스트로가 완전히 Stopped 될 때까지 스피너로 대기한다.
@@ -469,6 +471,11 @@ function Download-WithProgress {
 
             # 다운로드 완료 후 게이지 바 라인 지우기
             Write-Host -NoNewline ("`r   " + (" " * ($barLen + 4)) + "`r")
+            # 연결이 중간에 끊겨도 Read() 가 0 을 돌려주면 루프가 정상 종료되므로,
+            # 서버가 알려준 크기(Content-Length)보다 적게 받았으면 실패로 처리합니다.
+            if ($totalBytes -gt 0 -and $downloadedBytes -ne $totalBytes) {
+                throw "다운로드가 중간에 끊겼습니다 ($downloadedBytes / $totalBytes bytes)"
+            }
             $downloadSuccess = $true
         } catch {
             $downloadSuccess = $false
