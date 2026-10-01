@@ -31,13 +31,15 @@ param(
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ProgressPreference = 'SilentlyContinue'
+# 커밋 고정: 마스터 스크립트가 넘긴 DT2_REF(커밋 SHA)와 같은 커밋에서 하위 파일을 받습니다(단독 실행 시 main).
+$_dt2Ref = if ($env:DT2_REF) { $env:DT2_REF } else { 'main' }
 
 $_localCommon = if (-not [string]::IsNullOrEmpty($PSScriptRoot)) { Join-Path $PSScriptRoot "_common.ps1" } else { $null }
 if ($_localCommon -and (Test-Path $_localCommon)) {
     $_commonContent = [System.IO.File]::ReadAllText($_localCommon, [System.Text.Encoding]::UTF8)
 } else {
     $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-    $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
+    $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
 }
 . ([scriptblock]::Create($_commonContent))
 
@@ -88,6 +90,8 @@ if ($vscodeAlreadyInstalled) {
 } else {
     Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
     $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\vscode_install.log" -RedirectStandardError "$env:TEMP\vscode_install_err.log" -ErrorAction SilentlyContinue
+    # PS 5.1: -Wait 없이 띄운 프로세스는 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
+    $null = $p.Handle
     $null = Wait-WithSpinner -Message "VSCode 패키지 설치 진행" -Condition { $p.HasExited }
     $p.WaitForExit()
     Remove-Item "$env:TEMP\vscode_install.log", "$env:TEMP\vscode_install_err.log" -Force -ErrorAction SilentlyContinue
@@ -252,8 +256,8 @@ if ((Test-Path $targetExtensionsList) -and (Get-Command code -ErrorAction Silent
 Write-Step "[Step 5] WSL Remote ($WslDistro) 확장 동기화"
 
 Write-Info "WSL Remote ($WslDistro): VS Code 확장 프로그램 동기화 중..."
-$rawLinuxVscode = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool.setup-vscode.sh"
-wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxVscode' -o /tmp/_dt2_vsc.sh && DT2_VSCODE_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 stdbuf -oL -eL bash /tmp/_dt2_vsc.sh; rm -f /tmp/_dt2_vsc.sh 2>/dev/null"
+$rawLinuxVscode = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/linux/dev-env/tool.setup-vscode.sh"
+wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxVscode' -o /tmp/_dt2_vsc.sh && DT2_REF='$_dt2Ref' DT2_VSCODE_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 stdbuf -oL -eL bash /tmp/_dt2_vsc.sh; rm -f /tmp/_dt2_vsc.sh 2>/dev/null"
 if ($LASTEXITCODE -ne 0) {
     Write-Warn "WSL Remote 확장 동기화 중 오류가 발생했습니다 (종료 코드: $LASTEXITCODE)"
 }

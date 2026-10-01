@@ -40,12 +40,14 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 # --- 윈도우 PowerShell 기본 파란색 프로그레스바 팝업 끄기 (텍스트 깨짐 및 커서 겹침 방지)
 $ProgressPreference = 'SilentlyContinue'
+# 커밋 고정: 마스터 스크립트가 넘긴 DT2_REF(커밋 SHA)와 같은 커밋에서 하위 파일을 받습니다(단독 실행 시 main).
+$_dt2Ref = if ($env:DT2_REF) { $env:DT2_REF } else { 'main' }
 
 # ==============================================================================
 # 헬퍼 함수
 # ==============================================================================
 $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'Pragma' = 'no-cache' }
-$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
+$_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_commonContent))
 
 # ==============================================================================
@@ -99,8 +101,8 @@ Write-Host "  적용 대상 WSL 배포판: $WslDistro" -ForegroundColor White
 if ($orcaAppImageCheck.Trim() -ne "FOUND") {
     Write-Info "WSL2 ($WslDistro) 내부에 Orca 헤드리스 서버가 설치되어 있지 않습니다."
     Write-Info "  → WSL2용 tool.setup-orca.sh 를 자동 실행하여 서버를 먼저 구축합니다..."
-    $rawLinuxOrca = "https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/dev-env/tool.setup-orca.sh"
-    wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxOrca' -o /tmp/_dt2_orca.sh && DT2_ORCA_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 bash /tmp/_dt2_orca.sh; rm -f /tmp/_dt2_orca.sh 2>/dev/null"
+    $rawLinuxOrca = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/linux/dev-env/tool.setup-orca.sh"
+    wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxOrca' -o /tmp/_dt2_orca.sh && DT2_REF='$_dt2Ref' DT2_ORCA_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 bash /tmp/_dt2_orca.sh; rm -f /tmp/_dt2_orca.sh 2>/dev/null"
 
     $orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f /var/opt/_devtools2/modules/orca/orca-linux.AppImage -o -f /var/opt/_devtools2/modules/orca/orca-linux-arm64.AppImage && echo FOUND")
     if ($orcaAppImageCheck.Trim() -ne "FOUND") {
@@ -144,6 +146,8 @@ if ($orcaInstalled) {
 } else {
     Write-Host "  Orca 데스크톱 앱을 winget으로 설치합니다..." -ForegroundColor White
     $p = Start-Process winget -ArgumentList "install --id StablyAI.Orca --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\orca_install.log" -RedirectStandardError "$env:TEMP\orca_install_err.log"
+    # PS 5.1: -Wait 없이 띄운 프로세스는 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
+    $null = $p.Handle
     Wait-ProcessWithSpinner -Process $p -Message "Orca 데스크톱 앱 설치 진행 중"
     # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
     if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
