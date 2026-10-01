@@ -342,23 +342,41 @@ vim.diagnostic.config({
 --   2) Flask/FastAPI: requirements.txt / pyproject.toml / Pipfile 존재
 --   3) 그 외:         nil 반환 → Neovim 기본 html 감지 유지 (Spring 등)
 -- ============================================================
-local function detect_python_html(path, _)
+-- Neovim 기본 HTML 감지 (내용에 Django/Jinja 태그가 있으면 htmldjango, 아니면 html)
+-- ⚠️ vim.filetype.add 의 확장자 함수가 nil 을 돌려주면 "기본 감지로 넘어가는" 것이 아니라
+--    파일타입이 비어 버립니다(실측: Spring/Thymeleaf HTML 에 구문 강조·HTML LSP·포맷이 전혀 적용되지 않았음).
+--    그래서 Python 프로젝트가 아니면 기본 감지 함수를 직접 호출합니다.
+local function default_html(bufnr)
+  local ok, ft = pcall(function()
+    return require('vim.filetype.detect').html(bufnr)
+  end)
+  return (ok and ft) or 'html'
+end
+
+local function detect_python_html(path, bufnr)
   if not path or path == '' then
-    return nil
+    return default_html(bufnr)
+  end
+
+  -- 0) Java(Spring/Thymeleaf) 프로젝트가 Python 마커보다 가까이 있으면 Python 템플릿으로 보지 않음
+  --    (모노레포나 상위 폴더에 pyproject.toml 등이 있을 때 Spring HTML 이 htmldjango 로 잡히던 문제)
+  local java_root = vim.fs.root(path, { 'build.gradle', 'build.gradle.kts', 'pom.xml' })
+  local function closer_than_java(root)
+    return root and (not java_root or #root > #java_root)
   end
 
   -- 1) Django 프로젝트 감지
-  if vim.fs.root(path, { 'manage.py', 'wsgi.py', 'asgi.py' }) then
+  if closer_than_java(vim.fs.root(path, { 'manage.py', 'wsgi.py', 'asgi.py' })) then
     return 'htmldjango'
   end
 
   -- 2) Flask / FastAPI 등 Python 웹 프로젝트 감지
-  if vim.fs.root(path, { 'requirements.txt', 'pyproject.toml', 'Pipfile' }) then
+  if closer_than_java(vim.fs.root(path, { 'requirements.txt', 'pyproject.toml', 'Pipfile' })) then
     return 'htmldjango'
   end
 
-  -- 3) 매칭 없음: 기본 filetype 감지로 fallback (html → Spring Thymeleaf 등)
-  return nil
+  -- 3) 매칭 없음: Neovim 기본 HTML 감지 (html → Spring Thymeleaf 등)
+  return default_html(bufnr)
 end
 
 vim.filetype.add({

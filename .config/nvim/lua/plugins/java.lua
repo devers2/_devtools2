@@ -48,16 +48,9 @@ return {
   {
     'mfussenegger/nvim-jdtls',
     opts = function(_, opts)
-      -- 시작 시 기존 로그 초기화 (자바 파일이 열렸거나 MAIN_CLASS가 있을 때만 수행)
-      if vim.bo.filetype == 'java' or _G.MAIN_CLASS then
-        local log_path = vim.lsp.log.get_filename()
-        if log_path then
-          local f = io.open(log_path, 'w')
-          if f then
-            f:close()
-          end
-        end
-      end
+      -- ⚠️ 예전에는 여기서 lsp.log 를 비웠으나, 이 파일은 모든 LSP(eslint, basedpyright 등)가 함께 쓰는
+      --    공용 로그라 다른 서버의 진단 기록까지 지워졌습니다. 이제 비우지 않고 이어서 기록합니다.
+      --    (JDTLS 세션 시작은 log_jdtls 의 [SESSION] 줄로 구분됩니다)
 
       local jdtls = require('jdtls')
 
