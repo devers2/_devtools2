@@ -6,10 +6,7 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const globalNodeModules =
-  process.platform === 'win32'
-    ? path.join(__dirname, '../../data/.npm-packages/node_modules')
-    : path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
+const globalNodeModules = path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
 
 // SCSS 전용 설정은 SCSS 패키지(stylelint-config-standard-scss 등)가 설치된 경우에만 불러옵니다.
 // (아직 npm 패키지를 갱신하지 않은 환경에서 import 실패로 CSS 검사까지 통째로 깨지지 않도록 함)

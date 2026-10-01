@@ -87,9 +87,6 @@
    */
   "python.defaultInterpreterPath": "/var/opt/_devtools2/modules/python/python-314/bin/python3",
 
-  /* Portable Git 경로 설정 - 무설치 버전 Git 은 VS Code 가 알 수 있도록 직접 경로를 지정한다. */
-  // "git.path": "/var/opt/_devtools2/modules/git/PortableGit/cmd/git.exe",
-
   /* [Node.js 모듈/도구 실행 경로] */
   "prettier.prettierPath": "/var/opt/_devtools2/data/.npm-packages/lib/node_modules/prettier", // Prettier 실행 파일 경로
   "prettier.configPath": "/var/opt/_devtools2/.config/prettier/.prettierrc.cjs", // Prettier 설정 파일 경로

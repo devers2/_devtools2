@@ -63,10 +63,10 @@ _G.get_max_file_size = function(buf_or_path)
     if vim.api.nvim_buf_is_valid(buf_or_path) then
       filetype = vim.bo[buf_or_path].filetype or ""
       local fname = vim.api.nvim_buf_get_name(buf_or_path)
-      ext = (fname:match('%.([^./\\]+)$') or ''):lower()
+      ext = (fname:match('%.([^./]+)$') or ''):lower()
     end
   elseif type(buf_or_path) == "string" then
-    ext = (buf_or_path:match('%.([^./\\]+)$') or ''):lower()
+    ext = (buf_or_path:match('%.([^./]+)$') or ''):lower()
   end
 
   local is_complex = _G.COMPLEX_FILETYPES[filetype] or _G.COMPLEX_EXTENSIONS[ext]
@@ -86,10 +86,10 @@ _G.get_light_file_size = function(buf_or_path)
     if vim.api.nvim_buf_is_valid(buf_or_path) then
       filetype = vim.bo[buf_or_path].filetype or ""
       local fname = vim.api.nvim_buf_get_name(buf_or_path)
-      ext = (fname:match('%.([^./\\]+)$') or ''):lower()
+      ext = (fname:match('%.([^./]+)$') or ''):lower()
     end
   elseif type(buf_or_path) == "string" then
-    ext = (buf_or_path:match('%.([^./\\]+)$') or ''):lower()
+    ext = (buf_or_path:match('%.([^./]+)$') or ''):lower()
   end
 
   local is_complex = _G.COMPLEX_FILETYPES[filetype] or _G.COMPLEX_EXTENSIONS[ext]

@@ -4,7 +4,6 @@
 # 디렉터리 탐색 허용
 !/.config/
 !/.github/
-!/apps/
 !/assets/
 !/data/
 !/modules/

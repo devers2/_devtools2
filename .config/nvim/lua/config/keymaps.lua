@@ -4,7 +4,7 @@
 
 -- 현재 위치의 시스템 탐색기 열기: <Leader>fE (File Explore)
 vim.keymap.set('n', '<leader>fE', function()
-  local path = vim.api.nvim_buf_get_name(0):match('(.*)[/\\]') or vim.fn.getcwd()
+  local path = vim.api.nvim_buf_get_name(0):match('(.*)/') or vim.fn.getcwd()
   vim.ui.open(path)
 end, { desc = 'Open System Explorer' })
 
@@ -33,7 +33,7 @@ end
 -- 프로젝트(디렉토리)별 마지막 사용 어태치 포트 읽기/쓰기 (디스크 영구 보존)
 local function get_last_attach_port(lang, default_port)
   local state = read_state()
-  local cwd = vim.fn.getcwd():gsub('\\', '/'):gsub('/+$', '')
+  local cwd = vim.fn.getcwd():gsub('/+$', '')
   local cwd_state = state[cwd] or {}
   -- 신규 attach_<lang>_port 우선, 기존 last_<lang>_port 하위 호환
   return cwd_state['attach_' .. lang .. '_port']
@@ -45,7 +45,7 @@ end
 local function save_last_attach_port(lang, port)
   vim.fn.mkdir(nvim_state_dir, 'p')
   local state = read_state()
-  local cwd = vim.fn.getcwd():gsub('\\', '/'):gsub('/+$', '')
+  local cwd = vim.fn.getcwd():gsub('/+$', '')
   state[cwd] = state[cwd] or {}
   state[cwd]['attach_' .. lang .. '_port'] = port
   local f_write = io.open(state_file, 'w')
@@ -354,7 +354,7 @@ local function run_manual_eslint()
 
       -- Quickfix 목록에 등록 후 창 열기
       vim.fn.setqflist({}, 'r', {
-        title = string.format('ESLint (%s)', file:match('([^/\\]+)$') or file),
+        title = string.format('ESLint (%s)', file:match('([^/]+)$') or file),
         items = qf_items,
       })
       vim.cmd.copen()

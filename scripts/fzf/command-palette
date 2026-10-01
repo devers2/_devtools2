@@ -87,8 +87,8 @@ STATE_DIR="${HOME_DIR}/.devtools2"
 STATE_FILE="${STATE_DIR}/state.properties"
 mkdir -p "$STATE_DIR"
 
-# 프로젝트별 유니크 키 생성 (CWD 경로를 슬래시로 정규화한 후 md5sum 해시 추출)
-NORM_CWD=$(echo "$CWD" | tr '\\' '/' | sed 's/\/$//')
+# 프로젝트별 유니크 키 생성 (CWD 끝의 슬래시를 정리한 후 md5sum 해시 추출)
+NORM_CWD=$(echo "$CWD" | sed 's/\/$//')
 PROJ_KEY=$(echo -n "$NORM_CWD" | md5sum | awk '{print $1}')
 
 # 기존 세이브 데이터 로드용 유틸리티 (properties 기반)
@@ -128,7 +128,7 @@ save_state() {
 # 반환: 0 = 성공, 1 = 사용 가능한 클립보드 도구 없음
 cp_copy_stdin_to_clipboard() {
     if $IS_WSL; then
-        # 네이티브 Windows(Git Bash)에서도, WSL interop을 통해서도 동일하게 동작
+        # WSL interop 으로 Windows 클립보드에 복사
         if command -v clip.exe &>/dev/null; then
             clip.exe
             return 0
@@ -1541,7 +1541,7 @@ elif [[ "$CHOICE" == *"Base64"* && "$CHOICE" == *"인코딩"* ]]; then
     # ~ 확장 (read는 자동으로 tilde expansion을 하지 않음)
     _B64_SRC="${_B64_SRC/#\~/$HOME_DIR}"
     # 상대경로면 현재 작업 디렉토리(CWD) 기준으로 절대경로화
-    if [[ "$_B64_SRC" != /* && ! "$_B64_SRC" =~ ^[A-Za-z]:[\\/] ]]; then
+    if [[ "$_B64_SRC" != /* ]]; then
         _B64_SRC="$CWD/$_B64_SRC"
     fi
 
@@ -1579,7 +1579,7 @@ elif [[ "$CHOICE" == *"Base64"* && "$CHOICE" == *"복원"* ]]; then
     fi
 
     _B64_DST="${_B64_DST/#\~/$HOME_DIR}"
-    if [[ "$_B64_DST" != /* && ! "$_B64_DST" =~ ^[A-Za-z]:[\\/] ]]; then
+    if [[ "$_B64_DST" != /* ]]; then
         _B64_DST="$CWD/$_B64_DST"
     fi
 

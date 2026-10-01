@@ -3,10 +3,7 @@ const path = require('path');
 // 절대경로: NPM 전역 설치 경로를 환경 변수로부터 계산
 // const globalNodeModules = process.env.NODE_PATH;
 // 상대경로: 현재 설정 파일 위치(.config/prettier/)를 기준으로 두 단계 위로 올라가 글로벌 패키지 디렉토리를 지정
-const globalNodeModules =
-  process.platform === 'win32'
-    ? path.join(__dirname, '../../data/.npm-packages/node_modules')
-    : path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
+const globalNodeModules = path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
 
 /** Prettier 설정 */
 module.exports = {

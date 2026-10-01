@@ -9,10 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // ⚠️ 패키지를 이름만으로 지정하면 이 설정 파일 위치(.config/stylelint/) 기준으로 찾게 되어
 //   전역 npm 패키지 폴더의 패키지를 찾지 못하고 실패합니다. CSS 설정(stylelint.config.mjs)과
 //   같은 방식으로 전역 npm 패키지 경로에서 직접 해석합니다.
-const globalNodeModules =
-  process.platform === 'win32'
-    ? path.join(__dirname, '../../data/.npm-packages/node_modules')
-    : path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
+const globalNodeModules = path.join(__dirname, '../../data/.npm-packages/lib/node_modules');
 // stylelint-config-*-scss 는 ESM 전용 패키지("exports"에 import 조건만 있음)라 require.resolve 로는
 // 찾지 못합니다(ERR_PACKAGE_PATH_NOT_EXPORTED, 실측). 그 경우 package.json 의 exports 를 직접 읽어
 // 진입 파일 경로를 만듭니다.

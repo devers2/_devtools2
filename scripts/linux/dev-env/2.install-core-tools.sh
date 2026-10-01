@@ -510,7 +510,7 @@ install_npm_packages_with_progress() {
 
     _exec_npm_stream() {
         local reg="$1"
-        local err_log="/tmp/_npm_install_err.log"
+        local err_log="$DT2_TMP/_npm_install_err.log"
         rm -f "$err_log"
 
         local bar_len=25
@@ -566,9 +566,9 @@ install_npm_packages_with_progress() {
         print_done "$done_label (적용 저장소: $target_reg)"
     else
         print_error "글로벌 npm 패키지 설치 실패!"
-        if [ -f "/tmp/_npm_install_err.log" ]; then
+        if [ -f "$DT2_TMP/_npm_install_err.log" ]; then
             echo "   [에러 상세 로그]"
-            grep -E "npm ERR!" "/tmp/_npm_install_err.log" | head -n 10 | sed 's/^/   /'
+            grep -E "npm ERR!" "$DT2_TMP/_npm_install_err.log" | head -n 10 | sed 's/^/   /'
         fi
         return 1
     fi
@@ -737,7 +737,7 @@ echo ""
 
 if [ "$IS_WSL2" = true ]; then
     echo "   ⚠️  [WSL2 환경 감지] Ghostty는 WSL2에서 지원되지 않으므로 설치를 건너뜁니다."
-    echo "   💬 Windows 네이티브 환경에서 Ghostty를 설치해주세요: https://ghostty.org/"
+    echo "   💬 WSL2 에서는 Windows Terminal 을 사용합니다(2.setup-windows-terminal.ps1 이 설정)."
 else
     echo "💚 6. Ghostty 포터블 설치 중..."
     mkdir -p "$DEVTOOLS2/modules/ghostty"

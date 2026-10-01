@@ -10,9 +10,9 @@ end
 -- 전역 공통 디렉토리 경로 설정 (환경변수 DEVTOOLS2 값 우선, 없으면 설정 폴더 기준 상대 경로)
 -- vim.uv.fs_realpath()로 심볼릭 링크까지 해석된 실제 절대경로로 정규화합니다.
 local config_path = vim.fn.stdpath('config')
-local raw_devtools2 = os.getenv('DEVTOOLS2') or (config_path:gsub('\\', '/') .. '/../..')
+local raw_devtools2 = os.getenv('DEVTOOLS2') or (config_path .. '/../..')
 local resolved = vim.uv.fs_realpath(raw_devtools2)
-_G.DEVTOOLS2_DIR = ((resolved or raw_devtools2):gsub('\\', '/')):gsub('/$', '')
+_G.DEVTOOLS2_DIR = (resolved or raw_devtools2):gsub('/$', '')
 
 -- 운영체제 식별 전역 상수 및 변수 설정
 -- ⚠️ 이 설정은 리눅스(WSL2 포함)와 macOS 전용입니다. Windows 네이티브 Neovim 은 지원하지 않으므로
@@ -33,9 +33,9 @@ end
 _G.HOME_DIR = os.getenv('HOME') or '.'
 
 -- 전역 캐시 및 데이터 디렉토리 (Neovim의 stdpath를 활용하여 OS별 환경변수 자동 적용)
-_G.NVIM_DATA_DIR = vim.fn.stdpath('data'):gsub('\\', '/')
-_G.NVIM_CACHE_DIR = vim.fn.stdpath('cache'):gsub('\\', '/')
-_G.NVIM_STATE_DIR = vim.fn.stdpath('state'):gsub('\\', '/')
+_G.NVIM_DATA_DIR = vim.fn.stdpath('data')
+_G.NVIM_CACHE_DIR = vim.fn.stdpath('cache')
+_G.NVIM_STATE_DIR = vim.fn.stdpath('state')
 
 -- bootstrap lazy.nvim, LazyVim and your plugins
 require('config.lazy')
