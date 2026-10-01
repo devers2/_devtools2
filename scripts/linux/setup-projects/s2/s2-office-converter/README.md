@@ -1,6 +1,7 @@
 # s2-office-converter
 
-s2-support 의 `S2PdfUtil` 이 **오피스·한글 문서(docx, xlsx, pptx, hwp, hwpx 등)를 PDF 로 변환·병합**하고,
+s2-support 의 `S2OfficeConverter`·`S2PdfUtil` 이 **오피스·한글 문서(docx, xlsx, pptx, hwp, hwpx 등)를 PDF 로 변환·병합하거나
+웹에디터용 HTML 로 가져오고**,
 **웹 페이지(URL 로 받은 HTML)를 브라우저 화면 그대로 PDF 로** 만들 수 있도록 서버에 변환기를 설치하는 스크립트입니다.
 
 ```
@@ -12,7 +13,7 @@ s2-support 의 `S2PdfUtil` 이 **오피스·한글 문서(docx, xlsx, pptx, hwp,
   문서 소스만 `오피스·한글 문서를 변환하려면 s2-office-converter 설치가 필요합니다.` 오류가 납니다.
 - 웹 페이지는 `s2-chrome` 이 있으면 Chromium 으로(flex·grid·JavaScript 까지 화면 그대로), 없거나 실패하면(크롬 문제, 제한 시간 초과 등)
   경고 로그를 남기고 내장 렌더러(openhtmltopdf)로 변환합니다. 웹 페이지 변환 때문에 병합이 실패하지는 않습니다.
-- 설치 후 앱을 다시 시작할 필요 없이 `S2PdfUtil` 이 자동으로 찾습니다.
+- 설치 후 앱을 다시 시작할 필요 없이 `S2OfficeConverter`(와 이를 쓰는 `S2PdfUtil`)가 자동으로 찾습니다.
 
 ## 파일
 
@@ -105,9 +106,9 @@ curl -fsSL <주소> | bash -s -- --app-user appuser --uninstall
 - 변환기 버전(LibreOffice 이미지, H2Orestart)을 올리면 다음 실행 때 새 이미지를 만들고 이전 이미지는 정리합니다.
 - 한 서버에서 여러 계정이 쓰면(예: 앱 계정과 배치 계정) 계정마다 한 번씩 실행합니다. `s2-soffice` 명령은 서버에 하나만 설치됩니다.
 
-## 앱(S2PdfUtil)에서 찾는 순서
+## 앱(S2OfficeConverter, S2PdfUtil)에서 찾는 순서
 
-1. `S2PdfUtil.setOfficeCommand(...)` 로 지정한 명령
+1. `S2OfficeConverter.setCommand(...)` 로 지정한 명령
 2. 환경 변수 `S2_SOFFICE`
 3. PATH 의 `s2-soffice`, 그다음 `soffice`, `libreoffice`
 4. 고정 경로 `/usr/local/bin/s2-soffice` (cron 처럼 PATH 가 좁은 환경 대비), LibreOffice 기본 설치 경로
@@ -117,7 +118,7 @@ curl -fsSL <주소> | bash -s -- --app-user appuser --uninstall
 (페이지의 JavaScript 가 내부망에 접속할 수 있기 때문).
 
 ```java
-if (S2PdfUtil.isOfficeConversionAvailable()) {
+if (S2OfficeConverter.isAvailable()) {
     S2PdfUtil.merge(List.of(PdfSource.ofDocument(Path.of("계획서.docx")),
             PdfSource.ofDocument(uploadedStream, "보고서.hwp")));
 }
