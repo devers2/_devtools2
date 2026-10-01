@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# DevTools2 비밀 정보 커밋 차단 훅 (scripts/git-hooks/pre-commit)
+#
+# 이 저장소는 공개 GitHub 저장소이고, ~/.config/nvim·zed·lazygit 등이 저장소 안의 .config 로
+# 링크되어 있어 도구가 만든 파일이 실수로 커밋될 수 있습니다. 커밋 직전에 아래 두 가지를 검사해
+# 하나라도 걸리면 커밋을 막습니다.
+#   1) 파일 이름: .env, *.pem, id_rsa, auth.json, rclone.conf, .claude/ 같은 인증 파일
+#   2) 추가되는 내용: Anthropic/OpenAI/Gemini/GitHub/AWS/npm 키, 개인키, 평문 비밀번호, Orca 페어링 코드 등
+#
+# 활성화: 1.setup-env.sh 가 git config core.hooksPath scripts/git-hooks 를 설정합니다.
+# 오탐일 때: 해당 줄에 "dt2-allow-secret" 주석을 붙이거나, 정말 의도한 경우에만
+#           git commit --no-verify 로 우회하세요.
+# ==============================================================================
+set -uo pipefail
+
+# 인증 정보가 담기는 파일 이름 (예시 파일 .env.example / .env.sample 은 허용)
+name_re='(^|/)(\.env(\.[^/]+)?|[^/]+\.env|secrets\.[^/]+|[^/]+\.(pem|key|p12|pfx|jks|keystore|secret|secrets|token)|id_(rsa|ecdsa|ed25519)[^/]*|\.netrc|\.git-credentials|\.pypirc|[^/]*credentials[^/]*\.json|client_secret[^/]*\.json|service-account[^/]*\.json|auth\.json|oauth_creds\.json|token\.json|\.bw_session[^/]*|rclone\.conf|\.claude\.json|orca-pairing-link\.txt)$|(^|/)\.(claude|codex|gemini|anthropic|openai)/'
+name_allow_re='(^|/)\.env\.(example|sample|template)$'
+
+# 키·토큰 형식 (각 서비스의 실제 키 접두어 기준)
+content_re='sk-ant-[A-Za-z0-9_-]{20,}'
+content_re+='|sk-(proj-|svcacct-)?[A-Za-z0-9_-]{32,}'
+content_re+='|AIza[0-9A-Za-z_-]{35}'
+content_re+='|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}'
+content_re+='|xox[abprs]-[A-Za-z0-9-]{10,}'
+content_re+='|AKIA[0-9A-Z]{16}'
+content_re+='|npm_[A-Za-z0-9]{36}|_authToken=[A-Za-z0-9_.-]{16,}'
+content_re+='|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+content_re+='|orca://pair\?code=[A-Za-z0-9]'
+content_re+='|<password>[^<$]{4,}</password>'
+# 이름이 키/비밀번호인 변수에 따옴표로 직접 넣은 16자 이상 값 ($변수·{템플릿}은 제외)
+content_re+="|(api[_-]?key|secret|token|passw(or)?d)[A-Za-z0-9_]*[\"']?[[:space:]]*[:=][[:space:]]*[\"'][^\"'\$<{[:space:]]{16,}[\"']"
+
+found=0
+
+while IFS= read -r -d '' file; do
+    if [[ "$file" =~ $name_re ]] && ! [[ "$file" =~ $name_allow_re ]]; then
+        echo "  ✖ 인증 정보 파일로 보이는 파일: $file" >&2
+        found=1
+    fi
+done < <(git diff --cached --name-only -z --diff-filter=ACMR)
+
+while IFS= read -r -d '' file; do
+    # 추가되는 줄만 검사합니다(삭제되는 줄은 유출이 아님). 허용 표시가 있는 줄은 건너뜁니다.
+    hits=$(git diff --cached -U0 --no-color -- "$file" \
+        | grep -E '^\+' | grep -vE '^\+\+\+ ' | grep -v 'dt2-allow-secret' \
+        | grep -oE -i -- "$content_re" || true)
+    if [ -n "$hits" ]; then
+        while IFS= read -r h; do
+            # 화면에도 값 전체를 남기지 않도록 앞 10자만 보여 줍니다.
+            echo "  ✖ $file: ${h:0:10}… (키·토큰·비밀번호로 보이는 값)" >&2
+        done <<< "$hits"
+        found=1
+    fi
+done < <(git diff --cached --name-only -z --diff-filter=ACMR)
+
+if [ "$found" -ne 0 ]; then
+    cat >&2 <<'EOF'
+
+🔐 [DevTools2] 비밀 정보로 보이는 내용이 있어 커밋을 중단했습니다.
+   - API 키·토큰은 저장소 밖의 ~/.config/devtools2/secrets.env (권한 600)에 두세요.
+   - 실수로 스테이징했다면: git restore --staged <파일>
+   - 오탐이면 해당 줄에 "dt2-allow-secret" 주석을 붙이거나, 정말 의도한 경우에만 git commit --no-verify
+EOF
+    exit 1
+fi
+exit 0

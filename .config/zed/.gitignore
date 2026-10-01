@@ -7,3 +7,6 @@ extensions/
 
 # OS 임시 파일
 .DS_Store
+# AI 대화 기록·프롬프트 라이브러리 (붙여 넣은 코드나 키가 남을 수 있음)
+conversations/
+prompts/
