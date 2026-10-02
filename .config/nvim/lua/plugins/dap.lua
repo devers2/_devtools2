@@ -19,6 +19,11 @@ return {
         function()
           local dap = require('dap')
           if dap.session() then
+            -- 앱 프로세스가 오류로 죽고 감시 프로세스(uvicorn --reload 등)만 남은 세션이면
+            -- 메뉴 없이 바로 재시작하고, 그 외에는 기존대로 continue (멈춤 시 계속 / 실행 중이면 메뉴)
+            if _G.dap_restart_if_crashed and _G.dap_restart_if_crashed() then
+              return
+            end
             dap.continue()
             return
           end
@@ -389,10 +394,38 @@ return {
       -- event_exited / event_terminated 가 연달아 와도 종료 처리는 세션당 한 번만 수행합니다.
       local ended_sessions = {}
 
-      local function mark_user_stopped(session)
-        if session and session.id then
-          user_stopped_sessions[session.id] = true
+      -- 하위(child) 세션 ID 목록. debugpy 의 subProcess(uvicorn --reload, multiprocessing 등)나
+      -- js-debug 처럼 어댑터가 startDebugging 으로 띄운 세션이 여기에 들어갑니다.
+      -- nvim-dap 은 세션이 닫히는 시점(on_close)에 session.parent 를 지우므로, 종료 이벤트에서
+      -- parent 로만 판별하면 놓칠 수 있어 초기화 시점에 따로 기억해 둡니다.
+      local child_sessions = {}
+      -- 하위 세션(앱 프로세스)이 사용자 종료 없이 끝난 최상위 세션 ID 목록.
+      -- 새 하위 세션이 다시 붙으면(--reload 로 앱이 재기동) 해제됩니다.
+      local crashed_roots = {}
+
+      local function root_of(session)
+        while session and session.parent do
+          session = session.parent
         end
+        return session
+      end
+
+      -- 사용자가 종료를 요청하면 nvim-dap 은 포커스된 세션(하위 세션일 수 있음)부터 종료하고
+      -- 나머지 계층도 함께 끝나므로, 최상위 세션부터 모든 하위 세션까지 사용자 종료로 표시합니다.
+      local function mark_user_stopped(session)
+        if not session then
+          return
+        end
+        local root = root_of(session)
+        local function mark(s)
+          if s.id then
+            user_stopped_sessions[s.id] = true
+          end
+          for _, child in pairs(s.children or {}) do
+            mark(child)
+          end
+        end
+        mark(root)
       end
 
       local orig_terminate = dap.terminate
@@ -624,6 +657,15 @@ return {
 
       -- 대신 디버깅 시작 시 nvim-dap-view가 자동으로 열리도록 설정
       dap.listeners.after.event_initialized['dapview_config'] = function(session)
+        -- 하위 세션(uvicorn --reload 의 작업 프로세스 등)은 기억만 해 두고 UI 는 건드리지 않습니다.
+        -- dap-view.open()은 내부에서 close()→재생성을 하므로, 하위 세션마다 호출하면 창이 깜빡이고
+        -- "디버깅 시작" 알림도 프로세스 수만큼 반복됩니다.
+        if session and session.parent then
+          child_sessions[session.id] = true
+          crashed_roots[root_of(session).id] = nil
+          return
+        end
+
         -- dap-view.open()은 이 리스너에서 단 한 번만 호출합니다.
         -- terminal_win_cmd나 다른 곳에서 중복 호출하면 창이 증식합니다.
         require('dap-view').open()
@@ -685,8 +727,41 @@ return {
         end
 
         local by_user = session_id and user_stopped_sessions[session_id]
+        local is_child = (session and session.parent ~= nil)
+          or (session_id and child_sessions[session_id])
         if session_id then
           user_stopped_sessions[session_id] = nil
+          child_sessions[session_id] = nil
+        end
+
+        -- 하위 세션 종료: 최상위 세션(디버그 UI·콘솔의 주인)은 아직 살아 있으므로 UI 를 닫거나
+        -- 프로세스를 정리하지 않습니다. 하위 세션은 request = 'attach' 로 들어오기 때문에 예전에는
+        -- 아래 attach 분기로 빠져 UI 를 닫아 버렸고, uvicorn --reload 작업 프로세스가 import 오류로
+        -- 죽으면 콘솔의 스택트레이스를 보기도 전에 창이 사라졌습니다.
+        if is_child then
+          if session_id then
+            active_debug_pids[session_id] = nil
+          end
+          if not by_user then
+            local root = root_of(session)
+            if root and root ~= session and root.id then
+              crashed_roots[root.id] = true
+            end
+            local exit_code = body and body.exitCode
+            vim.notify(
+              string.format(
+                '하위 프로세스가 종료되었습니다%s. (주 프로세스는 계속 실행 중)\n원인은 콘솔(dap-view) 로그를 확인하세요. (<leader>dd 로 재시작)',
+                exit_code and string.format(' (exit code: %s)', tostring(exit_code)) or ''
+              ),
+              vim.log.levels.WARN,
+              { title = 'DAP 세션 종료' }
+            )
+          end
+          return
+        end
+
+        if session_id then
+          crashed_roots[session_id] = nil
         end
 
         local is_attach = session and session.config and session.config.request == 'attach'
@@ -717,6 +792,42 @@ return {
       end
       dap.listeners.before.event_terminated['dapview_config'] = on_session_ended
       dap.listeners.before.event_exited['dapview_config'] = on_session_ended
+
+      -- [<leader>dd: 앱 프로세스가 죽은 세션 즉시 재시작]
+      -- uvicorn --reload 처럼 감시 프로세스(최상위 세션)가 앱 프로세스(하위 세션)를 띄우는 구조에서는
+      -- 앱이 오류로 죽어도 세션이 살아 있어 <leader>dd 가 "Session active" 메뉴만 띄웁니다.
+      -- 이 경우 세션 전체를 종료(프로세스 정리 포함)한 뒤 같은 설정으로 다시 디버깅합니다.
+      -- 하위 세션이 없는 언어(Java/Spring 등)는 디버기가 죽으면 세션 자체가 끝나므로 해당 없음.
+      -- 처리했으면 true, 해당 상황이 아니면 false 를 반환합니다.
+      _G.dap_restart_if_crashed = function()
+        local root = root_of(dap.session())
+        if not (root and root.id and crashed_roots[root.id]) then
+          return false
+        end
+        crashed_roots[root.id] = nil
+        local config = root.config
+        vim.notify(
+          '앱 프로세스가 오류로 종료된 상태라 디버깅을 다시 시작합니다.',
+          vim.log.levels.INFO,
+          { title = 'DAP' }
+        )
+        if dap.session() ~= root then
+          dap.set_session(root)
+        end
+        -- hierarchy 종료 시 on_done 은 세션마다 호출되므로 재실행은 한 번만 합니다.
+        local relaunched = false
+        dap.terminate({
+          hierarchy = true,
+          on_done = vim.schedule_wrap(function()
+            if relaunched then
+              return
+            end
+            relaunched = true
+            dap.run(config)
+          end),
+        })
+        return true
+      end
 
       -- Console(dap-view-term) 창에서 포커스가 벗어나면 자동으로 맨 아래로 스크롤합니다.
       -- nvim-dap-view는 커서가 마지막 줄에 있을 때만 자동 스크롤하도록 이미 구현돼 있어서
