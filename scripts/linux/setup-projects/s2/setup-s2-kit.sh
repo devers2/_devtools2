@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# s2-support 프로젝트 설정 스크립트 (common-setup.sh 래퍼)
+# s2-kit 프로젝트 설정 스크립트 (common-setup.sh 래퍼)
 # ==============================================================================
 set -e
 
@@ -15,4 +15,4 @@ else
     exit 1
 fi
 
-setup_s2_library_project "s2-support"
+setup_s2_library_project "s2-kit"

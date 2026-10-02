@@ -809,7 +809,7 @@ if [ -f "$_CURRENT_MODULE_DIR/python-setup.sh" ]; then
 fi
 
 # ==============================================================================
-# s2 라이브러리 프로젝트 공통 설정 헬퍼 (s2-util, s2-support, s2-build-support)
+# s2 라이브러리 프로젝트 공통 설정 헬퍼 (s2-util, s2-kit, s2-build-support)
 # ==============================================================================
 setup_s2_library_project() {
     local project_name="$1"

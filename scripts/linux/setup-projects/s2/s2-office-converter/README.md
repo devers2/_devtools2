@@ -1,6 +1,6 @@
 # s2-office-converter
 
-s2-support 의 `S2OfficeConverter`·`S2PdfUtil` 이 **오피스·한글 문서(docx, xlsx, pptx, hwp, hwpx 등)를 PDF 로 변환·병합하거나
+s2-kit 의 `S2OfficeConverter`·`S2PdfUtil` 이 **오피스·한글 문서(docx, xlsx, pptx, hwp, hwpx 등)를 PDF 로 변환·병합하거나
 웹에디터용 HTML 로 가져오고**,
 **웹 페이지(URL 로 받은 HTML)를 브라우저 화면 그대로 PDF 로** 만들 수 있도록 서버에 변환기를 설치하는 스크립트입니다.
 
