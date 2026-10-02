@@ -4,7 +4,7 @@
 # 위치: _devtools2/scripts/linux/setup-projects/s2/s2-office-converter/  (같은 폴더의 README.md 참고)
 # ==============================================================================
 #
-# [실행 방법] s2-support 를 쓰는 앱과 같은 서버에서, sudo 를 쓸 수 있는 계정으로 실행합니다.
+# [실행 방법] s2-kit 을 쓰는 앱과 같은 서버에서, sudo 를 쓸 수 있는 계정으로 실행합니다.
 #             이 파일 하나만으로 동작하므로 저장소를 받을 필요 없이 GitHub 에서 바로 실행하면 됩니다.
 #
 #   주소: https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/setup-projects/s2/s2-office-converter/setup-s2-office-converter.sh
@@ -37,7 +37,7 @@
 #   - 웹 페이지 변환(Chromium)이 필요 없으면 --no-chrome (이미지 약 0.7GB 작아짐)
 #
 # [하는 일]
-# S2PdfUtil(s2-support)이 docx·xlsx·pptx·hwp·hwpx 등을 PDF 로 변환·병합할 수 있도록
+# S2PdfUtil(s2-kit)이 docx·xlsx·pptx·hwp·hwpx 등을 PDF 로 변환·병합할 수 있도록
 # LibreOffice + H2Orestart(한글 확장) + 한글 폰트가 든 Podman 컨테이너 이미지를 만들고,
 # 이를 호출하는 명령 s2-soffice 를 설치합니다. 웹 페이지(URL 로 받은 HTML)를 화면 그대로 PDF 로 만들도록
 # Chromium 과 명령 s2-chrome 도 함께 설치합니다 (--no-chrome 으로 뺄 수 있음).
@@ -386,7 +386,7 @@ RUN curl -fsSL -o /tmp/H2Orestart.oxt \\
 # (위 설치의 root 소유 잔여물이 있으면 변환 계정이 쓰지 못함)
 
 LABEL org.opencontainers.image.title="s2-office-converter" \\
-      org.opencontainers.image.description="LibreOffice + H2Orestart + Korean fonts for s2-support S2PdfUtil" \\
+      org.opencontainers.image.description="LibreOffice + H2Orestart + Korean fonts for s2-kit S2PdfUtil" \\
       s2.h2orestart.version="${H2ORESTART_VERSION}" \\
       s2.chromium="${WITH_CHROME}"
 
