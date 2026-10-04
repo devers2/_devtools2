@@ -271,9 +271,14 @@ vim.api.nvim_create_autocmd({ 'FocusLost', 'BufLeave', 'InsertLeave' }, {
       -- 인서트 모드 도중이 아닐 때만 안전하게 저장 (타이핑 끊김 방지)
       local mode = vim.api.nvim_get_mode().mode
       if mode ~= 'i' and mode ~= 'R' then
+        -- 자동 저장 시에는 IDE 표준(IntelliJ/VSCode)에 맞춰 포맷팅을 건너뛰고 순수 디스크 저장만 수행
+        -- (Ctrl+S 또는 수동 :w 저장 시에만 정돈 포맷팅 실행)
+        local orig_autoformat = vim.b[buf].autoformat
+        vim.b[buf].autoformat = false
         pcall(vim.api.nvim_buf_call, buf, function()
           vim.cmd.update({ mods = { silent = true } })
         end)
+        vim.b[buf].autoformat = orig_autoformat
       end
     end
   end,

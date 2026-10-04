@@ -607,6 +607,10 @@ return {
           group = vim.api.nvim_create_augroup('jdtls_organize_imports_' .. bufnr, { clear = true }),
           buffer = bufnr,
           callback = function()
+            -- autoformat이 비활성화된 상태(자동 저장 등)에서는 미완성 코드 보호를 위해 import 정리를 건너뜀
+            if vim.b[bufnr].autoformat == false then
+              return
+            end
             local clients = vim.lsp.get_clients({ bufnr = bufnr, name = 'jdtls' })
             local jdtls_client = clients[1]
             if not jdtls_client then
