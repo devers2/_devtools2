@@ -254,9 +254,8 @@ vim.opt.clipboard = 'unnamedplus'
 -- [Python LSP] LazyVim Python extra에서 pyright 대신 basedpyright를 사용하도록 지정
 vim.g.lazyvim_python_lsp = 'basedpyright'
 
--- 포커스를 잃거나(FocusLost), 버퍼를 떠날 때(BufLeave) 자동 저장
--- (InsertLeave는 타이핑 중 Esc 누를 때 불필요한 디스크 쓰기 및 LSP 포맷/Import 정리와의 경합을 방지하기 위해 제외)
-vim.api.nvim_create_autocmd({ 'FocusLost', 'BufLeave' }, {
+-- 포커스를 잃거나(FocusLost), 버퍼를 떠날 때(BufLeave), 입력 모드를 벗어날 때(InsertLeave) 자동 저장
+vim.api.nvim_create_autocmd({ 'FocusLost', 'BufLeave', 'InsertLeave' }, {
   group = vim.api.nvim_create_augroup('IntelliJAutoSave', { clear = true }),
   callback = function(args)
     local buf = args.buf
