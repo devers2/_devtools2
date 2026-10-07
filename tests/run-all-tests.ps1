@@ -398,6 +398,21 @@ $sharedOk = ($lazyCode -match 'root = lazy_root') -and ($lazyCode -match "rocks 
     -and ($setupEnv2 -notmatch '_run_symlink "\$DEVTOOLS2/data/nvim"') -and ($setupEnv2 -match 'prune -o -user') -and ($setupEnv2 -match 'setfacl -d -m')
 Assert-Test "nvim 공유 자원(플러그인·Mason·파서)만 그룹 공유하고 개인 데이터는 사용자별로 분리하는가" $sharedOk
 
+# --- 5-11. Windows Defender ML 오탐(Trojan:Win32/Commando.A!ml) 유발 방지
+#     powershell.exe 에 -EncodedCommand/-enc 로 UAC 승격 스폰을 하면 백신 휴리스틱/머신러닝에 의해 트로이목마로 차단됨
+$encodedCommandViolations = @()
+foreach ($file in $psFiles) {
+    if ($file.Name -eq "run-all-tests.ps1") { continue }
+    $lines = [System.IO.File]::ReadAllLines($file.FullName, [System.Text.Encoding]::UTF8)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i]
+        if ($l -match '^\s*#') { continue }
+        if ($l -match '-(EncodedCommand|enc)\b') { $encodedCommandViolations += "$($file.Name):$($i + 1)" }
+    }
+}
+Assert-Test "백신 오탐(Trojan:Win32/Commando.A!ml)을 유발하는 -EncodedCommand/-enc 가 0건인가" ($encodedCommandViolations.Count -eq 0) `
+    ("위반: " + ($encodedCommandViolations -join ", "))
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================
