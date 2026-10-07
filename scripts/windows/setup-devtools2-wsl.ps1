@@ -184,8 +184,11 @@ if (-not $isAdmin) {
         if (-not [string]::IsNullOrEmpty($PSCommandPath)) {
             Write-Host " (또는 탐색기에서 setup-devtools2-wsl.ps1 우클릭 → PowerShell 관리자로 실행)" -ForegroundColor DarkGray
             Write-Host ""
+            Read-Host "엔터를 누르면 종료합니다"
         }
-        exit 1
+        # ⚠️ exit 대신 return 사용: irm | iex 환경에서 exit 을 호출하면 터미널 창 자체가
+        # 즉시 닫혀버려 사용자가 안내 메시지를 읽을 수 없습니다. return 으로 프롬프트에 메시지를 보존합니다.
+        return
     }
 
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
@@ -205,6 +208,7 @@ if (-not $isAdmin) {
             exit
         } catch {
             & $showElevationGuide -CmdToRun $onlineCmd
+            return
         }
     } else {
         # ── 로컬 파일 실행 모드 ────────────────────────────────────────────────
@@ -212,6 +216,7 @@ if (-not $isAdmin) {
         if ($isStorePwsh) {
             # Store 버전 pwsh는 -Verb RunAs 차단됨 → 사용자에게 수동 실행 안내
             & $showElevationGuide -CmdToRun $localCmd -Reason "Microsoft Store 설치 PowerShell 은 UAC 자동 권한 승격이 차단됩니다."
+            return
         } else {
             # 직접 설치 pwsh 또는 powershell.exe → UAC 자동 승격 재실행
             $psExe = if ($pwshPath) { $pwshPath } else { 'powershell.exe' }
@@ -223,6 +228,7 @@ if (-not $isAdmin) {
                 exit
             } catch {
                 & $showElevationGuide -CmdToRun $localCmd
+                return
             }
         }
     }
