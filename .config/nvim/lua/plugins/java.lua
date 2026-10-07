@@ -507,8 +507,7 @@ return {
         if result and result.message and type(result.message) == 'string' then
           result.message = require('util.translator').translate_message(result.message)
         end
-        vim.api.nvim_command(string.format(':echohl Function | echo "%s" | echohl None',
-          string.sub(result.message, 1, vim.v.echospace)))
+        vim.api.nvim_echo({{ string.sub(result.message, 1, vim.v.echospace), 'Function' }}, false, {})
       end
 
 

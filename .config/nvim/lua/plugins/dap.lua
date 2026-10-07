@@ -1053,6 +1053,55 @@ return {
         local java_home = (java_ver >= 21) and (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-' .. java_ver)
           or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
 
+        --- 디버그 실행 전 런타임 리소스 동기화 (사전 빌드 파이프라인의 리소스 준비 단계)
+        --
+        -- @description
+        --   JDTLS(java-debug)는 `.classpath`에 선언된 `bin/main/`을 런타임 클래스패스로 사용합니다.
+        --   그러나 Gradle/Maven의 `processResources` 태스크는 `build/resources/main/`만 갱신하며,
+        --   JDTLS의 `java/buildWorkspace`(증분 컴파일)는 Java 소스(.java -> .class)만 빌드하고
+        --   정적 리소스(properties, yml, xml 등)는 초기 프로젝트 로드 이후 갱신하지 않는 문제가 있습니다.
+        --   이로 인해 nvim 세션 도중 .properties 등의 설정을 변경하고 재디버깅하더라도
+        --   nvim을 재시작하지 않으면 변경 사항이 반영되지 않는 현상이 발생합니다.
+        --
+        --   이를 해결하기 위해 디버그 직전에 `src/main/resources/`의 최신 리소스를 `bin/main/`으로
+        --   직접 동기화하여 nvim 재시작 없이도 설정 변경이 즉시 반영되도록 보완합니다.
+        --   - rsync -a (약 75ms / 7,900+ 파일 기준)를 우선 사용하여 오버헤드를 최소화하고, 없을 시 cp -u -r 로 폴백합니다.
+        --   - 컴파일된 .class 파일 보존을 위해 `--exclude '*.class'` 및 `--exclude '.settings/'`를 적용합니다.
+        --
+        -- @note [향후 JDTLS 업데이트 시 제거 가이드]
+        --   추후 JDTLS가 `java/buildWorkspace` 실행 시 리소스 파일까지 자동으로 감지·동기화하도록
+        --   업데이트된다면, 이 함수(`prepare_debug_resources`)는 완전히 불필요해집니다.
+        --   그 경우 본 함수를 삭제하고, 아래 호출 지점들(run_resources_task 콜백 및 else 분기)을
+        --   기존처럼 `build_workspace_with_watchdog(on_done)` 직접 호출로 복원하면 됩니다.
+        --
+        -- @param project_root string 프로젝트 루트 디렉터리 경로
+        -- @param callback function 리소스 준비 완료 후 실행할 후속 콜백 (LSP 증분 빌드 등)
+        local function prepare_debug_resources(project_root, callback)
+          local src = project_root .. 'src/main/resources/'
+          local dst = project_root .. 'bin/main/'
+          -- src/main/resources/ 가 없으면 동기화 불필요
+          if vim.fn.isdirectory(src) ~= 1 or vim.fn.isdirectory(dst) ~= 1 then
+            callback()
+            return
+          end
+          local use_rsync = vim.fn.executable('rsync') == 1
+          local cmd = use_rsync
+            and { 'rsync', '-a', '--exclude', '*.class', '--exclude', '.settings/', src, dst }
+            or  { 'cp', '-u', '-r', src .. '.', dst }
+          local ok = pcall(vim.system, cmd, { text = true }, function(obj)
+            vim.schedule(function()
+              if obj.code ~= 0 then
+                vim.notify('⚠️ 디버그 리소스 준비(bin/main) 실패: ' .. (obj.stderr or ''), vim.log.levels.WARN, { title = 'Java Launch' })
+              end
+              callback()
+            end)
+          end)
+          if not ok then
+            vim.notify('⚠️ 디버그 리소스 준비 명령을 실행하지 못해 건너뜁니다.', vim.log.levels.WARN, { title = 'Java Launch' })
+            callback()
+          end
+        end
+
         -- gradlew/mvnw 에 실행 권한이 없으면(Windows 에서 만든 저장소·zip 압축 해제 등) vim.system 이
         -- EACCES 오류를 즉시 던져 디버그 시작 자체가 중단됩니다(실측). 그런 경우 sh 로 실행하고,
         -- 그래도 프로세스를 띄우지 못하면 리소스 처리 없이 빌드 확인으로 넘어갑니다.
@@ -1069,12 +1118,12 @@ return {
               if obj.code ~= 0 then
                 vim.notify(string.format('⚠️ %s %s 실패:\n', name, task) .. (obj.stderr or obj.stdout or ''), vim.log.levels.WARN, { title = 'Java Launch' })
               end
-              build_workspace_with_watchdog(on_done)
+              prepare_debug_resources(root, function() build_workspace_with_watchdog(on_done) end)
             end)
           end)
           if not spawned then
             vim.notify(string.format('⚠️ %s 를 실행하지 못해 리소스 처리 없이 진행합니다.', name), vim.log.levels.WARN, { title = 'Java Launch' })
-            build_workspace_with_watchdog(on_done)
+            prepare_debug_resources(root, function() build_workspace_with_watchdog(on_done) end)
           end
         end
 
@@ -1083,7 +1132,7 @@ return {
         elseif has_mvnw then
           run_resources_task(mvnw, 'process-resources')
         else
-          build_workspace_with_watchdog(on_done)
+          prepare_debug_resources(root, function() build_workspace_with_watchdog(on_done) end)
         end
       end
 
