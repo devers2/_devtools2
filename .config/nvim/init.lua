@@ -1,3 +1,8 @@
+-- [고아 프로세스(Orphan) 방지 가드: 터미널 강제 닫힘 시 100% 완전 회수]
+pcall(function()
+  require('util.orphan_guard').setup()
+end)
+
 -- 전역 공통 디렉토리 경로 설정 (환경변수 DEVTOOLS2 값 우선, 없으면 설정 폴더 기준 상대 경로)
 -- vim.uv.fs_realpath()로 심볼릭 링크까지 해석된 실제 절대경로로 정규화합니다.
 local config_path = vim.fn.stdpath('config')
