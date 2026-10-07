@@ -2,6 +2,8 @@
 
 - `Windows` + `WSL2` 자동 연동 설치
 
+  > 💡 **PowerShell 또는 Windows Terminal을 '관리자 권한으로 실행'** 한 후 아래 명령어를 입력하십시오.
+
   ```powershell
   # 온라인 설치
   irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex

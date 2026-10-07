@@ -166,44 +166,64 @@ if (-not $isAdmin) {
     $pwshPath = if ($pwshCmd) { $pwshCmd.Source } else { $null }
     $isStorePwsh = $pwshPath -and ($pwshPath -like '*WindowsApps*')
 
+    # 안내 메시지 출력 및 종료 헬퍼
+    $showElevationGuide = {
+        param(
+            [string]$CmdToRun,
+            [string]$Reason = "관리자 권한 자동 승격이 지원되지 않거나 취소되었습니다."
+        )
+        Write-Host ""
+        Write-Host "=============================================================================" -ForegroundColor Red
+        Write-Host " [안내] $Reason" -ForegroundColor Red
+        Write-Host "=============================================================================" -ForegroundColor Red
+        Write-Host ""
+        Write-Host " PowerShell 을 '관리자 권한으로 실행' 후 아래 명령어를 입력해 주세요:" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "   $CmdToRun" -ForegroundColor Cyan
+        Write-Host ""
+        if (-not [string]::IsNullOrEmpty($PSCommandPath)) {
+            Write-Host " (또는 탐색기에서 setup-devtools2-wsl.ps1 우클릭 → PowerShell 관리자로 실행)" -ForegroundColor DarkGray
+            Write-Host ""
+        }
+        exit 1
+    }
+
     if ([string]::IsNullOrEmpty($PSCommandPath)) {
         # ── 온라인 실행 모드 (irm ... | iex) ──────────────────────────────────
-        # %TEMP% 임시 파일 사용 금지 지침 준수: 순수 메모리 상에서 Base64 EncodedCommand 로 UAC 승격
+        # ⚠️ [보안 주의 - Base64 EncodedCommand 절대 금지]:
+        # -EncodedCommand 는 Windows Defender 및 백신/EDR 머신러닝 엔진에 의해
+        # 'Trojan:Win32/Commando.A!ml' 트로이목마 드로퍼로 오탐되어 차단됩니다.
+        # 따라서 평문 -Command 명령줄을 전달하며, UAC 승격 실패 시 명확한 수동 안내를 제공합니다.
         Write-Warn "관리자 권한이 필요합니다. UAC 승격 후 원격 설치를 계속합니다..."
-        $onlineCmd = "irm https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/windows/setup-devtools2-wsl.ps1 | iex"
-        $bytes = [System.Text.Encoding]::Unicode.GetBytes($onlineCmd)
-        $encodedCmd = [Convert]::ToBase64String($bytes)
+        $ref = if ($DT2_REF) { $DT2_REF } else { "main" }
+        $onlineCmd = "irm https://raw.githubusercontent.com/devers2/_devtools2/$ref/scripts/windows/setup-devtools2-wsl.ps1 | iex"
         $psExe = if ($pwshPath -and -not $isStorePwsh) { $pwshPath } else { 'powershell.exe' }
         # ⚠️ conhost.exe로 감싸서 -Verb RunAs 승격 시도 금지 — "액세스 거부"로 실패함(실측).
         #   (목적: WT 자기파괴 방지였음 — 2.setup-windows-terminal.ps1의 WT_SESSION 감지로만 방어 중)
-        Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedCmd" -Verb RunAs
-        exit
+        try {
+            Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"$onlineCmd`"" -Verb RunAs -ErrorAction Stop
+            exit
+        } catch {
+            & $showElevationGuide -CmdToRun $onlineCmd
+        }
     } else {
         # ── 로컬 파일 실행 모드 ────────────────────────────────────────────────
-        # PS7(pwsh) 또는 순정 PS5.1(powershell.exe) 모두 지원
+        $localCmd = "Set-ExecutionPolicy Bypass -Scope Process -Force; & `"$PSCommandPath`""
         if ($isStorePwsh) {
             # Store 버전 pwsh는 -Verb RunAs 차단됨 → 사용자에게 수동 실행 안내
-            Write-Host ""
-            Write-Host "=============================================================================" -ForegroundColor Red
-            Write-Host " [오류] Microsoft Store 설치 PowerShell 은 UAC 자동 권한 승격이 차단됩니다." -ForegroundColor Red
-            Write-Host "=============================================================================" -ForegroundColor Red
-            Write-Host ""
-            Write-Host " PowerShell 7 을 '관리자 권한으로 실행' 후 아래 명령어를 다시 입력해 주세요:" -ForegroundColor Yellow
-            Write-Host ""
-            Write-Host "   Set-ExecutionPolicy Bypass -Scope Process -Force; & `"$PSCommandPath`"" -ForegroundColor Cyan
-            Write-Host ""
-            Write-Host " (또는 탐색기에서 setup-devtools2-wsl.ps1 우클릭 → PowerShell 7 관리자로 실행)" -ForegroundColor DarkGray
-            Write-Host ""
-            Read-Host "엔터를 누르면 종료합니다"
-            exit 1
+            & $showElevationGuide -CmdToRun $localCmd -Reason "Microsoft Store 설치 PowerShell 은 UAC 자동 권한 승격이 차단됩니다."
         } else {
-            # 직접 설치 pwsh → UAC 자동 승격 재실행
+            # 직접 설치 pwsh 또는 powershell.exe → UAC 자동 승격 재실행
             $psExe = if ($pwshPath) { $pwshPath } else { 'powershell.exe' }
             Write-Warn "전체 환경 구축을 위해 관리자 권한으로 스크립트를 재실행합니다..."
             # ⚠️ conhost.exe로 감싸서 -Verb RunAs 승격 시도 금지 — "액세스 거부"로 실패함(실측).
             #   (목적: WT 자기파괴 방지였음 — 2.setup-windows-terminal.ps1의 WT_SESSION 감지로만 방어 중)
-            Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
-            exit
+            try {
+                Start-Process $psExe -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs -ErrorAction Stop
+                exit
+            } catch {
+                & $showElevationGuide -CmdToRun $localCmd
+            }
         }
     }
 }
