@@ -9,6 +9,15 @@
 스크립트(`.ps1`, `.sh`) 또는 설정 파일을 수정한 후에는 **사용자에게 답변하거나 커밋하기 전에 반드시 아래 통합 테스트 러너를 실행하여 전수 통과(100% PASS)를 검증**해야 합니다.
 
 ### 실행 명령어
+
+#### Linux / WSL 환경 (권장: 일반 사용자 권한, 1회 무권한 실행)
+```bash
+./tests/run-all-tests.sh
+# 또는
+bash tests/run-all-tests.sh
+```
+
+#### Windows 환경
 ```powershell
 # Windows PowerShell / pwsh 공통 (가장 권장)
 .\tests\run-all-tests.bat
@@ -17,7 +26,7 @@
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tests\run-all-tests.ps1
 ```
 
-> ⚠️ 개별 임의 테스트로 대체하지 마십시오. 반드시 공식 테스트 러너를 실행하여 회귀 버그 및 파싱 오류를 사전 차단하십시오.
+> ⚠️ 개별 임의 테스트(개별 grep, chmod 등)로 분산 실행하지 마십시오. 사용자 승인 프롬프트 및 오류를 최소화하기 위해 반드시 위의 단일 통합 테스트 러너 하나만 실행하여 회귀 버그 및 파싱 오류를 사전 차단하십시오.
 
 ---
 
