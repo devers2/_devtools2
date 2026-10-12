@@ -101,8 +101,8 @@ return {
             'html',
             'vue',
           },
-          root_dir = function(fname)
-            return (fname and vim.fs.root(fname, '.git')) or vim.uv.cwd()
+          root_dir = function(bufnr, on_dir)
+            on_dir(vim.fs.root(bufnr, '.git') or vim.uv.cwd())
           end,
           settings = (function()
             local raw_config = _G.DEVTOOLS2_DIR .. '/.config/eslint/eslint.config.mjs'
