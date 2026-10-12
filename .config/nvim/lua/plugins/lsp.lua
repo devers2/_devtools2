@@ -101,6 +101,11 @@ return {
             'html',
             'vue',
           },
+          -- ⚠️ [Neovim 0.12+ 비동기 root_dir 규격 준수 필수]
+          -- Neovim 0.12 내장 LSP 매니저는 root_dir = function(bufnr, on_dir) 형태로 비동기 콜백을 전달합니다.
+          -- on_dir(root) 콜백을 반드시 호출해야만 내부 start_config가 실행되어 LSP 서버가 기동됩니다.
+          -- 구버전 스타일(function(fname) return path end)로 작성 시 콜백 누락으로 LSP가 영구 미기동되므로
+          -- 절대 단순 return 형태로 되돌리지 마세요. (vim.fs.root는 0.12에서 bufnr 정수를 직접 지원)
           root_dir = function(bufnr, on_dir)
             on_dir(vim.fs.root(bufnr, '.git') or vim.uv.cwd())
           end,
@@ -111,6 +116,11 @@ return {
             return {
               workingDirectory = { mode = 'location' },
               nodePath = node_path,
+              -- ⚠️ [포맷팅/린팅 역할 분담 및 자동 수정(Auto-fix) 배제 원칙]
+              -- 1. 포맷팅(서식 정돈): conform.nvim + Prettier 가 100% 전담하므로 format = false 로 중복/충돌 차단.
+              -- 2. 린팅(코드 검사): ESLint 는 순수 "실시간 경고 표시"만 전담하며, 저장 시 강제 자동 수정(Auto-fix)은
+              --    의도적으로 적용하지 않습니다. (Thymeleaf/CDATA 템플릿 문법 파손 방지, 의도치 않은 로직 변형 방지,
+              --    불필요한 Git diff 오염 방지 목적). 수정이 필요할 때는 해당 라인에서 <leader>ca 로 선택적 적용합니다.
               format = { enable = false },
               options = {
                 overrideConfigFile = config_file,
