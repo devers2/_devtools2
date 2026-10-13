@@ -239,7 +239,7 @@
 
   /* 에디터 기본 설정 */
   "editor.formatOnSave": true, // 저장 시 자동 포맷팅 여부, 포맷팅 없이 저장: 시퀀스(연속) 단축키 "Ctrl + K Ctrl + S" 또는 명령어 팔레트(Ctrl + Shift + P) 에서 "Save without Formatting" 명령어 실행
-  "editor.formatOnSaveMode": "modificationsIfAvailable", // 포맷팅을 적용할 범위 →"modificationsIfAvailable": 소스 제어(Git)가 가능하면 수정되 부분만 아니라면 파일 전체를 포맷팅(협업 시 추천), "file": 파일 전체
+  "editor.formatOnSaveMode": "file", // 포맷팅 적용 범위 → "file": 파일 전체 포맷팅(권장). "modificationsIfAvailable" 사용 시 Git diff 조각(객체 프로퍼티 등 독립 구문이 아닌 조각)만 잘라 Prettier로 파싱할 때 SyntaxError(Unexpected token)가 발생하므로 전체 파싱이 가능한 "file" 필수
   "editor.formatOnPaste": false, // 붙여넣기 시 포맷팅 여부
   "editor.bracketPairColorization.enabled": true, // 괄호 쌍 색상화 기능 활성화 (서로 일치하는 여는 괄호와 닫는 괄호를 동일한 색상으로 표시하여 코드 가독성을 높임)
   "editor.bracketPairColorization.independentColorPoolPerBracketType": true, // 각 괄호 유형(소괄호, 중괄호, 대괄호)에 대해 독립적인 색상 풀 사용 여부
