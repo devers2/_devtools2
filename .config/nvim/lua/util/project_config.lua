@@ -124,25 +124,42 @@ function M.find_file(filename, root_path)
 end
 
 --- settings.json의 nvim.projectRoot 커스텀 설정을 확인하는 내부 헬퍼
---- @param dir string|nil
+--- @param path string|nil 파일 경로 또는 디렉토리
 --- @return string|nil
-local function check_custom_root(dir)
-  if not dir or dir == '' then
+local function check_custom_root(path)
+  if not path or path == '' then
     return nil
   end
+  local target_dir = vim.fn.isdirectory(path) == 1 and path or vim.fs.dirname(path)
+  if not target_dir or target_dir == '' then
+    return nil
+  end
+  target_dir = vim.fs.normalize(target_dir):gsub('/+$', '')
+
   for _, folder in ipairs({ '.nvim', '.vscode' }) do
-    local sp = dir .. '/' .. folder .. '/settings.json'
+    local sp = target_dir .. '/' .. folder .. '/settings.json'
     local data = read_json_file(sp)
     if data and data['nvim.projectRoot'] then
-      return vim.fn.fnamemodify(dir .. '/' .. tostring(data['nvim.projectRoot']), ':p'):gsub('/+$', '')
+      local custom_path = vim.fn.fnamemodify(target_dir .. '/' .. tostring(data['nvim.projectRoot']), ':p')
+      return vim.fs.normalize(custom_path):gsub('/+$', '')
     end
   end
   return nil
 end
 
---- 프로젝트 루트 디렉토리 결정
---- 파일 위치에서 위로 거슬러 올라가며 프로젝트 최상위 루트를 검색합니다.
---- 멀티 모듈(settings.gradle / settings.gradle.kts / parent pom.xml)과 일반 프로젝트 모두 자동 인식합니다.
+--- 프로젝트 루트 디렉토리 결정 (Neovim 0.12 최적화)
+--- 멀티모듈(settings.gradle) 프로젝트 및 단일 모듈 프로젝트를 완벽히 구분합니다.
+--- 하위 모듈에서 실수로 VS Code를 열어 파편화된 .vscode/가 생기더라도,
+--- 상위의 settings.gradle(멀티모듈 최상위 루트)을 Tier 1로 감지하여 오차를 원천 차단합니다.
+---
+--- 탐색 계층 구조 (Neovim 0.12 Hierarchy):
+---   Tier 0: 명시적 커스텀 루트 (`nvim.projectRoot`)
+---   Tier 1: 멀티모듈 최상위 빌드 루트 (`settings.gradle`, `settings.gradle.kts`)
+---   Tier 2: 최상위 빌드 래퍼 (`gradlew`, `mvnw`)
+---   Tier 3: CWD 기준 탐색 우선 및 부모 디렉토리 하향 탐색 (.nvim, .vscode, .git)
+---   Tier 4: 파일 위치 기준 상향 탐색 (.nvim, .vscode, .git)
+---   Tier 5: 폴백 (개별 모듈 빌드 마커 또는 CWD)
+---
 --- @param start_path string|nil 탐색 시작 경로 (파일 경로 또는 디렉토리)
 --- @return string 정규화된 루트 경로
 function M.get_project_root(start_path)
@@ -150,22 +167,56 @@ function M.get_project_root(start_path)
   if current_path == '' then
     current_path = vim.fn.getcwd()
   end
-  local cwd = vim.fn.getcwd()
+  current_path = vim.fs.normalize(current_path)
+  local cwd = vim.fs.normalize(vim.fn.getcwd())
 
-  -- 0. .nvim/settings.json 또는 .vscode/settings.json 의 nvim.projectRoot 커스텀 설정 확인 (최우선)
+  -- [Tier 0: 명시적 커스텀 루트 (최우선)]
+  -- CWD 또는 current_path 상위에서 nvim.projectRoot 설정이 발견되면 즉시 확정
   local custom_from_cwd = check_custom_root(cwd)
   if custom_from_cwd then
     return custom_from_cwd
   end
+  local custom_from_file = check_custom_root(current_path)
+  if custom_from_file then
+    return custom_from_file
+  end
 
-  -- 워크스페이스를 식별하는 핵심 마커 (.nvim -> .vscode 최우선)
-  local root_markers = { '.nvim', '.vscode', '.git', 'settings.gradle', 'settings.gradle.kts', 'gradlew', 'mvnw' }
+  -- ===========================================================================================
+  -- [Tier 1: 멀티모듈 최상위 빌드 마커 (Top-Level Multi-Module Markers)]
+  -- Gradle 멀티모듈의 settings.gradle(.kts)는 오직 최상위 루트에만 존재합니다.
+  -- 하위 모듈에 .vscode나 build.gradle이 있더라도, 상위에 settings.gradle이 있다면
+  -- 그 위치가 무조건 프로젝트 전체의 단일 진실 공급원(Root Project)입니다.
+  -- ===========================================================================================
+  local multi_module_markers = { 'settings.gradle', 'settings.gradle.kts' }
+  local top_build_root = vim.fs.root(current_path, multi_module_markers)
+    or vim.fs.root(cwd, multi_module_markers)
+
+  if top_build_root then
+    return check_custom_root(top_build_root) or vim.fs.normalize(top_build_root):gsub('/+$', '')
+  end
+
+  -- ===========================================================================================
+  -- [Tier 2: 최상위 빌드 래퍼 (Wrappers)]
+  -- gradlew, mvnw는 서브모듈에는 없고 보통 최상위 루트에만 존재합니다.
+  -- ===========================================================================================
+  local wrapper_markers = { 'gradlew', 'mvnw' }
+  local wrapper_root = vim.fs.root(current_path, wrapper_markers)
+    or vim.fs.root(cwd, wrapper_markers)
+
+  if wrapper_root then
+    return check_custom_root(wrapper_root) or vim.fs.normalize(wrapper_root):gsub('/+$', '')
+  end
+
+  -- ===========================================================================================
+  -- [Tier 3: CWD와의 관계 기반 탐색 (CWD 우선 및 부모 디렉토리 하향 탐색)]
+  -- ===========================================================================================
+  local root_markers = { '.nvim', '.vscode', '.git' }
 
   -- 1. nvim 실행 디렉토리(CWD) 기준 탐색 우선
   -- 현재 파일이 nvim이 실행된 위치(또는 그 상위 루트)의 하위에 있다면 해당 루트를 선택
   local cwd_root = vim.fs.root(cwd, root_markers)
   if cwd_root and current_path:find(cwd_root, 1, true) == 1 then
-    return check_custom_root(cwd_root) or cwd_root
+    return check_custom_root(cwd_root) or vim.fs.normalize(cwd_root):gsub('/+$', '')
   end
 
   -- 2. nvim 실행 디렉토리(CWD) 기준 하위(파일 방향)로 탐색
@@ -181,23 +232,27 @@ function M.get_project_root(start_path)
             vim.fn.filereadable(segment_acc .. '/' .. marker) == 1
             or vim.fn.isdirectory(segment_acc .. '/' .. marker) == 1
           then
-            return check_custom_root(segment_acc) or segment_acc
+            return check_custom_root(segment_acc) or vim.fs.normalize(segment_acc):gsub('/+$', '')
           end
         end
       end
     end
   end
 
-  -- 3. 파일 위치 기준 상향 탐색 (파일이 CWD 밖에 있는 경우 등)
+  -- ===========================================================================================
+  -- [Tier 4: 파일 위치 기준 상향 탐색 (파일이 CWD 밖에 있는 경우 등)]
+  -- ===========================================================================================
   local root = vim.fs.root(current_path, root_markers)
   if root then
-    return check_custom_root(root) or root
+    return check_custom_root(root) or vim.fs.normalize(root):gsub('/+$', '')
   end
 
-  -- 4. 폴백: 일반 프로젝트 또는 개별 모듈 마커 탐색
+  -- ===========================================================================================
+  -- [Tier 5: 폴백 (개별 모듈 빌드 마커 또는 CWD)]
+  -- ===========================================================================================
   local fallback_markers = { 'build.gradle', 'build.gradle.kts', 'pom.xml' }
   local fallback_root = vim.fs.root(current_path, fallback_markers) or cwd
-  return check_custom_root(fallback_root) or fallback_root
+  return check_custom_root(fallback_root) or vim.fs.normalize(fallback_root):gsub('/+$', '')
 end
 
 --- settings.json 로드 (.nvim/ 1순위 -> .vscode/ 2순위)
