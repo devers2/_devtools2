@@ -1,32 +1,28 @@
 --[[
 ===========================================================================================
-[로컬 프로젝트 설정 가이드: .nvim.lua]
+[로컬 프로젝트 설정 가이드: .nvim/ 및 .vscode/ (SSOT 단일 원본)]
 ===========================================================================================
-Neovim은 실행 디렉토리의 `.nvim.lua` 파일을 읽어 프로젝트별 맞춤 설정을 적용할 수 있습니다.
-보안을 위해 처음 파일을 생성하거나 변경하면 Neovim 하단에 알림이 뜹니다.
-  1. 'v'를 눌러 내용을 확인합니다.
-  2. 내용이 안전하다면 ':trust' 를 눌러 승인해야 정상적으로 로드됩니다.
+보안상 승인 알림(:trust)이 필요하고 관리가 분산되던 레거시 `.nvim.lua` 대신,
+표준 JSON 파일(.nvim/ 또는 .vscode/)을 통해 VS Code와 설정을 100% 공유합니다.
 
-사용 가능한 주요 전역 변수:
-  - PROJECT_ROOT (string): 프로젝트의 최상위 루트 경로를 지정합니다.
-    (예: PROJECT_ROOT = "./" 또는 PROJECT_ROOT = "../my-project")
-    지정 시 자동 루트 탐색 로직을 건너뛰고 해당 경로를 즉시 사용합니다.
+탐색 우선순위:
+  1. 프로젝트 루트의 `.nvim/` 디렉토리 (Neovim 전용 설정이 필요한 경우)
+     - `.nvim/settings.json`
+     - `.nvim/launch.json`
+  2. 프로젝트 루트의 `.vscode/` 디렉토리 (VS Code와 공통 공유)
+     - `.vscode/settings.json`
+     - `.vscode/launch.json`
+  3. 설정 파일이 없는 경우: 빌드 파일(build.gradle 등) 또는 시스템 기본값(Java 21 LTS)으로 폴백
 
-  - JDK_VERSION (number): 프로젝트에서 사용할 Java 버전을 명시합니다. (8, 17, 21, 25 중 하나)
-    (예: JDK_VERSION = 17)
-    지정 시 build.gradle/build.gradle.kts/pom.xml 탐색 없이 해당 버전의 JDK를 즉시 할당합니다.
-
-  - MAIN_CLASS (string): 프로젝트의 메인 실행 클래스(패키지 포함)를 지정합니다.
-    (예: MAIN_CLASS = "com.example.DemoApplication")
-    지정 시 Neovim 시작(대시보드 포함)과 동시에 해당 자바 파일을 자동으로 열어
-    JDTLS 서버가 즉시 구동되도록 유도합니다.
-
-예시 (.nvim.lua):
-    PROJECT_ROOT = "./my-project"
-    JDK_VERSION = 21
-    MAIN_CLASS = "com.example.DemoApplication"
-
-※ _G.PROJECT_ROOT, _G.JDK_VERSION, _G.MAIN_CLASS 는 반드시 런타임 시점에 전역 변수를 직접 참조하여 사용해야 합니다.
+주요 설정 매핑:
+  - nvim.projectRoot (string)
+    : settings.json에 지정 (예: "nvim.projectRoot": "./"). 미지정 시 워크스페이스 마커 자동 탐색.
+  - java.import.gradle.java.home (string)
+    : Gradle 데몬 및 JDTLS 구동용 JDK 경로 (예: "/var/opt/_devtools2/modules/java/jdk-21")
+  - java.configuration.runtimes (array)
+    : 컴파일 대상 런타임 목록 및 default 지정 (예: JavaSE-1.8 default -> Java 8 자동 인식)
+  - launch.json 의 java configuration (mainClass)
+    : 메인 실행 클래스 자동 감지 -> 시작 시 JDTLS 즉시 기동 및 DAP 디버깅에 공통 사용
 ===========================================================================================
 --]]
 
@@ -58,27 +54,44 @@ return {
       -- 파일 위치에서 위로 거슬러 올라가며 프로젝트 최상위 루트를 검색
       -- 멀티 모듈(settings.gradle / settings.gradle.kts / parent pom.xml)과 일반 프로젝트 모두 자동 인식
       opts.root_dir = function(path)
-        -- 0. 로컬 설정(.nvim.lua)에 PROJECT_ROOT가 정의된 경우 우선 사용 (상대 경로 대응)
-        ---@diagnostic disable-next-line: undefined-field
-        if _G.PROJECT_ROOT then
-          ---@diagnostic disable-next-line: undefined-field
-          return vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p'):gsub('/$', '')
-        end
-
         local current_path = path or vim.api.nvim_buf_get_name(0)
         local cwd = vim.fn.getcwd()
-        -- 워크스페이스를 식별하는 핵심 마커 (멀티 모듈 루트 탐색용)
-        local root_markers = { '.git', 'settings.gradle', 'settings.gradle.kts', 'gradlew', 'mvnw' }
+
+        -- 0. .nvim/settings.json 또는 .vscode/settings.json 의 nvim.projectRoot 커스텀 설정 확인 (최우선)
+        local function check_custom_root(dir)
+          if not dir or dir == '' then
+            return nil
+          end
+          for _, folder in ipairs({ '.nvim', '.vscode' }) do
+            local sp = dir .. '/' .. folder .. '/settings.json'
+            if vim.fn.filereadable(sp) == 1 then
+              local ok, lines = pcall(vim.fn.readfile, sp)
+              if ok and lines then
+                local ok_j, data = pcall(vim.json.decode, table.concat(lines, '\n'))
+                if ok_j and type(data) == 'table' and data['nvim.projectRoot'] then
+                  return vim.fn.fnamemodify(dir .. '/' .. tostring(data['nvim.projectRoot']), ':p'):gsub('/+$', '')
+                end
+              end
+            end
+          end
+          return nil
+        end
+
+        local custom_from_cwd = check_custom_root(cwd)
+        if custom_from_cwd then
+          return custom_from_cwd
+        end
+
+        -- 워크스페이스를 식별하는 핵심 마커 (.nvim -> .vscode 최우선)
+        local root_markers = { '.nvim', '.vscode', '.git', 'settings.gradle', 'settings.gradle.kts', 'gradlew', 'mvnw' }
 
         -- 1. nvim 실행 디렉토리(CWD) 기준 탐색 우선
-        -- 현재 파일이 nvim이 실행된 위치(또는 그 상위 루트)의 하위에 있다면 해당 루트를 선택
         local cwd_root = require('jdtls.setup').find_root(root_markers, cwd)
         if cwd_root and current_path:find(cwd_root, 1, true) == 1 then
-          return cwd_root
+          return check_custom_root(cwd_root) or cwd_root
         end
 
         -- 2. nvim 실행 디렉토리(CWD) 기준 하위(파일 방향)로 탐색
-        -- CWD가 워크스페이스의 부모(예: ~/workspaces)인 경우, 파일 경로상 가장 먼저 만나는 프로젝트 루트를 선택
         if current_path:find(cwd, 1, true) == 1 then
           local rel_path = current_path:sub(#cwd + 1)
           local segment_acc = cwd
@@ -90,7 +103,7 @@ return {
                   vim.fn.filereadable(segment_acc .. '/' .. marker) == 1
                   or vim.fn.isdirectory(segment_acc .. '/' .. marker) == 1
                 then
-                  return segment_acc
+                  return check_custom_root(segment_acc) or segment_acc
                 end
               end
             end
@@ -100,10 +113,12 @@ return {
         -- 3. 파일 위치 기준 상향 탐색 (파일이 CWD 밖에 있는 경우 등)
         local root = require('jdtls.setup').find_root(root_markers, current_path)
         if root then
-          return root
+          return check_custom_root(root) or root
         end
+
         -- 4. 폴백: 일반 프로젝트 또는 개별 모듈 마커 탐색
-        return require('jdtls.setup').find_root({ 'build.gradle', 'build.gradle.kts', 'pom.xml' }, current_path) or cwd
+        local fallback_root = require('jdtls.setup').find_root({ 'build.gradle', 'build.gradle.kts', 'pom.xml' }, current_path) or cwd
+        return check_custom_root(fallback_root) or fallback_root
       end
 
       -- 프로젝트 루트 경로 확보
@@ -142,6 +157,62 @@ return {
           end
         end
         return final_rt
+      end
+
+      -- [프로젝트 설정 로더 헬퍼: .nvim (1순위) -> .vscode (2순위) -> 폴백]
+      -- .nvim/ 또는 .vscode/ 아래의 settings.json 및 launch.json을 탐색하여 설정을 일원화합니다.
+      local function load_project_config(project_root_local)
+        local res = {
+          settings = {},
+          main_class = nil,
+          source_settings = nil,
+          source_launch = nil,
+        }
+        if not project_root_local or project_root_local == '' or project_root_local == 'nil' then
+          return res
+        end
+
+        -- 1. settings.json 로드 (.nvim 우선 -> .vscode 차선)
+        for _, folder in ipairs({ '.nvim', '.vscode' }) do
+          local sp = project_root_local .. '/' .. folder .. '/settings.json'
+          if vim.fn.filereadable(sp) == 1 then
+            local ok, lines = pcall(vim.fn.readfile, sp)
+            if ok and lines then
+              local ok_json, data = pcall(vim.json.decode, table.concat(lines, '\n'))
+              if ok_json and type(data) == 'table' then
+                res.settings = data
+                res.source_settings = folder .. '/settings.json'
+                break
+              end
+            end
+          end
+        end
+
+        -- 2. launch.json 로드 (.nvim 우선 -> .vscode 차선)
+        for _, folder in ipairs({ '.nvim', '.vscode' }) do
+          local lp = project_root_local .. '/' .. folder .. '/launch.json'
+          if vim.fn.filereadable(lp) == 1 then
+            local ok, lines = pcall(vim.fn.readfile, lp)
+            if ok and lines then
+              local ok_json, data = pcall(vim.json.decode, table.concat(lines, '\n'))
+              if ok_json and type(data) == 'table' and type(data.configurations) == 'table' then
+                for _, cfg in ipairs(data.configurations) do
+                  local cfg_type = type(cfg.type) == 'string' and cfg.type:lower() or ''
+                  if cfg_type == 'java' and cfg.mainClass and cfg.mainClass ~= '' then
+                    res.main_class = cfg.mainClass
+                    res.source_launch = folder .. '/launch.json'
+                    break
+                  end
+                end
+                if res.main_class then
+                  break
+                end
+              end
+            end
+          end
+        end
+
+        return res
       end
 
       -- [자바 버전 탐색 및 JDK 결정]
@@ -228,8 +299,8 @@ return {
       --    크래시를 일으키므로, 반드시 실제 자바 버퍼/프로젝트에 attach되는 런타임 시점(`opts.full_cmd`)에
       --    동적으로 `_G.JDK_VERSION`을 평가하여 `JAVA_HOME` 및 `cmd`를 생성해야 합니다.
       --
-      -- 2. JDK 버전 결정 우선순위:
-      --    ① .nvim.lua의 `JDK_VERSION` (예: 21, 17, 8 등) -> 최우선 적용
+      -- 2. JDK 버전 및 실행 환경 결정 우선순위:
+      --    ① .nvim/settings.json 또는 .vscode/settings.json (SSOT: java.import.gradle.java.home, java.configuration.runtimes)
       --    ② 프로젝트 빌드 스크립트 (build.gradle / build.gradle.kts / pom.xml) -> 자동 파싱
       --    ③ 시스템 환경변수 `JAVA_HOME` / `PATH` -> 3순위 탐색
       --    ④ 최종 기본 폴백 -> `JDK 21 LTS` (가장 안정적이며 Gradle 7/8/Spring Boot 2/3 호환성 보장)
@@ -244,28 +315,61 @@ return {
         _G.log_jdtls(string.format('[SESSION] Project Name: %s', p_name:upper()))
         _G.log_jdtls('================================================================================')
 
-        local java_version, detect_source
-        ---@diagnostic disable-next-line: undefined-field
-        if _G.JDK_VERSION then
-          -- .nvim.lua에 명시된 버전 우선 사용
-          ---@diagnostic disable-next-line: undefined-field
-          java_version = tonumber(_G.JDK_VERSION)
-          detect_source = '.nvim.lua'
-          _G.log_jdtls(string.format('Using Java Version %s from .nvim.lua', java_version))
-        else
-          java_version, detect_source = get_java_version(root)
+        -- [프로젝트 설정 통합 로드 (.nvim 우선 -> .vscode 차선)]
+        local p_cfg = load_project_config(root)
+        local p_settings = p_cfg.settings or {}
+
+        -- launch.json의 첫 번째 Java launch 설정에서 mainClass 자동 감지
+        if p_cfg.main_class and (not _G.MAIN_CLASS or _G.MAIN_CLASS == '') then
+          _G.MAIN_CLASS = p_cfg.main_class
+          _G.log_jdtls(string.format('Auto-detected MAIN_CLASS from %s: %s', p_cfg.source_launch, _G.MAIN_CLASS))
         end
 
-        -- 안전한 기본값: JDK 21 LTS (Gradle 7/8 및 Spring Boot 2/3 호환성 보장)
-        java_version = java_version or 21
-        local target_java_name, target_java_home = get_jdk_info(java_version)
-        local effective_jdk_home = (java_version >= 21) and target_java_home
-          or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
+        local java_version, detect_source, target_java_name, target_java_home, effective_jdk_home
+        local custom_runtimes = nil
+
+        -- 1. Gradle 데몬 및 JDTLS 실행용 JDK (java.import.gradle.java.home)
+        local gradle_jdk = p_settings['java.import.gradle.java.home']
+        if gradle_jdk and type(gradle_jdk) == 'string' and vim.fn.isdirectory(gradle_jdk) == 1 then
+          effective_jdk_home = gradle_jdk
+          _G.log_jdtls(string.format('Using Gradle Daemon/JDTLS JDK from %s: %s', p_cfg.source_settings, effective_jdk_home))
+        end
+
+        -- 2. 프로젝트 소스 타깃 JDK 및 런타임 목록 (java.configuration.runtimes)
+        local p_runtimes = p_settings['java.configuration.runtimes']
+        if p_runtimes and type(p_runtimes) == 'table' and #p_runtimes > 0 then
+          custom_runtimes = p_runtimes
+          detect_source = p_cfg.source_settings
+          local def_rt = nil
+          for _, rt in ipairs(p_runtimes) do
+            if rt.default == true then
+              def_rt = rt
+              break
+            end
+          end
+          def_rt = def_rt or p_runtimes[1]
+          target_java_name = def_rt.name
+          target_java_home = def_rt.path
+          local v_str = target_java_name and (target_java_name:match('1%.(%d+)') or target_java_name:match('(%d+)'))
+          java_version = tonumber(v_str) or 21
+          _G.log_jdtls(string.format('Using Target Java %s (%s) from %s', java_version, target_java_name or 'unknown', detect_source))
+        end
+
+        -- 3. 폴백: settings.json에 runtimes 설정이 없는 경우
+        if not java_version then
+          java_version, detect_source = get_java_version(root)
+          java_version = java_version or 21
+          target_java_name, target_java_home = get_jdk_info(java_version)
+        end
+
+        effective_jdk_home = effective_jdk_home
+          or ((java_version >= 21) and target_java_home or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21'))
 
         -- [실행 정보 기록]
         _G.log_jdtls(string.format('Project Root : %s', root or 'N/A'))
-        _G.log_jdtls(string.format('Java Version : %s (auto-detected from %s)', java_version, detect_source))
-        _G.log_jdtls(string.format('Java Home    : %s', target_java_home))
+        _G.log_jdtls(string.format('Java Version : %s (auto-detected from %s)', java_version, detect_source or 'default'))
+        _G.log_jdtls(string.format('Java Home    : %s', target_java_home or 'N/A'))
+        _G.log_jdtls(string.format('Daemon Home  : %s', effective_jdk_home or 'N/A'))
 
         local jdtls_executable = vim.fn.exepath('jdtls')
         local mason_bin_jdtls = _G.NVIM_SHARED_DIR .. '/mason/bin/jdtls'
@@ -350,7 +454,7 @@ return {
             o.settings.java.import.gradle.java.home = effective_jdk_home
           end
           if o.settings.java.configuration then
-            o.settings.java.configuration.runtimes = get_runtimes(target_java_name)
+            o.settings.java.configuration.runtimes = custom_runtimes or get_runtimes(target_java_name)
           end
         end
 
@@ -694,7 +798,7 @@ return {
     end,
   },
   -- [MAIN_CLASS 자동 로딩 보조 플러그인 사양]
-  -- .nvim.lua에 MAIN_CLASS가 정의되어 있으면 Neovim 시작 시 해당 파일을 자동으로 열어 JDTLS를 가동시킵니다.
+  -- launch.json (.nvim/ 또는 .vscode/)에 mainClass가 정의되어 있으면 Neovim 시작 시 해당 파일을 자동으로 열어 JDTLS를 가동시킵니다.
   {
     name = 'java-main-class-autostart',
     dir = vim.fn.stdpath('config'),
@@ -703,26 +807,64 @@ return {
       vim.api.nvim_create_autocmd('VimEnter', {
         group = vim.api.nvim_create_augroup('java_main_class_autostart', { clear = true }),
         callback = function()
-          ---@diagnostic disable-next-line: undefined-field
-          if _G.MAIN_CLASS then
-            -- 이미 자바 파일이 열려있는지 확인 (중복 로딩 방지)
-            for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
-              if vim.bo[bufnr].filetype == 'java' then
-                return
+          -- 이미 자바 파일이 열려있는지 확인 (중복 로딩 방지)
+          for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+            if vim.bo[bufnr].filetype == 'java' then
+              return
+            end
+          end
+
+          local cwd = vim.fn.getcwd()
+          local search_root = cwd
+
+          -- 0. .nvim/settings.json 또는 .vscode/settings.json 의 nvim.projectRoot 확인
+          for _, folder in ipairs({ '.nvim', '.vscode' }) do
+            local sp = cwd .. '/' .. folder .. '/settings.json'
+            if vim.fn.filereadable(sp) == 1 then
+              local ok_r, lines = pcall(vim.fn.readfile, sp)
+              if ok_r and lines then
+                local ok_j, data = pcall(vim.json.decode, table.concat(lines, '\n'))
+                if ok_j and type(data) == 'table' and data['nvim.projectRoot'] then
+                  search_root = vim.fn.fnamemodify(cwd .. '/' .. tostring(data['nvim.projectRoot']), ':p'):gsub('/+$', '')
+                  break
+                end
               end
             end
+          end
 
-            ---@diagnostic disable-next-line: undefined-field
-            local search_root = _G.PROJECT_ROOT and vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p') or vim.fn.getcwd()
-            -- ⚠️ getcwd()와 trailing slash 없는 PROJECT_ROOT(예: "./my-project")를 fnamemodify(':p')한
-            -- 결과에는 끝에 '/'가 없습니다. 아래 common_paths에서 'src/main/java/'와 그대로 이어붙이면
-            -- 구분자 없이 "...my-projectsrc/main/java/..."처럼 경로가 깨져서, "성능 최적화"용 빠른 경로
-            -- 확인이 항상 실패하고 매번 느린 glob 폴백만 타게 됩니다. 끝에 '/'를 보장합니다.
-            if not search_root:match('/$') then
-              search_root = search_root .. '/'
+          if not search_root:match('/$') then
+            search_root = search_root .. '/'
+          end
+
+          -- mainClass 탐색: _G.MAIN_CLASS 우선, 없으면 .nvim/ 또는 .vscode/ 의 launch.json 에서 탐색
+          local main_class = _G.MAIN_CLASS
+          if not main_class or main_class == '' then
+            for _, folder in ipairs({ '.nvim', '.vscode' }) do
+              local lp = search_root .. folder .. '/launch.json'
+              if vim.fn.filereadable(lp) == 1 then
+                local ok_r, lines = pcall(vim.fn.readfile, lp)
+                if ok_r and lines then
+                  local ok_j, data = pcall(vim.json.decode, table.concat(lines, '\n'))
+                  if ok_j and type(data) == 'table' and type(data.configurations) == 'table' then
+                    for _, cfg in ipairs(data.configurations) do
+                      local cfg_type = type(cfg.type) == 'string' and cfg.type:lower() or ''
+                      if cfg_type == 'java' and cfg.mainClass and cfg.mainClass ~= '' then
+                        main_class = cfg.mainClass
+                        _G.MAIN_CLASS = main_class
+                        break
+                      end
+                    end
+                    if main_class then
+                      break
+                    end
+                  end
+                end
+              end
             end
-            ---@diagnostic disable-next-line: undefined-field
-            local class_rel_path = _G.MAIN_CLASS:gsub('%.', '/') .. '.java'
+          end
+
+          if main_class and main_class ~= '' then
+            local class_rel_path = main_class:gsub('%.', '/') .. '.java'
 
             -- 효율적인 탐색: 일반적인 소스 경로 우선 확인 (성능 최적화)
             local found_path = nil
@@ -764,10 +906,7 @@ return {
                   vim.bo[java_buf].filetype = 'java'
 
                   if _G.log_jdtls then
-                    _G.log_jdtls(
-                      ---@diagnostic disable-next-line: undefined-field
-                      string.format('MAIN_CLASS detected. JDTLS started in background for: %s', _G.MAIN_CLASS)
-                    )
+                    _G.log_jdtls(string.format('Main class detected (%s). JDTLS started in background.', main_class))
                   end
                 end)
               end
