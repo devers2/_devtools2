@@ -53,74 +53,15 @@ return {
       -- [루트 탐색 로직]
       -- 파일 위치에서 위로 거슬러 올라가며 프로젝트 최상위 루트를 검색
       -- 멀티 모듈(settings.gradle / settings.gradle.kts / parent pom.xml)과 일반 프로젝트 모두 자동 인식
+      -- 공통 프로젝트 설정 로더(util.project_config)를 단일 진실 공급원(SSOT)으로 사용합니다.
+      -- 탐색 단계 (util.project_config):
+      --   0. .nvim/settings.json 또는 .vscode/settings.json 의 nvim.projectRoot 커스텀 설정 확인 (최우선)
+      --   1. nvim 실행 디렉토리(CWD) 기준 탐색 우선 (현재 파일이 CWD 또는 상위 루트 하위에 있는 경우)
+      --   2. nvim 실행 디렉토리(CWD) 기준 하위(파일 방향) 탐색 (CWD가 워크스페이스의 부모인 경우)
+      --   3. 파일 위치 기준 상향 탐색 (파일이 CWD 밖에 있는 경우 등)
+      --   4. 폴백: 일반 프로젝트 또는 개별 모듈 마커 탐색
       opts.root_dir = function(path)
-        local current_path = path or vim.api.nvim_buf_get_name(0)
-        local cwd = vim.fn.getcwd()
-
-        -- 0. .nvim/settings.json 또는 .vscode/settings.json 의 nvim.projectRoot 커스텀 설정 확인 (최우선)
-        local function check_custom_root(dir)
-          if not dir or dir == '' then
-            return nil
-          end
-          for _, folder in ipairs({ '.nvim', '.vscode' }) do
-            local sp = dir .. '/' .. folder .. '/settings.json'
-            if vim.fn.filereadable(sp) == 1 then
-              local ok, lines = pcall(vim.fn.readfile, sp)
-              if ok and lines then
-                local ok_j, data = pcall(vim.json.decode, table.concat(lines, '\n'))
-                if ok_j and type(data) == 'table' and data['nvim.projectRoot'] then
-                  return vim.fn.fnamemodify(dir .. '/' .. tostring(data['nvim.projectRoot']), ':p'):gsub('/+$', '')
-                end
-              end
-            end
-          end
-          return nil
-        end
-
-        local custom_from_cwd = check_custom_root(cwd)
-        if custom_from_cwd then
-          return custom_from_cwd
-        end
-
-        -- 워크스페이스를 식별하는 핵심 마커 (.nvim -> .vscode 최우선)
-        local root_markers = { '.nvim', '.vscode', '.git', 'settings.gradle', 'settings.gradle.kts', 'gradlew', 'mvnw' }
-
-        -- 1. nvim 실행 디렉토리(CWD) 기준 탐색 우선
-        -- 현재 파일이 nvim이 실행된 위치(또는 그 상위 루트)의 하위에 있다면 해당 루트를 선택
-        local cwd_root = require('jdtls.setup').find_root(root_markers, cwd)
-        if cwd_root and current_path:find(cwd_root, 1, true) == 1 then
-          return check_custom_root(cwd_root) or cwd_root
-        end
-
-        -- 2. nvim 실행 디렉토리(CWD) 기준 하위(파일 방향)로 탐색
-        -- CWD가 워크스페이스의 부모(예: ~/workspaces)인 경우, 파일 경로상 가장 먼저 만나는 프로젝트 루트를 선택
-        if current_path:find(cwd, 1, true) == 1 then
-          local rel_path = current_path:sub(#cwd + 1)
-          local segment_acc = cwd
-          for segment in rel_path:gmatch('[^/]+') do
-            segment_acc = segment_acc .. '/' .. segment
-            if vim.fn.isdirectory(segment_acc) == 1 then
-              for _, marker in ipairs(root_markers) do
-                if
-                  vim.fn.filereadable(segment_acc .. '/' .. marker) == 1
-                  or vim.fn.isdirectory(segment_acc .. '/' .. marker) == 1
-                then
-                  return check_custom_root(segment_acc) or segment_acc
-                end
-              end
-            end
-          end
-        end
-
-        -- 3. 파일 위치 기준 상향 탐색 (파일이 CWD 밖에 있는 경우 등)
-        local root = require('jdtls.setup').find_root(root_markers, current_path)
-        if root then
-          return check_custom_root(root) or root
-        end
-
-        -- 4. 폴백: 일반 프로젝트 또는 개별 모듈 마커 탐색
-        local fallback_root = require('jdtls.setup').find_root({ 'build.gradle', 'build.gradle.kts', 'pom.xml' }, current_path) or cwd
-        return check_custom_root(fallback_root) or fallback_root
+        return require('util.project_config').get_project_root(path or vim.api.nvim_buf_get_name(0))
       end
 
       -- 프로젝트 루트 경로 확보
@@ -163,58 +104,17 @@ return {
 
       -- [프로젝트 설정 로더 헬퍼: .nvim (1순위) -> .vscode (2순위) -> 폴백]
       -- .nvim/ 또는 .vscode/ 아래의 settings.json 및 launch.json을 탐색하여 설정을 일원화합니다.
+      -- util.project_config 모듈을 단일 진실 공급원(SSOT)으로 사용합니다.
       local function load_project_config(project_root_local)
-        local res = {
-          settings = {},
-          main_class = nil,
-          source_settings = nil,
-          source_launch = nil,
+        local pcfg = require('util.project_config')
+        local settings, s_path = pcfg.get_settings(project_root_local)
+        local main_cls, l_path = pcfg.get_main_class(project_root_local)
+        return {
+          settings = settings or {},
+          main_class = main_cls,
+          source_settings = s_path and (vim.fs.basename(vim.fs.dirname(s_path)) .. '/settings.json') or nil,
+          source_launch = l_path and (vim.fs.basename(vim.fs.dirname(l_path)) .. '/launch.json') or nil,
         }
-        if not project_root_local or project_root_local == '' or project_root_local == 'nil' then
-          return res
-        end
-
-        -- 1. settings.json 로드 (.nvim 우선 -> .vscode 차선)
-        for _, folder in ipairs({ '.nvim', '.vscode' }) do
-          local sp = project_root_local .. '/' .. folder .. '/settings.json'
-          if vim.fn.filereadable(sp) == 1 then
-            local ok, lines = pcall(vim.fn.readfile, sp)
-            if ok and lines then
-              local ok_json, data = pcall(vim.json.decode, table.concat(lines, '\n'))
-              if ok_json and type(data) == 'table' then
-                res.settings = data
-                res.source_settings = folder .. '/settings.json'
-                break
-              end
-            end
-          end
-        end
-
-        -- 2. launch.json 로드 (.nvim 우선 -> .vscode 차선)
-        for _, folder in ipairs({ '.nvim', '.vscode' }) do
-          local lp = project_root_local .. '/' .. folder .. '/launch.json'
-          if vim.fn.filereadable(lp) == 1 then
-            local ok, lines = pcall(vim.fn.readfile, lp)
-            if ok and lines then
-              local ok_json, data = pcall(vim.json.decode, table.concat(lines, '\n'))
-              if ok_json and type(data) == 'table' and type(data.configurations) == 'table' then
-                for _, cfg in ipairs(data.configurations) do
-                  local cfg_type = type(cfg.type) == 'string' and cfg.type:lower() or ''
-                  if cfg_type == 'java' and cfg.mainClass and cfg.mainClass ~= '' then
-                    res.main_class = cfg.mainClass
-                    res.source_launch = folder .. '/launch.json'
-                    break
-                  end
-                end
-                if res.main_class then
-                  break
-                end
-              end
-            end
-          end
-        end
-
-        return res
       end
 
       -- [자바 버전 탐색 및 JDK 결정]
@@ -295,11 +195,11 @@ return {
       -- [JDTLS 실행 명령 런타임 동적 재구성] ⚠️ AI 수정 주의: 절대 정적 평가로 변경 금지!
       -- ===========================================================================================
       -- 1. 배경 및 원인:
-      --    Neovim 시작 시점(opts 로드 시점)에는 프로젝트 루트의 `.nvim.lua`가 아직 실행(exrc)되기 전입니다.
-      --    따라서 `opts.cmd`를 정적으로 미리 평가해버리면 `_G.JDK_VERSION`을 읽지 못하고 기본값(예: JDK 25)으로 고정됩니다.
+      --    Neovim 시작 시점(opts 로드 시점)에는 프로젝트 루트의 설정(settings.json)이 아직 파싱되기 전입니다.
+      --    따라서 `opts.cmd`를 정적으로 미리 평가해버리면 동적 JDK 설정을 읽지 못하고 기본값(예: JDK 25)으로 고정됩니다.
       --    Gradle 7.x/8.x 및 Spring Boot 2.7은 JDK 25(실험적 버전)에서 `TypeNotPresentException: Type T not present`
       --    크래시를 일으키므로, 반드시 실제 자바 버퍼/프로젝트에 attach되는 런타임 시점(`opts.full_cmd`)에
-      --    동적으로 `_G.JDK_VERSION`을 평가하여 `JAVA_HOME` 및 `cmd`를 생성해야 합니다.
+      --    동적으로 프로젝트 JDK 설정을 평가하여 `JAVA_HOME` 및 `cmd`를 생성해야 합니다.
       --
       -- 2. JDK 버전 및 실행 환경 결정 우선순위:
       --    ① .nvim/settings.json 또는 .vscode/settings.json (SSOT: java.import.gradle.java.home, java.configuration.runtimes)
@@ -816,52 +716,18 @@ return {
             end
           end
 
-          local cwd = vim.fn.getcwd()
-          local search_root = cwd
-
-          -- 0. .nvim/settings.json 또는 .vscode/settings.json 의 nvim.projectRoot 확인
-          for _, folder in ipairs({ '.nvim', '.vscode' }) do
-            local sp = cwd .. '/' .. folder .. '/settings.json'
-            if vim.fn.filereadable(sp) == 1 then
-              local ok_r, lines = pcall(vim.fn.readfile, sp)
-              if ok_r and lines then
-                local ok_j, data = pcall(vim.json.decode, table.concat(lines, '\n'))
-                if ok_j and type(data) == 'table' and data['nvim.projectRoot'] then
-                  search_root = vim.fn.fnamemodify(cwd .. '/' .. tostring(data['nvim.projectRoot']), ':p'):gsub('/+$', '')
-                  break
-                end
-              end
-            end
-          end
-
+          local pcfg = require('util.project_config')
+          local search_root = pcfg.get_project_root()
           if not search_root:match('/$') then
             search_root = search_root .. '/'
           end
 
-          -- mainClass 탐색: _G.MAIN_CLASS 우선, 없으면 .nvim/ 또는 .vscode/ 의 launch.json 에서 탐색
+          -- mainClass 탐색: _G.MAIN_CLASS 우선, 없으면 .nvim/ 또는 .vscode/ 의 launch.json 에서 탐색 (util.project_config SSOT)
           local main_class = _G.MAIN_CLASS
           if not main_class or main_class == '' then
-            for _, folder in ipairs({ '.nvim', '.vscode' }) do
-              local lp = search_root .. folder .. '/launch.json'
-              if vim.fn.filereadable(lp) == 1 then
-                local ok_r, lines = pcall(vim.fn.readfile, lp)
-                if ok_r and lines then
-                  local ok_j, data = pcall(vim.json.decode, table.concat(lines, '\n'))
-                  if ok_j and type(data) == 'table' and type(data.configurations) == 'table' then
-                    for _, cfg in ipairs(data.configurations) do
-                      local cfg_type = type(cfg.type) == 'string' and cfg.type:lower() or ''
-                      if cfg_type == 'java' and cfg.mainClass and cfg.mainClass ~= '' then
-                        main_class = cfg.mainClass
-                        _G.MAIN_CLASS = main_class
-                        break
-                      end
-                    end
-                    if main_class then
-                      break
-                    end
-                  end
-                end
-              end
+            main_class = pcfg.get_main_class(search_root)
+            if main_class then
+              _G.MAIN_CLASS = main_class
             end
           end
 
