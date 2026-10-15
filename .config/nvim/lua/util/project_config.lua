@@ -147,18 +147,19 @@ local function check_custom_root(path)
   return nil
 end
 
---- 프로젝트 루트 디렉토리 결정 (순수 빌드/저장소 마커 기반)
---- .nvim이나 .vscode 같은 에디터 설정 폴더는 하위 모듈에 우발적으로 생성될 수 있으므로
---- 루트 판별 마커에서 완전히 배제하고, 오직 순수 빌드/저장소 마커(.git, settings.gradle 등)로만 루트를 확정합니다.
---- (확정된 루트 내부에서 .nvim/ -> .vscode/ 순으로 설정을 읽습니다)
+--- 프로젝트 루트 디렉토리 결정 (재귀적/멀티모듈 완전 대응)
+--- 단일 모듈뿐만 아니라 Gradle Composite Build, 재귀적 Maven 멀티모듈(<modules> 계층 구조),
+--- Git Monorepo 환경에서도 오차 없이 최상위 프로젝트 루트를 정확히 확정합니다.
 ---
---- 탐색 계층 구조:
----   Tier 0: 명시적 커스텀 루트 (`nvim.projectRoot` in settings.json)
----   Tier 1: 멀티모듈 최상위 빌드 루트 (`settings.gradle`, `settings.gradle.kts`)
----   Tier 2: 최상위 빌드 래퍼 및 저장소 마커 (`gradlew`, `mvnw`, `.git`)
----   Tier 3: CWD 기준 탐색 우선 및 부모 디렉토리 하향 탐색 (root_markers)
----   Tier 4: 파일 위치 기준 상향 탐색 (root_markers)
----   Tier 5: 폴백 (개별 모듈 빌드 마커 build.gradle, pom.xml 또는 CWD)
+--- 핵심 설계 원칙 (Recursive Multi-Module Principles):
+---   1. CWD 일치 우선 원칙 (CWD Enclosure):
+---      개발자가 최상위 루트에서 nvim을 열었다면, 하위에 또 다른 중첩 settings.gradle이나 pom.xml이 있더라도
+---      사용자의 명확한 작업 범위(CWD)를 프로젝트 루트로 최우선 확정합니다.
+---   2. 부모 폴더 실행 시 하향 탐색 (Top-down First Enclosing):
+---      CWD가 ~/workspaces 등 상위 디렉토리인 경우, 파일 경로상 가장 먼저 만나는 최상위 프로젝트 컨테이너를 포착합니다.
+---   3. 상향 탐색 시 최상위 마커 우선 (Topmost Marker Search):
+---      하위 모듈에 국지적 pom.xml이나 서브 settings.gradle이 있더라도, 상위로 거슬러 올라가며
+---      발견되는 '가장 높은(Topmost)' 부모 프로젝트 마커를 찾아 재귀적 구조를 완벽히 포괄합니다.
 ---
 --- @param start_path string|nil 탐색 시작 경로 (파일 경로 또는 디렉토리)
 --- @return string 정규화된 루트 경로
@@ -181,78 +182,79 @@ function M.get_project_root(start_path)
     return custom_from_file
   end
 
-  -- ===========================================================================================
-  -- [Tier 1: 멀티모듈 최상위 빌드 마커 (Top-Level Multi-Module Markers)]
-  -- Gradle 멀티모듈의 settings.gradle(.kts)는 오직 최상위 루트에만 존재합니다.
-  -- 하위 모듈에 build.gradle이 있더라도, 상위에 settings.gradle이 있다면
-  -- 그 위치가 무조건 프로젝트 전체의 단일 진실 공급원(Root Project)입니다.
-  -- ===========================================================================================
-  local multi_module_markers = { 'settings.gradle', 'settings.gradle.kts' }
-  local top_build_root = vim.fs.root(current_path, multi_module_markers)
-    or vim.fs.root(cwd, multi_module_markers)
+  -- 핵심 워크스페이스 식별 마커 목록
+  local top_markers = { 'settings.gradle', 'settings.gradle.kts', 'gradlew', 'mvnw', '.git' }
+  local single_markers = { 'build.gradle', 'build.gradle.kts', 'pom.xml' }
 
-  if top_build_root then
-    return check_custom_root(top_build_root) or vim.fs.normalize(top_build_root):gsub('/+$', '')
+  -- 디렉토리에 대상 마커가 하나라도 존재하는지 확인하는 헬퍼
+  local function has_any_marker(dir, markers)
+    for _, m in ipairs(markers) do
+      if vim.fn.filereadable(dir .. '/' .. m) == 1 or vim.fn.isdirectory(dir .. '/' .. m) == 1 then
+        return true
+      end
+    end
+    return false
   end
 
   -- ===========================================================================================
-  -- [Tier 2: 최상위 빌드 래퍼 및 저장소 마커 (Wrappers & VCS Root)]
-  -- gradlew, mvnw, .git은 프로젝트의 최상위 경계를 나타냅니다.
-  -- ===========================================================================================
-  local wrapper_markers = { 'gradlew', 'mvnw', '.git' }
-  local wrapper_root = vim.fs.root(current_path, wrapper_markers)
-    or vim.fs.root(cwd, wrapper_markers)
-
-  if wrapper_root then
-    return check_custom_root(wrapper_root) or vim.fs.normalize(wrapper_root):gsub('/+$', '')
-  end
-
-  -- ===========================================================================================
-  -- [Tier 3: CWD와의 관계 기반 탐색 (CWD 우선 및 부모 디렉토리 하향 탐색)]
-  -- ===========================================================================================
-  local root_markers = { '.git', 'settings.gradle', 'settings.gradle.kts', 'gradlew', 'mvnw' }
-
-  -- 1. nvim 실행 디렉토리(CWD) 기준 탐색 우선
+  -- 1. nvim 실행 디렉토리(CWD) 기준 탐색 우선 (CWD Enclosure)
   -- 현재 파일이 nvim이 실행된 위치(또는 그 상위 루트)의 하위에 있다면 해당 루트를 선택
-  local cwd_root = vim.fs.root(cwd, root_markers)
-  if cwd_root and current_path:find(cwd_root, 1, true) == 1 then
-    return check_custom_root(cwd_root) or vim.fs.normalize(cwd_root):gsub('/+$', '')
+  -- (CWD 자체가 프로젝트 루트인 경우, 하위에 또 다른 중첩 settings.gradle이 있더라도 CWD를 최우선 확정)
+  -- ===========================================================================================
+  if has_any_marker(cwd, top_markers) or has_any_marker(cwd, single_markers) then
+    if current_path == cwd or current_path:find(cwd .. '/', 1, true) == 1 then
+      return check_custom_root(cwd) or cwd
+    end
   end
 
+  -- ===========================================================================================
   -- 2. nvim 실행 디렉토리(CWD) 기준 하위(파일 방향)로 탐색
   -- CWD가 워크스페이스의 부모(예: ~/workspaces)인 경우, 파일 경로상 가장 먼저 만나는 프로젝트 루트를 선택
-  if current_path:find(cwd, 1, true) == 1 then
-    local rel_path = current_path:sub(#cwd + 1)
+  -- (중첩 모듈 내부로 깊이 들어가지 않고, 최상위 컨테이너 프로젝트를 먼저 포착)
+  -- ===========================================================================================
+  if current_path:find(cwd .. '/', 1, true) == 1 then
+    local rel_path = current_path:sub(#cwd + 2)
     local segment_acc = cwd
     for segment in rel_path:gmatch('[^/]+') do
       segment_acc = segment_acc .. '/' .. segment
       if vim.fn.isdirectory(segment_acc) == 1 then
-        for _, marker in ipairs(root_markers) do
-          if
-            vim.fn.filereadable(segment_acc .. '/' .. marker) == 1
-            or vim.fn.isdirectory(segment_acc .. '/' .. marker) == 1
-          then
-            return check_custom_root(segment_acc) or vim.fs.normalize(segment_acc):gsub('/+$', '')
-          end
+        if has_any_marker(segment_acc, top_markers) or has_any_marker(segment_acc, single_markers) then
+          return check_custom_root(segment_acc) or segment_acc
         end
       end
     end
   end
 
   -- ===========================================================================================
-  -- [Tier 4: 파일 위치 기준 상향 탐색 (파일이 CWD 밖에 있는 경우 등)]
+  -- 3. 파일 위치 기준 상향 탐색: 최상위 마커 우선 탐색 (Topmost Search)
+  -- 중첩된 복합 빌드(Composite Build) 또는 재귀적 멀티모듈 환경에서
+  -- 하위 모듈에서 멈추지 않고 상위로 거슬러 올라가며 가장 높은(Topmost) 프로젝트 루트를 확정
   -- ===========================================================================================
-  local root = vim.fs.root(current_path, root_markers)
-  if root then
-    return check_custom_root(root) or vim.fs.normalize(root):gsub('/+$', '')
+  local topmost_root = nil
+  for dir in vim.fs.parents(current_path) do
+    if has_any_marker(dir, top_markers) then
+      topmost_root = dir
+    end
+  end
+  if topmost_root then
+    return check_custom_root(topmost_root) or vim.fs.normalize(topmost_root):gsub('/+$', '')
   end
 
   -- ===========================================================================================
-  -- [Tier 5: 폴백 (개별 모듈 빌드 마커 또는 CWD)]
+  -- 4. 폴백: 단일 모듈 빌드 마커 중 최상위 부모 탐색 (Topmost Maven POM / Gradle Build)
+  -- Maven 재귀 멀티모듈의 경우 말단 모듈의 pom.xml이 아닌 최상위 부모 pom.xml을 포착
   -- ===========================================================================================
-  local fallback_markers = { 'build.gradle', 'build.gradle.kts', 'pom.xml' }
-  local fallback_root = vim.fs.root(current_path, fallback_markers) or cwd
-  return check_custom_root(fallback_root) or vim.fs.normalize(fallback_root):gsub('/+$', '')
+  local topmost_single = nil
+  for dir in vim.fs.parents(current_path) do
+    if has_any_marker(dir, single_markers) then
+      topmost_single = dir
+    end
+  end
+  if topmost_single then
+    return check_custom_root(topmost_single) or vim.fs.normalize(topmost_single):gsub('/+$', '')
+  end
+
+  return cwd
 end
 
 --- settings.json 로드 (.nvim/ 1순위 -> .vscode/ 2순위)
