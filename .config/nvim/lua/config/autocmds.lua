@@ -657,13 +657,14 @@ vim.api.nvim_create_autocmd('BufWritePost', {
         return
       end
 
-      -- 절대 경로 정규화 (상대경로, ~경로 대응)
+      -- 절대 경로 정규화 (상대경로, ~경로 대응: .nvim/ 및 .vscode/ 지원)
       local normalized_path = vim.fn.fnamemodify(fname, ':p')
-      if not normalized_path:match('/%.vscode/launch%.json$') then
+      local folder = normalized_path:match('/(%.nvim)/launch%.json$') or normalized_path:match('/(%.vscode)/launch%.json$')
+      if not folder then
         return
       end
 
-      local project_root = normalized_path:gsub('/%.vscode/launch%.json$', '')
+      local project_root = normalized_path:gsub('/' .. folder .. '/launch%.json$', '')
         if not project_root or project_root == '' then
           return
         end

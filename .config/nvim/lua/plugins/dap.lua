@@ -594,8 +594,38 @@ return {
       make_case_insensitive_table(dap.adapters)
       make_case_insensitive_table(dap.configurations)
 
+      -- [DAP 실행 설정 탐색 우선순위: .nvim/launch.json (1순위) -> .vscode/launch.json (2순위)]
+      -- nvim-dap의 기본 dap.launch.json 프로바이더는 .vscode/launch.json만 하드코딩으로 읽으므로,
+      -- .nvim/launch.json이 존재할 경우 이를 1순위로 로드하도록 프로바이더를 래핑합니다.
+      dap.providers = dap.providers or {}
+      dap.providers.configs = dap.providers.configs or {}
+      dap.providers.configs['dap.launch.json'] = function()
+        local cwd = vim.fn.getcwd()
+        local root = get_dap_project_root()
+        local launch_path = nil
+
+        for _, folder in ipairs({ '.nvim', '.vscode' }) do
+          local p1 = root .. '/' .. folder .. '/launch.json'
+          local p2 = cwd .. '/' .. folder .. '/launch.json'
+          if vim.fn.filereadable(p1) == 1 then
+            launch_path = p1
+            break
+          elseif vim.fn.filereadable(p2) == 1 then
+            launch_path = p2
+            break
+          end
+        end
+
+        local vscode_ext = require('dap.ext.vscode')
+        local ok, configs = pcall(vscode_ext.getconfigs, launch_path)
+        if not ok then
+          return {}
+        end
+        return configs or {}
+      end
+
       -- [순수 launch.json 0순위 원칙 및 피커 오염 방지]
-      -- Attach는 <leader>da가 전담하고, Launch는 .vscode/launch.json이 0순위 표준입니다.
+      -- Attach는 <leader>da가 전담하고, Launch는 launch.json (.nvim/ 또는 .vscode/)이 0순위 표준입니다.
       -- LazyVim의 언어별 extras(java, python, typescript 등)가 자체적으로 주입하는 기본 설정
       -- (Remote Attach, Launch file, file:args, doctest 등)이 피커에 섞여 나와
       -- launch.json 단일 설정 시 불필요한 선택 팝업이 뜨거나 피커 목록을 오염시키는 것을 방지합니다.
