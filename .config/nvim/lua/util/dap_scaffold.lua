@@ -197,8 +197,7 @@ end
 function M.detect_project_type()
   -- [0.5순위: 프로젝트 명시적 선언 (Java 전용)]
   -- ※ MAIN_CLASS 는 클래스 기반 실행 구조를 가진 Java/Kotlin 고유의 설정 변수입니다.
-  --   Python, Node, Go, Rust 등 파일/모듈 단위로 진입하는 언어는 .nvim.lua 에 MAIN_CLASS 를 두지 않으며,
-  --   .nvim.lua 에 MAIN_CLASS 가 선언되어 있다면 의심할 여지 없이 100% Java 프로젝트로 확정합니다.
+  --   Java mainClass 가 설정되어 있다면 의심할 여지 없이 100% Java 프로젝트로 확정합니다.
   if _G.MAIN_CLASS and _G.MAIN_CLASS ~= '' then
     return 'java'
   end

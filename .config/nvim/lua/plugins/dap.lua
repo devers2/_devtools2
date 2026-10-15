@@ -250,6 +250,24 @@ return {
         return false
       end
 
+      -- [프로젝트 루트 탐색 헬퍼: .nvim/settings.json -> .vscode/settings.json 의 nvim.projectRoot 우선, 없으면 CWD]
+      local function get_dap_project_root()
+        local cwd = vim.fn.getcwd()
+        for _, folder in ipairs({ '.nvim', '.vscode' }) do
+          local sp = cwd .. '/' .. folder .. '/settings.json'
+          if vim.fn.filereadable(sp) == 1 then
+            local ok_r, lines = pcall(vim.fn.readfile, sp)
+            if ok_r and lines then
+              local ok_j, data = pcall(vim.json.decode, table.concat(lines, '\n'))
+              if ok_j and type(data) == 'table' and data['nvim.projectRoot'] then
+                return vim.fn.fnamemodify(cwd .. '/' .. tostring(data['nvim.projectRoot']), ':p'):gsub('/+$', '')
+              end
+            end
+          end
+        end
+        return cwd:gsub('/+$', '')
+      end
+
       local function kill_debuggee_process(session, on_done, target_main_class, config_type)
         local cb = on_done or function() end
         local cur_session = session or dap.session()
@@ -269,11 +287,8 @@ return {
         local direct_pid = session_id and active_debug_pids[session_id]
 
         local my_pid = vim.uv.os_getpid()
-        ---@diagnostic disable-next-line: undefined-field
-        local root = (_G.PROJECT_ROOT and vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p')) or vim.fn.getcwd()
-        root = root:gsub('/+$', '')
-        ---@diagnostic disable-next-line: undefined-field
-        local main_class = target_main_class or _G.MAIN_CLASS
+        local root = get_dap_project_root()
+        local main_class = target_main_class or (cur_session and cur_session.config and cur_session.config.mainClass) or _G.MAIN_CLASS
 
         -- [PID 정밀 종료 우선]
         -- 디버거가 실행한 명확한 프로세스 ID(direct_pid)가 확인된 경우,
@@ -1028,8 +1043,7 @@ return {
       --    - 에디터 UI 블로킹 없이 리소스 처리를 완료한 후, JDTLS 증분 컴파일 워치독(`build_workspace_with_watchdog`)으로 체이닝됩니다.
       -- ===========================================================================================
       local function run_java_prelaunch_task(on_done)
-        ---@diagnostic disable-next-line: undefined-field
-        local root = (_G.PROJECT_ROOT and vim.fn.fnamemodify(_G.PROJECT_ROOT, ':p')) or vim.fn.getcwd()
+        local root = get_dap_project_root()
         if not root:match('/$') then
           root = root .. '/'
         end
@@ -1039,19 +1053,27 @@ return {
         local has_gradlew = vim.fn.filereadable(gradlew) == 1
         local has_mvnw = vim.fn.filereadable(mvnw) == 1
 
-        ---@diagnostic disable-next-line: undefined-field
-        local java_ver = tonumber(_G.JDK_VERSION) or 21
-        -- [JAVA_HOME 결정 정책: jdk-21 고정 폴백]
+        -- [JAVA_HOME 결정 정책: settings.json 의 java.import.gradle.java.home 우선, 기본 jdk-21 고정 폴백]
         -- ● processResources / process-resources 태스크는 리소스 파일 복사·필터링만 수행하며
         --   자바 소스를 컴파일하지 않으므로, 실행 JDK 버전과 프로젝트 소스 호환성은 무관합니다.
-        -- ● Gradle / Maven 자체는 상위 JDK(jdk-21)로도 하위 버전(17, 8) 프로젝트를 빌드할 수
-        --   있으며, sourceCompatibility / targetCompatibility 는 ECJ(컴파일러)가 담당합니다.
-        -- ● 따라서 JDK_VERSION < 21 인 프로젝트에도 jdk-21로 processResources를 실행하는 것은
-        --   완전히 안전하며, 불필요한 JDK 분기 복잡도를 줄이기 위해 의도적으로 통일합니다.
-        -- ● jdk-25 이상처럼 21보다 높은 버전이 지정된 경우에만 해당 버전을 그대로 사용합니다.
-        ---@diagnostic disable-next-line: undefined-field
-        local java_home = (java_ver >= 21) and (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-' .. java_ver)
-          or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
+        local java_home = nil
+        for _, folder in ipairs({ '.nvim', '.vscode' }) do
+          local sp = root .. folder .. '/settings.json'
+          if vim.fn.filereadable(sp) == 1 then
+            local ok_r, lines = pcall(vim.fn.readfile, sp)
+            if ok_r and lines then
+              local ok_j, data = pcall(vim.json.decode, table.concat(lines, '\n'))
+              if ok_j and type(data) == 'table' and data['java.import.gradle.java.home'] then
+                local g_home = tostring(data['java.import.gradle.java.home'])
+                if vim.fn.isdirectory(g_home) == 1 then
+                  java_home = g_home
+                  break
+                end
+              end
+            end
+          end
+        end
+        java_home = java_home or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
 
         --- 디버그 실행 전 런타임 리소스 동기화 (사전 빌드 파이프라인의 리소스 준비 단계)
         --
@@ -1167,13 +1189,13 @@ return {
       --    (※ 런타임 프로필 팝업은 launch.json 0순위 표준 원칙에 따라 폐지되었으며, launch.json 설정을 0ms 즉시 존중합니다)
       -- ===========================================================================================
       local function run_java_launch(config, run_opts, run_next)
-        -- 1. mainClass 필수 검증 및 .nvim.lua 스마트 폴백
+        -- 1. mainClass 필수 검증 및 launch.json / _G.MAIN_CLASS 스마트 폴백
         if not config.mainClass or config.mainClass == '' then
           if _G.MAIN_CLASS and _G.MAIN_CLASS ~= '' then
             config.mainClass = _G.MAIN_CLASS
           else
             vim.notify(
-              '❌ [Java Launch 오류] mainClass가 지정되지 않았습니다.\n.vscode/launch.json 파일의 "mainClass" 항목 또는 .nvim.lua의 MAIN_CLASS를 확인해 주세요.',
+              '❌ [Java Launch 오류] mainClass가 지정되지 않았습니다.\n.nvim/launch.json 또는 .vscode/launch.json 파일의 "mainClass" 항목을 확인해 주세요.',
               vim.log.levels.ERROR,
               { title = 'DAP' }
             )
