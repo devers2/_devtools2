@@ -707,17 +707,22 @@ local function build_configuration(lang, answers)
   return nil
 end
 
--- .vscode/launch.json 확인 및 필요시 대화형 자동 생성
+-- launch.json 확인 (.nvim/ 1순위 -> .vscode/ 2순위) 및 필요시 대화형 자동 생성
 function M.ensure_launch_json(on_ready)
   on_ready = on_ready or function() end
   local cwd = vim.fn.getcwd()
-  local launch_path = cwd .. '/.vscode/launch.json'
 
   -- 1. 이미 유효한 파일이 존재하면 즉시 진행 (0ms)
-  if vim.fn.filereadable(launch_path) == 1 and (vim.fn.getfsize(launch_path) or 0) > 5 then
-    on_ready(true)
-    return
+  -- 탐색 우선순위: 1순위 .nvim/launch.json, 2순위 .vscode/launch.json
+  for _, folder in ipairs({ '.nvim', '.vscode' }) do
+    local cand_path = cwd .. '/' .. folder .. '/launch.json'
+    if vim.fn.filereadable(cand_path) == 1 and (vim.fn.getfsize(cand_path) or 0) > 5 then
+      on_ready(true)
+      return
+    end
   end
+
+  local launch_path = cwd .. '/.vscode/launch.json'
 
   -- 2. 파일이 없으면 프로젝트 언어 판별
   local detected_lang = M.detect_project_type()
