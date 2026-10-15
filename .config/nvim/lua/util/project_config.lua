@@ -147,18 +147,18 @@ local function check_custom_root(path)
   return nil
 end
 
---- 프로젝트 루트 디렉토리 결정 (Neovim 0.12 최적화)
---- 멀티모듈(settings.gradle) 프로젝트 및 단일 모듈 프로젝트를 완벽히 구분합니다.
---- 하위 모듈에서 실수로 VS Code를 열어 파편화된 .vscode/가 생기더라도,
---- 상위의 settings.gradle(멀티모듈 최상위 루트)을 Tier 1로 감지하여 오차를 원천 차단합니다.
+--- 프로젝트 루트 디렉토리 결정 (순수 빌드/저장소 마커 기반)
+--- .nvim이나 .vscode 같은 에디터 설정 폴더는 하위 모듈에 우발적으로 생성될 수 있으므로
+--- 루트 판별 마커에서 완전히 배제하고, 오직 순수 빌드/저장소 마커(.git, settings.gradle 등)로만 루트를 확정합니다.
+--- (확정된 루트 내부에서 .nvim/ -> .vscode/ 순으로 설정을 읽습니다)
 ---
---- 탐색 계층 구조 (Neovim 0.12 Hierarchy):
----   Tier 0: 명시적 커스텀 루트 (`nvim.projectRoot`)
+--- 탐색 계층 구조:
+---   Tier 0: 명시적 커스텀 루트 (`nvim.projectRoot` in settings.json)
 ---   Tier 1: 멀티모듈 최상위 빌드 루트 (`settings.gradle`, `settings.gradle.kts`)
----   Tier 2: 최상위 빌드 래퍼 (`gradlew`, `mvnw`)
----   Tier 3: CWD 기준 탐색 우선 및 부모 디렉토리 하향 탐색 (.nvim, .vscode, .git)
----   Tier 4: 파일 위치 기준 상향 탐색 (.nvim, .vscode, .git)
----   Tier 5: 폴백 (개별 모듈 빌드 마커 또는 CWD)
+---   Tier 2: 최상위 빌드 래퍼 및 저장소 마커 (`gradlew`, `mvnw`, `.git`)
+---   Tier 3: CWD 기준 탐색 우선 및 부모 디렉토리 하향 탐색 (root_markers)
+---   Tier 4: 파일 위치 기준 상향 탐색 (root_markers)
+---   Tier 5: 폴백 (개별 모듈 빌드 마커 build.gradle, pom.xml 또는 CWD)
 ---
 --- @param start_path string|nil 탐색 시작 경로 (파일 경로 또는 디렉토리)
 --- @return string 정규화된 루트 경로
@@ -184,7 +184,7 @@ function M.get_project_root(start_path)
   -- ===========================================================================================
   -- [Tier 1: 멀티모듈 최상위 빌드 마커 (Top-Level Multi-Module Markers)]
   -- Gradle 멀티모듈의 settings.gradle(.kts)는 오직 최상위 루트에만 존재합니다.
-  -- 하위 모듈에 .vscode나 build.gradle이 있더라도, 상위에 settings.gradle이 있다면
+  -- 하위 모듈에 build.gradle이 있더라도, 상위에 settings.gradle이 있다면
   -- 그 위치가 무조건 프로젝트 전체의 단일 진실 공급원(Root Project)입니다.
   -- ===========================================================================================
   local multi_module_markers = { 'settings.gradle', 'settings.gradle.kts' }
@@ -196,10 +196,10 @@ function M.get_project_root(start_path)
   end
 
   -- ===========================================================================================
-  -- [Tier 2: 최상위 빌드 래퍼 (Wrappers)]
-  -- gradlew, mvnw는 서브모듈에는 없고 보통 최상위 루트에만 존재합니다.
+  -- [Tier 2: 최상위 빌드 래퍼 및 저장소 마커 (Wrappers & VCS Root)]
+  -- gradlew, mvnw, .git은 프로젝트의 최상위 경계를 나타냅니다.
   -- ===========================================================================================
-  local wrapper_markers = { 'gradlew', 'mvnw' }
+  local wrapper_markers = { 'gradlew', 'mvnw', '.git' }
   local wrapper_root = vim.fs.root(current_path, wrapper_markers)
     or vim.fs.root(cwd, wrapper_markers)
 
@@ -210,7 +210,7 @@ function M.get_project_root(start_path)
   -- ===========================================================================================
   -- [Tier 3: CWD와의 관계 기반 탐색 (CWD 우선 및 부모 디렉토리 하향 탐색)]
   -- ===========================================================================================
-  local root_markers = { '.nvim', '.vscode', '.git' }
+  local root_markers = { '.git', 'settings.gradle', 'settings.gradle.kts', 'gradlew', 'mvnw' }
 
   -- 1. nvim 실행 디렉토리(CWD) 기준 탐색 우선
   -- 현재 파일이 nvim이 실행된 위치(또는 그 상위 루트)의 하위에 있다면 해당 루트를 선택
