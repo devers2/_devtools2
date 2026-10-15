@@ -250,22 +250,9 @@ return {
         return false
       end
 
-      -- [프로젝트 루트 탐색 헬퍼: .nvim/settings.json -> .vscode/settings.json 의 nvim.projectRoot 우선, 없으면 CWD]
+      -- [프로젝트 루트 탐색 헬퍼: util.project_config 공통 모듈 위임]
       local function get_dap_project_root()
-        local cwd = vim.fn.getcwd()
-        for _, folder in ipairs({ '.nvim', '.vscode' }) do
-          local sp = cwd .. '/' .. folder .. '/settings.json'
-          if vim.fn.filereadable(sp) == 1 then
-            local ok_r, lines = pcall(vim.fn.readfile, sp)
-            if ok_r and lines then
-              local ok_j, data = pcall(vim.json.decode, table.concat(lines, '\n'))
-              if ok_j and type(data) == 'table' and data['nvim.projectRoot'] then
-                return vim.fn.fnamemodify(cwd .. '/' .. tostring(data['nvim.projectRoot']), ':p'):gsub('/+$', '')
-              end
-            end
-          end
-        end
-        return cwd:gsub('/+$', '')
+        return require('util.project_config').get_project_root()
       end
 
       local function kill_debuggee_process(session, on_done, target_main_class, config_type)
@@ -600,22 +587,7 @@ return {
       dap.providers = dap.providers or {}
       dap.providers.configs = dap.providers.configs or {}
       dap.providers.configs['dap.launch.json'] = function()
-        local cwd = vim.fn.getcwd()
-        local root = get_dap_project_root()
-        local launch_path = nil
-
-        for _, folder in ipairs({ '.nvim', '.vscode' }) do
-          local p1 = root .. '/' .. folder .. '/launch.json'
-          local p2 = cwd .. '/' .. folder .. '/launch.json'
-          if vim.fn.filereadable(p1) == 1 then
-            launch_path = p1
-            break
-          elseif vim.fn.filereadable(p2) == 1 then
-            launch_path = p2
-            break
-          end
-        end
-
+        local launch_path = require('util.project_config').find_file('launch.json')
         local vscode_ext = require('dap.ext.vscode')
         local ok, configs = pcall(vscode_ext.getconfigs, launch_path)
         if not ok then
@@ -1090,24 +1062,10 @@ return {
         --   있으며, sourceCompatibility / targetCompatibility 는 ECJ(컴파일러)가 담당합니다.
         -- ● 따라서 하위 버전(예: Java 8, 17) 프로젝트라도 settings.json에 별도 지정이 없다면
         --   jdk-21로 processResources를 실행하는 것은 완전히 안전하며, 불필요한 JDK 분기 복잡도를 줄이기 위해 의도적으로 통일합니다.
-        local java_home = nil
-        for _, folder in ipairs({ '.nvim', '.vscode' }) do
-          local sp = root .. folder .. '/settings.json'
-          if vim.fn.filereadable(sp) == 1 then
-            local ok_r, lines = pcall(vim.fn.readfile, sp)
-            if ok_r and lines then
-              local ok_j, data = pcall(vim.json.decode, table.concat(lines, '\n'))
-              if ok_j and type(data) == 'table' and data['java.import.gradle.java.home'] then
-                local g_home = tostring(data['java.import.gradle.java.home'])
-                if vim.fn.isdirectory(g_home) == 1 then
-                  java_home = g_home
-                  break
-                end
-              end
-            end
-          end
-        end
-        java_home = java_home or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
+        local p_settings = require('util.project_config').get_settings(root)
+        local gradle_jdk = p_settings['java.import.gradle.java.home']
+        local java_home = (gradle_jdk and type(gradle_jdk) == 'string' and vim.fn.isdirectory(gradle_jdk) == 1) and gradle_jdk
+          or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21')
 
         --- 디버그 실행 전 런타임 리소스 동기화 (사전 빌드 파이프라인의 리소스 준비 단계)
         --
