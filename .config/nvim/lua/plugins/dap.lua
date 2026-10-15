@@ -1056,6 +1056,10 @@ return {
         -- [JAVA_HOME 결정 정책: settings.json 의 java.import.gradle.java.home 우선, 기본 jdk-21 고정 폴백]
         -- ● processResources / process-resources 태스크는 리소스 파일 복사·필터링만 수행하며
         --   자바 소스를 컴파일하지 않으므로, 실행 JDK 버전과 프로젝트 소스 호환성은 무관합니다.
+        -- ● Gradle / Maven 자체는 상위 JDK(jdk-21)로도 하위 버전(17, 8) 프로젝트를 빌드할 수
+        --   있으며, sourceCompatibility / targetCompatibility 는 ECJ(컴파일러)가 담당합니다.
+        -- ● 따라서 하위 버전(예: Java 8, 17) 프로젝트라도 settings.json에 별도 지정이 없다면
+        --   jdk-21로 processResources를 실행하는 것은 완전히 안전하며, 불필요한 JDK 분기 복잡도를 줄이기 위해 의도적으로 통일합니다.
         local java_home = nil
         for _, folder in ipairs({ '.nvim', '.vscode' }) do
           local sp = root .. folder .. '/settings.json'

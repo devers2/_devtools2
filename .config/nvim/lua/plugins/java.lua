@@ -86,12 +86,14 @@ return {
         local root_markers = { '.nvim', '.vscode', '.git', 'settings.gradle', 'settings.gradle.kts', 'gradlew', 'mvnw' }
 
         -- 1. nvim 실행 디렉토리(CWD) 기준 탐색 우선
+        -- 현재 파일이 nvim이 실행된 위치(또는 그 상위 루트)의 하위에 있다면 해당 루트를 선택
         local cwd_root = require('jdtls.setup').find_root(root_markers, cwd)
         if cwd_root and current_path:find(cwd_root, 1, true) == 1 then
           return check_custom_root(cwd_root) or cwd_root
         end
 
         -- 2. nvim 실행 디렉토리(CWD) 기준 하위(파일 방향)로 탐색
+        -- CWD가 워크스페이스의 부모(예: ~/workspaces)인 경우, 파일 경로상 가장 먼저 만나는 프로젝트 루트를 선택
         if current_path:find(cwd, 1, true) == 1 then
           local rel_path = current_path:sub(#cwd + 1)
           local segment_acc = cwd
