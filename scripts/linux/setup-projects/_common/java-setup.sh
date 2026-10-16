@@ -6,7 +6,7 @@
 #   Gradle 기반 Java / Spring Boot 프로젝트의 초기 개발 환경 구성을 표준화합니다.
 #   신규 프로젝트 스크립트 작성 시 단 한 번의 함수 호출(setup_gradle_spring_project)로
 #   Bitwarden 세션 확인, Git 저장소 클론, GitHub Packages(GPR) 토큰 설정,
-#   .nvim.lua 및 .vscode(settings.json, launch.json) 설정,
+#   .vscode(settings.json, launch.json) 설정,
 #   VSCode 필수 Java 확장 프로그램 설치까지의 모든 과정을 자동화합니다.
 #
 # [사용 방법]
@@ -25,14 +25,13 @@
 #   ■ 일반 선택 옵션:
 #     --jdk-version <버전>       : 사용할 Java 버전 (기본값: 21, 예: 17, 21, 25)
 #     --main-class <FQCN>        : Spring Boot 메인 클래스 전체 패키지 경로 (선택, 예: com.example.DemoApplication)
-#                                  (미지정 시 launch.json 및 .nvim.lua의 MAIN_CLASS 생략)
+#                                  (미지정 시 launch.json의 mainClass 생략)
 #     --spring-profile <프로필>  : 기본 Spring Active Profile (선택, 예: local,dev 또는 0_DEVELOP,0_LOCAL,s2)
 #                                  (미지정 시 인코딩 인자만 적용됨)
 #     --vm-args <인자문자열>     : launch.json에 지정할 JVM 인자 (단일 문자열)
 #                                  (미지정 시 -Dfile.encoding=UTF-8 및 --spring-profile 기반 자동 조립)
 #     --app-name <이름>          : VSCode/DAP 런치 설정 및 콘솔 안내용 앱 명칭
 #                                  (기본값: main-class의 클래스명 또는 대상 폴더명)
-#     --project-root <경로>      : .nvim.lua 파일에 설정할 PROJECT_ROOT 상대/절대 경로 (기본값: ./)
 #
 #   ■ SFTP 마운트 선택 옵션 (원격 디렉토리 마운트가 필요 없는 프로젝트는 전부 생략 가능):
 #     Q. --sftp 한 줄로 쓰나요, 아니면 --sftp- 로 시작하는 개별 옵션을 쓰나요?
@@ -67,43 +66,11 @@ VSCODE_JAVA_EXTENSIONS=(
     "vscjava.vscode-java-dependency"
 )
 
-# ── 1. .nvim.lua 파일 생성 ────────────────────────────────────────────────────
-# 인수:
-#   $1 = TARGET_DIR   (필수)
-#   $2 = JDK_VERSION  (선택, 기본값: 21)
-#   $3 = MAIN_CLASS   (선택, 없을 경우 생략)
-#   $4 = PROJECT_ROOT (선택, 기본값: ./)
-setup_nvim_lua_java() {
-    local TARGET_DIR="$1"
-    local JDK_VERSION="${2:-21}"
-    local MAIN_CLASS="${3:-}"
-    local PROJECT_ROOT="${4:-./}"
 
-    if [ -z "$TARGET_DIR" ]; then
-        echo "❌ setup_nvim_lua_java: TARGET_DIR가 지정되지 않았습니다."
-        return 1
-    fi
-
-    echo "⚙️  .nvim.lua 설정 파일 생성 중..."
-    if [ -f "$TARGET_DIR/.nvim.lua" ]; then
-        echo "ℹ️  .nvim.lua 이 이미 존재합니다. 덮어쓰지 않습니다 (직접 수정했을 수 있으므로)."
-        return 0
-    fi
-
-    local TMP_LUA
-    TMP_LUA=$(mktemp)
-    cat > "$TMP_LUA" <<EOF
-PROJECT_ROOT = "${PROJECT_ROOT}"
-JDK_VERSION = ${JDK_VERSION}
-EOF
-    if [ -n "$MAIN_CLASS" ]; then
-        echo "MAIN_CLASS = \"${MAIN_CLASS}\"" >> "$TMP_LUA"
-    fi
-    mv "$TMP_LUA" "$TARGET_DIR/.nvim.lua"
-    echo "✅ .nvim.lua 생성 완료!"
-}
-
-# ── 2. .vscode/settings.json 생성 (Java 런타임 및 Gradle JDK 설정) ───────────
+# ── 1. .vscode/settings.json 생성 (Java 런타임 및 Gradle JDK 설정) ───────────
+# nvim.projectRoot     : Neovim project_config.lua가 읽는 수동 루트 지정 키
+# java.import.gradle.java.home : Gradle 데몬/JDTLS 구동용 → 항상 JDK 21 고정
+# java.configuration.runtimes  : 프로젝트 빌드 타깃 JDK → --jdk-version 지정 버전
 # 인수:
 #   $1 = TARGET_DIR  (필수)
 #   $2 = JDK_VERSION (선택, 기본값: 21)
@@ -128,8 +95,11 @@ setup_vscode_java_settings() {
         JDK_SE_NAME="JavaSE-1.8"
     fi
     local JDK_PATH="${DEVTOOLS2_PATH}/modules/java/jdk-${JDK_REAL_VER}"
+    # Gradle 데몬/JDTLS 구동용 JDK는 항상 21 고정 (Gradle 7/8 + Spring Boot 2/3 호환)
+    local JDK21_PATH="${DEVTOOLS2_PATH}/modules/java/jdk-21"
     cat > "$VSCODE_DIR/settings.json" <<EOF
 {
+  "nvim.projectRoot": "./",
   "java.configuration.runtimes": [
     {
       "name": "${JDK_SE_NAME}",
@@ -137,7 +107,7 @@ setup_vscode_java_settings() {
       "default": true
     }
   ],
-  "java.import.gradle.java.home": "${JDK_PATH}"
+  "java.import.gradle.java.home": "${JDK21_PATH}"
 }
 EOF
     echo "✅ .vscode/settings.json 생성 완료"
@@ -166,19 +136,19 @@ detect_gradle_project_name() {
 #   $2 = APP_NAME    (필수, 예: GoonoELNApplication)
 #   $3 = MAIN_CLASS  (필수, 예: so.goono.GoonoELNApplication)
 #   $4 = VM_ARGS     (선택, 기본값: -Dfile.encoding=UTF-8)
-#   $5 = PROJECT_NAME(선택, 미지정 시 settings.gradle에서 자동 추출)
+#   $5 = PROJECT_NAME(선택, 미지정 시 생략)
 setup_vscode_java_launch() {
     local TARGET_DIR="$1"
     local APP_NAME="$2"
     local MAIN_CLASS="$3"
     local VM_ARGS="${4:--Dfile.encoding=UTF-8}"
-    local PROJECT_NAME="${5:-$(detect_gradle_project_name "$TARGET_DIR")}"
+    local PROJECT_NAME="${5:-}"
 
     # ⚠️ 주의사항:
     # 1. vmArgs는 반드시 단일 공백 구분 문자열(String)이어야 합니다!
     #    배열(["-D..."])로 선언할 경우 Neovim DAP 및 JDTLS Debug Server에서
     #    JsonSyntaxException: Expected STRING but was BEGIN_ARRAY at path $.vmArgs 크래시가 발생합니다.
-    # 2. projectName은 멀티모듈 및 nvim-jdtls 디버거 클래스패스 바인딩을 위해 settings.gradle 기준으로 자동 지정됩니다.
+    # 2. projectName은 미지정 시 생략되며, Neovim(nvim-jdtls DAP) 및 VS Code에서 mainClass FQCN을 기반으로 동적 바인딩합니다.
     local CONFIG_JSON
     CONFIG_JSON=$(python3 -c "
 import json, sys
@@ -224,13 +194,13 @@ print(json.dumps([conf]))
 #   $2 = APP_NAME     (필수, 예: GoonoELNApplication)
 #   $3 = MAIN_CLASS   (필수, 예: so.goono.GoonoELNApplication)
 #   $4 = VM_ARGS      (선택, 기본값: -Dfile.encoding=UTF-8)
-#   $5 = PROJECT_NAME (선택, 미지정 시 settings.gradle에서 자동 추출)
+#   $5 = PROJECT_NAME (선택, 미지정 시 생략)
 setup_zed_java_debug() {
     local TARGET_DIR="$1"
     local APP_NAME="$2"
     local MAIN_CLASS="$3"
     local VM_ARGS="${4:--Dfile.encoding=UTF-8}"
-    local PROJECT_NAME="${5:-$(detect_gradle_project_name "$TARGET_DIR")}"
+    local PROJECT_NAME="${5:-}"
 
     local ZED_DIR="$TARGET_DIR/.zed"
     local DEBUG_FILE="$ZED_DIR/debug.json"
@@ -293,11 +263,6 @@ setup_vscode_java() {
     local VM_ARGS="$5"
     local PROJECT_NAME="${6:-}"
 
-    # PROJECT_NAME 미지정 시 1회만 자동 추출하여 launch.json 및 .zed/debug.json에 재사용
-    if [ -z "$PROJECT_NAME" ]; then
-        PROJECT_NAME=$(detect_gradle_project_name "$TARGET_DIR")
-    fi
-
     echo "⚙️  .vscode 설정 파일 생성 중..."
     setup_vscode_java_settings "$TARGET_DIR" "$JDK_VERSION"
     if [ -n "$MAIN_CLASS" ]; then
@@ -307,7 +272,7 @@ setup_vscode_java() {
     fi
 }
 
-# ── 5. Gradle Spring Boot 프로젝트 원클릭 표준 설정 함수 ────────────────────
+# ── 4. Gradle Spring Boot 프로젝트 원클릭 표준 설정 함수 ────────────────────
 # 사용 가능한 명명 옵션:
 #   --target-dir      : 프로젝트 로컬 경로 (필수)
 #   --repo-url        : Git 저장소 주소 (필수)
@@ -316,7 +281,6 @@ setup_vscode_java() {
 #   --spring-profile  : launch.json vmArgs에 포함할 Spring Active Profile (선택, 예: 0_DEVELOP,0_LOCAL,s2)
 #   --vm-args         : 추가 JVM 인자 (선택, 미지정 시 인코딩 및 프로필 자동 구성)
 #   --app-name        : 런치 구성 이름 (선택, 기본값: mainClass 클래스명 또는 폴더명)
-#   --project-root    : .nvim.lua 상의 PROJECT_ROOT (선택, 기본값: ./)
 setup_gradle_spring_project() {
     local TARGET_DIR=""
     local REPO_URL=""
@@ -326,7 +290,6 @@ setup_gradle_spring_project() {
     local VM_ARGS=""
     local APP_NAME=""
     local PROJECT_NAME=""
-    local PROJECT_ROOT="./"
     local SFTP_SPEC=""
     local SFTP_USER=""
     local SFTP_HOST=""
@@ -344,7 +307,6 @@ setup_gradle_spring_project() {
             --vm-args)           VM_ARGS="$2"; shift 2 ;;
             --app-name)          APP_NAME="$2"; shift 2 ;;
             --project-name)      PROJECT_NAME="$2"; shift 2 ;;
-            --project-root)      PROJECT_ROOT="$2"; shift 2 ;;
             --sftp)              SFTP_SPEC="$2"; shift 2 ;;
             --sftp-user)         SFTP_USER="$2"; shift 2 ;;
             --sftp-host)         SFTP_HOST="$2"; shift 2 ;;
@@ -393,8 +355,7 @@ setup_gradle_spring_project() {
 
     # 1-1. SFTP 마운트 설정 (선택, SFTP 옵션 지정 시)
     if [ -n "$SFTP_SPEC" ] || [ -n "$SFTP_USER" ]; then
-        # 반환 2 = WSL systemd 미활성(재시작 필요). 마운트만 나중으로 미루고 나머지 셋업은 계속합니다
-        # (예전에는 여기서 return 0 으로 gpr·.nvim.lua·VSCode 설정까지 조용히 건너뛰었음).
+        # 반환 2 = WSL systemd 미활성(재시작 필요). 마운트만 나중으로 미루고 나머지 셋업은 계속합니다.
         local _sftp_pending=false
         handle_sftp_mount_options "$SFTP_SPEC" "$SFTP_USER" "$SFTP_HOST" "$SFTP_PORT" "$SFTP_REMOTE_PATH" "$SFTP_LOCAL_PATH" "$APP_NAME" || {
             local _exit_code=$?
@@ -409,13 +370,10 @@ setup_gradle_spring_project() {
         setup_gpr_gradle_properties "$TARGET_DIR"
     fi
 
-    # 3. .nvim.lua 파일 생성
-    setup_nvim_lua_java "$TARGET_DIR" "$JDK_VERSION" "$MAIN_CLASS" "$PROJECT_ROOT"
-
-    # 4. .vscode 설정 생성 (settings.json, launch.json)
+    # 3. .vscode 설정 생성 (settings.json, launch.json)
     setup_vscode_java "$TARGET_DIR" "$JDK_VERSION" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME"
 
-    # 5. VSCode 필수 확장 프로그램 검사/설치
+    # 4. VSCode 필수 확장 프로그램 검사/설치
     install_vscode_extensions "${VSCODE_JAVA_EXTENSIONS[@]}"
 
     echo ""
