@@ -854,24 +854,12 @@ setup_s2_library_project() {
         setup_gpr_gradle_properties "$target_dir"
     fi
 
-    # 3. .nvim.lua 설정 파일 생성
-    echo "⚙️  .nvim.lua 설정 파일 생성 중..."
-    if [ -f "$target_dir/.nvim.lua" ]; then
-        echo "ℹ️  .nvim.lua 이 이미 존재합니다. 덮어쓰지 않습니다."
-    else
-        cat > "$target_dir/.nvim.lua" <<'EOF'
-PROJECT_ROOT = "./"
-JDK_VERSION = 17
-EOF
-        echo "✅ .nvim.lua 생성 완료!"
-    fi
-
-    # 4. .vscode/settings.json 생성
+    # 3. .vscode/settings.json 생성
     echo "⚙️  .vscode 설정 파일 생성 중..."
     local vscode_dir="$target_dir/.vscode"
     mkdir -p "$vscode_dir"
 
-    local jdk17_path="${DEVTOOLS2}/modules/java/jdk-17"
+    local jdk21_path="${DEVTOOLS2}/modules/java/jdk-21"
     local jdk25_path="${DEVTOOLS2}/modules/java/jdk-25"
 
     if [ -f "$vscode_dir/settings.json" ]; then
@@ -879,10 +867,11 @@ EOF
     else
         cat > "$vscode_dir/settings.json" <<EOF
 {
+  "nvim.projectRoot": "./",
   "java.configuration.runtimes": [
     {
-      "name": "JavaSE-17",
-      "path": "${jdk17_path}",
+      "name": "JavaSE-21",
+      "path": "${jdk21_path}",
       "default": true
     },
     {
@@ -890,15 +879,15 @@ EOF
       "path": "${jdk25_path}"
     }
   ],
-  "java.import.gradle.java.home": "${jdk25_path}"
+  "java.import.gradle.java.home": "${jdk21_path}"
 }
 EOF
         echo "✅ .vscode/settings.json 생성 완료"
     fi
 
-    # 5. VSCode Java 확장 프로그램 확인/설치
+    # 4. VSCode Java 확장 프로그램 확인/설치
     echo ""
-    echo "⏳ [Step 5] VSCode Java 확장 프로그램을 확인/설치합니다..."
+    echo "⏳ [Step 4] VSCode Java 확장 프로그램을 확인/설치합니다..."
     local vscode_bin=""
     for _bin in code code-insiders; do
         if command -v "$_bin" &>/dev/null; then

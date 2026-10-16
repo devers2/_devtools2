@@ -879,7 +879,9 @@ return {
       }
 
       -- jdt.ls에 java/buildWorkspace(증분 빌드)를 요청합니다. 폴링이 아니라 응답 콜백으로
-      -- "완료된 순간 즉시" 진행하고, 1분 안에 응답이 없으면 포기하고 알려줍니다.
+      -- "완료된 순간 즉시" 진행하고, 설정된 타임아웃(기본 30초, settings.json의 "java.build.timeout"으로 변경 가능) 안에
+      -- 응답이 없으면 30초 더 대기, 1분 더 대기, 확인 건너뛰고 실행, 디버깅 취소 중 유연하게 선택할 수 있습니다.
+      -- 또한 빌드 오류 발생 시 구체적인 진단 오류(에러 메시지 및 건수)를 즉시 안내하여 왜 안 되는지 피드백을 제공합니다.
       local function build_workspace_with_watchdog(on_done)
         local clients = vim.lsp.get_clients({ bufnr = 0, name = 'jdtls' })
         local client = clients[1]
@@ -888,58 +890,174 @@ return {
           client = clients[1]
         end
         if not client then
-          vim.notify('jdtls 클라이언트를 찾을 수 없어 빌드 확인 없이 실행합니다.', vim.log.levels.WARN, { title = 'Java Launch' })
+          vim.notify('ℹ️ jdtls 클라이언트를 찾을 수 없어 빌드 확인 없이 실행합니다.', vim.log.levels.INFO, { title = 'Java Launch' })
           on_done(true)
           return
         end
 
-        local settled = false
-        local timer = vim.uv.new_timer()
-        timer:start(60000, 0, vim.schedule_wrap(function()
-          if settled then
-            return
-          end
-          settled = true
-          timer:stop()
-          timer:close()
-          vim.notify('빌드 확인이 1분 넘게 응답이 없어 실행을 중단합니다.', vim.log.levels.ERROR, { title = 'Java Launch: 빌드 타임아웃' })
-          on_done(false)
-        end))
+        local root = get_dap_project_root()
+        local p_settings = require('util.project_config').get_settings(root) or {}
+        local configured_sec = tonumber(p_settings['java.build.timeout'])
+        local initial_timeout_sec = (configured_sec and configured_sec > 0) and configured_sec or 30
 
-        vim.notify('🔨 빌드 확인 중 (incremental)...', vim.log.levels.INFO, { title = 'Java Launch' })
-        -- java/buildWorkspace 파라미터: boolean(isFullBuild) → false = incremental
-        client:request('java/buildWorkspace', false, function(err, result)
+        local settled = false
+        local timer
+        local start_timer
+        local notif_id = 'java_launch_build_watchdog'
+
+        local function cleanup_timer()
+          if timer then
+            if not timer:is_closing() then
+              timer:stop()
+              timer:close()
+            end
+            timer = nil
+          end
+        end
+
+        local function on_build_timeout(elapsed_sec)
           if settled then
             return
           end
-          settled = true
-          timer:stop()
-          timer:close()
-          vim.schedule(function()
-            local STATUS_SUCCEED = 1
-            if err then
+
+          vim.notify(
+            string.format('⏳ JDTLS 증분 빌드가 %d초 넘게 걸리고 있습니다.\n\n'
+              .. '📌 안내:\n'
+              .. '  • 대형 프로젝트이거나 JDTLS 초기 인덱싱 중일 수 있습니다.\n'
+              .. '  • .vscode/settings.json의 "java.build.timeout"으로 기본 대기 초를 변경할 수 있습니다.', elapsed_sec),
+            vim.log.levels.WARN,
+            { title = 'Java Launch: 빌드 대기 지연', id = notif_id, timeout = 15000 }
+          )
+
+          vim.ui.select({
+            '1. 30초 더 기다리기',
+            '2. 1분 더 기다리기',
+            '3. 확인 건너뛰고 바로 실행',
+            '4. 디버깅 취소',
+          }, {
+            prompt = string.format('⏳ 빌드 확인 %d초 초과 — 어떻게 할까요?', elapsed_sec),
+          }, function(choice)
+            if settled then
+              return
+            end
+            if not choice or choice:find('취소', 1, true) then
+              settled = true
+              cleanup_timer()
+              vim.notify('⚠️ 사용자 요청으로 디버깅을 취소했습니다.', vim.log.levels.WARN, {
+                title = 'Java Launch: 빌드 대기 취소',
+                id = notif_id,
+                timeout = 4000,
+              })
+              on_done(false)
+            elseif choice:find('건너뛰고', 1, true) then
+              settled = true
+              cleanup_timer()
+              vim.notify('⚠️ 빌드 확인을 건너뛰고 디버깅을 계속 진행합니다.', vim.log.levels.WARN, {
+                title = 'Java Launch: 빌드 확인 건너뜀',
+                id = notif_id,
+                timeout = 4000,
+              })
+              on_done(true)
+            elseif choice:find('1분', 1, true) then
+              vim.notify('⏳ 빌드 확인을 1분간 더 대기합니다...', vim.log.levels.INFO, {
+                title = 'Java Launch',
+                id = notif_id,
+                timeout = 3000,
+              })
+              start_timer(60)
+            else
+              -- 30초 더 기다리기 (기본)
+              vim.notify('⏳ 빌드 확인을 30초간 더 대기합니다...', vim.log.levels.INFO, {
+                title = 'Java Launch',
+                id = notif_id,
+                timeout = 3000,
+              })
+              start_timer(30)
+            end
+          end)
+        end
+
+        start_timer = function(sec)
+          cleanup_timer()
+          timer = vim.uv.new_timer()
+          timer:start(sec * 1000, 0, vim.schedule_wrap(function()
+            on_build_timeout(sec)
+          end))
+        end
+
+        start_timer(initial_timeout_sec)
+
+        vim.notify(string.format('🔨 빌드 확인 중 (incremental, 기본 %d초)...', initial_timeout_sec), vim.log.levels.INFO, { title = 'Java Launch' })
+
+        local req_ok, req_id = pcall(function()
+          -- java/buildWorkspace 파라미터: boolean(isFullBuild) → false = incremental
+          return client:request('java/buildWorkspace', false, function(err, result)
+            if settled then
+              return
+            end
+            settled = true
+            cleanup_timer()
+            vim.schedule(function()
+              local STATUS_SUCCEED = 1
+              if err then
+                local err_msg = type(err) == 'table' and (err.message or vim.inspect(err)) or tostring(err)
+                vim.notify(
+                  '⚠️ JDTLS 빌드 요청 오류:\n' .. err_msg .. '\n빌드 확인 없이 실행을 계속합니다.',
+                  vim.log.levels.WARN,
+                  { title = 'Java Launch', id = notif_id, timeout = 4000 }
+                )
+                on_done(true)
+                return
+              end
+              if result == STATUS_SUCCEED then
+                on_done(true)
+                return
+              end
+
+              -- 빌드 에러 감지 (result ~= STATUS_SUCCEED)
+              local errors = vim.diagnostic.get(nil, { severity = vim.diagnostic.severity.ERROR })
+              local summary = {}
+              for i = 1, math.min(#errors, 3) do
+                local d = errors[i]
+                local fname = d.bufnr and vim.fs.basename(vim.api.nvim_buf_get_name(d.bufnr)) or 'unknown'
+                table.insert(summary, string.format('  • [%s:%d] %s', fname, (d.lnum or 0) + 1, d.message or ''))
+              end
+              local err_detail = #summary > 0 and ('\n' .. table.concat(summary, '\n')) or ''
+              if #errors > 3 then
+                err_detail = err_detail .. string.format('\n  ... 외 %d건', #errors - 3)
+              end
+
               vim.notify(
-                '빌드 요청 오류: ' .. vim.inspect(err) .. '\n빌드 확인 없이 실행합니다.',
-                vim.log.levels.WARN,
-                { title = 'Java Launch' }
+                string.format('❌ Java 빌드 에러 감지 (총 %d건):%s\n(:copen 에서 전체 목록 확인 가능)', #errors, err_detail),
+                vim.log.levels.ERROR,
+                { title = 'Java Build Error', timeout = 15000 }
               )
-              on_done(true)
-              return
-            end
-            if result == STATUS_SUCCEED then
-              on_done(true)
-              return
-            end
-            -- 빌드 에러: quickfix에 진단 목록을 채우고 계속 진행할지 확인
-            vim.diagnostic.setqflist({ open = true, severity = vim.diagnostic.severity.ERROR, title = 'Java Build Errors' })
-            vim.ui.select({ '예, 그래도 실행', '아니오, 취소' }, {
-              prompt = '⚠️ 빌드 에러가 있습니다 (:copen 목록 확인). 그래도 디버깅을 실행할까요?',
-            }, function(choice)
-              on_done(choice ~= nil and choice:find('예', 1, true) ~= nil)
+
+              -- quickfix에 진단 목록을 채우고 계속 진행할지 확인
+              vim.diagnostic.setqflist({ open = true, severity = vim.diagnostic.severity.ERROR, title = 'Java Build Errors' })
+              vim.ui.select({ '예, 그래도 실행', '아니오, 취소' }, {
+                prompt = string.format('⚠️ 빌드 에러 %d건이 있습니다 (:copen 목록 확인). 그래도 디버깅을 실행할까요?', #errors),
+              }, function(choice)
+                on_done(choice ~= nil and choice:find('예', 1, true) ~= nil)
+              end)
             end)
           end)
         end)
+
+        if not req_ok or not req_id then
+          if not settled then
+            settled = true
+            cleanup_timer()
+            vim.notify(
+              '⚠️ JDTLS 빌드 요청 전송 실패. 빌드 확인 없이 실행합니다.',
+              vim.log.levels.WARN,
+              { title = 'Java Launch', id = notif_id, timeout = 4000 }
+            )
+            on_done(true)
+          end
+        end
       end
+
 
       -- 디버그 세션이 실제로 초기화될 때까지 dap.listeners.after.event_initialized로 기다립니다
       -- (폴링이 아니라 이벤트 발생 즉시 반응). 1분 동안 초기화도 종료도 안 되면, 고정된 숫자로
@@ -969,22 +1087,43 @@ return {
           if settled then
             return
           end
-          vim.ui.select({ '예, 계속 기다리기', '아니오, 강제 종료' }, {
-            prompt = '⏳ 디버그 세션이 1분 넘게 초기화되지 않았습니다. 계속 기다릴까요?',
+          -- 상세 안내는 우측 상단 알림(vim.notify)으로 전체 내용 완벽 출력 (선택 전 최대 15초 유지)
+          local notif_id = 'java_launch_adapter_watchdog'
+          vim.notify(
+            '⏳ 디버그 어댑터 초기화가 10초 넘게 걸리고 있습니다.\n\n'
+              .. '📌 점검 가이드:\n'
+              .. '  • .vscode/launch.json의 "projectName" 확인\n'
+              .. '  • settings.gradle의 rootProject.name과 대소문자까지 일치하는지 확인',
+            vim.log.levels.WARN,
+            { title = 'Java Launch: 어댑터 초기화 지연', id = notif_id, timeout = 15000 }
+          )
+          -- vim.ui.select prompt는 단일 행 사용 (목록은 창 너비에 따라 자연스럽게 말줄임 처리)
+          vim.ui.select({
+            '1. 계속 기다리기 (초기화 진행 중인 경우)',
+            '2. 강제 종료 (launch.json의 projectName 불일치 확인 필요)',
+          }, {
+            prompt = '⏳ 어댑터 초기화 10초 초과 — 계속 기다릴까요?',
           }, function(choice)
             -- 응답을 기다리는 동안 초기화가 끝났거나 세션이 이미 종료됐을 수 있음
             if settled then
               return
             end
             if choice and choice:find('계속', 1, true) then
+              vim.notify('⏳ 디버그 세션 초기화를 계속 대기합니다...', vim.log.levels.INFO, {
+                title = 'Java Launch',
+                id = notif_id,
+                timeout = 3000,
+              })
               start_timer()
             else
               settled = true
               cleanup()
               vim.notify(
-                '사용자 요청으로 디버그 세션을 강제 종료합니다.',
+                '⚠️ 사용자 요청으로 디버그 세션을 강제 종료합니다.\n\n'
+                  .. '📌 점검 사항:\n'
+                  .. '  .vscode/launch.json의 "projectName"과 settings.gradle의 rootProject.name이 동일한지 확인하세요.',
                 vim.log.levels.WARN,
-                { title = 'Java Launch: 초기화 대기 중단' }
+                { title = 'Java Launch: 초기화 대기 중단', id = notif_id, timeout = 4000 }
               )
               if dap_mod.session() then
                 dap_mod.terminate()
@@ -999,7 +1138,8 @@ return {
             timer:close()
           end
           timer = vim.uv.new_timer()
-          timer:start(60000, 0, vim.schedule_wrap(on_timeout))
+          -- 10초: 어댑터 해석(resolveClasspath 등)이 projectName 불일치로 멈추는 경우 빠르게 감지
+          timer:start(10000, 0, vim.schedule_wrap(on_timeout))
         end
         start_timer()
 

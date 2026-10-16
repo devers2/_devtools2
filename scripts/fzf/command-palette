@@ -642,8 +642,18 @@ scaffold_launch_json_for_bootrun() {
 
     # 1. 메인 클래스 스마트 추론
     local default_main=""
-    if [[ -f "$CWD/.nvim.lua" ]]; then
-        default_main=$(grep -E '^\s*MAIN_CLASS\s*=' "$CWD/.nvim.lua" 2>/dev/null | head -1 | sed -E 's/.*=\s*["'\''"]([^"'\'']+)["'\''"].*/\1/')
+    if [[ -f "$CWD/.vscode/launch.json" ]]; then
+        default_main=$(python3 -c "
+import json, re, sys
+try:
+    text = re.sub(r'//.*', '', open(sys.argv[1]).read())
+    data = json.loads(text)
+    for c in data.get('configurations', []):
+        if c.get('mainClass'):
+            print(c['mainClass']); break
+except Exception:
+    pass
+" "$CWD/.vscode/launch.json" 2>/dev/null)
     fi
     if [[ -z "$default_main" ]] && [[ -d "$CWD/src/main/java" ]]; then
         local found_file
