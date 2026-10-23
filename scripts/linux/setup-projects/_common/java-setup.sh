@@ -69,14 +69,16 @@ VSCODE_JAVA_EXTENSIONS=(
 
 # ── 1. .vscode/settings.json 생성 (Java 런타임 및 Gradle JDK 설정) ───────────
 # nvim.projectRoot     : Neovim project_config.lua가 읽는 수동 루트 지정 키
-# java.import.gradle.java.home : Gradle 데몬/JDTLS 구동용 → 항상 JDK 21 고정
+# java.import.gradle.java.home : Gradle 데몬/JDTLS 구동용 → --gradle-jdk-version 지정 버전 (기본값: 21)
 # java.configuration.runtimes  : 프로젝트 빌드 타깃 JDK → --jdk-version 지정 버전
 # 인수:
-#   $1 = TARGET_DIR  (필수)
-#   $2 = JDK_VERSION (선택, 기본값: 21)
+#   $1 = TARGET_DIR         (필수)
+#   $2 = JDK_VERSION        (선택, 기본값: 21)
+#   $3 = GRADLE_JDK_VERSION (선택, 기본값: 21)
 setup_vscode_java_settings() {
     local TARGET_DIR="$1"
     local JDK_VERSION="${2:-21}"
+    local GRADLE_JDK_VERSION="${3:-21}"
     local DEVTOOLS2_PATH="${DEVTOOLS2:-$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/../../../..")}"
 
     local VSCODE_DIR="$TARGET_DIR/.vscode"
@@ -95,8 +97,14 @@ setup_vscode_java_settings() {
         JDK_SE_NAME="JavaSE-1.8"
     fi
     local JDK_PATH="${DEVTOOLS2_PATH}/modules/java/jdk-${JDK_REAL_VER}"
-    # Gradle 데몬/JDTLS 구동용 JDK는 항상 21 고정 (Gradle 7/8 + Spring Boot 2/3 호환)
-    local JDK21_PATH="${DEVTOOLS2_PATH}/modules/java/jdk-21"
+
+    # Gradle 데몬/JDTLS 구동용 JDK
+    local GRADLE_JDK_REAL_VER="$GRADLE_JDK_VERSION"
+    if [ "$GRADLE_JDK_VERSION" = "8" ] || [ "$GRADLE_JDK_VERSION" = "1.8" ]; then
+        GRADLE_JDK_REAL_VER="1.8"
+    fi
+    local GRADLE_JDK_PATH="${DEVTOOLS2_PATH}/modules/java/jdk-${GRADLE_JDK_REAL_VER}"
+
     cat > "$VSCODE_DIR/settings.json" <<EOF
 {
   "nvim.projectRoot": "./",
@@ -107,7 +115,8 @@ setup_vscode_java_settings() {
       "default": true
     }
   ],
-  "java.import.gradle.java.home": "${JDK21_PATH}"
+  "java.import.gradle.java.home": "${GRADLE_JDK_PATH}",
+  "java.configuration.updateBuildConfiguration": "automatic"
 }
 EOF
     echo "✅ .vscode/settings.json 생성 완료"
@@ -262,9 +271,10 @@ setup_vscode_java() {
     local MAIN_CLASS="$4"
     local VM_ARGS="$5"
     local PROJECT_NAME="${6:-}"
+    local GRADLE_JDK_VERSION="${7:-21}"
 
     echo "⚙️  .vscode 설정 파일 생성 중..."
-    setup_vscode_java_settings "$TARGET_DIR" "$JDK_VERSION"
+    setup_vscode_java_settings "$TARGET_DIR" "$JDK_VERSION" "$GRADLE_JDK_VERSION"
     if [ -n "$MAIN_CLASS" ]; then
         setup_vscode_java_launch "$TARGET_DIR" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME"
         # Zed 에디터 전용 디버그 설정 (.zed/debug.json)
@@ -274,17 +284,19 @@ setup_vscode_java() {
 
 # ── 4. Gradle Spring Boot 프로젝트 원클릭 표준 설정 함수 ────────────────────
 # 사용 가능한 명명 옵션:
-#   --target-dir      : 프로젝트 로컬 경로 (필수)
-#   --repo-url        : Git 저장소 주소 (필수)
-#   --jdk-version     : Java 버전 (선택, 기본값: 21)
-#   --main-class      : 스프링 부트 Application 메인 클래스 FQCN (선택)
-#   --spring-profile  : launch.json vmArgs에 포함할 Spring Active Profile (선택, 예: 0_DEVELOP,0_LOCAL,s2)
-#   --vm-args         : 추가 JVM 인자 (선택, 미지정 시 인코딩 및 프로필 자동 구성)
-#   --app-name        : 런치 구성 이름 (선택, 기본값: mainClass 클래스명 또는 폴더명)
+#   --target-dir          : 프로젝트 로컬 경로 (필수)
+#   --repo-url            : Git 저장소 주소 (필수)
+#   --jdk-version         : Java 버전 (선택, 기본값: 21)
+#   --gradle-jdk-version  : Gradle 데몬/JDTLS 구동용 Java 버전 (선택, 기본값: 21)
+#   --main-class          : 스프링 부트 Application 메인 클래스 FQCN (선택)
+#   --spring-profile      : launch.json vmArgs에 포함할 Spring Active Profile (선택, 예: 0_DEVELOP,0_LOCAL,s2)
+#   --vm-args             : 추가 JVM 인자 (선택, 미지정 시 인코딩 및 프로필 자동 구성)
+#   --app-name            : 런치 구성 이름 (선택, 기본값: mainClass 클래스명 또는 폴더명)
 setup_gradle_spring_project() {
     local TARGET_DIR=""
     local REPO_URL=""
     local JDK_VERSION=21
+    local GRADLE_JDK_VERSION=21
     local MAIN_CLASS=""
     local SPRING_PROFILE=""
     local VM_ARGS=""
@@ -299,20 +311,21 @@ setup_gradle_spring_project() {
 
     while [ $# -gt 0 ]; do
         case "$1" in
-            --target-dir)        TARGET_DIR="$2"; shift 2 ;;
-            --repo-url)          REPO_URL="$2"; shift 2 ;;
-            --jdk-version)       JDK_VERSION="$2"; shift 2 ;;
-            --main-class)        MAIN_CLASS="$2"; shift 2 ;;
-            --spring-profile)    SPRING_PROFILE="$2"; shift 2 ;;
-            --vm-args)           VM_ARGS="$2"; shift 2 ;;
-            --app-name)          APP_NAME="$2"; shift 2 ;;
-            --project-name)      PROJECT_NAME="$2"; shift 2 ;;
-            --sftp)              SFTP_SPEC="$2"; shift 2 ;;
-            --sftp-user)         SFTP_USER="$2"; shift 2 ;;
-            --sftp-host)         SFTP_HOST="$2"; shift 2 ;;
-            --sftp-port)         SFTP_PORT="$2"; shift 2 ;;
-            --sftp-remote-path)  SFTP_REMOTE_PATH="$2"; shift 2 ;;
-            --sftp-local-path)   SFTP_LOCAL_PATH="$2"; shift 2 ;;
+            --target-dir)          TARGET_DIR="$2"; shift 2 ;;
+            --repo-url)            REPO_URL="$2"; shift 2 ;;
+            --jdk-version)         JDK_VERSION="$2"; shift 2 ;;
+            --gradle-jdk-version)  GRADLE_JDK_VERSION="$2"; shift 2 ;;
+            --main-class)          MAIN_CLASS="$2"; shift 2 ;;
+            --spring-profile)      SPRING_PROFILE="$2"; shift 2 ;;
+            --vm-args)             VM_ARGS="$2"; shift 2 ;;
+            --app-name)            APP_NAME="$2"; shift 2 ;;
+            --project-name)        PROJECT_NAME="$2"; shift 2 ;;
+            --sftp)                SFTP_SPEC="$2"; shift 2 ;;
+            --sftp-user)           SFTP_USER="$2"; shift 2 ;;
+            --sftp-host)           SFTP_HOST="$2"; shift 2 ;;
+            --sftp-port)           SFTP_PORT="$2"; shift 2 ;;
+            --sftp-remote-path)    SFTP_REMOTE_PATH="$2"; shift 2 ;;
+            --sftp-local-path)     SFTP_LOCAL_PATH="$2"; shift 2 ;;
             *) echo "⚠️  알 수 없는 옵션 무시: $1"; shift ;;
         esac
     done
@@ -344,7 +357,7 @@ setup_gradle_spring_project() {
     echo "🚀 [$APP_NAME] Gradle Spring Boot 프로젝트 설정을 시작합니다."
     echo "   대상 경로 : $TARGET_DIR"
     echo "   저장소 URL: $REPO_URL"
-    echo "   Java 버전 : JDK $JDK_VERSION"
+    echo "   Java 버전 : JDK $JDK_VERSION (Gradle 구동 JDK: $GRADLE_JDK_VERSION)"
     [ -n "$MAIN_CLASS" ] && echo "   메인 클래스: $MAIN_CLASS"
     [ -n "$SPRING_PROFILE" ] && echo "   기본 프로필: $SPRING_PROFILE"
     [ -n "$SFTP_SPEC" ] && echo "   SFTP 마운트: $SFTP_SPEC"
@@ -371,7 +384,7 @@ setup_gradle_spring_project() {
     fi
 
     # 3. .vscode 설정 생성 (settings.json, launch.json)
-    setup_vscode_java "$TARGET_DIR" "$JDK_VERSION" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME"
+    setup_vscode_java "$TARGET_DIR" "$JDK_VERSION" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME" "$GRADLE_JDK_VERSION"
 
     # 4. VSCode 필수 확장 프로그램 검사/설치
     install_vscode_extensions "${VSCODE_JAVA_EXTENSIONS[@]}"
