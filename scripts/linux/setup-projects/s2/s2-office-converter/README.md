@@ -166,6 +166,6 @@ s2-soffice --headless --convert-to pdf --outdir /tmp/out 보고서.hwp
 
 ## 라이선스
 
-이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(GPL 3.0), Chromium(BSD 3-Clause 등), 폰트(SIL OFL 1.1 등), Podman(Apache 2.0)을 각 배포처에서 받아
+이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(MIT), Chromium(BSD 3-Clause 등), 폰트(SIL OFL 1.1 등), Podman(Apache 2.0)을 각 배포처에서 받아
 설치할 뿐 재배포하지 않습니다. 각 소프트웨어는 자체 라이선스를 따릅니다. 폐쇄망 설치 파일을 다른 조직에 전달하면 그 안의
 소프트웨어를 배포하는 것이 되므로 각 라이선스를 확인하십시오.
