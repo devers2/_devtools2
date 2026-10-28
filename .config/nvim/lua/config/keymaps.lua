@@ -540,29 +540,24 @@ end, { silent = true, desc = '스마트 Home (코드 시작 ↔ 줄 맨 앞 토�
 
 -- =========================================================================
 -- [Sublime Merge 연동 키맵]
--- <leader>sm : 현재 작업 디렉토리 기준 Sublime Merge 실행
--- <leader>sM : 현재 버퍼 파일 기준 Sublime Merge 실행
+-- <leader>gu : 현재 작업 디렉토리 기준 Sublime Merge 실행 (Git UI)
+-- <leader>gU : 현재 버퍼 파일 기준 Sublime Merge 실행 (Git UI File)
+-- Sublime Merge 가 설정(설치)되어 있을 때만 조건부 등록
 -- =========================================================================
-vim.keymap.set('n', '<leader>sm', function()
-  if vim.fn.executable('smerge') == 1 then
+if vim.fn.executable('smerge') == 1 then
+  vim.keymap.set('n', '<leader>gu', function()
     vim.fn.jobstart({ 'smerge', '.' }, { detach = true })
     vim.notify('Sublime Merge 실행 (프로젝트 루트)', vim.log.levels.INFO)
-  else
-    vim.notify('smerge 명령어를 찾을 수 없습니다.', vim.log.levels.WARN)
-  end
-end, { desc = 'Sublime Merge (프로젝트)' })
+  end, { desc = 'Sublime Merge (프로젝트)' })
 
-vim.keymap.set('n', '<leader>sM', function()
-  local file = vim.api.nvim_buf_get_name(0)
-  if file == '' then
-    file = '.'
-  end
-  if vim.fn.executable('smerge') == 1 then
+  vim.keymap.set('n', '<leader>gU', function()
+    local file = vim.api.nvim_buf_get_name(0)
+    if file == '' then
+      file = '.'
+    end
     vim.fn.jobstart({ 'smerge', file }, { detach = true })
     vim.notify('Sublime Merge 실행: ' .. vim.fn.fnamemodify(file, ':t'), vim.log.levels.INFO)
-  else
-    vim.notify('smerge 명령어를 찾을 수 없습니다.', vim.log.levels.WARN)
-  end
-end, { desc = 'Sublime Merge (현재 파일)' })
+  end, { desc = 'Sublime Merge (현재 파일)' })
+end
 
 

@@ -18,11 +18,10 @@
 ;   3. Sublime Merge 전역 단축키 (Ctrl + Alt + G)
 ;      - Sublime Merge 실행 또는 기존 창 즉시 포그라운드 활성화
 ;
-;   4. 개발툴 활성 시 IME 자동 영문 전환 (0ms 무지연)
-;      - Windows Terminal / VS Code / Zed / Sublime Merge 등이 활성 상태에서
-;        Esc, CapsLock(탭), Ctrl+[ 입력 시 Windows IME를 즉시 영문으로 전환
+;   4. 전역 IME 자동 영문 전환 (0ms 무지연)
+;      - Esc, CapsLock(탭), Ctrl+[ 입력 시 Windows IME를 즉시 영문으로 자동 전환
 ;      - Linux 네이티브의 im-select.nvim + fcitx5 와 동일한 경험 제공
-;      - Normal 모드 진입 및 Insert 복귀 시 항상 영문 보장
+;      - Normal 모드 진입 및 작업 전환 시 항상 영문 보장
 ; ==============================================================================
 
 ; ------------------------------------------------------------------------------
@@ -42,19 +41,6 @@ _SetImeToEnglish() {
         if (convMode & 1)
             DllCall("SendMessage", "Ptr", imeWnd, "UInt", 0x0283, "Ptr", 0x0002, "Ptr", 0, "Ptr")
     }
-}
-
-; 개발툴(Windows Terminal / VS Code / Cursor / Zed / Neovide) 활성 여부 판별
-; (Neovide 는 neovide --wsl 로 WSL 안의 Neovim 에 붙어 쓰는 GUI 라 포함합니다)
-_IsDevWindow() {
-    return WinActive("ahk_exe WindowsTerminal.exe")
-        or WinActive("ahk_exe WindowsTerminalPreview.exe")
-        or WinActive("ahk_exe Code.exe")
-        or WinActive("ahk_exe Code - Insiders.exe")
-        or WinActive("ahk_exe Cursor.exe")
-        or WinActive("ahk_exe zed.exe")
-        or WinActive("ahk_exe neovide.exe")
-        or WinActive("ahk_exe sublime_merge.exe")
 }
 
 ; ------------------------------------------------------------------------------
@@ -90,6 +76,7 @@ _CleanupOnExit(reason, code) {
     if GetKeyState("CapsLock", "T") {
         SetCapsLockState "Off"
         Send "{Esc}"
+        _SetImeToEnglish()
         return
     }
 
@@ -115,10 +102,7 @@ _CleanupOnExit(reason, code) {
 
     if !_capsUsedAsCtrl {
         Send "{Esc}"
-        ; CapsLock 탭(→ Esc) 시 개발툴이면 즉시 영문 전환 (Esc·Ctrl+[ 와 같은 조건).
-        ; 조건 없이 전환하면 브라우저·워드 등 일반 앱에서도 CapsLock 만 눌러 한글 입력이 영문으로 바뀜.
-        if _IsDevWindow()
-            _SetImeToEnglish()
+        _SetImeToEnglish()
     }
 
     _capsUsedAsCtrl := false
@@ -135,17 +119,15 @@ _CleanupOnExit(reason, code) {
 ~Esc:: {
     if GetKeyState("CapsLock", "T")
         SetCapsLockState "Off"
-    if _IsDevWindow()
-        _SetImeToEnglish()  ; Esc 시 개발툴이면 즉시 영문 전환 (일반 앱에는 미적용)
+    _SetImeToEnglish()
 }
 
 ; ------------------------------------------------------------------------------
-; Part 3. 개발툴 활성 시 IME 자동 영문 전환 (Ctrl+[)
+; Part 3. IME 자동 영문 전환 (Ctrl+[)
 ; Vim 표준 Esc 대체키 Ctrl+[ 에도 동일하게 적용
 ; ------------------------------------------------------------------------------
 ~^[:: {
-    if _IsDevWindow()
-        _SetImeToEnglish()
+    _SetImeToEnglish()
 }
 
 ; ------------------------------------------------------------------------------
