@@ -155,6 +155,10 @@ $gittyupAppdata = "$env:APPDATA\Gittyup"
 if (-not (Test-Path $gittyupAppdata)) {
     New-Item -ItemType Directory -Path $gittyupAppdata -Force | Out-Null
 }
+$gittyupThemesDir = "$env:LOCALAPPDATA\Gittyup\themes"
+if (-not (Test-Path $gittyupThemesDir)) {
+    New-Item -ItemType Directory -Path $gittyupThemesDir -Force | Out-Null
+}
 
 $WslGittyupConfig = "$DevTools2Wsl\.config\gittyup"
 
@@ -184,6 +188,10 @@ foreach ($fName in $filesToSync) {
             $content = $content -replace 'fontSize=.*', ('fontSize=' + $_dt2FontSize)
         }
         [System.IO.File]::WriteAllText($dstFile, $content, [System.Text.UTF8Encoding]::new($false))
+        if ($fName -eq "theme.lua") {
+            [System.IO.File]::WriteAllText((Join-Path $gittyupThemesDir "Dark.lua"), $content, [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText((Join-Path $gittyupThemesDir "DevTools2.lua"), $content, [System.Text.UTF8Encoding]::new($false))
+        }
         Write-Success "Gittyup 설정 동기화 완료: $dstFile"
     }
 }
