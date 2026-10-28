@@ -674,6 +674,34 @@ bw_save_git_credentials() {
     mv "$_tmp_creds" ~/.git-credentials
     _bw_trap_restore
     echo "✅ PAT 가 ~/.git-credentials 에 저장되었습니다. (host: $_cred_host)"
+
+    # ── WSL2 환경: Windows 홈의 .git-credentials 에도 동기화 ──────────────────
+    # Windows 네이티브 Git GUI(Sublime Merge 등)가 시스템 git.exe 의
+    # credential.helper=store 를 통해 동일한 PAT 로 인증할 수 있도록 동기화한다.
+    if grep -qi 'microsoft' /proc/version 2>/dev/null; then
+        local _win_home=""
+        if command -v get_win_userprofile >/dev/null 2>&1; then
+            _win_home=$(get_win_userprofile 2>/dev/null || true)
+        fi
+        if [ -z "$_win_home" ]; then
+            if command -v cmd.exe >/dev/null 2>&1; then
+                local _raw
+                _raw=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
+                [ -n "$_raw" ] && command -v wslpath >/dev/null 2>&1 && _win_home=$(wslpath "$_raw" 2>/dev/null || true)
+            fi
+            [ -z "$_win_home" ] && [ -d "/mnt/c/Users/${USER:-}" ] && _win_home="/mnt/c/Users/${USER:-}"
+        fi
+        if [ -n "$_win_home" ] && [ -d "$_win_home" ]; then
+            local _win_cred="$_win_home/.git-credentials"
+            local _win_tmp
+            _win_tmp=$(umask 077 && mktemp /tmp/bw_wincred_XXXXXX 2>/dev/null || mktemp)
+            touch "$_win_cred" 2>/dev/null || true
+            grep -v -E "@${_cred_host}(/|:|$)" "$_win_cred" > "$_win_tmp" 2>/dev/null || true
+            echo "$_cred_line" >> "$_win_tmp"
+            mv "$_win_tmp" "$_win_cred"
+            echo "✅ Windows 측 $( echo "$_win_cred" | sed "s|$_win_home|~|" ) 에도 동기화 완료 (Windows Git GUI 인증 자동화)"
+        fi
+    fi
 }
 
 # ── Bitwarden PAT 인증으로 git clone 수행 ─────────────────────────────────────
