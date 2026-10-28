@@ -210,14 +210,25 @@ _ActivateNewTerminal(existingHwnds) {
 }
 
 ; ------------------------------------------------------------------------------
-; Part 4. Gittyup 전역 단축키 (Ctrl + Alt + G)
+; Part 4. Gittyup 전역 단축키 (Ctrl + Alt + G) 및 상단 타이틀 바 다크 모드 적용
 ; ------------------------------------------------------------------------------
+_SetDarkTitleBar(hwnd) {
+    if !hwnd
+        return
+    try {
+        ; DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 20H1+ 및 Windows 11)
+        DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", hwnd, "UInt", 20, "Int*", 1, "UInt", 4)
+    }
+}
+
 ; 이미 실행 중이면 최상단 활성화(포커스), 없으면 새 프로세스 실행
 ^!g::
 {
     if WinExist("ahk_exe gittyup.exe") {
         if WinGetMinMax("ahk_exe gittyup.exe") = -1
             WinRestore("ahk_exe gittyup.exe")
+        hwnd := WinExist("ahk_exe gittyup.exe")
+        _SetDarkTitleBar(hwnd)
         WinActivate("ahk_exe gittyup.exe")
         WinSetAlwaysOnTop(true, "ahk_exe gittyup.exe")
         WinSetAlwaysOnTop(false, "ahk_exe gittyup.exe")
@@ -245,6 +256,8 @@ _LaunchGittyup() {
         if FileExist(p) {
             try {
                 Run('"' p '" --theme Dark')
+                if WinWait("ahk_exe gittyup.exe", , 3)
+                    _SetDarkTitleBar(WinExist("ahk_exe gittyup.exe"))
                 return
             }
         }
@@ -253,6 +266,8 @@ _LaunchGittyup() {
     ; PATH 또는 별칭을 통한 실행 시도
     try {
         Run("gittyup.exe --theme Dark")
+        if WinWait("ahk_exe gittyup.exe", , 3)
+            _SetDarkTitleBar(WinExist("ahk_exe gittyup.exe"))
     } catch {
         TrayTip("Gittyup 실행", "Gittyup 실행 파일을 찾을 수 없습니다. 설치 여부를 확인하세요.", 0x3)
     }
