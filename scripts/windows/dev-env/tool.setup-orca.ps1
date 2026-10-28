@@ -265,12 +265,34 @@ if (-not [string]::IsNullOrWhiteSpace($pairingLink)) {
     Write-Success "페어링 링크를 찾았습니다."
     Write-Host "    $pairingLink" -ForegroundColor Yellow
     Write-Host ""
-    Write-Info "Orca 앱으로 자동 페어링을 시도합니다(등록된 orca:// 핸들러가 없으면 조용히 무시됩니다)..."
-    try {
-        Start-Process $pairingLink -ErrorAction Stop
-        Write-Success "Orca 앱을 열었습니다. 자동으로 페어링됐는지 앱에서 확인해주세요."
-    } catch {
-        Write-Warn "자동 실행에 실패했습니다."
+    
+    $foundOrcaExe = $null
+    foreach ($p in $orcaPaths) {
+        if (Test-Path $p) { $foundOrcaExe = $p; break }
+    }
+
+    if ($foundOrcaExe) {
+        Write-Info "Orca 데스크톱 앱으로 자동 페어링을 시작합니다..."
+        try {
+            Start-Process -FilePath $foundOrcaExe -ArgumentList $pairingLink -ErrorAction Stop
+            Write-Success "Orca 앱을 실행하여 자동 페어링을 요청했습니다. 앱 화면에서 확인해주세요."
+        } catch {
+            try {
+                Start-Process $pairingLink -ErrorAction Stop
+                Write-Success "Orca 앱을 열었습니다. 자동으로 페어링됐는지 앱에서 확인해주세요."
+            } catch {
+                Write-Warn "Orca 앱 자동 실행에 실패했습니다."
+            }
+        }
+    } else {
+        Write-Info "Orca 앱으로 자동 페어링을 시도합니다(등록된 orca:// 핸들러 호출)..."
+        try {
+            Start-Process $pairingLink -ErrorAction Stop
+            Write-Success "Orca 앱을 열었습니다. 자동으로 페어링됐는지 앱에서 확인해주세요."
+        } catch {
+            Write-Warn "Windows에 Orca 데스크톱 앱이 설치되어 있지 않아 자동 연결을 완료하지 못했습니다."
+            Write-Info "  'winget install StablyAI.Orca' 로 데스크톱 앱을 설치하시면 바로 자동 연동됩니다."
+        }
     }
     Write-Info "자동으로 안 됐다면 위 링크를 Orca 앱의 'Settings → Remote Orca Servers → Add Server'에 직접 붙여넣어 주세요."
 } else {
