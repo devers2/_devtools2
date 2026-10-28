@@ -284,7 +284,7 @@ if [ "$_orca_proceed" = true ]; then
     echo "   🤖 에이전트 CLI 점검 (Orca 가 실제로 실행할 대상)"
     _orca_agent_names=("claude" "codex" "gemini")
     _orca_agent_labels=("Claude Code" "Codex" "Gemini CLI")
-    _orca_agent_defaults=("Y" "N" "N")
+    _orca_agent_defaults=("N" "N" "N")
     for _i in "${!_orca_agent_names[@]}"; do
         _cmd="${_orca_agent_names[$_i]}"
         _label="${_orca_agent_labels[$_i]}"
