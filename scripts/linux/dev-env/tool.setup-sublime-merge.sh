@@ -256,6 +256,37 @@ if [ -d "$SMERGE_CONFIG_SRC" ]; then
         ln -sfn "$SMERGE_CONFIG_SRC" "$SMERGE_MODULE_DIR/Data/Packages/User"
     fi
     print_done "설정 파일 심볼릭 링크 완료: $SMERGE_CONFIG_SRC"
+
+    # 3) Sublime Merge 시작 세션에 기본 저장소 경로 등록 (Local Repositories)
+    python3 - <<PYEOF 2>/dev/null || true
+import json, os
+
+dirs = ["$HOME/.config/sublime-merge/Local", "$SMERGE_MODULE_DIR/Data/Local"]
+targets = ["$HOME/_devtools2", "${DEVTOOLS2:-}", "$HOME"]
+
+for d in dirs:
+    if not os.path.exists(d):
+        try: os.makedirs(d, exist_ok=True)
+        except: continue
+    sf = os.path.join(d, "Session.sublime_session")
+    data = {}
+    if os.path.exists(sf):
+        try:
+            with open(sf, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except: data = {}
+    recent = data.setdefault("recent", {})
+    existing = recent.setdefault("folders", [])
+    merged = [t for t in targets if t and os.path.exists(t)]
+    for e in existing:
+        if e not in merged:
+            merged.append(e)
+    recent["folders"] = merged
+    try:
+        with open(sf, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except: pass
+PYEOF
 fi
 
 # ==============================================================================
