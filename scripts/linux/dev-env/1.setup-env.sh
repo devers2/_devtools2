@@ -97,6 +97,8 @@ _DT2_PATH_DIRS=(
     '$DEVTOOLS2/modules/fd'
     '$DEVTOOLS2/modules/fzf'
     '$DEVTOOLS2/modules/lazygit'
+    '$DEVTOOLS2/modules/sublime-merge'
+    '$DEVTOOLS2/modules/sublime-merge/bin'
     '$DEVTOOLS2/modules/ast-grep'
     '$DEVTOOLS2/modules/bitwarden'
     '$DEVTOOLS2/modules/rclone'

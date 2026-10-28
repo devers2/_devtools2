@@ -182,6 +182,14 @@ DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/3.install-cli-tools.s
 print_done "[Step 3] CLI 유틸리티 설치 완료."
 
 # ==============================================================================
+# [Step 3-1] Git Diff & Merge 에디터 설치 (Sublime Merge)
+# ==============================================================================
+print_step "▶ [Step 3-1] Git Diff & Merge 도구 설치 및 연동 (Sublime Merge)"
+
+DEVTOOLS2=/var/opt/_devtools2 run_remote_script "$RAW_BASE/tool.setup-sublime-merge.sh"
+print_done "[Step 3-1] Sublime Merge 설치 완료."
+
+# ==============================================================================
 # [Step 4] 키보드 리매핑 설정 (keyd — WSL 환경이면 자동 건너뜀, 비치명적)
 # ==============================================================================
 print_step "▶ [Step 4] CapsLock 키보드 리매핑 설정 (keyd)"

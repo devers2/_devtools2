@@ -1,0 +1,27 @@
+{
+    // ==========================================================================
+    // DevTools2 Sublime Merge 전역 설정 (Preferences.sublime-settings)
+    // ==========================================================================
+
+    // 테마 및 색상 스킴
+    "theme": "Merge Dark.sublime-theme",
+    "color_scheme": "Packages/Color Scheme - Default/Mariana.sublime-color-scheme",
+
+    // 에디터 폰트 설정
+    "font_face": "JetBrainsMono Nerd Font Mono",
+    "font_size": 11,
+
+    // Diff 뷰어 가독성 옵션
+    "diff_algorithm": "myers",
+    "draw_white_space": "selection",
+    "show_line_endings": false,
+    "line_numbers": true,
+    "ruler": 100,
+
+    // 탭 및 들여쓰기 (DevTools2 표준 2칸 들여쓰기)
+    "tab_size": 2,
+    "translate_tabs_to_spaces": true,
+
+    // 파일 변경 감지 및 자동 새로고침
+    "always_prompt_for_rebase": false
+}
