@@ -162,6 +162,102 @@ if (Test-Path $DevTools2Wsl) {
         Copy-Item -Path $srcKeymap -Destination $dstKeymap -Force
         Write-Success "Default.sublime-keymap 동기화 완료"
     }
+
+    # kanagawa.sublime-color-scheme 동기화 (Neovim 과 동일한 테마)
+    $srcScheme = "$WslSmergeConfig\kanagawa.sublime-color-scheme"
+    $dstScheme = "$WinSmergeUserDir\kanagawa.sublime-color-scheme"
+    if (Test-Path $srcScheme) {
+        if (Test-Path $dstScheme) {
+            $fi = Get-Item $dstScheme -Force
+            if ($fi.LinkType -eq "SymbolicLink") {
+                Remove-Item $dstScheme -Force
+            } elseif ((Get-FileHash $dstScheme).Hash -ne (Get-FileHash $srcScheme).Hash) {
+                $bak = "$dstScheme.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
+                Copy-Item -Path $dstScheme -Destination $bak -Force
+            }
+        }
+        Copy-Item -Path $srcScheme -Destination $dstScheme -Force
+        Write-Success "kanagawa.sublime-color-scheme 동기화 완료"
+    }
+}
+
+# ==============================================================================
+# [Step 4] WSL2 홈 및 저장소 기본 경로 세션 등록 (Local Repositories & Open)
+# ==============================================================================
+Write-Step "[Step 4] Sublime Merge 시작 경로 및 세션 등록"
+
+$wslUser = (wsl.exe -d $WslDistro -e whoami 2>$null)
+if (-not [string]::IsNullOrWhiteSpace($wslUser)) { $wslUser = $wslUser.Trim() }
+$wslHomePosix = (wsl.exe -d $WslDistro -e sh -c 'echo $HOME' 2>$null)
+if (-not [string]::IsNullOrWhiteSpace($wslHomePosix)) { $wslHomePosix = $wslHomePosix.Trim() }
+
+if (-not [string]::IsNullOrWhiteSpace($wslHomePosix)) {
+    # Windows UNC 경로 동적 산출 (예: \\wsl.localhost\devtools2\home\eseungsu)
+    $wslHomeUnc = "\\wsl.localhost\$WslDistro" + ($wslHomePosix -replace '/', '\')
+    $wslDevtools2Unc = "\\wsl.localhost\$WslDistro" + ($DevTools2Wsl -replace '/', '\')
+    $wslUserDevtools2Unc = "$wslHomeUnc\_devtools2"
+
+    Write-Host "  감지된 WSL2 홈 UNC 경로: $wslHomeUnc" -ForegroundColor White
+
+    $smergeLocalDir = "$env:APPDATA\Sublime Merge\Local"
+    $smergeSessionFile = "$smergeLocalDir\Session.sublime_session"
+
+    if (-not (Test-Path $smergeLocalDir)) {
+        New-Item -ItemType Directory -Path $smergeLocalDir -Force | Out-Null
+    }
+
+    $sessionObj = if (Test-Path $smergeSessionFile) {
+        try {
+            Get-Content $smergeSessionFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        } catch {
+            [PSCustomObject]@{}
+        }
+    } else {
+        [PSCustomObject]@{}
+    }
+
+    if (-not $sessionObj) { $sessionObj = [PSCustomObject]@{} }
+    if (-not $sessionObj.recent) {
+        $sessionObj | Add-Member -NotePropertyName recent -NotePropertyValue ([PSCustomObject]@{ folders = @() }) -Force
+    }
+    if (-not $sessionObj.recent.folders) {
+        $sessionObj.recent | Add-Member -NotePropertyName folders -NotePropertyValue @() -Force
+    }
+
+    # 기본 표시 대상 저장소 후보군 (우선순위 순서대로)
+    $candidateList = @($wslUserDevtools2Unc, $wslDevtools2Unc, $wslHomeUnc)
+    $mergedFolders = [System.Collections.Generic.List[string]]::new()
+
+    foreach ($cand in $candidateList) {
+        if (-not [string]::IsNullOrWhiteSpace($cand) -and -not $mergedFolders.Contains($cand)) {
+            $mergedFolders.Add($cand)
+        }
+    }
+
+    # 기존 최근 목록 보존
+    if ($sessionObj.recent.folders) {
+        foreach ($oldF in $sessionObj.recent.folders) {
+            if (-not [string]::IsNullOrWhiteSpace($oldF) -and -not $mergedFolders.Contains($oldF)) {
+                $mergedFolders.Add($oldF)
+            }
+        }
+    }
+
+    $sessionObj.recent.folders = @($mergedFolders)
+
+    $sessionJson = $sessionObj | ConvertTo-Json -Depth 20
+    [System.IO.File]::WriteAllText($smergeSessionFile, $sessionJson, [System.Text.UTF8Encoding]::new($false))
+    Write-Success "Sublime Merge 시작 목록(Local Repositories)에 등록 완료: $wslHomeUnc"
+
+    # Windows 탐색기 / 파일 열기 대화상자의 '즐겨찾기(Quick Access)'에 핀 등록 시도
+    try {
+        $shellApp = New-Object -ComObject Shell.Application
+        $folderObj = $shellApp.Namespace($wslHomeUnc)
+        if ($folderObj) {
+            $folderObj.Self.InvokeVerb("pintohome")
+            Write-Success "Windows 파일 열기 대화상자 즐겨찾기(Quick Access)에 핀 고정 완료"
+        }
+    } catch {}
 }
 
 Write-Host ""

@@ -3,13 +3,13 @@
     // DevTools2 Sublime Merge 전역 설정 (Preferences.sublime-settings)
     // ==========================================================================
 
-    // 테마 및 색상 스킴
+    // 테마 및 색상 스킴 (Neovim 및 Windows Terminal 과 동일한 Kanagawa 테마 적용)
     "theme": "Merge Dark.sublime-theme",
-    "color_scheme": "Packages/Color Scheme - Default/Mariana.sublime-color-scheme",
+    "color_scheme": "Packages/User/kanagawa.sublime-color-scheme",
 
-    // 에디터 폰트 설정
-    "font_face": "JetBrainsMono Nerd Font Mono",
-    "font_size": 11,
+    // 에디터 폰트 설정 (Neovim / Windows Terminal 과 동일: D2KodingLigature 11.5pt)
+    "font_face": "D2KodingLigature Nerd Font Mono, JetBrainsMono Nerd Font Mono",
+    "font_size": 11.5,
 
     // Diff 뷰어 가독성 옵션
     "diff_algorithm": "myers",
