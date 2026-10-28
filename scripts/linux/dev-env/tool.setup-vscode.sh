@@ -54,68 +54,82 @@ fi
 
 print_banner "💻 VS Code 에디터 설치 및 확장 연동 (tool.setup-vscode.sh)"
 
-_do_vscode=false
-if [ -n "${DT2_VSCODE_CHOICE:-}" ]; then
-    [ "${DT2_VSCODE_CHOICE,,}" = "y" ] && _do_vscode=true
-elif prompt_confirm "👉 VS Code (Visual Studio Code)를 설치하시겠습니까?" "N"; then
-    _do_vscode=true
+# ── 1. 기존 설치 여부 사전 감지 ──────────────────────────────────────────────
+_vscode_installed=false
+
+if [ "${IS_WSL2:-false}" = true ]; then
+    ensure_wsl_interop
+    _win_user="${WIN_USERPROFILE:-}"
+    if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
+        _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
+        [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=$(wslpath "$_raw_home" 2>/dev/null || true)
+    fi
+    for _p in \
+        "$_win_user/AppData/Local/Programs/Microsoft VS Code/bin" \
+        "/mnt/c/Users/${USER:-}/AppData/Local/Programs/Microsoft VS Code/bin" \
+        "/mnt/c/Program Files/Microsoft VS Code/bin"; do
+        if [ -d "$_p" ]; then
+            ensure_path_in_bashrc "$_p"
+            break
+        fi
+    done
+    if command -v code >/dev/null 2>&1; then
+        _vscode_installed=true
+        print_info "[WSL2] Windows VS Code 감지됨: $(command -v code)"
+    fi
+else
+    if command -v code >/dev/null 2>&1; then
+        _vscode_installed=true
+        print_skip "VSCode가 이미 설치되어 있습니다: $(command -v code)"
+    fi
 fi
 
-if [ "$_do_vscode" = true ]; then
-        if [ "${IS_WSL2:-false}" = true ]; then
-            # binfmt_misc WSLInterop 복구 (Exec format error 예방 — 공용 헬퍼)
-            ensure_wsl_interop
-            _win_user="${WIN_USERPROFILE:-}"
-            if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
-                _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
-                [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=$(wslpath "$_raw_home" 2>/dev/null || true)
-            fi
-            for _p in \
-                "$_win_user/AppData/Local/Programs/Microsoft VS Code/bin" \
-                "/mnt/c/Users/${USER:-}/AppData/Local/Programs/Microsoft VS Code/bin" \
-                "/mnt/c/Program Files/Microsoft VS Code/bin"; do
-                if [ -d "$_p" ]; then
-                    ensure_path_in_bashrc "$_p"
-                    break
-                fi
-            done
+# ── 2. 미설치 상태일 때만 설치 의사 확인 ──────────────────────────────────────
+_do_vscode=false
+if [ "$_vscode_installed" = true ]; then
+    _do_vscode=true
+else
+    if [ -n "${DT2_VSCODE_CHOICE:-}" ]; then
+        [ "${DT2_VSCODE_CHOICE,,}" = "y" ] && _do_vscode=true
+    elif prompt_confirm "👉 VS Code (Visual Studio Code)를 설치하시겠습니까?" "N"; then
+        _do_vscode=true
+    fi
 
-            if command -v code >/dev/null 2>&1; then
-                print_info "[WSL2] Windows VS Code CLI가 감지되어 WSL Remote 확장 동기화를 진행합니다: $(command -v code)"
-            else
-                print_warn "[WSL2] Windows 호스트에 VS Code가 설치되어 있지 않아 확장 설치를 건너뜁니다."
-                print_skip "VSCode 설치 및 확장 연동 단계 건너뜀"
-                exit 0
-            fi
+    if [ "$_do_vscode" = true ]; then
+        if [ "${IS_WSL2:-false}" = true ]; then
+            print_warn "[WSL2] Windows 호스트에 VS Code가 설치되어 있지 않습니다."
+            print_info "  Windows에서 tool.setup-vscode.ps1 을 실행하거나 winget으로 설치하세요:"
+            print_info "    winget install --id Microsoft.VisualStudioCode"
+            print_skip "VSCode 설치 및 확장 연동 단계 건너뜀"
+            exit 0
         else
-            if command -v code >/dev/null 2>&1; then
-                print_skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다: $(command -v code)"
-            else
-                _vscode_tmp="/tmp/vscode_install_$$.deb"
-                _deb_os="linux-deb-x64"
-                if [ "${IS_ARM64:-false}" = "true" ] || [ "$(uname -m 2>/dev/null)" = "aarch64" ]; then
-                    _deb_os="linux-deb-arm64"
-                fi
-                if download_with_progress "https://code.visualstudio.com/sha/download?build=stable&os=${_deb_os}" "$_vscode_tmp" "VSCode .deb 패키지"; then
-                    echo -n "   📦 VSCode 패키지 설치 중..."
-                    (sudo dpkg -i "$_vscode_tmp" >/dev/null 2>&1 || sudo apt-get install -f -y >/dev/null 2>&1 || true) &
-                    show_spinner $!
-                    wait $! 2>/dev/null || true
-                    rm -f "$_vscode_tmp"
-                    # 설치 성공 여부는 code 명령이 실제로 생겼는지로 판단합니다(예전에는 실패해도 "완료" 출력).
-                    if command -v code >/dev/null 2>&1; then
-                        echo " 완료"
-                        print_done "VSCode 설치 완료"
-                    else
-                        echo " 실패"
-                        print_warn "VSCode 패키지 설치에 실패했습니다. 수동으로 설치하세요: https://code.visualstudio.com/"
-                    fi
+            _vscode_tmp="$DT2_TMP/vscode_install_$$.deb"
+            _deb_os="linux-deb-x64"
+            if [ "${IS_ARM64:-false}" = "true" ] || [ "$(uname -m 2>/dev/null)" = "aarch64" ]; then
+                _deb_os="linux-deb-arm64"
+            fi
+            if download_with_progress "https://code.visualstudio.com/sha/download?build=stable&os=${_deb_os}" "$_vscode_tmp" "VSCode .deb 패키지"; then
+                echo -n "   📦 VSCode 패키지 설치 중..."
+                (sudo dpkg -i "$_vscode_tmp" >/dev/null 2>&1 || sudo apt-get install -f -y >/dev/null 2>&1 || true) &
+                show_spinner $!
+                wait $! 2>/dev/null || true
+                rm -f "$_vscode_tmp"
+                if command -v code >/dev/null 2>&1; then
+                    echo " 완료"
+                    print_done "VSCode 설치 완료"
                 else
-                    print_warn "VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
-                    rm -f "$_vscode_tmp"
+                    echo " 실패"
+                    print_warn "VSCode 패키지 설치에 실패했습니다. 수동으로 설치하세요: https://code.visualstudio.com/"
                 fi
+            else
+                print_warn "VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
+                rm -f "$_vscode_tmp"
             fi
         fi
+    else
+        print_skip "VSCode 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+    fi
+fi
 
         # [3] VSCode 확장 자동 설치 (extensions.txt 기반)
         #   WSL / Linux 네이티브 상관없이 사용자가 y를 선택하고 code 명령이 존재하면 실행
@@ -188,9 +202,6 @@ if [ "$_do_vscode" = true ]; then
         else
             print_warn "extensions.txt 없음: $VSCODE_EXT_LIST"
         fi
-    else
-        print_skip "VSCode 설치를 건너뜁니다. 기존 설정은 유지됩니다."
-    fi
 
 print_done "VSCode 단계 완료"
 echo ""

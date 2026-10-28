@@ -51,40 +51,82 @@ else
     source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_install-utils.sh") || { print_error "_install-utils.sh 로드 실패 - 네트워크 연결을 확인하세요."; exit 1; }
 fi
 
-print_banner "⚡ Zed 에디터 설치 (tool.setup-zed.sh)"
+print_banner "⚡ Zed 에디터 설치 및 연동 (tool.setup-zed.sh)"
 
-if [ -d "$DEVTOOLS2/modules/zed" ]; then
-    print_skip "zed 디렉토리가 이미 존재합니다: $DEVTOOLS2/modules/zed"
-    print_info "  새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/zed'"
-    exit 0
-fi
+ZED_MODULE_DIR="$DEVTOOLS2/modules/zed"
 
-_do_zed=false
-if [ -n "${DT2_ZED_CHOICE:-}" ]; then
-    [ "${DT2_ZED_CHOICE,,}" = "y" ] && _do_zed=true
-elif prompt_confirm "👉 Zed 에디터를 설치하시겠습니까?" "N"; then
-    _do_zed=true
-fi
+if [ "${IS_WSL2:-false}" = true ]; then
+    _win_user="${WIN_USERPROFILE:-}"
+    if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
+        _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
+        [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=$(wslpath "$_raw_home" 2>/dev/null || true)
+    fi
 
-if [ "$_do_zed" = true ]; then
-    if [ "${IS_WSL2:-false}" = true ]; then
-        _win_user="${WIN_USERPROFILE:-}"
-        if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
-            _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
-            [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=$(wslpath "$_raw_home" 2>/dev/null || true)
+    _win_zed=""
+    for _p in \
+        "$_win_user/AppData/Local/Programs/Zed/bin" \
+        "/mnt/c/Users/${USER:-}/AppData/Local/Programs/Zed/bin" \
+        "/mnt/c/Program Files/Zed/bin"; do
+        if [ -d "$_p" ]; then
+            _win_zed="$_p"
+            break
         fi
-        for _p in \
-            "$_win_user/AppData/Local/Programs/Zed/bin" \
-            "/mnt/c/Users/${USER:-}/AppData/Local/Programs/Zed/bin" \
-            "/mnt/c/Program Files/Zed/bin"; do
-            if [ -d "$_p" ]; then
-                ensure_path_in_bashrc "$_p"
-                break
-            fi
-        done
+    done
+
+    if [ -n "$_win_zed" ]; then
+        print_info "[WSL2] Windows Zed 감지됨: $_win_zed"
+        ensure_path_in_bashrc "$_win_zed"
         print_done "Zed Windows 연동 완료"
     else
-        print_info "Zed stable 다운로드 및 압축 해제..."
+        _do_zed=false
+        if [ -n "${DT2_ZED_CHOICE:-}" ]; then
+            [ "${DT2_ZED_CHOICE,,}" = "y" ] && _do_zed=true
+        elif prompt_confirm "👉 Zed 에디터를 설치하시겠습니까?" "N"; then
+            _do_zed=true
+        fi
+
+        if [ "$_do_zed" = true ]; then
+            print_info "Windows 호스트에서 tool.setup-zed.ps1 을 실행하거나 winget으로 설치하세요:"
+            print_info "  winget install --id ZedIndustries.Zed"
+        else
+            print_skip "Zed 에디터 설치를 건너뜁니다."
+        fi
+    fi
+else
+    # Linux 네이티브 환경
+    _installed_ver=""
+    if [ -x "$ZED_MODULE_DIR/bin/zed" ]; then
+        _installed_ver=$("$ZED_MODULE_DIR/bin/zed" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+    fi
+
+    _latest_ver=$(fetch_latest_github "zed-industries/zed" 2>/dev/null | sed 's/^v//' || true)
+
+    _do_install=false
+    if [ -n "$_installed_ver" ]; then
+        # 이미 설치됨: 최신 버전과 비교
+        if [ -n "$_latest_ver" ] && [ "$_installed_ver" != "$_latest_ver" ]; then
+            print_info "Zed 새 버전 감지: v$_installed_ver → v$_latest_ver"
+            if prompt_confirm "👉 Zed 에디터를 v$_latest_ver 로 업데이트하시겠습니까?" "Y"; then
+                _do_install=true
+            else
+                print_skip "Zed 업데이트를 건너뜁니다. (현재 버전: v$_installed_ver 유지)"
+            fi
+        else
+            print_skip "Zed v$_installed_ver 이 이미 최신 버전입니다."
+        fi
+    else
+        # 미설치 상태: 사용자 설치 의사 확인
+        _do_zed=false
+        if [ -n "${DT2_ZED_CHOICE:-}" ]; then
+            [ "${DT2_ZED_CHOICE,,}" = "y" ] && _do_zed=true
+        elif prompt_confirm "👉 Zed 에디터를 설치하시겠습니까?" "N"; then
+            _do_zed=true
+        fi
+        [ "$_do_zed" = true ] && _do_install=true
+    fi
+
+    if [ "$_do_install" = true ]; then
+        print_info "Zed 다운로드 및 압축 해제..."
         mkdir -p "$DEVTOOLS2/modules"
         cd "$DEVTOOLS2/modules"
         install_tool \
@@ -92,11 +134,11 @@ if [ "$_do_zed" = true ]; then
             'x86_64' \
             'aarch64' \
             'zed'
-        ensure_path_in_bashrc "$DEVTOOLS2/modules/zed/bin"
-        print_done "Zed 설치 완료"
+        ensure_path_in_bashrc "$ZED_MODULE_DIR/bin"
+        print_done "Zed 설치/업데이트 완료"
+    elif [ -z "$_installed_ver" ]; then
+        print_skip "Zed 에디터 설치를 건너뜁니다."
     fi
-else
-    print_skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
 fi
 
 echo ""

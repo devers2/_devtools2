@@ -764,6 +764,14 @@ else
     # ── 중복 처리: 설치 여부 결정 ────────────────────────────────
     _ghostty_action=$(_resolve_action "$GHOSTTY_INSTALLED" "Ghostty")
 
+    # 이미 설치되어 있지만 최신 버전이 감지된 경우 스마트 업데이트 처리
+    if [ "$GHOSTTY_INSTALLED" = true ] && [ -n "${GHOSTTY_VERSION:-}" ] && [ "$GHOSTTY_VERSION" != "$GHOSTTY_PINNED" ]; then
+        echo "   🆕 Ghostty 새 버전 감지: $GHOSTTY_PINNED → $GHOSTTY_VERSION"
+        if prompt_confirm "   👉 Ghostty 를 $GHOSTTY_VERSION 로 업데이트하시겠습니까?" "Y"; then
+            _ghostty_action="reinstall"
+        fi
+    fi
+
     # ── 설치 실행 ─────────────────────────────────────────────────
     if [ "$_ghostty_action" = "skip" ]; then
         echo "   ⏭️  [건너뜀] ghostty AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -f '$DEVTOOLS2/modules/ghostty/ghostty'"
