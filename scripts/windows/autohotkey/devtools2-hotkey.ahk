@@ -15,11 +15,11 @@
 ;   2. WSL 터미널 전역 단축키 (Ctrl + Alt + T)
 ;      - Windows Terminal을 통해 WSL(devtools2)을 새 창으로 열기
 ;
-;   3. Gittyup 전역 단축키 (Ctrl + Alt + G)
-;      - Gittyup 실행 또는 기존 창 즉시 포그라운드 활성화
+;   3. Sublime Merge 전역 단축키 (Ctrl + Alt + G)
+;      - Sublime Merge 실행 또는 기존 창 즉시 포그라운드 활성화
 ;
 ;   4. 개발툴 활성 시 IME 자동 영문 전환 (0ms 무지연)
-;      - Windows Terminal / VS Code / Zed / Gittyup 등이 활성 상태에서
+;      - Windows Terminal / VS Code / Zed / Sublime Merge 등이 활성 상태에서
 ;        Esc, CapsLock(탭), Ctrl+[ 입력 시 Windows IME를 즉시 영문으로 전환
 ;      - Linux 네이티브의 im-select.nvim + fcitx5 와 동일한 경험 제공
 ;      - Normal 모드 진입 및 Insert 복귀 시 항상 영문 보장
@@ -54,7 +54,7 @@ _IsDevWindow() {
         or WinActive("ahk_exe Cursor.exe")
         or WinActive("ahk_exe zed.exe")
         or WinActive("ahk_exe neovide.exe")
-        or WinActive("ahk_exe gittyup.exe")
+        or WinActive("ahk_exe sublime_merge.exe")
 }
 
 ; ------------------------------------------------------------------------------
@@ -210,7 +210,7 @@ _ActivateNewTerminal(existingHwnds) {
 }
 
 ; ------------------------------------------------------------------------------
-; Part 4. Gittyup 전역 단축키 (Ctrl + Alt + G) 및 상단 타이틀 바 다크 모드 적용
+; Part 4. Sublime Merge 전역 단축키 (Ctrl + Alt + G) 및 상단 타이틀 바 다크 모드 적용
 ; ------------------------------------------------------------------------------
 _SetDarkTitleBar(hwnd) {
     if !hwnd
@@ -224,40 +224,45 @@ _SetDarkTitleBar(hwnd) {
 ; 이미 실행 중이면 최상단 활성화(포커스), 없으면 새 프로세스 실행
 ^!g::
 {
-    if WinExist("ahk_exe gittyup.exe") {
-        if WinGetMinMax("ahk_exe gittyup.exe") = -1
-            WinRestore("ahk_exe gittyup.exe")
-        hwnd := WinExist("ahk_exe gittyup.exe")
+    if WinExist("ahk_exe sublime_merge.exe") {
+        if WinGetMinMax("ahk_exe sublime_merge.exe") = -1
+            WinRestore("ahk_exe sublime_merge.exe")
+        hwnd := WinExist("ahk_exe sublime_merge.exe")
         _SetDarkTitleBar(hwnd)
-        WinActivate("ahk_exe gittyup.exe")
-        WinSetAlwaysOnTop(true, "ahk_exe gittyup.exe")
-        WinSetAlwaysOnTop(false, "ahk_exe gittyup.exe")
+        WinActivate("ahk_exe sublime_merge.exe")
+        WinSetAlwaysOnTop(true, "ahk_exe sublime_merge.exe")
+        WinSetAlwaysOnTop(false, "ahk_exe sublime_merge.exe")
         return
     }
 
-    _LaunchGittyup()
+    _LaunchSublimeMerge()
 }
 
-_LaunchGittyup() {
+_LaunchSublimeMerge() {
     progFiles := EnvGet("ProgramFiles")
     progFilesX86 := EnvGet("ProgramFiles(x86)")
     localApp := EnvGet("LOCALAPPDATA")
 
-    gittyupPaths := [
-        progFiles "\Gittyup\bin\gittyup.exe",
-        progFiles "\Gittyup\gittyup.exe",
-        progFilesX86 "\Gittyup\bin\gittyup.exe",
-        progFilesX86 "\Gittyup\gittyup.exe",
-        localApp "\Programs\Gittyup\bin\gittyup.exe",
-        localApp "\Programs\Gittyup\gittyup.exe"
+    smergePaths := [
+        progFiles "\Sublime Merge\sublime_merge.exe",
+        progFilesX86 "\Sublime Merge\sublime_merge.exe",
+        localApp "\Programs\Sublime Merge\sublime_merge.exe",
+        progFiles "\Sublime Merge\smerge.exe",
+        progFilesX86 "\Sublime Merge\smerge.exe",
+        localApp "\Programs\Sublime Merge\smerge.exe"
     ]
 
-    for p in gittyupPaths {
+    loop files localApp "\Microsoft\WinGet\Packages\*SublimeMerge*\sublime_merge.exe"
+        smergePaths.Push(A_LoopFilePath)
+    loop files localApp "\Microsoft\WinGet\Packages\*SublimeMerge*\smerge.exe"
+        smergePaths.Push(A_LoopFilePath)
+
+    for p in smergePaths {
         if FileExist(p) {
             try {
-                Run('"' p '" --theme Dark')
-                if WinWait("ahk_exe gittyup.exe", , 3)
-                    _SetDarkTitleBar(WinExist("ahk_exe gittyup.exe"))
+                Run('"' p '"')
+                if WinWait("ahk_exe sublime_merge.exe", , 3)
+                    _SetDarkTitleBar(WinExist("ahk_exe sublime_merge.exe"))
                 return
             }
         }
@@ -265,45 +270,13 @@ _LaunchGittyup() {
 
     ; PATH 또는 별칭을 통한 실행 시도
     try {
-        Run("gittyup.exe --theme Dark")
-        if WinWait("ahk_exe gittyup.exe", , 3)
-            _SetDarkTitleBar(WinExist("ahk_exe gittyup.exe"))
+        Run("smerge.exe")
+        if WinWait("ahk_exe sublime_merge.exe", , 3)
+            _SetDarkTitleBar(WinExist("ahk_exe sublime_merge.exe"))
     } catch {
-        TrayTip("Gittyup 실행", "Gittyup 실행 파일을 찾을 수 없습니다. 설치 여부를 확인하세요.", 0x3)
+        TrayTip("Sublime Merge 실행", "Sublime Merge 실행 파일을 찾을 수 없습니다. 설치 여부를 확인하세요.", 0x3)
     }
 }
 
-; ------------------------------------------------------------------------------
-; Part 5. Meld 3-Way 병합/비교 창 자동 포그라운드 활성화 및 다크 모드 타이틀 바 적용
-; Gittyup 등에서 External Diff 실행 시 Windows 포그라운드 잠금 정책으로 인해
-; 새 창이 전체화면 Gittyup 뒤에 묻히는 현상을 해결하고,
-; 상단 타이틀 바에 DWM 몰입형 다크 모드(DwmSetWindowAttribute)를 자동 적용한다.
-; ------------------------------------------------------------------------------
-SetTimer _WatchMeldWindows, 200
-
-global _knownMeldHwnds := Map()
-
-_WatchMeldWindows() {
-    global _knownMeldHwnds
-    try {
-        hwnds := WinGetList("ahk_exe meld.exe")
-        for hwnd in hwnds {
-            if !_knownMeldHwnds.Has(hwnd) {
-                _knownMeldHwnds[hwnd] := true
-                _SetDarkTitleBar(hwnd)
-                win := "ahk_id " hwnd
-                if WinGetMinMax(win) = -1
-                    WinRestore(win)
-                WinSetAlwaysOnTop(true, win)
-                WinSetAlwaysOnTop(false, win)
-                WinActivate(win)
-            }
-        }
-        for hwnd in _knownMeldHwnds.Clone() {
-            if !WinExist("ahk_id " hwnd)
-                _knownMeldHwnds.Delete(hwnd)
-        }
-    }
-}
 
 

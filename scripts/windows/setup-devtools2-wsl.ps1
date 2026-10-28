@@ -5,7 +5,7 @@
 #   1. Windows WSL2 가상 머신 생성 및 활성화 (0.setup-wsl.ps1)
 #   2. WSL2 내부로 Linux 초기화 스크립트를 실행하여 깃 자격증명 설정 및 클론 진행
 #   3. WSL2 내부의 환경변수 설정, 핵심 개발 런타임 및 CLI 유틸리티 도구 일괄 자동 설치
-#   4. Windows 호스트용 AutoHotkey, Windows Terminal, Gittyup, Meld, VS Code, Zed, Orca 자동 설치 및 설정 연동
+#   4. Windows 호스트용 AutoHotkey, Windows Terminal, Sublime Merge, VS Code, Zed, Orca 자동 설치 및 설정 연동
 #
 # ------------------------------------------------------------------------------
 # ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
@@ -614,12 +614,12 @@ try {
     Write-Warn "Windows Terminal 설정 중 오류 발생 (계속 진행): $($_.Exception.Message)"
 }
 
-# ── 4-3. Gittyup & Meld (오픈소스 Git 클라이언트 및 3-Way 병합 도구 연동) ─────
-Write-SubStep "▶ (3/6) Gittyup & Meld 설치 및 연동"
+# ── 4-3. Sublime Merge (Git Diff & Merge 클라이언트 설치 및 설정 연동) ───────
+Write-SubStep "▶ (3/6) Sublime Merge 설치 및 설정 연동"
 try {
-    Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-gittyup.ps1" -Arguments @{ WslDistro = $wslDistro }
+    Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-sublime-merge.ps1" -Arguments @{ WslDistro = $wslDistro }
 } catch {
-    Write-Warn "Gittyup & Meld 설정 중 오류 발생 (계속 진행): $($_.Exception.Message)"
+    Write-Warn "Sublime Merge 설정 중 오류 발생 (계속 진행): $($_.Exception.Message)"
 }
 
 # ── 4-4. VSCode (에디터 설치, 심볼릭 링크 및 확장 동기화) ────────────────────
