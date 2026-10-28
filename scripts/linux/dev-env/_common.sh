@@ -543,3 +543,41 @@ ensure_wsl_interop() {
     fi
 }
 
+# ==============================================================================
+# WSL2 Windows 사용자 홈 디렉터리 경로(%USERPROFILE%) 조회 공용 헬퍼
+# ==============================================================================
+# WSL2 환경에서 Windows 호스트의 사용자 홈 디렉터리(POSIX 형식: /mnt/c/Users/<user>)를
+# 안전하게 반환합니다. 환경변수 WIN_USERPROFILE 이 이미 유효하면 이를 우선 재사용합니다.
+get_win_userprofile() {
+    if [ -n "${WIN_USERPROFILE:-}" ] && [ -d "$WIN_USERPROFILE" ]; then
+        echo "$WIN_USERPROFILE"
+        return 0
+    fi
+
+    if [ "${IS_WSL2:-false}" = true ] || grep -qi 'microsoft' /proc/version 2>/dev/null; then
+        ensure_wsl_interop
+        if command -v cmd.exe >/dev/null 2>&1; then
+            local _raw_home
+            _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '' || true)
+            if [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1; then
+                local _converted
+                _converted=$(wslpath "$_raw_home" 2>/dev/null || true)
+                if [ -n "$_converted" ] && [ -d "$_converted" ]; then
+                    WIN_USERPROFILE="$_converted"
+                    export WIN_USERPROFILE
+                    echo "$_converted"
+                    return 0
+                fi
+            fi
+        fi
+        # 폴백: /mnt/c/Users/$USER
+        if [ -d "/mnt/c/Users/${USER:-}" ]; then
+            WIN_USERPROFILE="/mnt/c/Users/${USER:-}"
+            export WIN_USERPROFILE
+            echo "$WIN_USERPROFILE"
+            return 0
+        fi
+    fi
+    echo ""
+    return 1
+}

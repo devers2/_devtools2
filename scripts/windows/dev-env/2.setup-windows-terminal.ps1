@@ -69,35 +69,8 @@ Write-Host "====================================================================
 Write-Step "[Step 1] Windows Terminal 설치 확인"
 
 $wtInstalled = [bool](Get-Command wt.exe -ErrorAction SilentlyContinue)
-if ($wtInstalled) {
-    Write-Info "Windows Terminal이 이미 설치되어 있습니다. 최신 버전 확인 중..."
-    $upgradeNeeded = $false
-    try {
-        $wgUpgradeCheck = winget upgrade --id Microsoft.WindowsTerminal 2>$null
-        $upgradeOutput = $wgUpgradeCheck -join ""
-        if ($LASTEXITCODE -eq 0 -and $upgradeOutput -match "Microsoft.WindowsTerminal") {
-            $upgradeNeeded = $true
-        }
-    } catch {}
-    if ($upgradeNeeded) {
-        Write-Info "Windows Terminal 최신 버전이 있습니다. 업데이트를 진행합니다..."
-        $p = Start-Process winget -ArgumentList "upgrade --id Microsoft.WindowsTerminal --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru -Wait
-        $null = $p.Handle
-        Write-Success "Windows Terminal 업데이트 완료"
-    } else {
-        Write-Skip "Windows Terminal이 이미 최신 버전입니다."
-    }
-} else {
-    Write-Info "Windows Terminal을 winget으로 설치합니다..."
-    $p = Start-Process winget -ArgumentList "install --id Microsoft.WindowsTerminal --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru -Wait
-    $successCodes = @(0, 3010, -1978335189, -1978335212)
-    if ($successCodes -contains $p.ExitCode -or (Get-Command wt.exe -ErrorAction SilentlyContinue)) {
-        Write-Success "Windows Terminal 설치/확인 완료"
-    } else {
-        Write-Fail "Windows Terminal 설치 실패 (종료 코드: $($p.ExitCode))"
-        Write-Host "  수동 설치: https://aka.ms/terminal" -ForegroundColor Yellow
-    }
-}
+# Windows Terminal 필수 설치 및 최신 버전 자동 유지
+$null = Install-OrUpdateWingetPackage -PackageId "Microsoft.WindowsTerminal" -DisplayName "Windows Terminal" -IsInstalled $wtInstalled -SkipPrompt
 
 # ==============================================================================
 # [Step 2] Nerd Font 설치 (기본값: D2KodingLigature Nerd Font Mono)

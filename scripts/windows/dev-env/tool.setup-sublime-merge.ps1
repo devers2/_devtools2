@@ -103,55 +103,7 @@ try {
     }
 } catch {}
 
-if ($smergeInstalled) {
-    # 이미 설치되어 있으면 winget upgrade 로 최신 버전 업데이트 시도
-    Write-Host "  Sublime Merge 가 이미 설치되어 있습니다. 최신 버전 확인 중..." -ForegroundColor White
-    $upgradeNeeded = $false
-    try {
-        $wgUpgradeCheck = winget upgrade --id SublimeHQ.SublimeMerge 2>$null
-        $upgradeOutput = $wgUpgradeCheck -join ""
-        # winget upgrade 출력에 "SublimeHQ.SublimeMerge" 가 포함되면 업데이트 가능
-        if ($LASTEXITCODE -eq 0 -and $upgradeOutput -match "SublimeHQ.SublimeMerge") {
-            $upgradeNeeded = $true
-        }
-    } catch {}
-
-    if ($upgradeNeeded) {
-        Write-Info "Sublime Merge 최신 버전이 있습니다. 업데이트를 진행합니다..."
-        $p = Start-Process winget -ArgumentList "upgrade --id SublimeHQ.SublimeMerge --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\smerge_upgrade.log" -RedirectStandardError "$env:TEMP\smerge_upgrade_err.log"
-        # PS 5.1: -Wait 없이 띄운 프로세스는 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
-        $null = $p.Handle
-        Wait-ProcessWithSpinner -Process $p -Message "Sublime Merge 업데이트 진행 중"
-        if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
-            Write-Success "Sublime Merge 업데이트 완료"
-        } else {
-            Write-Skip "Sublime Merge 업데이트를 건너뛰었습니다. (이미 최신이거나 수동 확인 필요)"
-        }
-        Remove-Item "$env:TEMP\smerge_upgrade.log", "$env:TEMP\smerge_upgrade_err.log" -Force -ErrorAction SilentlyContinue
-    } else {
-        Write-Skip "Sublime Merge 가 이미 최신 버전입니다."
-    }
-} else {
-    Write-Host "  Sublime Merge 를 winget으로 설치합니다..." -ForegroundColor White
-    $smergeIds = @("SublimeHQ.SublimeMerge")
-    $smergeInstallSuccess = $false
-    foreach ($smergeId in $smergeIds) {
-        $p = Start-Process winget -ArgumentList "install --id $smergeId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\smerge_install.log" -RedirectStandardError "$env:TEMP\smerge_install_err.log"
-        # PS 5.1: -Wait 없이 띄운 프로세스는 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
-        $null = $p.Handle
-        Wait-ProcessWithSpinner -Process $p -Message "Sublime Merge 설치 진행 중 ($smergeId)"
-        if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
-            Write-Success "Sublime Merge 설치 완료 ($smergeId)"
-            $smergeInstallSuccess = $true
-            Remove-Item "$env:TEMP\smerge_install.log", "$env:TEMP\smerge_install_err.log" -Force -ErrorAction SilentlyContinue
-            break
-        }
-        Remove-Item "$env:TEMP\smerge_install.log", "$env:TEMP\smerge_install_err.log" -Force -ErrorAction SilentlyContinue
-    }
-    if (-not $smergeInstallSuccess) {
-        Write-Warn "Sublime Merge winget 설치 실패. 수동 설치: https://www.sublimemerge.com/download"
-    }
-}
+$null = Install-OrUpdateWingetPackage -PackageId "SublimeHQ.SublimeMerge" -DisplayName "Sublime Merge" -IsInstalled $smergeInstalled -PromptDefault "Y"
 
 # ==============================================================================
 # [Step 3] Sublime Merge 설정 파일 동기화

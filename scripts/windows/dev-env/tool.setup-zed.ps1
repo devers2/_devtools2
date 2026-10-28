@@ -83,55 +83,11 @@ try {
     }
 } catch {}
 
-if ($zedInstalled) {
-    Write-Info "Zed 에디터가 이미 설치되어 있습니다. 최신 버전 확인 중..."
-    $upgradeNeeded = $false
-    try {
-        $wgUpgradeCheck = winget upgrade --id ZedIndustries.Zed 2>$null
-        $upgradeOutput = $wgUpgradeCheck -join ""
-        if ($LASTEXITCODE -eq 0 -and $upgradeOutput -match "ZedIndustries.Zed") {
-            $upgradeNeeded = $true
-        }
-    } catch {}
-    if ($upgradeNeeded) {
-        Write-Info "Zed 최신 버전이 있습니다. 업데이트를 진행합니다..."
-        $p = Start-Process winget -ArgumentList "upgrade --id ZedIndustries.Zed --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_upgrade.log" -RedirectStandardError "$env:TEMP\zed_upgrade_err.log"
-        $null = $p.Handle
-        Wait-ProcessWithSpinner -Process $p -Message "Zed 에디터 업데이트 진행 중"
-        if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
-            Write-Success "Zed 에디터 업데이트 완료"
-        } else {
-            Write-Skip "Zed 에디터 업데이트를 건너뛰었습니다."
-        }
-        Remove-Item "$env:TEMP\zed_upgrade.log", "$env:TEMP\zed_upgrade_err.log" -Force -ErrorAction SilentlyContinue
-    } else {
-        Write-Skip "Zed 에디터가 이미 최신 버전입니다."
-    }
-} else {
-    # 미설치 상태일 때만 설치 의사 확인
-    if (-not (Prompt-Confirm "👉 Zed 에디터를 설치하시겠습니까?" "N")) {
-        Write-Skip "Zed 에디터 설치를 건너뜁니다."
-        Write-Host ""
-        return
-    }
-    Write-Host "  Zed 에디터를 winget으로 설치합니다..." -ForegroundColor White
-    $zedIds = @("ZedIndustries.Zed")
-    $zedInstallSuccess = $false
-    foreach ($zedId in $zedIds) {
-        $p = Start-Process winget -ArgumentList "install --id $zedId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_install.log" -RedirectStandardError "$env:TEMP\zed_install_err.log"
-        $null = $p.Handle
-        Wait-ProcessWithSpinner -Process $p -Message "Zed 에디터 설치 진행 중 ($zedId)"
-        if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
-            Write-Success "Zed 에디터 설치/확인 완료 ($zedId)"
-            $zedInstallSuccess = $true
-            Remove-Item "$env:TEMP\zed_install.log", "$env:TEMP\zed_install_err.log" -Force -ErrorAction SilentlyContinue
-            break
-        }
-        Remove-Item "$env:TEMP\zed_install.log", "$env:TEMP\zed_install_err.log" -Force -ErrorAction SilentlyContinue
-    }
-    if (-not $zedInstallSuccess) {
-        Write-Warn "Zed winget 설치 실패. 수동 설치: https://zed.dev/download"
-    }
+# 이미 설치된 경우 최신 버전 확인 및 백그라운드 업데이트, 미설치 시에만 사용자 확인
+$zedInstalledOrUpdated = Install-OrUpdateWingetPackage -PackageId "ZedIndustries.Zed" -DisplayName "Zed 에디터" -IsInstalled $zedInstalled -PromptDefault "N"
+if (-not $zedInstalledOrUpdated -and -not $zedInstalled) {
+    Write-Host ""
+    return
 }
 
 # ==============================================================================
