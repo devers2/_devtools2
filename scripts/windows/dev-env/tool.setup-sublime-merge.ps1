@@ -118,6 +118,28 @@ if ($runningSmerge) {
     Start-Sleep -Milliseconds 500
 }
 
+# 공식 D2Coding ligature 폰트 설치 확인 (한글 자간 겹침 방지)
+try {
+    $userFontsDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+    $fontRegPath  = "HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+    $d2cDest = "$userFontsDir\D2Coding-Ver1.3.2-20180524-ligature.ttc"
+    if (-not (Test-Path $d2cDest)) {
+        if (-not (Test-Path $userFontsDir)) { New-Item -ItemType Directory -Path $userFontsDir -Force | Out-Null }
+        if (-not (Test-Path $fontRegPath)) { New-Item -Path $fontRegPath -Force | Out-Null }
+        $d2cSrc = "$DevTools2Wsl\assets\fonts\D2Coding-Ver1.3.2-20180524-ligature.ttc"
+        if (Test-Path $d2cSrc) {
+            Copy-Item -Path $d2cSrc -Destination $d2cDest -Force -ErrorAction SilentlyContinue
+        } else {
+            $rawFontUrl = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/assets/fonts/D2Coding-Ver1.3.2-20180524-ligature.ttc"
+            Invoke-WebRequest -Uri $rawFontUrl -OutFile $d2cDest -UseBasicParsing -ErrorAction SilentlyContinue
+        }
+        if (Test-Path $d2cDest) {
+            Set-ItemProperty -Path $fontRegPath -Name "D2Coding ligature (TrueType)" -Value $d2cDest -Force -ErrorAction SilentlyContinue
+            Write-Success "Sublime Merge용 D2Coding ligature 폰트 설치 완료"
+        }
+    }
+} catch {}
+
 $WslSmergeConfig = "$DevTools2Wsl\.config\sublime-merge\Packages\User"
 
 # Sublime Merge 데이터 대상 폴더 탐색 (포터블 모드 Data 폴더 및 Roaming AppData 폴더 전수 지원)
@@ -143,60 +165,61 @@ $otherCandidates = @(
     "$env:ProgramFiles\Sublime Merge\Data"
 )
 foreach ($cand in $otherCandidates) {
-    if (Test-Path $cand -and -not $targetDataDirs.Contains($cand)) {
+    if ((Test-Path $cand) -and (-not $targetDataDirs.Contains($cand))) {
         $targetDataDirs.Add($cand)
     }
 }
 
 Write-Host "  동기화 대상 데이터 디렉터리 수: $($targetDataDirs.Count)" -ForegroundColor White
 
-if (Test-Path $DevTools2Wsl) {
-    if (-not (Test-Path $WslSmergeConfig)) {
-        Write-Warn "WSL2에 Sublime Merge 설정 폴더가 없습니다. 기본 폴더를 생성합니다..."
-        wsl.exe -d $WslDistro -e bash -c 'mkdir -p ${DEVTOOLS2:-/var/opt/_devtools2}/.config/sublime-merge/Packages/User'
+# 동기화할 설정 파일 매핑: @{ 소스파일명 = 타겟파일명 }
+$filesToSync = @{
+    "Preferences.sublime-settings"                 = "Preferences.sublime-settings"
+    "Default.sublime-keymap"                       = "Default (Windows).sublime-keymap"
+    "kanagawa.sublime-color-scheme"                = "kanagawa.sublime-color-scheme"
+    "Merge Dark.sublime-theme"                     = "Merge Dark.sublime-theme"
+    "Merge.sublime-theme"                          = "Merge.sublime-theme"
+    "Commit Message.sublime-settings"              = "Commit Message.sublime-settings"
+    "Commit Message - Merge Dark.sublime-settings" = "Commit Message - Merge Dark.sublime-settings"
+    "File Mode.sublime-settings"                   = "File Mode.sublime-settings"
+    "File Mode - Merge Dark.sublime-settings"      = "File Mode - Merge Dark.sublime-settings"
+    "Git Output.sublime-settings"                  = "Git Output.sublime-settings"
+    "Git Output - Merge Dark.sublime-settings"     = "Git Output - Merge Dark.sublime-settings"
+}
+
+foreach ($dataDir in $targetDataDirs) {
+    $userDir = Join-Path $dataDir "Packages\User"
+    if (-not (Test-Path $userDir)) {
+        New-Item -ItemType Directory -Path $userDir -Force | Out-Null
     }
 
-    # 동기화할 설정 파일 매핑: @{ 소스파일명 = 타겟파일명 }
-    $filesToSync = @{
-        "Preferences.sublime-settings"                 = "Preferences.sublime-settings"
-        "Default.sublime-keymap"                       = "Default (Windows).sublime-keymap"
-        "kanagawa.sublime-color-scheme"                = "kanagawa.sublime-color-scheme"
-        "Merge Dark.sublime-theme"                     = "Merge Dark.sublime-theme"
-        "Merge.sublime-theme"                          = "Merge.sublime-theme"
-        "Commit Message.sublime-settings"              = "Commit Message.sublime-settings"
-        "Commit Message - Merge Dark.sublime-settings" = "Commit Message - Merge Dark.sublime-settings"
-        "File Mode.sublime-settings"                   = "File Mode.sublime-settings"
-        "File Mode - Merge Dark.sublime-settings"      = "File Mode - Merge Dark.sublime-settings"
-        "Git Output.sublime-settings"                  = "Git Output.sublime-settings"
-        "Git Output - Merge Dark.sublime-settings"     = "Git Output - Merge Dark.sublime-settings"
-    }
+    foreach ($srcName in $filesToSync.Keys) {
+        $srcFile = if (Test-Path $WslSmergeConfig) { Join-Path $WslSmergeConfig $srcName } else { $null }
+        $dstName = $filesToSync[$srcName]
+        $dstFile = Join-Path $userDir $dstName
 
-    foreach ($dataDir in $targetDataDirs) {
-        $userDir = Join-Path $dataDir "Packages\User"
-        if (-not (Test-Path $userDir)) {
-            New-Item -ItemType Directory -Path $userDir -Force | Out-Null
+        $fileContent = $null
+        if ($srcFile -and (Test-Path $srcFile)) {
+            $fileContent = [System.IO.File]::ReadAllText($srcFile, [System.Text.Encoding]::UTF8)
+        } else {
+            # WSL2 로컬 경로 접근 불가 시 GitHub 원격 저장소에서 직접 다운로드 폴백
+            try {
+                $rawUrl = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/.config/sublime-merge/Packages/User/$srcName"
+                $fileContent = (Invoke-RestMethod -Uri $rawUrl -Headers $_commonHeaders -ErrorAction Stop)
+            } catch {}
         }
 
-        foreach ($srcName in $filesToSync.Keys) {
-            $srcFile = Join-Path $WslSmergeConfig $srcName
-            $dstName = $filesToSync[$srcName]
-            $dstFile = Join-Path $userDir $dstName
-
-            if (Test-Path $srcFile) {
-                if (Test-Path $dstFile) {
-                    $fi = Get-Item $dstFile -Force
-                    if ($fi.LinkType -eq "SymbolicLink") {
-                        Remove-Item $dstFile -Force
-                    } elseif ((Get-FileHash $dstFile).Hash -ne (Get-FileHash $srcFile).Hash) {
-                        $bak = "$dstFile.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
-                        Copy-Item -Path $dstFile -Destination $bak -Force
-                    }
+        if ($fileContent) {
+            if (Test-Path $dstFile) {
+                $fi = Get-Item $dstFile -Force
+                if ($fi.LinkType -eq "SymbolicLink") {
+                    Remove-Item $dstFile -Force
                 }
-                Copy-Item -Path $srcFile -Destination $dstFile -Force
             }
+            [System.IO.File]::WriteAllText($dstFile, $fileContent, [System.Text.UTF8Encoding]::new($false))
         }
-        Write-Success "설정 파일 동기화 완료: $userDir"
     }
+    Write-Success "설정 파일 동기화 완료: $userDir"
 }
 
 # ==============================================================================

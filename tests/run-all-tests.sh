@@ -223,6 +223,11 @@ for root, _, files in os.walk(repo_root):
                 if stripped.startswith('= ') or stripped == '=':
                     errors.append(f'{rel}:{i}: 좌변 변수 누락 대입문')
 
+            # 5. Test-Path 괄호 누락 -and/-or 매개변수 오인 에러 검사
+            for m in re.finditer(r'(?<!\()\bTest-Path\s+[^()\n]+?\s+(-and|-or)\b', no_comments):
+                line_no = content[:m.start()].count('\n') + 1
+                errors.append(f'{rel}:{line_no}: Test-Path 괄호 누락 매개변수 오인 ({m.group(0).strip()})')
+
 print('; '.join(errors))
 " 2>/dev/null || true)
 
