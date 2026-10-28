@@ -124,9 +124,9 @@ if ($orcaServerInstalled) {
     } catch {}
     $orcaCurrentLabel = if ([string]::IsNullOrWhiteSpace($orcaCurrent)) { "알 수 없음(버전 기록 없음)" } else { $orcaCurrent }
     if ([string]::IsNullOrWhiteSpace($orcaLatest)) {
-        Write-Info "WSL2 Orca 서버 버전: $orcaCurrentLabel (최신 버전 확인 실패 - 업데이트 확인 건너뜀)"
+        # (.sh 에서 버전 상태를 출력하므로 여기서는 조용히 통과)
     } elseif ($orcaCurrent -eq $orcaLatest) {
-        Write-Success "WSL2 Orca 서버가 최신 버전입니다 ($orcaCurrent)."
+        # (.sh 가 동일한 버전 상태를 출력하므로 여기서는 조용히 통과)
     } else {
         Write-Info "WSL2 Orca 서버 새 버전이 있습니다: $orcaCurrentLabel -> $orcaLatest"
         if (Prompt-Confirm "👉 WSL2 Orca 서버를 $orcaLatest 로 업데이트할까요? (실행 중인 orca serve 가 재시작됩니다)" "Y") {
@@ -177,9 +177,9 @@ if (([string]$orcaAppImageCheck).Trim() -ne "FOUND") {
 }
 
 # ==============================================================================
-# [Step 3] Orca 데스크톱 앱 설치 (winget: StablyAI.Orca)
+# [Step 2] Orca 데스크톱 앱 설치 (winget: StablyAI.Orca)
 # ==============================================================================
-Write-Step "[Step 3] Orca 데스크톱 앱(GUI 클라이언트) 설치"
+Write-Step "[Step 2] Orca 데스크톱 앱(GUI 클라이언트) 설치"
 
 try {
     Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
@@ -209,12 +209,12 @@ try {
 $null = Install-OrUpdateWingetPackage -PackageId "StablyAI.Orca" -DisplayName "Orca 데스크톱 앱" -IsInstalled $orcaInstalled -PromptDefault "Y"
 
 # ==============================================================================
-# [Step 4] WSL2 헤드리스 orca serve 상태 확인
+# [Step 3] WSL2 헤드리스 orca serve 상태 확인
 #
 # 실제 설치/자동 실행 등록은 tool.setup-orca.sh(WSL2 분기)에서 이미
 # 처리됩니다. 여기서는 그 결과가 살아있는지만 확인하고, 죽어 있으면 한 번 더 살립니다.
 # ==============================================================================
-Write-Step "[Step 4] WSL2 'orca serve' 헤드리스 서버 상태 확인"
+Write-Step "[Step 3] WSL2 'orca serve' 헤드리스 서버 상태 확인"
 
 [string]$orcaServeStatus = (wsl -d $WslDistro -- bash -c "systemctl --user is-active orca-serve.service 2>/dev/null")
 $orcaServeStatus = $orcaServeStatus.Trim()
@@ -237,7 +237,7 @@ if ($orcaServeStatus -eq "active") {
 }
 
 # ==============================================================================
-# [Step 5] Windows Orca ↔ WSL2 orca serve 페어링
+# [Step 4] Windows Orca ↔ WSL2 orca serve 페어링
 #
 # ⚠️ Orca 공식 문서는 127.0.0.1을 "원격 클라이언트 페어링에 쓰지 말라"고 명시적으로
 # 경고합니다. 대신 tool.setup-orca.sh가 WSL2 자체 IP로 만들어 둔 페어링 링크
@@ -248,7 +248,7 @@ if ($orcaServeStatus -eq "active") {
 # 수동 연결하는 방법을 안내합니다. orca:// 링크를 자동으로 열어도 Windows에 등록된
 # 핸들러가 없으면 조용히 무시될 수 있으므로, 링크 자체도 항상 화면에 그대로 남깁니다.
 # ==============================================================================
-Write-Step "[Step 5] Windows Orca 앱 ↔ WSL2 orca serve 페어링"
+Write-Step "[Step 4] Windows Orca 앱 ↔ WSL2 orca serve 페어링"
 
 [string]$pairingLink = (wsl -d $WslDistro -- bash -c "cat /var/opt/_devtools2/data/orca-pairing-link.txt 2>/dev/null")
 $pairingLink = $pairingLink.Trim()
