@@ -1,0 +1,26 @@
+{
+    "extends": "Merge Dark.sublime-theme",
+    "variables": {
+        // Kanagawa 다크 팔레트 기반 UI 색상 오버라이드
+        "dark_gray": "#16161D",
+        "dark_gray-medium": "#16161D",
+        "dark_gray-light": "#1F1F28",
+        "dark_gray-lightest": "#252530",
+        "medium_gray": "#363646",
+        "medium_gray-dark": "#2A2A37",
+
+        // 헤더, 탭, 사이드바, 커밋 목록 배경
+        "header_bg": "#16161D",
+        "welcome_bg": "#16161D",
+        "side_bar_container_bg": "#16161D",
+        "side_bar_container_with_graph_bg": "#1F1F28",
+        "commit_list_bg": "#1F1F28",
+        "table_of_contents_bg": "#16161D",
+        "repository_tab_bar_bg": "#16161D",
+
+        // 전경색 및 라벨
+        "text-heading": "#DCD7BA",
+        "text": "#C8C093",
+        "label_color": "#DCD7BA"
+    }
+}
