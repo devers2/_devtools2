@@ -175,6 +175,14 @@ foreach ($fName in $filesToSync) {
     }
 
     if ($content) {
+        # ui-defaults.json 에서 읽은 폰트/사이즈를 theme.lua 및 Gittyup.ini 에 동적 주입
+        if ($fName -eq "theme.lua") {
+            $content = $content -replace 'family\s*=\s*"[^"]*"', ('family = "' + $_dt2GuiFont + '"')
+            $content = $content -replace 'size\s*=\s*[\d.]+', ('size = ' + $_dt2FontSize)
+        } elseif ($fName -eq "Gittyup.ini") {
+            $content = $content -replace 'font=.*', ('font=' + $_dt2GuiFont)
+            $content = $content -replace 'fontSize=.*', ('fontSize=' + $_dt2FontSize)
+        }
         [System.IO.File]::WriteAllText($dstFile, $content, [System.Text.UTF8Encoding]::new($false))
         Write-Success "Gittyup 설정 동기화 완료: $dstFile"
     }

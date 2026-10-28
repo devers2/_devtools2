@@ -57,6 +57,19 @@ fi
 print_banner "🔀 Gittyup & Meld (Git GUI & 3-Way Merge) 설치 및 연동 (tool.setup-gittyup.sh)"
 
 # ==============================================================================
+# [Step 0] DevTools2 중앙 UI 기본값 로드 (.config/devtools2/ui-defaults.json)
+# ==============================================================================
+_ui_defaults_json="$DEVTOOLS2/.config/devtools2/ui-defaults.json"
+_dt2_gui_font="D2Coding ligature"
+_dt2_font_size="11.5"
+
+if [ -f "$_ui_defaults_json" ]; then
+    _dt2_gui_font=$(python3 -c "import json; data=json.load(open('$_ui_defaults_json')); print(data.get('font',{}).get('gui_face','D2Coding ligature'))" 2>/dev/null || echo "D2Coding ligature")
+    _dt2_font_size=$(python3 -c "import json; data=json.load(open('$_ui_defaults_json')); print(data.get('font',{}).get('size','11.5'))" 2>/dev/null || echo "11.5")
+    print_info "중앙 UI 설정 로드 완료: 폰트=$_dt2_gui_font, 크기=${_dt2_font_size}pt"
+fi
+
+# ==============================================================================
 # [Step 1] 환경별 바이너리 설치 및 PATH 연동
 # ==============================================================================
 GITTYUP_MODULE_DIR="$DEVTOOLS2/modules/gittyup"
@@ -241,7 +254,7 @@ fi
 if command -v gsettings >/dev/null 2>&1; then
     gsettings set org.gnome.meld style-scheme 'meld-dark' 2>/dev/null || true
     gsettings set org.gnome.meld use-custom-font true 2>/dev/null || true
-    gsettings set org.gnome.meld custom-font 'D2Coding ligature 11.5' 2>/dev/null || true
+    gsettings set org.gnome.meld custom-font "$_dt2_gui_font $_dt2_font_size" 2>/dev/null || true
 fi
 
 # ==============================================================================
