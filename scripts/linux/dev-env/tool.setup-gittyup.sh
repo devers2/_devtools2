@@ -6,8 +6,9 @@
 #   1. Linux 네이티브 환경: 공식 최신 AppImage 다운로드 및 $DEVTOOLS2/modules/gittyup 포터블 설치
 #      Meld 네이티브 apt 패키지 설치
 #   2. WSL2 환경: Windows 네이티브 gittyup.exe 및 meld.exe 탐색, WSL 전용 경로 변환(wslpath) 브릿지 래퍼 생성
-#   3. Git 글로벌 difftool 및 mergetool 로 meld 자동 등록 (Gittyup 내 3-Way 병합 도구 원클릭 연동)
-#   4. Gittyup 다크 테마 및 폰트 설정 구성 (~/.config/Gittyup/Gittyup.ini)
+#   3. 설정 심볼릭 링크: $DEVTOOLS2/.config/gittyup -> ~/.config/Gittyup 심볼릭 링크 연동
+#   4. Git 글로벌 difftool 및 mergetool 로 meld 자동 등록 (Gittyup 내 3-Way 병합 도구 원클릭 연동)
+#   5. Gittyup & Meld 다크 테마(Dark.lua, meld-dark) 및 폰트(D2Coding ligature, 11.5pt) 동기화
 #
 # ------------------------------------------------------------------------------
 # ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
@@ -110,12 +111,14 @@ if [ ! -f "\$WIN_GITTYUP" ]; then
         [ -n "\$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=\$(wslpath "\$_raw_home" 2>/dev/null || true)
     fi
 
-    if [ -f "/mnt/c/Program Files/Gittyup/gittyup.exe" ]; then
+    if [ -f "/mnt/c/Program Files/Gittyup/bin/gittyup.exe" ]; then
+        WIN_GITTYUP="/mnt/c/Program Files/Gittyup/bin/gittyup.exe"
+    elif [ -f "/mnt/c/Program Files/Gittyup/gittyup.exe" ]; then
         WIN_GITTYUP="/mnt/c/Program Files/Gittyup/gittyup.exe"
-    elif [ -f "/mnt/c/Program Files (x86)/Gittyup/gittyup.exe" ]; then
-        WIN_GITTYUP="/mnt/c/Program Files (x86)/Gittyup/gittyup.exe"
-    elif [ -n "\$_win_user" ] && [ -f "\$_win_user/AppData/Local/Programs/Gittyup/gittyup.exe" ]; then
-        WIN_GITTYUP="\$_win_user/AppData/Local/Programs/Gittyup/gittyup.exe"
+    elif [ -f "/mnt/c/Program Files (x86)/Gittyup/bin/gittyup.exe" ]; then
+        WIN_GITTYUP="/mnt/c/Program Files (x86)/Gittyup/bin/gittyup.exe"
+    elif [ -n "\$_win_user" ] && [ -f "\$_win_user/AppData/Local/Programs/Gittyup/bin/gittyup.exe" ]; then
+        WIN_GITTYUP="\$_win_user/AppData/Local/Programs/Gittyup/bin/gittyup.exe"
     else
         echo "[오류] Windows Gittyup (gittyup.exe)을 찾을 수 없습니다: \$WIN_GITTYUP" >&2
         echo "  winget install --id Murmele.Gittyup 으로 설치하세요." >&2
@@ -180,7 +183,7 @@ EOF
     print_done "WSL2 Gittyup & Meld 브릿지 래퍼 생성 완료: $GITTYUP_MODULE_DIR/bin"
 
 else
-    # Linux 네이티브 환경
+    # Linux 네이티브 환경: $DEVTOOLS2/modules/gittyup 에 포터블 AppImage 설치
     print_info "Gittyup 최신 릴리스 확인 중..."
     _gittyup_ver=$(curl -sSfL --max-time 10 https://api.github.com/repos/Murmele/Gittyup/releases/latest 2>/dev/null | grep -oP '"tag_name":\s*"v?\K[0-9.]+' | head -n 1 || true)
     if [ -z "$_gittyup_ver" ]; then
@@ -202,7 +205,7 @@ else
             chmod +x "$GITTYUP_MODULE_DIR/bin/gittyup"
             print_done "Gittyup AppImage 포터블 설치 완료: $GITTYUP_MODULE_DIR/bin/gittyup"
         else
-            print_warn "Gittyup AppImage 다운로드 실패 - Flatpak 또는 패키지 매니저로 수동 설치를 권장합니다."
+            print_warn "Gittyup AppImage 다운로드 실패 - 수동 설치를 권장합니다."
         fi
     else
         print_skip "Gittyup v$_installed_ver 이 이미 최신 버전입니다."
@@ -220,7 +223,29 @@ else
 fi
 
 # ==============================================================================
-# [Step 2] Git 전역 diff.tool 및 merge.tool 로 Meld 등록
+# [Step 2] 설정 파일 심볼릭 링크 연동 ($DEVTOOLS2/.config/gittyup -> ~/.config/Gittyup)
+# ==============================================================================
+print_info "Gittyup 설정 파일 심볼릭 링크 연동 중..."
+GITTYUP_CONFIG_SRC="$DEVTOOLS2/.config/gittyup"
+
+if [ -d "$GITTYUP_CONFIG_SRC" ]; then
+    mkdir -p "$HOME/.config"
+    if [ -d "$HOME/.config/Gittyup" ] && [ ! -L "$HOME/.config/Gittyup" ]; then
+        mv "$HOME/.config/Gittyup" "$HOME/.config/Gittyup.bak.$(date +%Y%m%d%H%M%S)"
+    fi
+    ln -sfn "$GITTYUP_CONFIG_SRC" "$HOME/.config/Gittyup"
+    print_done "설정 파일 심볼릭 링크 완료: $HOME/.config/Gittyup -> $GITTYUP_CONFIG_SRC"
+fi
+
+# Meld 다크 테마 및 폰트 설정 (gsettings/dconf 지원 환경인 경우)
+if command -v gsettings >/dev/null 2>&1; then
+    gsettings set org.gnome.meld style-scheme 'meld-dark' 2>/dev/null || true
+    gsettings set org.gnome.meld use-custom-font true 2>/dev/null || true
+    gsettings set org.gnome.meld custom-font 'D2Coding ligature 11.5' 2>/dev/null || true
+fi
+
+# ==============================================================================
+# [Step 3] Git 전역 diff.tool 및 merge.tool 로 Meld 등록
 # ==============================================================================
 print_info "Git 글로벌 mergetool 및 difftool 로 Meld 등록 중..."
 git config --global merge.tool meld
@@ -229,21 +254,4 @@ git config --global mergetool.prompt false
 git config --global difftool.prompt false
 print_done "Git 글로벌 설정 완료: merge.tool=meld, diff.tool=meld"
 
-# ==============================================================================
-# [Step 3] Gittyup 다크 테마 및 폰트 설정 구성 (~/.config/Gittyup/Gittyup.ini)
-# ==============================================================================
-_gittyup_cfg_dir="$HOME/.config/Gittyup"
-mkdir -p "$_gittyup_cfg_dir"
-_gittyup_ini="$_gittyup_cfg_dir/Gittyup.ini"
-
-if [ ! -f "$_gittyup_ini" ]; then
-    cat <<EOF > "$_gittyup_ini"
-[General]
-theme=Dark
-font=D2Coding ligature
-fontSize=11.5
-EOF
-    print_done "Gittyup 다크 테마 및 폰트 설정 생성 완료: $_gittyup_ini"
-fi
-
-print_success "Gittyup & Meld 설치 및 연동 완료!"
+print_success "Gittyup & Meld 설치, 설정 심볼릭 링크 및 연동 완료!"

@@ -7,9 +7,9 @@ param(
 #
 # 주요 기능:
 #   1. winget 을 통해 Gittyup (오픈소스 C++/Qt Git 클라이언트) 및 Meld (3-Way 머지 도구) 설치
-#   2. Gittyup 다크 테마 및 폰트 설정 구성
-#   3. Git 글로벌 difftool 및 mergetool 로 Meld 등록 (Gittyup 내 3-Way 머지 원클릭 연동)
-#   4. WSL2 환경과의 상호운용 및 시작 경로 동기화
+#   2. _devtools2/.config/gittyup 설정을 %APPDATA%\Gittyup 경로로 동기화 (다크 테마, D2Coding 폰트 11.5pt)
+#   3. Meld 레지스트리 설정 동기화 (공식 다크 테마 meld-dark, D2Coding 폰트 11.5pt)
+#   4. Git 글로벌 difftool 및 mergetool 로 Meld 등록 (Gittyup 내 3-Way 머지 원클릭 연동)
 #
 # ------------------------------------------------------------------------------
 # ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
@@ -61,7 +61,7 @@ if (-not $isAdmin) {
 
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
-Write-Host "🔀 Gittyup & Meld 설치 및 연동 스크립트 (tool.setup-gittyup.ps1)" -ForegroundColor DarkCyan
+Write-Host "🔀 Gittyup & Meld 설치 및 설정 동기화 스크립트 (tool.setup-gittyup.ps1)" -ForegroundColor DarkCyan
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
 # ==============================================================================
@@ -147,9 +147,62 @@ try {
 $null = Install-OrUpdateWingetPackage -PackageId "Meld.Meld" -DisplayName "Meld" -IsInstalled $meldInstalled -SkipPrompt
 
 # ==============================================================================
-# [Step 3] Gittyup 및 Git 글로벌 Merge/Diff 도구 연동 (Meld)
+# [Step 3] Gittyup 및 Meld 설정 파일 동기화 (.config -> %APPDATA% / Registry)
 # ==============================================================================
-Write-Step "[Step 3] Gittyup 다크 테마 및 Meld 3-Way 병합 도구 연동"
+Write-Step "[Step 3] Gittyup & Meld 설정 동기화 (다크 테마 및 폰트 11.5pt)"
+
+$gittyupAppdata = "$env:APPDATA\Gittyup"
+if (-not (Test-Path $gittyupAppdata)) {
+    New-Item -ItemType Directory -Path $gittyupAppdata -Force | Out-Null
+}
+
+$WslGittyupConfig = "$DevTools2Wsl\.config\gittyup"
+
+# 1) Gittyup 설정 파일 동기화 (theme.lua 및 Gittyup.ini)
+$filesToSync = @("theme.lua", "Gittyup.ini")
+foreach ($fName in $filesToSync) {
+    $srcFile = if (Test-Path $WslGittyupConfig) { Join-Path $WslGittyupConfig $fName } else { $null }
+    $dstFile = Join-Path $gittyupAppdata $fName
+
+    $content = $null
+    if ($srcFile -and (Test-Path $srcFile)) {
+        $content = [System.IO.File]::ReadAllText($srcFile, [System.Text.Encoding]::UTF8)
+    } else {
+        try {
+            $rawUrl = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/.config/gittyup/$fName"
+            $content = (Invoke-RestMethod -Uri $rawUrl -Headers $_commonHeaders -ErrorAction Stop)
+        } catch {}
+    }
+
+    if ($content) {
+        [System.IO.File]::WriteAllText($dstFile, $content, [System.Text.UTF8Encoding]::new($false))
+        Write-Success "Gittyup 설정 동기화 완료: $dstFile"
+    }
+}
+
+# 2) Meld 다크 테마 및 폰트 레지스트리 동기화 (HKCU:\SOFTWARE\GSettings\org\gnome\meld\)
+try {
+    $meldRegPath = "HKCU:\SOFTWARE\GSettings\org\gnome\meld"
+    if (-not (Test-Path $meldRegPath)) {
+        New-Item -Path $meldRegPath -Force | Out-Null
+    }
+
+    # 공식 다크 테마 (meld-dark) 및 D2Coding ligature 11.5pt 설정 주입
+    Set-ItemProperty -Path $meldRegPath -Name "style-scheme" -Value "meld-dark" -Force
+    Set-ItemProperty -Path $meldRegPath -Name "use-custom-font" -Value $true -Force
+    Set-ItemProperty -Path $meldRegPath -Name "custom-font" -Value "$_dt2GuiFont $_dt2FontSize" -Force
+    Set-ItemProperty -Path $meldRegPath -Name "indent-width" -Value 2 -Force
+    Set-ItemProperty -Path $meldRegPath -Name "show-line-numbers" -Value $true -Force
+
+    Write-Success "Meld 다크 테마(meld-dark) 및 폰트($_dt2GuiFont $_dt2FontSize) 레지스트리 설정 완료"
+} catch {
+    Write-Warn "Meld 레지스트리 설정 중 경고: $($_.Exception.Message)"
+}
+
+# ==============================================================================
+# [Step 4] Git 전역 Diff / Merge 도구 등록 (Meld)
+# ==============================================================================
+Write-Step "[Step 4] Git 글로벌 병합 도구 등록 (Meld)"
 
 # Meld 실행 파일 탐색
 $meldExe = ""
@@ -198,51 +251,15 @@ if (-not [string]::IsNullOrWhiteSpace($WslDistro)) {
     } catch {}
 }
 
-# Gittyup 다크 테마 및 폰트 설정 (%APPDATA%\Gittyup\Gittyup.ini)
-try {
-    $gittyupConfigDir = "$env:APPDATA\Gittyup"
-    if (-not (Test-Path $gittyupConfigDir)) {
-        New-Item -ItemType Directory -Path $gittyupConfigDir -Force | Out-Null
-    }
-    $gittyupIni = Join-Path $gittyupConfigDir "Gittyup.ini"
-
-    # 기존 설정이 있으면 보존하며 다크 테마 및 폰트 주입
-    $iniLines = [System.Collections.Generic.List[string]]::new()
-    if (Test-Path $gittyupIni) {
-        $existing = [System.IO.File]::ReadAllLines($gittyupIni, [System.Text.Encoding]::UTF8)
-        foreach ($line in $existing) {
-            # 테마 및 폰트 기존 줄 필터링
-            if ($line -notmatch '^theme=' -and $line -notmatch '^font=' -and $line -notmatch '^fontSize=') {
-                $iniLines.Add($line)
-            }
-        }
-    }
-
-    # [General] 섹션 위치 확인 또는 추가
-    $genIndex = $iniLines.IndexOf("[General]")
-    if ($genIndex -eq -1) {
-        $iniLines.Insert(0, "[General]")
-        $genIndex = 0
-    }
-
-    $iniLines.Insert($genIndex + 1, "theme=Dark")
-    $iniLines.Insert($genIndex + 2, "font=$_dt2GuiFont")
-    $iniLines.Insert($genIndex + 3, "fontSize=$_dt2FontSize")
-
-    [System.IO.File]::WriteAllLines($gittyupIni, $iniLines, [System.Text.UTF8Encoding]::new($false))
-    Write-Success "Gittyup 다크 테마 및 폰트($_dt2GuiFont, ${_dt2FontSize}pt) 설정 완료"
-} catch {
-    Write-Warn "Gittyup.ini 설정 구성 중 경고: $($_.Exception.Message)"
-}
-
 # ==============================================================================
-# [Step 4] 완료
+# [Step 5] 완료
 # ==============================================================================
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
-Write-Host "🎉 Gittyup & Meld 설정 완료!" -ForegroundColor Green
+Write-Host "🎉 Gittyup & Meld 설치 및 설정 동기화 완료!" -ForegroundColor Green
 Write-Host "  · Git 클라이언트: Gittyup (오픈소스 C++/Qt, 완전 무료 올블랙 다크 모드)" -ForegroundColor White
-Write-Host "  · 3-Way 병합도구: Meld (Gittyup 내 충돌 발생 시 원클릭 3-Way 해결 연동)" -ForegroundColor White
+Write-Host "  · 3-Way 병합도구: Meld (공식 meld-dark 테마, Gittyup 내 원클릭 3-Way 병합 연동)" -ForegroundColor White
+Write-Host "  · 폰트 / 크기   : $_dt2GuiFont, ${_dt2FontSize}pt (nvim 및 Windows Terminal과 동일)" -ForegroundColor White
 Write-Host "  · Neovim 단축키 : <leader>gu (현재 프로젝트 Gittyup GUI 즉시 열기)" -ForegroundColor White
 Write-Host "  · 전역 단축키   : Ctrl + Alt + G (Gittyup 즉시 활성화/실행)" -ForegroundColor White
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
