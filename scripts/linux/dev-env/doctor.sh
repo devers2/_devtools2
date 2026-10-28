@@ -104,8 +104,8 @@ fi
 if [ -d "$HOME/.config/Code/User" ]; then
     _links+=("$HOME/.config/Code/User/settings.json:$DEVTOOLS2/.config/vscode/settings.json:VS Code User 설정")
 fi
-if [ -d "$DEVTOOLS2/.config/sublime-merge" ]; then
-    _links+=("$HOME/.config/sublime-merge/Packages/User:$DEVTOOLS2/.config/sublime-merge/Packages/User:Sublime Merge 설정")
+if [ -d "$DEVTOOLS2/.config/gittyup" ]; then
+    _links+=("$HOME/.config/Gittyup:$DEVTOOLS2/.config/gittyup:Gittyup 설정")
 fi
 
 for _entry in "${_links[@]}"; do

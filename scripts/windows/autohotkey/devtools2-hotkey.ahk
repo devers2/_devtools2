@@ -15,11 +15,11 @@
 ;   2. WSL 터미널 전역 단축키 (Ctrl + Alt + T)
 ;      - Windows Terminal을 통해 WSL(devtools2)을 새 창으로 열기
 ;
-;   3. Sublime Merge 전역 단축키 (Ctrl + Alt + G)
-;      - Sublime Merge 실행 또는 기존 창 즉시 포그라운드 활성화
+;   3. Gittyup 전역 단축키 (Ctrl + Alt + G)
+;      - Gittyup 실행 또는 기존 창 즉시 포그라운드 활성화
 ;
 ;   4. 개발툴 활성 시 IME 자동 영문 전환 (0ms 무지연)
-;      - Windows Terminal / VS Code / Zed / Sublime Merge 등이 활성 상태에서
+;      - Windows Terminal / VS Code / Zed / Gittyup 등이 활성 상태에서
 ;        Esc, CapsLock(탭), Ctrl+[ 입력 시 Windows IME를 즉시 영문으로 전환
 ;      - Linux 네이티브의 im-select.nvim + fcitx5 와 동일한 경험 제공
 ;      - Normal 모드 진입 및 Insert 복귀 시 항상 영문 보장

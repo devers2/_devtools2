@@ -539,29 +539,33 @@ vim.keymap.set('i', '<Home>', function()
 end, { silent = true, desc = '스마트 Home (코드 시작 ↔ 줄 맨 앞 토글)' })
 
 -- =========================================================================
--- [Sublime Merge 연동 키맵]
--- <leader>sm : 현재 작업 디렉토리 기준 Sublime Merge 실행
--- <leader>sM : 현재 버퍼 파일 기준 Sublime Merge 실행
+-- [Gittyup 연동 키맵]
+-- <leader>gu / <leader>sm : 현재 작업 디렉토리 기준 Gittyup 실행
+-- <leader>sM : 현재 버퍼 파일 기준 Gittyup 실행
 -- =========================================================================
-vim.keymap.set('n', '<leader>sm', function()
-  if vim.fn.executable('smerge') == 1 then
-    vim.fn.jobstart({ 'smerge', '.' }, { detach = true })
-    vim.notify('Sublime Merge 실행 (프로젝트 루트)', vim.log.levels.INFO)
+local function open_gittyup(target)
+  local path = target or '.'
+  if vim.fn.executable('gittyup') == 1 then
+    vim.fn.jobstart({ 'gittyup', path }, { detach = true })
+    vim.notify('Gittyup 실행: ' .. path, vim.log.levels.INFO)
   else
-    vim.notify('smerge 명령어를 찾을 수 없습니다.', vim.log.levels.WARN)
+    vim.notify('gittyup 명령어를 찾을 수 없습니다.', vim.log.levels.WARN)
   end
-end, { desc = 'Sublime Merge (프로젝트)' })
+end
+
+vim.keymap.set('n', '<leader>gu', function()
+  open_gittyup('.')
+end, { desc = 'Gittyup (프로젝트 루트)' })
+
+vim.keymap.set('n', '<leader>sm', function()
+  open_gittyup('.')
+end, { desc = 'Gittyup (Sublime Merge 대체 단축키)' })
 
 vim.keymap.set('n', '<leader>sM', function()
   local file = vim.api.nvim_buf_get_name(0)
   if file == '' then
     file = '.'
   end
-  if vim.fn.executable('smerge') == 1 then
-    vim.fn.jobstart({ 'smerge', file }, { detach = true })
-    vim.notify('Sublime Merge 실행: ' .. vim.fn.fnamemodify(file, ':t'), vim.log.levels.INFO)
-  else
-    vim.notify('smerge 명령어를 찾을 수 없습니다.', vim.log.levels.WARN)
-  end
-end, { desc = 'Sublime Merge (현재 파일)' })
+  open_gittyup(file)
+end, { desc = 'Gittyup (현재 파일)' })
 
