@@ -199,6 +199,7 @@ foreach ($fName in $filesToSync) {
 # 2) Gittyup 다크 테마 및 폰트 레지스트리 주입 (Qt QSettings)
 try {
     $gittyupRegPaths = @(
+        "HKCU:\Software\gittyup.github.com\Gittyup",
         "HKCU:\Software\Gittyup\Gittyup",
         "HKCU:\Software\Murmele\Gittyup"
     )
