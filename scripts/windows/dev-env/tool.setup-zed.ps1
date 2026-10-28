@@ -60,50 +60,9 @@ Write-Host "🚀 Zed 에디터 설치 및 설정 파일 링크 생성 스크립�
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
 # ==============================================================================
-# [Step 1] 설치 의사 확인 ([y/N])
+# [Step 1] Zed 설치 확인 및 최신 업데이트 / 신규 설치
 # ==============================================================================
-Write-Step "[Step 1] Zed 설치 의사 확인"
-
-if (-not (Prompt-Confirm "👉 Zed 에디터를 설치하시겠습니까?" "N")) {
-    Write-Skip "Zed 에디터 설치를 건너뜁니다. 기존 설정은 유지됩니다."
-    Write-Host ""
-    return
-}
-
-# ==============================================================================
-# [Step 2] WSL2 배포판 이름 자동 감지
-# ==============================================================================
-Write-Step "[Step 2] WSL2 배포판 감지"
-
-$WslDistro = Resolve-WslDistro $WslDistro
-Write-Host "  적용 대상 WSL 배포판: $WslDistro" -ForegroundColor White
-
-# 마스터 스크립트에서 확정된 %DEVTOOLS2% 경로 우선 재사용, 단독 실행 시 공용 헬퍼로 자동 탐지
-$DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) {
-    $env:DEVTOOLS2
-} else {
-    Get-WslDevtools2Path $WslDistro
-}
-
-if (-not (Test-Path $DevTools2Wsl)) {
-    Write-Fail "WSL2 에서 '_devtools2' 폴더를 찾을 수 없습니다: $DevTools2Wsl"
-    Write-Host "  마스터 설치 스크립트(setup-devtools2-wsl.ps1)를 먼저 실행해주세요." -ForegroundColor Yellow
-    Read-Host "계속하려면 엔터를 누르세요"
-    return
-}
-Write-Host "  _devtools2 경로: $DevTools2Wsl" -ForegroundColor White
-
-# ==============================================================================
-# [Step 3] Zed 에디터 설치
-# ==============================================================================
-Write-Step "[Step 3] Zed 에디터 설치"
-
-try {
-    Write-Host "  winget 패키지 매니저 소스를 확인하는 중..." -ForegroundColor White
-    $pSrc = Start-Process winget -ArgumentList "source update" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_source_update.log" -RedirectStandardError "$env:TEMP\zed_source_error.log" -ErrorAction SilentlyContinue
-    Wait-ProcessWithSpinner -Process $pSrc -Message "winget 소스 업데이트 중"
-    Remove-Item "$env:TEMP\zed_source_update.log", "$env:TEMP\zed_source_error.log" -Force -ErrorAction SilentlyContinue
-} catch {}
+Write-Step "[Step 1] Zed 설치 확인 및 업데이트"
 
 $zedInstalled = $false
 try {
@@ -125,14 +84,41 @@ try {
 } catch {}
 
 if ($zedInstalled) {
-    Write-Skip "Zed 에디터가 이미 설치되어 있습니다."
+    Write-Info "Zed 에디터가 이미 설치되어 있습니다. 최신 버전 확인 중..."
+    $upgradeNeeded = $false
+    try {
+        $wgUpgradeCheck = winget upgrade --id ZedIndustries.Zed 2>$null
+        $upgradeOutput = $wgUpgradeCheck -join ""
+        if ($LASTEXITCODE -eq 0 -and $upgradeOutput -match "ZedIndustries.Zed") {
+            $upgradeNeeded = $true
+        }
+    } catch {}
+    if ($upgradeNeeded) {
+        Write-Info "Zed 최신 버전이 있습니다. 업데이트를 진행합니다..."
+        $p = Start-Process winget -ArgumentList "upgrade --id ZedIndustries.Zed --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_upgrade.log" -RedirectStandardError "$env:TEMP\zed_upgrade_err.log"
+        $null = $p.Handle
+        Wait-ProcessWithSpinner -Process $p -Message "Zed 에디터 업데이트 진행 중"
+        if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
+            Write-Success "Zed 에디터 업데이트 완료"
+        } else {
+            Write-Skip "Zed 에디터 업데이트를 건너뛰었습니다."
+        }
+        Remove-Item "$env:TEMP\zed_upgrade.log", "$env:TEMP\zed_upgrade_err.log" -Force -ErrorAction SilentlyContinue
+    } else {
+        Write-Skip "Zed 에디터가 이미 최신 버전입니다."
+    }
 } else {
+    # 미설치 상태일 때만 설치 의사 확인
+    if (-not (Prompt-Confirm "👉 Zed 에디터를 설치하시겠습니까?" "N")) {
+        Write-Skip "Zed 에디터 설치를 건너뜁니다."
+        Write-Host ""
+        return
+    }
     Write-Host "  Zed 에디터를 winget으로 설치합니다..." -ForegroundColor White
     $zedIds = @("ZedIndustries.Zed")
     $zedInstallSuccess = $false
     foreach ($zedId in $zedIds) {
         $p = Start-Process winget -ArgumentList "install --id $zedId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zed_install.log" -RedirectStandardError "$env:TEMP\zed_install_err.log"
-        # PS 5.1: -Wait 없이 띄운 프로세스는 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
         $null = $p.Handle
         Wait-ProcessWithSpinner -Process $p -Message "Zed 에디터 설치 진행 중 ($zedId)"
         if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
@@ -147,6 +133,28 @@ if ($zedInstalled) {
         Write-Warn "Zed winget 설치 실패. 수동 설치: https://zed.dev/download"
     }
 }
+
+# ==============================================================================
+# [Step 2] WSL2 배포판 이름 자동 감지
+# ==============================================================================
+Write-Step "[Step 2] WSL2 배포판 감지"
+
+$WslDistro = Resolve-WslDistro $WslDistro
+Write-Host "  적용 대상 WSL 배포판: $WslDistro" -ForegroundColor White
+
+$DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) {
+    $env:DEVTOOLS2
+} else {
+    Get-WslDevtools2Path $WslDistro
+}
+
+if (-not (Test-Path $DevTools2Wsl)) {
+    Write-Fail "WSL2 에서 '_devtools2' 폴더를 찾을 수 없습니다: $DevTools2Wsl"
+    Write-Host "  마스터 설치 스크립트(setup-devtools2-wsl.ps1)를 먼저 실행해주세요." -ForegroundColor Yellow
+    Read-Host "계속하려면 엔터를 누르세요"
+    return
+}
+Write-Host "  _devtools2 경로: $DevTools2Wsl" -ForegroundColor White
 
 # ==============================================================================
 # [Step 4] Zed 설정 파일 복사

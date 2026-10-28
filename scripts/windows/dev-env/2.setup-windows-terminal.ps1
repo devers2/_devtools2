@@ -70,7 +70,23 @@ Write-Step "[Step 1] Windows Terminal 설치 확인"
 
 $wtInstalled = [bool](Get-Command wt.exe -ErrorAction SilentlyContinue)
 if ($wtInstalled) {
-    Write-Skip "Windows Terminal이 이미 설치되어 있습니다."
+    Write-Info "Windows Terminal이 이미 설치되어 있습니다. 최신 버전 확인 중..."
+    $upgradeNeeded = $false
+    try {
+        $wgUpgradeCheck = winget upgrade --id Microsoft.WindowsTerminal 2>$null
+        $upgradeOutput = $wgUpgradeCheck -join ""
+        if ($LASTEXITCODE -eq 0 -and $upgradeOutput -match "Microsoft.WindowsTerminal") {
+            $upgradeNeeded = $true
+        }
+    } catch {}
+    if ($upgradeNeeded) {
+        Write-Info "Windows Terminal 최신 버전이 있습니다. 업데이트를 진행합니다..."
+        $p = Start-Process winget -ArgumentList "upgrade --id Microsoft.WindowsTerminal --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru -Wait
+        $null = $p.Handle
+        Write-Success "Windows Terminal 업데이트 완료"
+    } else {
+        Write-Skip "Windows Terminal이 이미 최신 버전입니다."
+    }
 } else {
     Write-Info "Windows Terminal을 winget으로 설치합니다..."
     $p = Start-Process winget -ArgumentList "install --id Microsoft.WindowsTerminal --silent --accept-source-agreements --accept-package-agreements" -WindowStyle Hidden -PassThru -Wait

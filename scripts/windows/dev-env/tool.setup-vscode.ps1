@@ -64,15 +64,9 @@ if (-not $isAdmin) {
 }
 
 # ==============================================================================
-# [Step 1] VS Code 설치 의사 확인 및 설치
+# [Step 1] VS Code 설치 확인 및 최신 업데이트 / 신규 설치
 # ==============================================================================
-Write-Step "[Step 1] VS Code 설치 의사 확인 및 설치"
-
-if (-not (Prompt-Confirm "👉 VS Code (Visual Studio Code)를 설치하시겠습니까?" "N")) {
-    Write-Skip "VS Code 설치를 건너뜁니다."
-    Write-Host ""
-    return
-}
+Write-Step "[Step 1] VS Code 설치 확인 및 업데이트"
 
 $vscodeAlreadyInstalled = $false
 try {
@@ -86,11 +80,35 @@ try {
 } catch {}
 
 if ($vscodeAlreadyInstalled) {
-    Write-Skip "VSCode(Visual Studio Code)가 이미 설치되어 있습니다."
+    Write-Info "VS Code 가 이미 설치되어 있습니다. 최신 버전 확인 중..."
+    $upgradeNeeded = $false
+    try {
+        $wgUpgradeCheck = winget upgrade --id Microsoft.VisualStudioCode 2>$null
+        $upgradeOutput = $wgUpgradeCheck -join ""
+        if ($LASTEXITCODE -eq 0 -and $upgradeOutput -match "Microsoft.VisualStudioCode") {
+            $upgradeNeeded = $true
+        }
+    } catch {}
+    if ($upgradeNeeded) {
+        Write-Info "VS Code 최신 버전이 있습니다. 업데이트를 진행합니다..."
+        $p = Start-Process winget -ArgumentList "upgrade --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\vscode_upgrade.log" -RedirectStandardError "$env:TEMP\vscode_upgrade_err.log" -ErrorAction SilentlyContinue
+        $null = $p.Handle
+        $null = Wait-WithSpinner -Message "VS Code 업데이트 진행" -Condition { $p.HasExited }
+        $p.WaitForExit()
+        Remove-Item "$env:TEMP\vscode_upgrade.log", "$env:TEMP\vscode_upgrade_err.log" -Force -ErrorAction SilentlyContinue
+        Write-Success "VS Code 업데이트 완료"
+    } else {
+        Write-Skip "VS Code 가 이미 최신 버전입니다."
+    }
 } else {
+    # 미설치 상태일 때만 설치 의사 확인
+    if (-not (Prompt-Confirm "👉 VS Code (Visual Studio Code)를 설치하시겠습니까?" "N")) {
+        Write-Skip "VS Code 설치를 건너뜁니다."
+        Write-Host ""
+        return
+    }
     Write-Info "VSCode(Visual Studio Code)를 winget으로 자동 설치합니다..."
     $p = Start-Process winget -ArgumentList "install --id Microsoft.VisualStudioCode --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\vscode_install.log" -RedirectStandardError "$env:TEMP\vscode_install_err.log" -ErrorAction SilentlyContinue
-    # PS 5.1: -Wait 없이 띄운 프로세스는 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
     $null = $p.Handle
     $null = Wait-WithSpinner -Message "VSCode 패키지 설치 진행" -Condition { $p.HasExited }
     $p.WaitForExit()
@@ -98,7 +116,6 @@ if ($vscodeAlreadyInstalled) {
     if ($null -ne $p.ExitCode -and $p.ExitCode -ne 0 -and $p.ExitCode -ne -1978335189) {
         Write-Warn "winget 설치 종료 코드: $($p.ExitCode) (이미 설치되었거나 다른 이유일 수 있습니다)"
     }
-    # PATH 갱신: winget 설치 후 code CLI를 현재 세션에서 즉시 사용 가능하게 함
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 }
 
