@@ -142,7 +142,7 @@ if ($orcaServerInstalled) {
 $missingAgents = @(wsl -d $WslDistro -e bash -lc 'for c in claude codex gemini; do command -v $c >/dev/null 2>&1 || echo $c; done' 2>$null) |
     ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -ne "" }
 $agentLabels = @{ "claude" = "Claude Code"; "codex" = "Codex"; "gemini" = "Gemini CLI" }
-$agentDefaults = @{ "claude" = "Y"; "codex" = "N"; "gemini" = "N" }
+$agentDefaults = @{ "claude" = "N"; "codex" = "N"; "gemini" = "N" }
 $wantAgents = @()
 foreach ($a in $missingAgents) {
     if (-not $agentLabels.ContainsKey($a)) { continue }
