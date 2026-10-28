@@ -244,13 +244,13 @@ function Prompt-Password {
 }
 
 # 프로세스 종료 시까지 스피너를 표시해 대기 (타임아웃 없음 — 프로세스가 끝날 때까지 무조건 대기)
-# CP949/DBCS 콘솔 바이트 어긋남 및 한글 깨짐/겹침 방지를 위해 표준 1바이트 ASCII 회전 기호 사용
+# 프로젝트 표준 유니코드 점자 회전 기호(Braille spinner) 사용
 function Wait-ProcessWithSpinner {
     param(
         [System.Diagnostics.Process]$Process,
         [string]$Message
     )
-    $spinner = @('-', '\\', '|', '/')
+    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
     $spinIdx = 0
     while (-not $Process.HasExited) {
         $char = $spinner[$spinIdx]
@@ -272,7 +272,7 @@ function Wait-WithSpinner {
         [scriptblock]$Condition,
         [int]$MaxTimeoutSeconds = 300
     )
-    $spinner = @('-', '\\', '|', '/')
+    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
     $spinIdx = 0
     $startTime = Get-Date
     while ($true) {
