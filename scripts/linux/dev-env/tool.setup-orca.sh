@@ -518,8 +518,102 @@ EOF
             echo ""
             echo "   💬 지금 당장 쓰려면 수동으로도 실행 가능합니다: $ORCA_DIR/orca-serve-wrapper.sh &"
         fi
+        # ── WSL2: Windows Orca 데스크톱 앱 자동 설치 + 페어링 ──────────────────
+        # Sublime Merge·VS Code 등 다른 tool.setup-*.sh 는 Windows 앱 설치를 PS1 에 위임하지만,
+        # Orca 는 orca serve(WSL2) ↔ GUI 클라이언트(Windows) 페어링이 반드시 필요하므로,
+        # 이 스크립트 단독 실행 시에도 winget.exe 인터옵으로 Windows 앱을 자동 설치하고
+        # 페어링까지 한번에 완료합니다(PS1 경유 시에도 winget 은 멱등이라 안전).
         echo ""
-        echo "   💬 Windows Orca 앱과의 페어링 안내는 tool.setup-orca.ps1 완료 화면에서 보여드립니다."
+        ensure_wsl_interop
+        _orca_win_installed=false
+        _orca_win_exe=""
+        _wup=$(get_win_userprofile 2>/dev/null || true)
+
+        # Windows Orca 데스크톱 앱 경로 탐색
+        for _wp in \
+            "${_wup:+${_wup}/AppData/Local/Programs/orca/Orca.exe}" \
+            "${_wup:+${_wup}/AppData/Local/Programs/Orca/Orca.exe}" \
+            "/mnt/c/Users/${USER:-}/AppData/Local/Programs/orca/Orca.exe" \
+            "/mnt/c/Users/${USER:-}/AppData/Local/Programs/Orca/Orca.exe" \
+            "/mnt/c/Program Files/Orca/Orca.exe"; do
+            [ -z "$_wp" ] && continue
+            if [ -f "$_wp" ]; then
+                _orca_win_exe="$_wp"
+                _orca_win_installed=true
+                break
+            fi
+        done
+
+        # winget.exe 로 Windows 앱 설치 또는 업데이트
+        if command -v winget.exe >/dev/null 2>&1; then
+            if [ "$_orca_win_installed" = false ]; then
+                echo "   📦 Windows Orca 데스크톱 앱 자동 설치 (winget)..."
+                _winget_log=$(mktemp)
+                if timeout -k 5 120 winget.exe install --id StablyAI.Orca --silent \
+                        --accept-source-agreements --accept-package-agreements \
+                        >"$_winget_log" 2>&1; then
+                    echo "   ✅ Windows Orca 데스크톱 앱 설치 완료"
+                    # 설치 후 경로 재탐색
+                    for _wp in \
+                        "${_wup:+${_wup}/AppData/Local/Programs/orca/Orca.exe}" \
+                        "${_wup:+${_wup}/AppData/Local/Programs/Orca/Orca.exe}" \
+                        "/mnt/c/Users/${USER:-}/AppData/Local/Programs/orca/Orca.exe" \
+                        "/mnt/c/Users/${USER:-}/AppData/Local/Programs/Orca/Orca.exe" \
+                        "/mnt/c/Program Files/Orca/Orca.exe"; do
+                        [ -z "$_wp" ] && continue
+                        if [ -f "$_wp" ]; then
+                            _orca_win_exe="$_wp"
+                            _orca_win_installed=true
+                            break
+                        fi
+                    done
+                else
+                    print_warn "Windows Orca 데스크톱 앱 winget 설치 실패."
+                    print_info "  수동 설치: PowerShell 에서 'winget install StablyAI.Orca'"
+                    tail -n 3 "$_winget_log" 2>/dev/null | sed 's/^/      │ /' || true
+                fi
+                rm -f "$_winget_log"
+            else
+                echo "   ✅ Windows Orca 데스크톱 앱: 이미 설치됨 ($_orca_win_exe)"
+                # 최신 버전 자동 업데이트 시도 (베스트 에포트, 실패해도 진행)
+                _winget_log=$(mktemp)
+                if timeout -k 5 60 winget.exe upgrade --id StablyAI.Orca --silent \
+                        --accept-source-agreements --accept-package-agreements \
+                        >"$_winget_log" 2>&1; then
+                    # winget upgrade 는 업데이트 없으면 "No applicable upgrade found" 로 성공 종료
+                    if grep -qi "No applicable" "$_winget_log" 2>/dev/null; then
+                        echo "      (최신 버전)"
+                    else
+                        echo "      (최신 버전으로 업데이트 완료)"
+                    fi
+                fi
+                rm -f "$_winget_log"
+            fi
+        else
+            print_warn "winget.exe 를 찾을 수 없어 Windows Orca 앱 자동 설치를 건너뜁니다."
+            print_info "  Windows PowerShell 에서 직접 설치하세요: winget install StablyAI.Orca"
+        fi
+
+        # Windows Orca 앱으로 자동 페어링 시도
+        if [ -n "${_orca_pair_link:-}" ] && [ -n "$_orca_win_exe" ] && [ -f "$_orca_win_exe" ]; then
+            echo "   🔗 Windows Orca 앱으로 자동 페어링을 시작합니다..."
+            # WSL2 에서 Windows 실행 파일을 직접 호출 — cmd.exe 경유 없이 interop 으로 바로 실행
+            _orca_win_path=$(wslpath -w "$_orca_win_exe" 2>/dev/null || true)
+            if [ -n "$_orca_win_path" ]; then
+                # Orca.exe 에 페어링 링크를 인자로 넘기면 앱이 열리면서 자동 페어링 진행
+                "$_orca_win_exe" "$_orca_pair_link" >/dev/null 2>&1 &
+                echo "   ✅ Windows Orca 앱을 실행하여 자동 페어링을 요청했습니다."
+                echo "      앱 화면에서 연결 상태를 확인해주세요."
+            else
+                # wslpath 변환 실패 시 cmd.exe 폴백
+                cmd.exe /c "start \"\" \"$_orca_pair_link\"" >/dev/null 2>&1 || true
+                echo "   ℹ️  페어링 링크를 Windows 기본 핸들러로 열었습니다."
+            fi
+        elif [ -n "${_orca_pair_link:-}" ]; then
+            echo "   💬 Windows Orca 데스크톱 앱이 감지되지 않아 자동 페어링을 완료하지 못했습니다."
+            echo "      앱 설치 후 아래 링크를 'Settings → Remote Orca Servers → Add Server' 에 붙여넣으세요:"
+            echo "      $_orca_pair_link"
+        fi
     else
         echo "   💬 일반 데스크톱 GUI 앱으로 바로 실행할 수 있습니다: $ORCA_APPIMAGE"
     fi
