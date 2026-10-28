@@ -87,33 +87,19 @@ if (-not (Test-Path $FontRegPath)) {
     New-Item -Path $FontRegPath -Force | Out-Null
 }
 
-# 이미 설치된 폰트 사전 감지 (Zero-Prompt 통과)
-$d2kodingInstalled = (Test-Path "$UserFontsDir\D2KodingLigatureNerdFontMono-Regular.ttf")
-$jetbrainsInstalled = (Test-Path "$UserFontsDir\JetBrainsMonoNerdFontMono-Regular.ttf")
-
-if ($d2kodingInstalled) {
-    $fontFiles = @("D2KodingLigatureNerdFontMono-Regular.ttf", "D2KodingLigatureNerdFontMono-Bold.ttf")
-    $fontFace  = "D2KodingLigature Nerd Font Mono"
-    Write-Skip "터미널 Nerd Font가 이미 설치되어 있습니다 ($fontFace)."
-} elseif ($jetbrainsInstalled) {
+Write-Host ""
+Write-Host "  터미널 폰트를 선택하세요 (언제든 변경 가능):" -ForegroundColor Cyan
+Write-Host "    [Y] D2KodingLigature Nerd Font Mono - 한글 자체 지원, 리거처 포함 (권장, 기본값)" -ForegroundColor Green
+Write-Host "    [N] JetBrainsMono NFM               - 영문 전용, 한글은 OS 대체 폰트로 렌더링" -ForegroundColor Gray
+# Prompt-Confirm 은 DT2_NONINTERACTIVE=1 이면 묻지 않고 기본값(Y)을 씁니다.
+if (-not (Prompt-Confirm "👉 D2KodingLigature로 설치할까요?" "Y")) {
     $fontFiles = @("JetBrainsMonoNerdFontMono-Regular.ttf", "JetBrainsMonoNerdFontMono-Bold.ttf")
     $fontFace  = "JetBrainsMono NFM"
-    Write-Skip "터미널 Nerd Font가 이미 설치되어 있습니다 ($fontFace)."
 } else {
-    Write-Host ""
-    Write-Host "  터미널 폰트를 선택하세요:" -ForegroundColor Cyan
-    Write-Host "    [Y] D2KodingLigature Nerd Font Mono - 한글 자체 지원, 리거처 포함 (권장, 기본값)" -ForegroundColor Green
-    Write-Host "    [N] JetBrainsMono NFM               - 영문 전용, 한글은 OS 대체 폰트로 렌더링" -ForegroundColor Gray
-    # Prompt-Confirm 은 DT2_NONINTERACTIVE=1 이면 묻지 않고 기본값(Y)을 씁니다.
-    if (-not (Prompt-Confirm "👉 D2KodingLigature로 설치할까요?" "Y")) {
-        $fontFiles = @("JetBrainsMonoNerdFontMono-Regular.ttf", "JetBrainsMonoNerdFontMono-Bold.ttf")
-        $fontFace  = "JetBrainsMono NFM"
-    } else {
-        $fontFiles = @("D2KodingLigatureNerdFontMono-Regular.ttf", "D2KodingLigatureNerdFontMono-Bold.ttf")
-        $fontFace  = "D2KodingLigature Nerd Font Mono"
-    }
-    Write-Host "  선택된 폰트: $fontFace" -ForegroundColor White
+    $fontFiles = @("D2KodingLigatureNerdFontMono-Regular.ttf", "D2KodingLigatureNerdFontMono-Bold.ttf")
+    $fontFace  = "D2KodingLigature Nerd Font Mono"
 }
+Write-Host "  선택된 폰트: $fontFace" -ForegroundColor White
 
 # WSL2 배포판 자동 감지 (폰트 원본을 WSL2 저장소에서 우선 복사하기 위함)
 $WslDistroDetected = $WslDistro
