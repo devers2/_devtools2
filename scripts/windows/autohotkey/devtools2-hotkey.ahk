@@ -234,10 +234,19 @@ _LaunchSublimeMerge() {
         localApp "\Programs\Sublime Merge\smerge.exe"
     ]
 
-    loop files localApp "\Microsoft\WinGet\Packages\*SublimeMerge*\sublime_merge.exe"
-        smergePaths.Push(A_LoopFilePath)
-    loop files localApp "\Microsoft\WinGet\Packages\*SublimeMerge*\smerge.exe"
-        smergePaths.Push(A_LoopFilePath)
+    ; WinGet 패키지 디렉터리 동적 탐색 (D 모드로 폴더 열거 후 내부 실행 파일 추가)
+    try {
+        loop files localApp "\Microsoft\WinGet\Packages\*SublimeMerge*", "D" {
+            if FileExist(A_LoopFilePath "\sublime_merge.exe")
+                smergePaths.Push(A_LoopFilePath "\sublime_merge.exe")
+            if FileExist(A_LoopFilePath "\smerge.exe")
+                smergePaths.Push(A_LoopFilePath "\smerge.exe")
+        }
+    }
+
+    ; 고정 설치 경로 직접 폴백
+    smergePaths.Push(localApp "\Microsoft\WinGet\Packages\SublimeHQ.SublimeMerge_Microsoft.Winget.Source_8wekyb3d8bbwe\sublime_merge.exe")
+    smergePaths.Push(localApp "\Microsoft\WinGet\Packages\SublimeHQ.SublimeMerge_Microsoft.Winget.Source_8wekyb3d8bbwe\smerge.exe")
 
     for p in smergePaths {
         if FileExist(p) {
@@ -246,15 +255,25 @@ _LaunchSublimeMerge() {
                 if WinWait("ahk_exe sublime_merge.exe", , 3)
                     _SetDarkTitleBar(WinExist("ahk_exe sublime_merge.exe"))
                 return
+            } catch {
+                continue
             }
         }
     }
 
     ; PATH 또는 별칭을 통한 실행 시도
     try {
+        Run("sublime_merge.exe")
+        if WinWait("ahk_exe sublime_merge.exe", , 3)
+            _SetDarkTitleBar(WinExist("ahk_exe sublime_merge.exe"))
+        return
+    } catch {}
+
+    try {
         Run("smerge.exe")
         if WinWait("ahk_exe sublime_merge.exe", , 3)
             _SetDarkTitleBar(WinExist("ahk_exe sublime_merge.exe"))
+        return
     } catch {
         TrayTip("Sublime Merge 실행", "Sublime Merge 실행 파일을 찾을 수 없습니다. 설치 여부를 확인하세요.", 0x3)
     }
