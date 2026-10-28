@@ -256,7 +256,7 @@ _LaunchSublimeMerge() {
                     _SetDarkTitleBar(WinExist("ahk_exe sublime_merge.exe"))
                 return
             } catch {
-                continue
+                ; 실행 실패 시 다음 경로 시도
             }
         }
     }
@@ -267,15 +267,15 @@ _LaunchSublimeMerge() {
         if WinWait("ahk_exe sublime_merge.exe", , 3)
             _SetDarkTitleBar(WinExist("ahk_exe sublime_merge.exe"))
         return
-    } catch {}
-
-    try {
-        Run("smerge.exe")
-        if WinWait("ahk_exe sublime_merge.exe", , 3)
-            _SetDarkTitleBar(WinExist("ahk_exe sublime_merge.exe"))
-        return
     } catch {
-        TrayTip("Sublime Merge 실행", "Sublime Merge 실행 파일을 찾을 수 없습니다. 설치 여부를 확인하세요.", 0x3)
+        try {
+            Run("smerge.exe")
+            if WinWait("ahk_exe sublime_merge.exe", , 3)
+                _SetDarkTitleBar(WinExist("ahk_exe sublime_merge.exe"))
+            return
+        } catch {
+            TrayTip("Sublime Merge 실행", "Sublime Merge 실행 파일을 찾을 수 없습니다. 설치 여부를 확인하세요.", 0x3)
+        }
     }
 }
 
