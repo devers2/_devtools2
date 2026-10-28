@@ -59,7 +59,7 @@ $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/deve
 . ([scriptblock]::Create($_commonContent))
 
 # DevTools2 중앙 UI 기본값 로드 (.config/devtools2/ui-defaults.json)
-# 폰트 크기·줄 높이 등을 단일 파일에서 관리하여 Windows Terminal, Gittyup, Meld 등 모든 도구와 동일한 값을 사용합니다.
+# 폰트 크기·줄 높이 등을 단일 파일에서 관리하여 Windows Terminal, Sublime Merge 등 모든 도구와 동일한 값을 사용합니다.
 $_uiDefaultsUrl = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/.config/devtools2/ui-defaults.json"
 try {
     $_uiDefaults = Invoke-RestMethod -Uri $_uiDefaultsUrl -Headers $_commonHeaders -ErrorAction Stop

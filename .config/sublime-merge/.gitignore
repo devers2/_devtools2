@@ -1,0 +1,8 @@
+# Sublime Merge 자동 생성 / 세션 / 라이선스 파일 제외
+Session.sublime_session
+*.sublime_session
+*.cache
+*.license
+License.sublime_license
+*.log
+.DS_Store
