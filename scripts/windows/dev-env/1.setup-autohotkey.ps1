@@ -1,6 +1,9 @@
 param(
     # WSL2 배포판 이름 (기본값: 첫 번째로 찾은 기본 배포판 자동 감지)
-    [string]$WslDistro = ""
+    [string]$WslDistro = "",
+
+    # AutoHotkey devtools2 관련 기능 비활성화/제거 스위치
+    [switch]$Uninstall
 )
 
 # ==============================================================================
@@ -94,18 +97,21 @@ Write-Host "  적용 대상 WSL 배포판: $WslDistro" -ForegroundColor White
 # ==============================================================================
 Write-Step "[Step 2] AutoHotkey v2 포터블 배포 및 단축키 등록"
 
-# ── AutoHotkey 설치 여부 확인 ─────────────────────────────────────────────────
-$installAhk = Prompt-Confirm "AutoHotKey를 설치하시겠습니까?" "Y"
-
+# ── AutoHotkey 설치 여부 사전 확인 ──────────────────────────────────────────
 $ahkModuleDir = "$env:LOCALAPPDATA\_devtools2\modules\autohotkey"
 $startupDir   = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 
-if (-not $installAhk) {
-    # ── n 선택: devtools2 관련 AHK만 동적으로 감지하여 정리 ─────────────────────
-    Write-Info "AutoHotKey 설치를 건너뜁니다. devtools2 관련 AHK 기능을 비활성화합니다..."
+$ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
+if (-not (Test-Path $ahkExe)) {
+    $ahkExe = Join-Path $ahkModuleDir "AutoHotkey.exe"
+}
+$ahkInstalled = (Test-Path $ahkExe)
+$installAhk = $false
 
-    # devtools2 경로 식별 패턴 — 특정 ahk 파일명을 하드코딩하지 않고
-    # 'wsl.localhost\<배포판명>' 또는 '_devtools2' 경로를 가리키는 대상만 동적으로 식별합니다.
+if ($Uninstall) {
+    # ── 명시적 비활성화 요청: devtools2 관련 AHK만 동적으로 감지하여 정리 ─────
+    Write-Info "devtools2 관련 AHK 기능을 비활성화합니다..."
+
     $wslPattern   = [regex]::Escape("wsl.localhost\$WslDistro")
     $localPattern = [regex]::Escape("_devtools2")
 
@@ -152,7 +158,23 @@ if (-not $installAhk) {
 
     Write-Success "AutoHotkey의 devtools2 관련 기능이 비활성화되었습니다."
     Write-Info "다른 용도의 AutoHotkey 프로세스는 영향을 받지 않습니다."
+    return
+}
+
+if ($ahkInstalled) {
+    Write-Info "AutoHotkey v2 포터블이 이미 설치되어 있습니다: $ahkExe"
+    Write-Info "전역 단축키 및 자동 실행 등록 상태를 점검하고 최신으로 동기화합니다..."
+    $installAhk = $true
 } else {
+    # 미설치 상태일 때만 설치 의사 확인 (기본값 Y)
+    if (Prompt-Confirm "👉 AutoHotkey v2를 설치하고 전역 단축키(Ctrl+Alt+T, Ctrl+Alt+G)를 등록하시겠습니까?" "Y") {
+        $installAhk = $true
+    } else {
+        Write-Skip "AutoHotkey 설치를 건너뜁니다."
+        Write-Host ""
+        return
+    }
+}
 
     # ── (1) modules/autohotkey 포터블 설치 경로 결정 ─────────────────────────────
     $ahkExe = Join-Path $ahkModuleDir "AutoHotkey64.exe"
@@ -407,7 +429,6 @@ if (-not $installAhk) {
     } else {
         Write-Success "AutoHotkey 기능(Ctrl+Alt+T 단축키 및 CapsLock 리매핑)이 정상 연동되었습니다."
     }
-}
 
 
 # ==============================================================================

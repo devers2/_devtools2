@@ -137,6 +137,7 @@ _HAS_INSTALLED=false
 [ "$IS_WSL2" = false ] && [ "$GHOSTTY_INSTALLED" = true ] && _HAS_INSTALLED=true
 [ -d "$DEVTOOLS2/modules/java" ] && [ -n "$(ls -A "$DEVTOOLS2/modules/java" 2>/dev/null)" ] && _HAS_INSTALLED=true
 [ -d "$DEVTOOLS2/modules/gradle/gradle-9" ] && _HAS_INSTALLED=true
+[ -d "$DEVTOOLS2/modules/neovim/nvim" ] && _HAS_INSTALLED=true
 
 if [ -n "${DT2_DUPLICATE_MODE:-}" ]; then
     print_info "환경변수(DT2_DUPLICATE_MODE) 설정 적용됨: $DUPLICATE_MODE"
@@ -702,28 +703,63 @@ install_neovim() {
     safe_download_and_extract "$_nvim_url" "$DEVTOOLS2/modules/neovim/nvim" 1 "$_sha" "Neovim $NEOVIM_VERSION"
 }
 
-if [ -d "$DEVTOOLS2/modules/neovim/nvim" ]; then
-    if prompt_confirm "   ⚠️  neovim 디렉토리가 이미 존재합니다. 삭제하고 새로 설치하시겠습니까?" "N"; then
-        # 새 버전 설치에 성공했을 때만 기존 설치를 지웁니다(실패 시 기존 Neovim 유지).
-        _nvim_old="$DEVTOOLS2/modules/neovim/.dt2-old-nvim"
-        rm -rf "$_nvim_old"
-        mv "$DEVTOOLS2/modules/neovim/nvim" "$_nvim_old"
-        if install_neovim; then
-            rm -rf "$_nvim_old"
-            echo "   ✅ Neovim $NEOVIM_VERSION 설치 완료"
+_nvim_dir="$DEVTOOLS2/modules/neovim/nvim"
+_nvim_bin="$_nvim_dir/bin/nvim"
+_installed_nvim_ver=""
+if [ -x "$_nvim_bin" ]; then
+    _installed_nvim_ver=$("$_nvim_bin" --version 2>/dev/null | head -n 1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)
+    if [ -z "$_installed_nvim_ver" ]; then
+        _raw_v=$("$_nvim_bin" --version 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+        [ -n "$_raw_v" ] && _installed_nvim_ver="v$_raw_v"
+    fi
+fi
+
+_do_nvim_install=false
+if [ -n "$_installed_nvim_ver" ]; then
+    if [ "$_installed_nvim_ver" = "$NEOVIM_VERSION" ]; then
+        if [ "$DUPLICATE_MODE" = "remove" ]; then
+            print_info "Neovim $_installed_nvim_ver 재설치 진행 (중복 처리: 삭제 후 재설치 모드)"
+            _do_nvim_install=true
         else
-            rm -rf "$DEVTOOLS2/modules/neovim/nvim"
-            mv "$_nvim_old" "$DEVTOOLS2/modules/neovim/nvim"
-            echo "   ❌ Neovim 설치 실패 — 기존 Neovim 을 복원했습니다." >&2
+            print_skip "Neovim $_installed_nvim_ver (이미 최신 핀 버전이 설치되어 있습니다)"
         fi
     else
-        echo "   ⏭️ [건너뜀] neovim 디렉토리가 이미 존재합니다."
+        print_info "Neovim 핀 버전 변경 감지: $_installed_nvim_ver → $NEOVIM_VERSION"
+        if [ "$DUPLICATE_MODE" = "keep" ]; then
+            print_skip "Neovim 기존 버전 유지 ($_installed_nvim_ver)"
+        elif [ "$DUPLICATE_MODE" = "remove" ]; then
+            _do_nvim_install=true
+        else
+            if prompt_confirm "👉 Neovim을 $NEOVIM_VERSION 로 업데이트하시겠습니까?" "Y"; then
+                _do_nvim_install=true
+            else
+                print_skip "Neovim 기존 버전 유지 ($_installed_nvim_ver)"
+            fi
+        fi
+    fi
+elif [ -d "$_nvim_dir" ]; then
+    # 디렉터리는 있으나 바이너리가 없거나 손상된 경우
+    print_warn "Neovim 디렉터리가 손상되었거나 바이너리를 찾을 수 없습니다: $_nvim_dir"
+    if [ "$DUPLICATE_MODE" = "remove" ] || prompt_confirm "👉 Neovim을 새로 설치하시겠습니까?" "Y"; then
+        _do_nvim_install=true
     fi
 else
+    # 최초 설치
+    _do_nvim_install=true
+fi
+
+if [ "$_do_nvim_install" = true ]; then
+    # 새 버전 설치에 성공했을 때만 기존 설치를 지웁니다(실패 시 기존 Neovim 유지).
+    _nvim_old="$DEVTOOLS2/modules/neovim/.dt2-old-nvim"
+    rm -rf "$_nvim_old"
+    [ -d "$_nvim_dir" ] && mv "$_nvim_dir" "$_nvim_old"
     if install_neovim; then
+        rm -rf "$_nvim_old"
         echo "   ✅ Neovim $NEOVIM_VERSION 설치 완료"
     else
-        echo "   ❌ Neovim 설치 실패 (체크섬 불일치 또는 다운로드 오류)" >&2
+        rm -rf "$_nvim_dir"
+        [ -d "$_nvim_old" ] && mv "$_nvim_old" "$_nvim_dir"
+        echo "   ❌ Neovim 설치 실패 — 기존 Neovim 을 복원했습니다." >&2
     fi
 fi
 
