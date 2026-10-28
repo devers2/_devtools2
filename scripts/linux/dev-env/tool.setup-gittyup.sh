@@ -253,7 +253,7 @@ fi
 # Meld 다크 테마 및 폰트 설정 (gsettings/dconf 지원 환경인 경우)
 if command -v gsettings >/dev/null 2>&1; then
     gsettings set org.gnome.meld style-scheme 'meld-dark' 2>/dev/null || true
-    gsettings set org.gnome.meld use-custom-font true 2>/dev/null || true
+    gsettings set org.gnome.meld use-system-font false 2>/dev/null || true
     gsettings set org.gnome.meld custom-font "$_dt2_gui_font $_dt2_font_size" 2>/dev/null || true
 fi
 

@@ -273,3 +273,37 @@ _LaunchGittyup() {
     }
 }
 
+; ------------------------------------------------------------------------------
+; Part 5. Meld 3-Way 병합/비교 창 자동 포그라운드 활성화 및 다크 모드 타이틀 바 적용
+; Gittyup 등에서 External Diff 실행 시 Windows 포그라운드 잠금 정책으로 인해
+; 새 창이 전체화면 Gittyup 뒤에 묻히는 현상을 해결하고,
+; 상단 타이틀 바에 DWM 몰입형 다크 모드(DwmSetWindowAttribute)를 자동 적용한다.
+; ------------------------------------------------------------------------------
+SetTimer _WatchMeldWindows, 200
+
+global _knownMeldHwnds := Map()
+
+_WatchMeldWindows() {
+    global _knownMeldHwnds
+    try {
+        hwnds := WinGetList("ahk_exe meld.exe")
+        for hwnd in hwnds {
+            if !_knownMeldHwnds.Has(hwnd) {
+                _knownMeldHwnds[hwnd] := true
+                _SetDarkTitleBar(hwnd)
+                win := "ahk_id " hwnd
+                if WinGetMinMax(win) = -1
+                    WinRestore(win)
+                WinSetAlwaysOnTop(true, win)
+                WinSetAlwaysOnTop(false, win)
+                WinActivate(win)
+            }
+        }
+        for hwnd in _knownMeldHwnds.Clone() {
+            if !WinExist("ahk_id " hwnd)
+                _knownMeldHwnds.Delete(hwnd)
+        }
+    }
+}
+
+

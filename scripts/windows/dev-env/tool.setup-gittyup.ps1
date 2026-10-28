@@ -188,13 +188,13 @@ foreach ($fName in $filesToSync) {
             $content = $content -replace 'fontSize=.*', ('fontSize=' + $_dt2FontSize)
         }
         [System.IO.File]::WriteAllText($dstFile, $content, [System.Text.UTF8Encoding]::new($false))
-        if ($fName -eq "theme.lua") {
-            [System.IO.File]::WriteAllText((Join-Path $gittyupThemesDir "Dark.lua"), $content, [System.Text.UTF8Encoding]::new($false))
-            [System.IO.File]::WriteAllText((Join-Path $gittyupThemesDir "DevTools2.lua"), $content, [System.Text.UTF8Encoding]::new($false))
-        }
         Write-Success "Gittyup 설정 동기화 완료: $dstFile"
     }
 }
+
+# 기존 커스텀 테마 오류(require 루프 크래시) 유발 파일 정리
+Remove-Item (Join-Path $gittyupThemesDir "DevTools2.lua") -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $gittyupThemesDir "Dark.lua") -Force -ErrorAction SilentlyContinue
 
 # 2) Gittyup 다크 테마 및 폰트 레지스트리 주입 (Qt QSettings)
 try {
@@ -216,28 +216,60 @@ try {
         $fontReg = Join-Path $editorReg "font"
         if (-not (Test-Path $fontReg)) { New-Item -Path $fontReg -Force | Out-Null }
         Set-ItemProperty -Path $fontReg -Name "family" -Value "$_dt2GuiFont" -Force
-        Set-ItemProperty -Path $fontReg -Name "size" -Value [double]$_dt2FontSize -Force
+        # Qt QSettings 는 size 를 문자열(REG_SZ)로 저장/읽기 가능 — 원본 11.5 유지
+        # (Gittyup 내부에서 toInt() → 11 로 읽히지만 레지스트리에는 사용자 원본 값 보존)
+        Set-ItemProperty -Path $fontReg -Name "size" -Value "$_dt2FontSize" -Force
     }
-    Write-Success "Gittyup 다크 테마(Dark) 및 폰트($_dt2GuiFont $_dt2FontSize) 레지스트리 설정 완료"
+    Write-Success "Gittyup 다크 테마(Dark) 및 폰트($_dt2GuiFont ${_dt2FontSize}pt) 레지스트리 설정 완료"
 } catch {
     Write-Warn "Gittyup 레지스트리 설정 중 경고: $($_.Exception.Message)"
 }
 
 # 3) Meld 다크 테마 및 폰트 레지스트리 동기화 (HKCU:\SOFTWARE\GSettings\org\gnome\meld\)
 try {
+    # GTK3 전역 다크 테마 및 폰트 설정 (%LOCALAPPDATA%\gtk-3.0 및 %APPDATA%\gtk-3.0)
+    $gtkDirs = @(
+        "$env:LOCALAPPDATA\gtk-3.0",
+        "$env:APPDATA\gtk-3.0"
+    )
+    $gtkIniContent = @"
+[Settings]
+gtk-application-prefer-dark-theme = true
+gtk-theme-name = Adwaita-dark
+gtk-font-name = $_dt2GuiFont $_dt2FontSize
+"@
+    foreach ($gDir in $gtkDirs) {
+        if (-not (Test-Path $gDir)) { New-Item -ItemType Directory -Path $gDir -Force | Out-Null }
+        [System.IO.File]::WriteAllText("$gDir\settings.ini", $gtkIniContent, [System.Text.UTF8Encoding]::new($false))
+    }
+
+    # GTK 환경 변수 주입 (Meld 프로세스 전역 다크 모드 보장)
+    [Environment]::SetEnvironmentVariable("GTK_THEME", "Adwaita:dark", "User")
+    $env:GTK_THEME = "Adwaita:dark"
+
+    # Meld GSettings 레지스트리 동기화 (GLib 레지스트리 백엔드는 부울/정수를 반드시 REG_DWORD로 요구함)
     $meldRegPath = "HKCU:\SOFTWARE\GSettings\org\gnome\meld"
     if (-not (Test-Path $meldRegPath)) {
         New-Item -Path $meldRegPath -Force | Out-Null
     }
 
-    # 공식 다크 테마 (meld-dark) 및 D2Coding ligature 11.5pt 설정 주입
-    Set-ItemProperty -Path $meldRegPath -Name "style-scheme" -Value "meld-dark" -Force
-    Set-ItemProperty -Path $meldRegPath -Name "use-custom-font" -Value $true -Force
-    Set-ItemProperty -Path $meldRegPath -Name "custom-font" -Value "$_dt2GuiFont $_dt2FontSize" -Force
-    Set-ItemProperty -Path $meldRegPath -Name "indent-width" -Value 2 -Force
-    Set-ItemProperty -Path $meldRegPath -Name "show-line-numbers" -Value $true -Force
+    Set-ItemProperty -Path $meldRegPath -Name "style-scheme" -Value "meld-dark" -Type String -Force
+    Set-ItemProperty -Path $meldRegPath -Name "use-system-font" -Value 0 -Type DWord -Force
+    Set-ItemProperty -Path $meldRegPath -Name "custom-font" -Value "$_dt2GuiFont $_dt2FontSize" -Type String -Force
+    Set-ItemProperty -Path $meldRegPath -Name "indent-width" -Value 2 -Type DWord -Force
+    Set-ItemProperty -Path $meldRegPath -Name "show-line-numbers" -Value 1 -Type DWord -Force
+    Remove-ItemProperty -Path $meldRegPath -Name "use-custom-font" -ErrorAction SilentlyContinue
 
-    Write-Success "Meld 다크 테마(meld-dark) 및 폰트($_dt2GuiFont $_dt2FontSize) 레지스트리 설정 완료"
+    # org.gnome.desktop.interface (GTK3 기본 다크 인터페이스)
+    $desktopRegPath = "HKCU:\SOFTWARE\GSettings\org\gnome\desktop\interface"
+    if (-not (Test-Path $desktopRegPath)) {
+        New-Item -Path $desktopRegPath -Force | Out-Null
+    }
+    Set-ItemProperty -Path $desktopRegPath -Name "gtk-theme" -Value "Adwaita-dark" -Type String -Force
+    Set-ItemProperty -Path $desktopRegPath -Name "color-scheme" -Value "prefer-dark" -Type String -Force
+    Set-ItemProperty -Path $desktopRegPath -Name "monospace-font-name" -Value "$_dt2GuiFont $_dt2FontSize" -Type String -Force
+
+    Write-Success "Meld 다크 테마(Adwaita-dark + meld-dark) 및 폰트($_dt2GuiFont ${_dt2FontSize}pt) 레지스트리 설정 완료"
 } catch {
     Write-Warn "Meld 레지스트리 설정 중 경고: $($_.Exception.Message)"
 }
@@ -277,6 +309,8 @@ if (Get-Command git.exe -ErrorAction SilentlyContinue) {
         git config --global i18n.logOutputEncoding utf-8
         if (-not [string]::IsNullOrEmpty($meldExe)) {
             $meldEscaped = $meldExe -replace '\\', '/'
+            git config --global mergetool.meld.path "$meldEscaped"
+            git config --global difftool.meld.path "$meldEscaped"
             git config --global mergetool.meld.cmd "`"$meldEscaped`" `"`$LOCAL`" `"`$BASE`" `"`$REMOTE`" --output `"`$MERGED`""
             git config --global difftool.meld.cmd "`"$meldEscaped`" `"`$LOCAL`" `"`$REMOTE`""
         }
