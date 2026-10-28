@@ -258,13 +258,16 @@ if command -v gsettings >/dev/null 2>&1; then
 fi
 
 # ==============================================================================
-# [Step 3] Git 전역 diff.tool 및 merge.tool 로 Meld 등록
+# [Step 3] Git 전역 diff.tool / merge.tool (Meld) 및 UTF-8 인코딩 등록
 # ==============================================================================
-print_info "Git 글로벌 mergetool 및 difftool 로 Meld 등록 중..."
+print_info "Git 글로벌 mergetool, difftool 및 UTF-8 인코딩 등록 중..."
 git config --global merge.tool meld
 git config --global diff.tool meld
 git config --global mergetool.prompt false
 git config --global difftool.prompt false
-print_done "Git 글로벌 설정 완료: merge.tool=meld, diff.tool=meld"
+git config --global gui.encoding utf-8
+git config --global i18n.commitEncoding utf-8
+git config --global i18n.logOutputEncoding utf-8
+print_done "Git 글로벌 설정 완료: merge.tool=meld, gui.encoding=utf-8"
 
 print_success "Gittyup & Meld 설치, 설정 심볼릭 링크 및 연동 완료!"

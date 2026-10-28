@@ -244,7 +244,7 @@ _LaunchGittyup() {
     for p in gittyupPaths {
         if FileExist(p) {
             try {
-                Run('"' p '"')
+                Run('"' p '" --theme Dark')
                 return
             }
         }
@@ -252,7 +252,7 @@ _LaunchGittyup() {
 
     ; PATH 또는 별칭을 통한 실행 시도
     try {
-        Run("gittyup.exe")
+        Run("gittyup.exe --theme Dark")
     } catch {
         TrayTip("Gittyup 실행", "Gittyup 실행 파일을 찾을 수 없습니다. 설치 여부를 확인하세요.", 0x3)
     }

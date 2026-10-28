@@ -30,12 +30,12 @@ return {
               'powershell.exe',
               '-NoProfile',
               '-Command',
-              'Start-Process gittyup -ArgumentList @("' .. win_path .. '") -ErrorAction SilentlyContinue',
+              'Start-Process gittyup -ArgumentList @("--theme", "Dark", "' .. win_path .. '") -ErrorAction SilentlyContinue',
             }, { detach = true })
             vim.notify('Gittyup 실행: ' .. dir, vim.log.levels.INFO)
           else
             if vim.fn.executable('gittyup') == 1 then
-              vim.fn.jobstart({ 'gittyup', dir }, { detach = true })
+              vim.fn.jobstart({ 'gittyup', '--theme', 'Dark', dir }, { detach = true })
               vim.notify('Gittyup 실행: ' .. dir, vim.log.levels.INFO)
             else
               vim.notify('gittyup 실행 파일을 찾을 수 없습니다.', vim.log.levels.ERROR)
@@ -61,12 +61,12 @@ return {
               'powershell.exe',
               '-NoProfile',
               '-Command',
-              'Start-Process gittyup -ArgumentList @("' .. win_path .. '") -ErrorAction SilentlyContinue',
+              'Start-Process gittyup -ArgumentList @("--theme", "Dark", "' .. win_path .. '") -ErrorAction SilentlyContinue',
             }, { detach = true })
             vim.notify('Gittyup 실행 (파일): ' .. vim.fn.fnamemodify(file, ':t'), vim.log.levels.INFO)
           else
             if vim.fn.executable('gittyup') == 1 then
-              vim.fn.jobstart({ 'gittyup', dir }, { detach = true })
+              vim.fn.jobstart({ 'gittyup', '--theme', 'Dark', dir }, { detach = true })
               vim.notify('Gittyup 실행 (파일): ' .. vim.fn.fnamemodify(file, ':t'), vim.log.levels.INFO)
             else
               vim.notify('gittyup 실행 파일을 찾을 수 없습니다.', vim.log.levels.ERROR)
