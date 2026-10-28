@@ -15,8 +15,11 @@
 ;   2. WSL 터미널 전역 단축키 (Ctrl + Alt + T)
 ;      - Windows Terminal을 통해 WSL(devtools2)을 새 창으로 열기
 ;
-;   3. 개발툴 활성 시 IME 자동 영문 전환 (0ms 무지연)
-;      - Windows Terminal / VS Code / Zed 등이 활성 상태에서
+;   3. Sublime Merge 전역 단축키 (Ctrl + Alt + G)
+;      - Sublime Merge 실행 또는 기존 창 즉시 포그라운드 활성화
+;
+;   4. 개발툴 활성 시 IME 자동 영문 전환 (0ms 무지연)
+;      - Windows Terminal / VS Code / Zed / Sublime Merge 등이 활성 상태에서
 ;        Esc, CapsLock(탭), Ctrl+[ 입력 시 Windows IME를 즉시 영문으로 전환
 ;      - Linux 네이티브의 im-select.nvim + fcitx5 와 동일한 경험 제공
 ;      - Normal 모드 진입 및 Insert 복귀 시 항상 영문 보장
@@ -51,6 +54,7 @@ _IsDevWindow() {
         or WinActive("ahk_exe Cursor.exe")
         or WinActive("ahk_exe zed.exe")
         or WinActive("ahk_exe neovide.exe")
+        or WinActive("ahk_exe sublime_merge.exe")
 }
 
 ; ------------------------------------------------------------------------------
@@ -204,3 +208,50 @@ _ActivateNewTerminal(existingHwnds) {
     WinSetAlwaysOnTop(true, newWin)
     WinSetAlwaysOnTop(false, newWin)
 }
+
+; ------------------------------------------------------------------------------
+; Part 4. Sublime Merge 전역 단축키 (Ctrl + Alt + G)
+; ------------------------------------------------------------------------------
+; 이미 실행 중이면 최상단 활성화(포커스), 없으면 새 프로세스 실행
+^!g::
+{
+    if WinExist("ahk_exe sublime_merge.exe") {
+        if WinGetMinMax("ahk_exe sublime_merge.exe") = -1
+            WinRestore("ahk_exe sublime_merge.exe")
+        WinActivate("ahk_exe sublime_merge.exe")
+        WinSetAlwaysOnTop(true, "ahk_exe sublime_merge.exe")
+        WinSetAlwaysOnTop(false, "ahk_exe sublime_merge.exe")
+        return
+    }
+
+    _LaunchSublimeMerge()
+}
+
+_LaunchSublimeMerge() {
+    progFiles := EnvGet("ProgramFiles")
+    progFilesX86 := EnvGet("ProgramFiles(x86)")
+    localApp := EnvGet("LOCALAPPDATA")
+
+    smergePaths := [
+        progFiles "\Sublime Merge\sublime_merge.exe",
+        progFilesX86 "\Sublime Merge\sublime_merge.exe",
+        localApp "\Programs\Sublime Merge\sublime_merge.exe"
+    ]
+
+    for p in smergePaths {
+        if FileExist(p) {
+            try {
+                Run('"' p '"')
+                return
+            }
+        }
+    }
+
+    ; PATH 또는 별칭을 통한 실행 시도
+    try {
+        Run("smerge.exe")
+    } catch {
+        TrayTip("Sublime Merge 실행", "Sublime Merge 실행 파일을 찾을 수 없습니다. 설치 여부를 확인하세요.", 0x3)
+    }
+}
+

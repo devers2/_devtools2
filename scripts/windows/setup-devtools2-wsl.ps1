@@ -5,7 +5,7 @@
 #   1. Windows WSL2 가상 머신 생성 및 활성화 (0.setup-wsl.ps1)
 #   2. WSL2 내부로 Linux 초기화 스크립트를 실행하여 깃 자격증명 설정 및 클론 진행
 #   3. WSL2 내부의 환경변수 설정, 핵심 개발 런타임 및 CLI 유틸리티 도구 일괄 자동 설치
-#   4. Windows 호스트용 AutoHotkey, Windows Terminal, VS Code, Zed, Orca 자동 설치 및 설정 연동
+#   4. Windows 호스트용 AutoHotkey, Windows Terminal, Sublime Merge, VS Code, Zed, Orca 자동 설치 및 설정 연동
 #
 # ------------------------------------------------------------------------------
 # ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
@@ -599,24 +599,28 @@ if (Test-Path $wslDevtools2Root) {
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
 # ── 4-1. AutoHotkey (CapsLock 리매핑 + Ctrl+Alt+T 단축키) ────────────────────
-Write-SubStep "▶ (1/5) AutoHotkey 배포 및 단축키 등록"
-Invoke-RemotePsScript -Url "$RAW_WIN/1.setup-autohotkey.ps1" -Arguments @{ WslDistro = $wslDistro }
+Write-SubStep "▶ (1/6) AutoHotkey 배포 및 단축키 등록"
+Invoke-RemotePsScript -Url "/1.setup-autohotkey.ps1" -Arguments @{ WslDistro =  }
 
 # ── 4-2. Windows Terminal (폰트/테마/fzf 단축키) ─────────────────────────────
-Write-SubStep "▶ (2/5) Windows Terminal 폰트/테마/단축키 설정"
-Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-windows-terminal.ps1" -Arguments @{ WslDistro = $wslDistro }
+Write-SubStep "▶ (2/6) Windows Terminal 폰트/테마/단축키 설정"
+Invoke-RemotePsScript -Url "/2.setup-windows-terminal.ps1" -Arguments @{ WslDistro =  }
 
-# ── 4-3. VSCode (에디터 설치, 심볼릭 링크 및 확장 동기화) ────────────────────
-Write-SubStep "▶ (3/5) VSCode 에디터 설치 및 설정/확장 연동"
-Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-vscode.ps1" -Arguments @{ WslDistro = $wslDistro }
+# ── 4-3. Sublime Merge (Git Diff & Merge 클라이언트 설치 및 설정 연동) ───────
+Write-SubStep "▶ (3/6) Sublime Merge 설치 및 설정 연동"
+Invoke-RemotePsScript -Url "/tool.setup-sublime-merge.ps1" -Arguments @{ WslDistro =  }
 
-# ── 4-4. Zed ─────────────────────────────────────────────────────────────────
-Write-SubStep "▶ (4/5) Zed 에디터 설치 및 설정 연동"
-Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
+# ── 4-4. VSCode (에디터 설치, 심볼릭 링크 및 확장 동기화) ────────────────────
+Write-SubStep "▶ (4/6) VSCode 에디터 설치 및 설정/확장 연동"
+Invoke-RemotePsScript -Url "/tool.setup-vscode.ps1" -Arguments @{ WslDistro =  }
 
-# ── 4-5. Orca (Windows GUI 클라이언트 — 에이전트 실행부는 WSL2의 orca serve) ──
-Write-SubStep "▶ (5/5) Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 안내"
-$userChoseOrca = Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
+# ── 4-5. Zed ─────────────────────────────────────────────────────────────────
+Write-SubStep "▶ (5/6) Zed 에디터 설치 및 설정 연동"
+Invoke-RemotePsScript -Url "/tool.setup-zed.ps1" -Arguments @{ WslDistro =  }
+
+# ── 4-6. Orca (Windows GUI 클라이언트 — 에이전트 실행부는 WSL2의 orca serve) ──
+Write-SubStep "▶ (6/6) Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 안내"
+ = Invoke-RemotePsScript -Url "/tool.setup-orca.ps1" -Arguments @{ WslDistro =  }
 
 # 🌟 [Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동]
 # - 보안 자격증명 정보(Git Token/Maven Auth) 손실 방지 및 이중 환경 호환성 확보
