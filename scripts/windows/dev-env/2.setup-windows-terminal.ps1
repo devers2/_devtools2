@@ -58,6 +58,19 @@ $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'P
 $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_commonContent))
 
+# DevTools2 중앙 UI 기본값 로드 (.config/devtools2/ui-defaults.json)
+# 폰트 크기·줄 높이 등을 단일 파일에서 관리하여 Windows Terminal, Sublime Merge 등 모든 도구와 동일한 값을 사용합니다.
+$_uiDefaultsUrl = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/.config/devtools2/ui-defaults.json"
+try {
+    $_uiDefaults = Invoke-RestMethod -Uri $_uiDefaultsUrl -Headers $_commonHeaders -ErrorAction Stop
+    $_dt2FontSize = $_uiDefaults.font.size
+    $_dt2LineHeight = $_uiDefaults.font.line_height
+} catch {
+    Write-Warn "ui-defaults.json 로드 실패, 기본값 사용 (font.size=12, line_height=1.3)"
+    $_dt2FontSize = 12
+    $_dt2LineHeight = 1.3
+}
+
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🚀 Windows Terminal 폰트/테마/단축키 설정" -ForegroundColor DarkCyan
@@ -340,7 +353,7 @@ if (-not (Test-Path $settingsPath)) {
         }
         # cellHeight: CSS line-height와 유사하게 셀(줄) 높이를 조정합니다(WT 공식 스키마 확인, release-1.24 기준, 기본값 1.2)
         # 한글 겹침(DirectWrite 소수점 글꼴 너비 반올림 오차) 방지를 위해 정수 표준 크기를 유지합니다.
-        $settings.profiles.defaults | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{ face = $fontFace; cellHeight = '1.3' }) -Force
+        $settings.profiles.defaults | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{ face = $fontFace; size = $_dt2FontSize; cellHeight = "$_dt2LineHeight" }) -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName opacity -NotePropertyValue 97 -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName colorScheme -NotePropertyValue "Kanagawa" -Force
         Write-Success "기본 폰트($fontFace) / 투명도(97) / Kanagawa 테마 적용 완료 (profiles.defaults)"
@@ -370,7 +383,7 @@ Write-Host "====================================================================
 Write-Host "🎉 Windows Terminal 설정 완료!" -ForegroundColor Green
 Write-Host ""
 Write-Host "  [적용된 설정]" -ForegroundColor Cyan
-Write-Host "  · 폰트     : $fontFace, 11.5pt" -ForegroundColor White
+Write-Host "  · 폰트     : $fontFace, ${_dt2FontSize}pt" -ForegroundColor White
 Write-Host "  · 테마     : Kanagawa" -ForegroundColor White
 Write-Host "  · 투명도   : 97%" -ForegroundColor White
 Write-Host "  · ALT+c    : 명령어 팔레트 (command-palette)" -ForegroundColor White
