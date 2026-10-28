@@ -185,21 +185,23 @@ Write-Host "  동기화 대상 데이터 디렉터리 수: $($targetDataDirs.Cou
 
 # 동기화할 설정 파일 매핑: @{ 소스파일명 = 타겟파일명 }
 $filesToSync = @{
-    "Preferences.sublime-settings" = "Preferences.sublime-settings"
-    "Default.sublime-keymap"       = "Default (Windows).sublime-keymap"
+    "Preferences.sublime-settings"                 = "Preferences.sublime-settings"
+    "Default.sublime-keymap"                       = "Default (Windows).sublime-keymap"
+    "Diff - Merge.sublime-settings"                = "Diff - Merge.sublime-settings"
+    "Diff - Merge Dark.sublime-settings"           = "Diff - Merge Dark.sublime-settings"
+    "Commit Message - Merge.sublime-settings"      = "Commit Message - Merge.sublime-settings"
+    "Commit Message - Merge Dark.sublime-settings" = "Commit Message - Merge Dark.sublime-settings"
+    "File Mode - Merge.sublime-settings"           = "File Mode - Merge.sublime-settings"
+    "File Mode - Merge Dark.sublime-settings"      = "File Mode - Merge Dark.sublime-settings"
+    "Git Output - Merge.sublime-settings"          = "Git Output - Merge.sublime-settings"
+    "Git Output - Merge Dark.sublime-settings"     = "Git Output - Merge Dark.sublime-settings"
 }
 
-# 과거 커스텀 테마 오버라이드 잔재 정리 (공식 빌트인 다크 테마 정상 로드 보장)
+# 구버전 충돌 파일(순환 참조 및 구문 오류를 일으키는 커스텀 파일) 정리
 $legacyFilesToRemove = @(
     "kanagawa.sublime-color-scheme",
     "Merge Dark.sublime-theme",
-    "Merge.sublime-theme",
-    "Commit Message.sublime-settings",
-    "Commit Message - Merge Dark.sublime-settings",
-    "File Mode.sublime-settings",
-    "File Mode - Merge Dark.sublime-settings",
-    "Git Output.sublime-settings",
-    "Git Output - Merge Dark.sublime-settings"
+    "Merge.sublime-theme"
 )
 
 foreach ($dataDir in $targetDataDirs) {
