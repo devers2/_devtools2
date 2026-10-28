@@ -178,12 +178,58 @@ if command -v pwsh >/dev/null 2>&1; then
     assert_test "모든 .ps1 파일에 문법 오류가 없는가" 1 "$ps_errors"
   fi
 else
-  # Linux 네이티브 환경(pwsh 미설치)에서는 안전하게 건너뛰며 사전 규약(?? 연산자 금지 등) 정적 검증 수행
-  ps_qq_violations=$(grep -rn --include="*.ps1" '??' "$REPO_ROOT/scripts" "$REPO_ROOT/tests" 2>/dev/null | grep -v '#' || true)
-  if [ -z "$ps_qq_violations" ]; then
-    assert_test "PowerShell 구문 정적 분석 (pwsh 미설치 환경: 호환성 사전 규칙 검증)" 0
+  # Linux 네이티브 환경(pwsh 미설치): Python 기반 정적 문법 및 구조 정밀 분석
+  # 1) PS 5.1 비호환 '??' 연산자 검사
+  # 2) 빈 해시 리터럴 대입문 검사 (@{ Key =  })
+  # 3) 접두사 변수 누락 URL 패턴 검사 (-Url "/...")
+  # 4) 좌변 변수 탈락 빈 대입문 검사 (^= ...)
+  ps_static_errors=$(python3 -c "
+import os, re
+
+repo_root = '$REPO_ROOT'
+errors = []
+
+for root, _, files in os.walk(repo_root):
+    if any(p in root for p in ['modules', 'data', '.git']):
+        continue
+    for f in files:
+        if f.endswith('.ps1'):
+            path = os.path.join(root, f)
+            rel = os.path.relpath(path, repo_root)
+            with open(path, 'r', encoding='utf-8', errors='ignore') as fp:
+                content = fp.read()
+                lines = content.splitlines()
+
+            # 1. '??' 연산자 검사 (주석 제외)
+            for i, line in enumerate(lines, 1):
+                code_part = line.split('#')[0]
+                if '??' in code_part:
+                    errors.append(f'{rel}:{i}: PS 5.1 비호환 ?? 연산자')
+
+            # 2. 빈 해시테이블 대입문 검사 (@{ key = } / @{ key = \n })
+            no_comments = re.sub(r'#.*', '', content)
+            for m in re.finditer(r'@\{[^}]*?\b([a-zA-Z0-9_]+)\s*=\s*(?:\}|;|\n\s*\})', no_comments):
+                line_no = content[:m.start()].count('\n') + 1
+                errors.append(f'{rel}:{line_no}: 빈 해시테이블 대입문 (@{{ ... {m.group(1)} = ... }})')
+
+            # 3. 접두사 변수 누락 URL 검사 (-Url \"/...\")
+            for m in re.finditer(r'-Url\s+[\"\']/[a-zA-Z0-9_]', no_comments):
+                line_no = content[:m.start()].count('\n') + 1
+                errors.append(f'{rel}:{line_no}: 접두사 변수 누락 URL (-Url \"/...\")')
+
+            # 4. 좌변 변수 탈락 빈 대입문 검사 (^= ...)
+            for i, line in enumerate(lines, 1):
+                stripped = line.strip()
+                if stripped.startswith('= ') or stripped == '=':
+                    errors.append(f'{rel}:{i}: 좌변 변수 누락 대입문')
+
+print('; '.join(errors))
+" 2>/dev/null || true)
+
+  if [ -z "$ps_static_errors" ]; then
+    assert_test "PowerShell 구문 정적 분석 (Python 정밀 검사: 빈 해시/누락 변수/PS5.1 호환성)" 0
   else
-    assert_test "PowerShell 구문 정적 분석 (호환되지 않는 ?? 연산자 발견)" 1 "$ps_qq_violations"
+    assert_test "PowerShell 구문 정적 분석 (문법/변수 결함 감지)" 1 "$ps_static_errors"
   fi
 fi
 
