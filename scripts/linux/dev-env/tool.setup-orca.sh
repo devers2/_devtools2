@@ -275,6 +275,11 @@ if [ "$_orca_proceed" = true ]; then
         # shellcheck disable=SC1091
         . "$HOME/.config/devtools2/env.sh" >/dev/null 2>&1 || true
     fi
+    for _npm_bin in \
+        "$DEVTOOLS2/data/.npm-packages/lib/node_modules/.bin" \
+        "$DEVTOOLS2/data/.npm-packages/bin"; do
+        [ -d "$_npm_bin" ] && case ":$PATH:" in *":$_npm_bin:"*) ;; *) export PATH="$_npm_bin:$PATH" ;; esac
+    done
     echo ""
     echo "   🤖 에이전트 CLI 점검 (Orca 가 실제로 실행할 대상)"
     _orca_agent_names=("claude" "codex" "gemini")
@@ -309,6 +314,12 @@ if [ "$_orca_proceed" = true ]; then
             codex) { command -v npm >/dev/null 2>&1 && npm install -g --no-audit --no-fund @openai/codex; } || true ;;
             gemini) { command -v npm >/dev/null 2>&1 && npm install -g --no-audit --no-fund @google/gemini-cli; } || true ;;
         esac
+        # npm 글로벌 설치 후 생성된 bin 디렉터리 PATH 재동기화
+        for _npm_bin in \
+            "$DEVTOOLS2/data/.npm-packages/lib/node_modules/.bin" \
+            "$DEVTOOLS2/data/.npm-packages/bin"; do
+            [ -d "$_npm_bin" ] && case ":$PATH:" in *":$_npm_bin:"*) ;; *) export PATH="$_npm_bin:$PATH" ;; esac
+        done
         hash -r
         if command -v "$_cmd" >/dev/null 2>&1; then
             echo "      ✅ $_label 설치 완료 ($(command -v "$_cmd"))"
@@ -320,20 +331,28 @@ if [ "$_orca_proceed" = true ]; then
     # ── 권장 스킬 전역 설치 (베스트 에포트) ──
     # 공식 문서(onorca.dev/docs/cli/skills)가 헤드리스 호스트용으로 명시한 명령입니다.
     # ⚠️ 에이전트 CLI 를 먼저 설치한 뒤 실행해야 합니다: Orca 가 감지한 에이전트가 하나도 없으면
-    #   "--agent 지정 필요"로 실패합니다(orca skills install --help). 내부적으로 npx 를 써서 첫 실행은
-    #   패키지를 내려받으므로 넉넉한 timeout 을 둡니다(무한 대기로 전체 설치가 멈추지 않게).
-    # orca serve 를 (재)시작하기 전에 실행해 같은 AppImage 의 단일 인스턴스 락 충돌을 피합니다.
+    #   "--agent 지정 필요"로 실패합니다(orca skills install --help).
+    # ⚠️ Electron/Node 내부의 /bin/bash -ilc 환경변수 스캔 시 tty 경합(SIGTTIN/SIGTSTP)으로 일시정지(프리징)되는
+    #   문제를 방지하기 위해 표준입력을 /dev/null 로 분리하고, -k 5 타임아웃을 둡니다.
+    _detected_agents=0
+    for _c in "${_orca_agent_names[@]}"; do
+        command -v "$_c" >/dev/null 2>&1 && _detected_agents=$((_detected_agents + 1))
+    done
+
     echo ""
-    echo "   🧩 권장 스킬(orca-cli, orchestration) 설치 시도 중..."
-    _skills_log=$(mktemp)
-    if timeout 180 "$ORCA_APPIMAGE" skills install --skill orca-cli --skill orchestration >"$_skills_log" 2>&1; then
-        echo "   ✅ 스킬 설치 완료"
+    if [ "$_detected_agents" -gt 0 ]; then
+        echo "   🧩 권장 스킬(orca-cli, orchestration) 설치 시도 중..."
+        _skills_log=$(mktemp)
+        if timeout -k 5 30 "$ORCA_APPIMAGE" skills install --skill orca-cli --skill orchestration < /dev/null >"$_skills_log" 2>&1; then
+            echo "   ✅ 스킬 설치 완료"
+        else
+            echo "   ⚠️  스킬 설치를 건너뜁니다 (에이전트 연동 후 직접 실행 가능: orca skills install --skill orca-cli --skill orchestration)."
+            tail -n 3 "$_skills_log" 2>/dev/null | sed 's/^/      │ /' || true
+        fi
+        rm -f "$_skills_log"
     else
-        echo "   ⚠️  스킬 설치를 건너뜁니다(에이전트 CLI 미감지 또는 네트워크 문제)."
-        echo "      에이전트 CLI 설치 후 다시 시도: orca skills install --skill orca-cli --skill orchestration"
-        tail -n 3 "$_skills_log" 2>/dev/null | sed 's/^/      │ /'
+        echo "   ℹ️  감지된 에이전트 CLI가 없어 스킬 설치를 건너뜁니다 (에이전트 로그인/설치 후: orca skills install --skill orca-cli --skill orchestration)."
     fi
-    rm -f "$_skills_log"
 
     # ── WSL2: orca serve 헤드리스 자동 실행 등록 + 페어링 링크 자동 확보 ──
     # systemd가 이미 활성화돼 있으면 바로 등록하고, 아직이면 common-setup.sh의
