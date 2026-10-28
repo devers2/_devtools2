@@ -1,0 +1,38 @@
+{
+    "extends": "Merge Dark.sublime-theme",
+    "variables": {
+        // Kanagawa 팔레트 기반 UI 배경 및 전경 색상 매핑
+        "sumiInk0": "#16161D",
+        "sumiInk1": "#1F1F28",
+        "sumiInk2": "#2A2A37",
+        "sumiInk3": "#363646",
+        "fujiWhite": "#DCD7BA",
+        "fujiGray": "#727169",
+        "springGreen": "#98BB6C",
+        "waveBlue2": "#2D4F67"
+    },
+    "rules": [
+        // 사이드바 컨테이너 배경 (Kanagawa sumiInk0 - 깊은 블랙)
+        {
+            "class": "sidebar_container",
+            "layer0.tint": "var(sumiInk0)",
+            "layer0.opacity": 1.0
+        },
+        // 메인 윈도우 배경 (Kanagawa sumiInk1)
+        {
+            "class": "window",
+            "background_color": "var(sumiInk1)"
+        },
+        // 시트/패널 컨테이너 배경
+        {
+            "class": "sheet_container",
+            "background_color": "var(sumiInk1)"
+        },
+        // 탭 바 배경
+        {
+            "class": "tab_bar",
+            "layer0.tint": "var(sumiInk0)",
+            "layer0.opacity": 1.0
+        }
+    ]
+}

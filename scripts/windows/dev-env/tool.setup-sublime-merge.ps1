@@ -106,78 +106,89 @@ try {
 $null = Install-OrUpdateWingetPackage -PackageId "SublimeHQ.SublimeMerge" -DisplayName "Sublime Merge" -IsInstalled $smergeInstalled -PromptDefault "Y"
 
 # ==============================================================================
-# [Step 3] Sublime Merge 설정 파일 동기화
+# [Step 3] Sublime Merge 설정 파일 동기화 (테마, 폰트, 키맵)
 # ==============================================================================
 Write-Step "[Step 3] Sublime Merge 설정 파일 동기화"
 
-$WslSmergeConfig = "$DevTools2Wsl\.config\sublime-merge\Packages\User"
-$WinSmergeUserDir = "$env:APPDATA\Sublime Merge\Packages\User"
+# Sublime Merge 실행 중이면 메모리 덮어쓰기 방지를 위해 안전 종료
+$runningSmerge = Get-Process -Name "sublime_merge" -ErrorAction SilentlyContinue
+if ($runningSmerge) {
+    Write-Info "실행 중인 Sublime Merge 프로세스를 감지했습니다. 최신 설정 적용을 위해 안전하게 종료합니다..."
+    $runningSmerge | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+}
 
-Write-Host "  소스 (WSL2): $WslSmergeConfig" -ForegroundColor DarkGray
-Write-Host "  대상 (Win) : $WinSmergeUserDir" -ForegroundColor DarkGray
-Write-Host ""
+$WslSmergeConfig = "$DevTools2Wsl\.config\sublime-merge\Packages\User"
+
+# Sublime Merge 데이터 대상 폴더 탐색 (포터블 모드 Data 폴더 및 Roaming AppData 폴더 전수 지원)
+$targetDataDirs = [System.Collections.Generic.List[string]]::new()
+
+# 1) 표준 Roaming 디렉터리
+$roamingDir = "$env:APPDATA\Sublime Merge"
+if (-not $targetDataDirs.Contains($roamingDir)) { $targetDataDirs.Add($roamingDir) }
+
+# 2) WinGet 포터블 패키지 Data 디렉터리 (포터블 모드 실행 시 %LOCALAPPDATA%\...\Data 를 직접 읽음)
+$wingetPkgBase = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages"
+if (Test-Path $wingetPkgBase) {
+    Get-ChildItem -Path $wingetPkgBase -Filter "*SublimeMerge*" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        $pData = Join-Path $_.FullName "Data"
+        if (-not (Test-Path $pData)) { New-Item -ItemType Directory -Path $pData -Force | Out-Null }
+        if (-not $targetDataDirs.Contains($pData)) { $targetDataDirs.Add($pData) }
+    }
+}
+
+# 3) 기타 포터블 디렉터리 후보군
+$otherCandidates = @(
+    "$env:LOCALAPPDATA\Programs\Sublime Merge\Data",
+    "$env:ProgramFiles\Sublime Merge\Data"
+)
+foreach ($cand in $otherCandidates) {
+    if (Test-Path $cand -and -not $targetDataDirs.Contains($cand)) {
+        $targetDataDirs.Add($cand)
+    }
+}
+
+Write-Host "  동기화 대상 데이터 디렉터리 수: $($targetDataDirs.Count)" -ForegroundColor White
 
 if (Test-Path $DevTools2Wsl) {
     if (-not (Test-Path $WslSmergeConfig)) {
         Write-Warn "WSL2에 Sublime Merge 설정 폴더가 없습니다. 기본 폴더를 생성합니다..."
-        wsl -d $WslDistro -e bash -c 'mkdir -p ${DEVTOOLS2:-/var/opt/_devtools2}/.config/sublime-merge/Packages/User'
+        wsl.exe -d $WslDistro -e bash -c 'mkdir -p ${DEVTOOLS2:-/var/opt/_devtools2}/.config/sublime-merge/Packages/User'
     }
 
-    if (-not (Test-Path $WinSmergeUserDir)) {
-        New-Item -ItemType Directory -Path $WinSmergeUserDir -Force | Out-Null
+    # 동기화할 설정 파일 매핑: @{ 소스파일명 = 타겟파일명 }
+    $filesToSync = @{
+        "Preferences.sublime-settings"  = "Preferences.sublime-settings"
+        "Default.sublime-keymap"        = "Default (Windows).sublime-keymap"
+        "kanagawa.sublime-color-scheme" = "kanagawa.sublime-color-scheme"
+        "Merge Dark.sublime-theme"      = "Merge Dark.sublime-theme"
     }
 
-    # Preferences.sublime-settings 동기화
-    $srcPref = "$WslSmergeConfig\Preferences.sublime-settings"
-    $dstPref = "$WinSmergeUserDir\Preferences.sublime-settings"
-    if (Test-Path $srcPref) {
-        if (Test-Path $dstPref) {
-            $fi = Get-Item $dstPref -Force
-            if ($fi.LinkType -eq "SymbolicLink") {
-                Remove-Item $dstPref -Force
-            } elseif ((Get-FileHash $dstPref).Hash -ne (Get-FileHash $srcPref).Hash) {
-                $bak = "$dstPref.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
-                Copy-Item -Path $dstPref -Destination $bak -Force
-                Write-Info "기존 Windows Preferences.sublime-settings 를 백업했습니다: $bak"
+    foreach ($dataDir in $targetDataDirs) {
+        $userDir = Join-Path $dataDir "Packages\User"
+        if (-not (Test-Path $userDir)) {
+            New-Item -ItemType Directory -Path $userDir -Force | Out-Null
+        }
+
+        foreach ($srcName in $filesToSync.Keys) {
+            $srcFile = Join-Path $WslSmergeConfig $srcName
+            $dstName = $filesToSync[$srcName]
+            $dstFile = Join-Path $userDir $dstName
+
+            if (Test-Path $srcFile) {
+                if (Test-Path $dstFile) {
+                    $fi = Get-Item $dstFile -Force
+                    if ($fi.LinkType -eq "SymbolicLink") {
+                        Remove-Item $dstFile -Force
+                    } elseif ((Get-FileHash $dstFile).Hash -ne (Get-FileHash $srcFile).Hash) {
+                        $bak = "$dstFile.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
+                        Copy-Item -Path $dstFile -Destination $bak -Force
+                    }
+                }
+                Copy-Item -Path $srcFile -Destination $dstFile -Force
             }
         }
-        Copy-Item -Path $srcPref -Destination $dstPref -Force
-        Write-Success "Preferences.sublime-settings 동기화 완료"
-    }
-
-    # Default.sublime-keymap 동기화
-    $srcKeymap = "$WslSmergeConfig\Default.sublime-keymap"
-    $dstKeymap = "$WinSmergeUserDir\Default (Windows).sublime-keymap"
-    if (Test-Path $srcKeymap) {
-        if (Test-Path $dstKeymap) {
-            $fi = Get-Item $dstKeymap -Force
-            if ($fi.LinkType -eq "SymbolicLink") {
-                Remove-Item $dstKeymap -Force
-            } elseif ((Get-FileHash $dstKeymap).Hash -ne (Get-FileHash $srcKeymap).Hash) {
-                $bak = "$dstKeymap.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
-                Copy-Item -Path $dstKeymap -Destination $bak -Force
-                Write-Info "기존 Windows Default (Windows).sublime-keymap 를 백업했습니다: $bak"
-            }
-        }
-        Copy-Item -Path $srcKeymap -Destination $dstKeymap -Force
-        Write-Success "Default.sublime-keymap 동기화 완료"
-    }
-
-    # kanagawa.sublime-color-scheme 동기화 (Neovim 과 동일한 테마)
-    $srcScheme = "$WslSmergeConfig\kanagawa.sublime-color-scheme"
-    $dstScheme = "$WinSmergeUserDir\kanagawa.sublime-color-scheme"
-    if (Test-Path $srcScheme) {
-        if (Test-Path $dstScheme) {
-            $fi = Get-Item $dstScheme -Force
-            if ($fi.LinkType -eq "SymbolicLink") {
-                Remove-Item $dstScheme -Force
-            } elseif ((Get-FileHash $dstScheme).Hash -ne (Get-FileHash $srcScheme).Hash) {
-                $bak = "$dstScheme.bak.$(Get-Date -Format 'yyyyMMddHHmmss')"
-                Copy-Item -Path $dstScheme -Destination $bak -Force
-            }
-        }
-        Copy-Item -Path $srcScheme -Destination $dstScheme -Force
-        Write-Success "kanagawa.sublime-color-scheme 동기화 완료"
+        Write-Success "설정 파일 동기화 완료: $userDir"
     }
 }
 
@@ -194,60 +205,97 @@ if (-not [string]::IsNullOrWhiteSpace($wslHomePosix)) { $wslHomePosix = $wslHome
 if (-not [string]::IsNullOrWhiteSpace($wslHomePosix)) {
     # Windows UNC 경로 동적 산출 (예: \\wsl.localhost\devtools2\home\eseungsu)
     $wslHomeUnc = "\\wsl.localhost\$WslDistro" + ($wslHomePosix -replace '/', '\')
-    $wslDevtools2Unc = "\\wsl.localhost\$WslDistro" + ($DevTools2Wsl -replace '/', '\')
+
+    # DevTools2Wsl 경로 정규화 (이중 \wsl$\ 중복 결합 방지)
+    $wslDevtools2Unc = if ($DevTools2Wsl -match '^[a-zA-Z]:') {
+        $DevTools2Wsl
+    } elseif ($DevTools2Wsl -match '^\\') {
+        $DevTools2Wsl -replace '^\\wsl\$\', '\\wsl.localhost\'
+    } else {
+        "\\wsl.localhost\$WslDistro" + ($DevTools2Wsl -replace '/', '\')
+    }
     $wslUserDevtools2Unc = "$wslHomeUnc\_devtools2"
 
     Write-Host "  감지된 WSL2 홈 UNC 경로: $wslHomeUnc" -ForegroundColor White
 
-    $smergeLocalDir = "$env:APPDATA\Sublime Merge\Local"
-    $smergeSessionFile = "$smergeLocalDir\Session.sublime_session"
+    # Sublime Merge 내부 POSIX 스타일 경로 표현 (예: /?wsl.localhost/devtools2/home/eseungsu)
+    $wslHomeSlash = "//" + ($wslHomeUnc -replace '^\\', '' -replace '\\', '/')
+    $wslHomeSM = "/?" + ($wslHomeUnc -replace '^\\', '' -replace '\\', '/')
+    $wslDevtools2SM = "/?" + ($wslDevtools2Unc -replace '^\\', '' -replace '\\', '/')
+    $wslUserDevtools2SM = "/?" + ($wslUserDevtools2Unc -replace '^\\', '' -replace '\\', '/')
 
-    if (-not (Test-Path $smergeLocalDir)) {
-        New-Item -ItemType Directory -Path $smergeLocalDir -Force | Out-Null
-    }
+    foreach ($dataDir in $targetDataDirs) {
+        $localDir = Join-Path $dataDir "Local"
+        $sessionFile = Join-Path $localDir "Session.sublime_session"
 
-    $sessionObj = if (Test-Path $smergeSessionFile) {
-        try {
-            Get-Content $smergeSessionFile -Raw -Encoding UTF8 | ConvertFrom-Json
-        } catch {
+        if (-not (Test-Path $localDir)) {
+            New-Item -ItemType Directory -Path $localDir -Force | Out-Null
+        }
+
+        $sessionObj = if (Test-Path $sessionFile) {
+            try {
+                Get-Content $sessionFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            } catch {
+                [PSCustomObject]@{}
+            }
+        } else {
             [PSCustomObject]@{}
         }
-    } else {
-        [PSCustomObject]@{}
-    }
 
-    if (-not $sessionObj) { $sessionObj = [PSCustomObject]@{} }
-    if (-not $sessionObj.recent) {
-        $sessionObj | Add-Member -NotePropertyName recent -NotePropertyValue ([PSCustomObject]@{ folders = @() }) -Force
-    }
-    if (-not $sessionObj.recent.folders) {
-        $sessionObj.recent | Add-Member -NotePropertyName folders -NotePropertyValue @() -Force
-    }
+        if (-not $sessionObj) { $sessionObj = [PSCustomObject]@{} }
 
-    # 기본 표시 대상 저장소 후보군 (우선순위 순서대로)
-    $candidateList = @($wslUserDevtools2Unc, $wslDevtools2Unc, $wslHomeUnc)
-    $mergedFolders = [System.Collections.Generic.List[string]]::new()
+        # 1) Open Repository 대화상자 기본 시작 경로 (project_dir) 등록
+        $sessionObj | Add-Member -NotePropertyName project_dir -NotePropertyValue $wslHomeSlash -Force
 
-    foreach ($cand in $candidateList) {
-        if (-not [string]::IsNullOrWhiteSpace($cand) -and -not $mergedFolders.Contains($cand)) {
-            $mergedFolders.Add($cand)
-        }
-    }
+        # 2) recent 배열 항목 병합 (객체 배열 형식 및 folders 문자열 배열 형식 동시 호환)
+        $targetPaths = @($wslUserDevtools2SM, $wslDevtools2SM, $wslHomeSM)
 
-    # 기존 최근 목록 보존
-    if ($sessionObj.recent.folders) {
-        foreach ($oldF in $sessionObj.recent.folders) {
-            if (-not [string]::IsNullOrWhiteSpace($oldF) -and -not $mergedFolders.Contains($oldF)) {
-                $mergedFolders.Add($oldF)
+        if ($sessionObj.recent -is [System.Array]) {
+            $newRecentList = [System.Collections.Generic.List[object]]::new()
+            foreach ($tp in $targetPaths) {
+                $newRecentList.Add([PSCustomObject]@{
+                    path = $tp
+                    locations_tab_selected = $false
+                    show_untracked_files = $false
+                    side_bar_visible = $true
+                    table_of_contents_tab_selected = $false
+                    table_of_contents_tree_mode = $false
+                })
             }
+            foreach ($oldItem in $sessionObj.recent) {
+                if ($oldItem.path -and -not ($targetPaths -contains $oldItem.path)) {
+                    $newRecentList.Add($oldItem)
+                }
+            }
+            $sessionObj.recent = @($newRecentList)
+        } else {
+            if (-not $sessionObj.recent) {
+                $sessionObj | Add-Member -NotePropertyName recent -NotePropertyValue ([PSCustomObject]@{ folders = @() }) -Force
+            }
+            if (-not $sessionObj.recent.folders) {
+                $sessionObj.recent | Add-Member -NotePropertyName folders -NotePropertyValue @() -Force
+            }
+            $mergedFolders = [System.Collections.Generic.List[string]]::new()
+            $folderCandidates = @($wslUserDevtools2Unc, $wslDevtools2Unc, $wslHomeUnc)
+            foreach ($cand in $folderCandidates) {
+                if (-not [string]::IsNullOrWhiteSpace($cand) -and -not $mergedFolders.Contains($cand)) {
+                    $mergedFolders.Add($cand)
+                }
+            }
+            if ($sessionObj.recent.folders) {
+                foreach ($oldF in $sessionObj.recent.folders) {
+                    if (-not [string]::IsNullOrWhiteSpace($oldF) -and -not $mergedFolders.Contains($oldF)) {
+                        $mergedFolders.Add($oldF)
+                    }
+                }
+            }
+            $sessionObj.recent.folders = @($mergedFolders)
         }
+
+        $sessionJson = $sessionObj | ConvertTo-Json -Depth 20
+        [System.IO.File]::WriteAllText($sessionFile, $sessionJson, [System.Text.UTF8Encoding]::new($false))
+        Write-Success "Sublime Merge 세션 및 시작 경로(project_dir) 등록 완료: $dataDir"
     }
-
-    $sessionObj.recent.folders = @($mergedFolders)
-
-    $sessionJson = $sessionObj | ConvertTo-Json -Depth 20
-    [System.IO.File]::WriteAllText($smergeSessionFile, $sessionJson, [System.Text.UTF8Encoding]::new($false))
-    Write-Success "Sublime Merge 시작 목록(Local Repositories)에 등록 완료: $wslHomeUnc"
 
     # Windows 탐색기 / 파일 열기 대화상자의 '즐겨찾기(Quick Access)'에 핀 등록 시도
     try {

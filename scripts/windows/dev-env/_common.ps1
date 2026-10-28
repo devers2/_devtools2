@@ -792,13 +792,20 @@ function Install-OrUpdateWingetPackage {
     $successCodes = @(0, 3010, -1978335189, -1978335212)
 
     if ($IsInstalled) {
-        Write-Info "${DisplayName} 이(가) 이미 설치되어 있습니다. 최신 버전 확인 중..."
         $upgradeNeeded = $false
         try {
-            $wgUpgradeCheck = winget upgrade --id $PackageId 2>$null
-            $upgradeOutput = $wgUpgradeCheck -join ""
-            if ($LASTEXITCODE -eq 0 -and $upgradeOutput -match $PackageId) {
-                $upgradeNeeded = $true
+            $safeId = $PackageId -replace '[^a-zA-Z0-9]', '_'
+            $chkLog = "$env:TEMP\${safeId}_chk.log"
+            $chkErr = "$env:TEMP\${safeId}_chk_err.log"
+            $pChk = Start-Process winget -ArgumentList "upgrade --id $PackageId" -NoNewWindow -PassThru -RedirectStandardOutput $chkLog -RedirectStandardError $chkErr -ErrorAction SilentlyContinue
+            $null = $pChk.Handle
+            Wait-ProcessWithSpinner -Process $pChk -Message "${DisplayName} 최신 버전 확인 중"
+            if (Test-Path $chkLog) {
+                $upgradeOutput = Get-Content $chkLog -Raw -ErrorAction SilentlyContinue
+                if ($pChk.ExitCode -eq 0 -and $upgradeOutput -match $PackageId) {
+                    $upgradeNeeded = $true
+                }
+                Remove-Item $chkLog, $chkErr -Force -ErrorAction SilentlyContinue
             }
         } catch {}
 
