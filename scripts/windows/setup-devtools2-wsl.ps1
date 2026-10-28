@@ -614,12 +614,12 @@ try {
     Write-Warn "Windows Terminal 설정 중 오류 발생 (계속 진행): $($_.Exception.Message)"
 }
 
-# ── 4-3. Sublime Merge (Git Diff & Merge 클라이언트 설치 및 설정 연동) ───────
-Write-SubStep "▶ (3/6) Sublime Merge 설치 및 설정 연동"
+# ── 4-3. Gittyup & Meld (오픈소스 Git 클라이언트 및 3-Way 병합 도구 연동) ─────
+Write-SubStep "▶ (3/6) Gittyup & Meld 설치 및 연동"
 try {
-    Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-sublime-merge.ps1" -Arguments @{ WslDistro = $wslDistro }
+    Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-gittyup.ps1" -Arguments @{ WslDistro = $wslDistro }
 } catch {
-    Write-Warn "Sublime Merge 설정 중 오류 발생 (계속 진행): $($_.Exception.Message)"
+    Write-Warn "Gittyup & Meld 설정 중 오류 발생 (계속 진행): $($_.Exception.Message)"
 }
 
 # ── 4-4. VSCode (에디터 설치, 심볼릭 링크 및 확장 동기화) ────────────────────

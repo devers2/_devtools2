@@ -54,7 +54,7 @@ _IsDevWindow() {
         or WinActive("ahk_exe Cursor.exe")
         or WinActive("ahk_exe zed.exe")
         or WinActive("ahk_exe neovide.exe")
-        or WinActive("ahk_exe sublime_merge.exe")
+        or WinActive("ahk_exe gittyup.exe")
 }
 
 ; ------------------------------------------------------------------------------
@@ -210,38 +210,38 @@ _ActivateNewTerminal(existingHwnds) {
 }
 
 ; ------------------------------------------------------------------------------
-; Part 4. Sublime Merge 전역 단축키 (Ctrl + Alt + G)
+; Part 4. Gittyup 전역 단축키 (Ctrl + Alt + G)
 ; ------------------------------------------------------------------------------
 ; 이미 실행 중이면 최상단 활성화(포커스), 없으면 새 프로세스 실행
 ^!g::
 {
-    if WinExist("ahk_exe sublime_merge.exe") {
-        if WinGetMinMax("ahk_exe sublime_merge.exe") = -1
-            WinRestore("ahk_exe sublime_merge.exe")
-        WinActivate("ahk_exe sublime_merge.exe")
-        WinSetAlwaysOnTop(true, "ahk_exe sublime_merge.exe")
-        WinSetAlwaysOnTop(false, "ahk_exe sublime_merge.exe")
+    if WinExist("ahk_exe gittyup.exe") {
+        if WinGetMinMax("ahk_exe gittyup.exe") = -1
+            WinRestore("ahk_exe gittyup.exe")
+        WinActivate("ahk_exe gittyup.exe")
+        WinSetAlwaysOnTop(true, "ahk_exe gittyup.exe")
+        WinSetAlwaysOnTop(false, "ahk_exe gittyup.exe")
         return
     }
 
-    _LaunchSublimeMerge()
+    _LaunchGittyup()
 }
 
-_LaunchSublimeMerge() {
+_LaunchGittyup() {
     progFiles := EnvGet("ProgramFiles")
     progFilesX86 := EnvGet("ProgramFiles(x86)")
     localApp := EnvGet("LOCALAPPDATA")
 
-    smergePaths := [
-        progFiles "\Sublime Merge\sublime_merge.exe",
-        progFilesX86 "\Sublime Merge\sublime_merge.exe",
-        localApp "\Programs\Sublime Merge\sublime_merge.exe",
-        progFiles "\Sublime Merge\smerge.exe",
-        progFilesX86 "\Sublime Merge\smerge.exe",
-        localApp "\Programs\Sublime Merge\smerge.exe"
+    gittyupPaths := [
+        progFiles "\Gittyup\bin\gittyup.exe",
+        progFiles "\Gittyup\gittyup.exe",
+        progFilesX86 "\Gittyup\bin\gittyup.exe",
+        progFilesX86 "\Gittyup\gittyup.exe",
+        localApp "\Programs\Gittyup\bin\gittyup.exe",
+        localApp "\Programs\Gittyup\gittyup.exe"
     ]
 
-    for p in smergePaths {
+    for p in gittyupPaths {
         if FileExist(p) {
             try {
                 Run('"' p '"')
@@ -252,9 +252,9 @@ _LaunchSublimeMerge() {
 
     ; PATH 또는 별칭을 통한 실행 시도
     try {
-        Run("smerge.exe")
+        Run("gittyup.exe")
     } catch {
-        TrayTip("Sublime Merge 실행", "Sublime Merge 실행 파일을 찾을 수 없습니다. 설치 여부를 확인하세요.", 0x3)
+        TrayTip("Gittyup 실행", "Gittyup 실행 파일을 찾을 수 없습니다. 설치 여부를 확인하세요.", 0x3)
     }
 }
 
