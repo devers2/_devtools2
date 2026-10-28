@@ -324,6 +324,30 @@ if command -v git >/dev/null 2>&1; then
     git config --global difftool.smerge.cmd 'smerge "$LOCAL" "$REMOTE"'
     git config --global difftool.prompt false
     print_done "Git 글로벌 smerge 연동 완료 (git diff / git mergetool)"
+
+    # ── WSL2: Windows Git 의 safe.directory 자동 등록 ──
+    # Sublime Merge(Windows 네이티브)가 WSL2 파일시스템(\\wsl.localhost\...)의
+    # 저장소를 열 때 Git 의 "dubious ownership" 보안 검사에 걸리지 않도록
+    # Windows 쪽 git config 에 safe.directory 를 등록합니다.
+    # WSL2 경로는 배포판 이름에 따라 달라지므로 동적으로 구성하고,
+    # 이미 등록된 경우에는 중복 추가하지 않습니다.
+    if [ "${IS_WSL2:-false}" = true ] && command -v git.exe >/dev/null 2>&1; then
+        _wsl_distro_name=""
+        if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+            _wsl_distro_name="$WSL_DISTRO_NAME"
+        elif [ -f /etc/wsl-distribution-name ]; then
+            _wsl_distro_name=$(cat /etc/wsl-distribution-name 2>/dev/null | tr -d '\r\n')
+        fi
+        _dt2_path="${DEVTOOLS2:-/var/opt/_devtools2}"
+        if [ -n "$_wsl_distro_name" ]; then
+            _safe_dir="%(prefix)///wsl.localhost/${_wsl_distro_name}${_dt2_path}"
+            _existing=$(git.exe config --global --get-all safe.directory 2>/dev/null || true)
+            if ! echo "$_existing" | grep -qF "$_safe_dir"; then
+                git.exe config --global --add safe.directory "$_safe_dir"
+                print_done "Windows Git safe.directory 등록: $_safe_dir"
+            fi
+        fi
+    fi
 fi
 
 # ==============================================================================

@@ -393,6 +393,29 @@ if (Get-Command git.exe -ErrorAction SilentlyContinue) {
         git config --global gui.encoding utf-8
         git config --global i18n.commitEncoding utf-8
         git config --global i18n.logOutputEncoding utf-8
+
+        # ── WSL2 저장소 safe.directory 등록 ──
+        # Sublime Merge(Windows 네이티브)가 WSL2 파일시스템(\\wsl.localhost\...)의
+        # 저장소를 열 때 Git 의 "dubious ownership" 보안 검사에 걸리지 않도록
+        # safe.directory 를 등록합니다. WSL2 경로는 배포판 이름에 따라 달라지므로
+        # 동적으로 구성하고, 이미 등록된 경우에는 중복 추가하지 않습니다.
+        if (-not [string]::IsNullOrWhiteSpace($WslDistro)) {
+            # DevTools2 설치 경로를 WSL2 내부에서 조회
+            [string]$wslDt2Path = (wsl.exe -d $WslDistro -e bash -c 'echo "${DEVTOOLS2:-/var/opt/_devtools2}"' 2>$null)
+            if (-not [string]::IsNullOrWhiteSpace($wslDt2Path)) {
+                $wslDt2Path = $wslDt2Path.Trim()
+            } else {
+                $wslDt2Path = "/var/opt/_devtools2"
+            }
+            # Git for Windows 의 safe.directory 형식: %(prefix)///wsl.localhost/<distro><path>
+            $safeDir = "%(prefix)///wsl.localhost/$WslDistro$wslDt2Path"
+            $existing = git config --global --get-all safe.directory 2>$null
+            if (-not ($existing -and ($existing -contains $safeDir))) {
+                git config --global --add safe.directory $safeDir
+                Write-Success "safe.directory 등록: $safeDir"
+            }
+        }
+
         Write-Success "Windows Git 설정 완료: merge.tool=smerge, diff.tool=smerge"
     } catch {
         Write-Warn "Windows Git 설정 등록 중 경고: $($_.Exception.Message)"
