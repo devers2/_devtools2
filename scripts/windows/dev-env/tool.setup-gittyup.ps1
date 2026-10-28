@@ -188,7 +188,33 @@ foreach ($fName in $filesToSync) {
     }
 }
 
-# 2) Meld 다크 테마 및 폰트 레지스트리 동기화 (HKCU:\SOFTWARE\GSettings\org\gnome\meld\)
+# 2) Gittyup 다크 테마 및 폰트 레지스트리 주입 (Qt QSettings)
+try {
+    $gittyupRegPaths = @(
+        "HKCU:\Software\Gittyup\Gittyup",
+        "HKCU:\Software\Murmele\Gittyup"
+    )
+    foreach ($regRoot in $gittyupRegPaths) {
+        if (-not (Test-Path $regRoot)) {
+            New-Item -Path $regRoot -Force | Out-Null
+        }
+        $windowReg = Join-Path $regRoot "window"
+        if (-not (Test-Path $windowReg)) { New-Item -Path $windowReg -Force | Out-Null }
+        Set-ItemProperty -Path $windowReg -Name "theme" -Value "Dark" -Force
+
+        $editorReg = Join-Path $regRoot "editor"
+        if (-not (Test-Path $editorReg)) { New-Item -Path $editorReg -Force | Out-Null }
+        $fontReg = Join-Path $editorReg "font"
+        if (-not (Test-Path $fontReg)) { New-Item -Path $fontReg -Force | Out-Null }
+        Set-ItemProperty -Path $fontReg -Name "family" -Value "$_dt2GuiFont" -Force
+        Set-ItemProperty -Path $fontReg -Name "size" -Value [double]$_dt2FontSize -Force
+    }
+    Write-Success "Gittyup 다크 테마(Dark) 및 폰트($_dt2GuiFont $_dt2FontSize) 레지스트리 설정 완료"
+} catch {
+    Write-Warn "Gittyup 레지스트리 설정 중 경고: $($_.Exception.Message)"
+}
+
+# 3) Meld 다크 테마 및 폰트 레지스트리 동기화 (HKCU:\SOFTWARE\GSettings\org\gnome\meld\)
 try {
     $meldRegPath = "HKCU:\SOFTWARE\GSettings\org\gnome\meld"
     if (-not (Test-Path $meldRegPath)) {
@@ -237,12 +263,15 @@ if (Get-Command git.exe -ErrorAction SilentlyContinue) {
         git config --global diff.tool meld
         git config --global mergetool.prompt false
         git config --global difftool.prompt false
+        git config --global gui.encoding utf-8
+        git config --global i18n.commitEncoding utf-8
+        git config --global i18n.logOutputEncoding utf-8
         if (-not [string]::IsNullOrEmpty($meldExe)) {
             $meldEscaped = $meldExe -replace '\\', '/'
             git config --global mergetool.meld.cmd "`"$meldEscaped`" `"`$LOCAL`" `"`$BASE`" `"`$REMOTE`" --output `"`$MERGED`""
             git config --global difftool.meld.cmd "`"$meldEscaped`" `"`$LOCAL`" `"`$REMOTE`""
         }
-        Write-Success "Windows Git 설정 완료: merge.tool=meld, diff.tool=meld"
+        Write-Success "Windows Git 설정 완료: merge.tool=meld, diff.tool=meld, gui.encoding=utf-8"
     } catch {
         Write-Warn "Windows Git 설정 등록 중 경고: $($_.Exception.Message)"
     }
@@ -255,7 +284,10 @@ if (-not [string]::IsNullOrWhiteSpace($WslDistro)) {
         wsl.exe -d $WslDistro -e git config --global diff.tool meld 2>$null
         wsl.exe -d $WslDistro -e git config --global mergetool.prompt false 2>$null
         wsl.exe -d $WslDistro -e git config --global difftool.prompt false 2>$null
-        Write-Success "WSL2($WslDistro) Git 설정 동기화 완료: merge.tool=meld"
+        wsl.exe -d $WslDistro -e git config --global gui.encoding utf-8 2>$null
+        wsl.exe -d $WslDistro -e git config --global i18n.commitEncoding utf-8 2>$null
+        wsl.exe -d $WslDistro -e git config --global i18n.logOutputEncoding utf-8 2>$null
+        Write-Success "WSL2($WslDistro) Git 설정 동기화 완료: merge.tool=meld, gui.encoding=utf-8"
     } catch {}
 }
 
