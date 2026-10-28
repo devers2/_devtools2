@@ -13,7 +13,7 @@
 
     // 에디터 폰트 설정 (공식 D2Coding 리거처 폰트 적용 - 한글 겹침 방지)
     "font_face": "D2Coding ligature",
-    "font_size": 11,
+    "font_size": 12,
 
     // Diff 뷰어 가독성 옵션
     "diff_algorithm": "myers",

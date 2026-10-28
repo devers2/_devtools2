@@ -31,6 +31,17 @@ $_commonHeaders = @{ 'Cache-Control' = 'no-cache, no-store, must-revalidate'; 'P
 $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/windows/dev-env/_common.ps1" -Headers $_commonHeaders -ErrorAction Stop
 . ([scriptblock]::Create($_commonContent))
 
+# DevTools2 중앙 UI 기본값 로드 (.config/devtools2/ui-defaults.json)
+# Sublime Merge 폰트 크기를 Windows Terminal 등 다른 도구와 동일한 중앙 설정에서 읽어옵니다.
+$_uiDefaultsUrl = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/.config/devtools2/ui-defaults.json"
+try {
+    $_uiDefaults = Invoke-RestMethod -Uri $_uiDefaultsUrl -Headers $_commonHeaders -ErrorAction Stop
+    $_dt2FontSize = [int]($_uiDefaults.font.size)
+} catch {
+    Write-Warn "ui-defaults.json 로드 실패, 기본값 사용 (font.size=12)"
+    $_dt2FontSize = 12
+}
+
 # ==============================================================================
 # [Step 0] 관리자 권한 확인 및 재실행
 # ==============================================================================
@@ -215,6 +226,10 @@ foreach ($dataDir in $targetDataDirs) {
                 if ($fi.LinkType -eq "SymbolicLink") {
                     Remove-Item $dstFile -Force
                 }
+            }
+            # Preferences.sublime-settings 의 font_size 를 중앙 설정(ui-defaults.json) 값으로 동적 반영
+            if ($srcName -eq 'Preferences.sublime-settings' -and $_dt2FontSize) {
+                $fileContent = $fileContent -replace '"font_size":\s*\d+', ('"font_size": ' + $_dt2FontSize)
             }
             [System.IO.File]::WriteAllText($dstFile, $fileContent, [System.Text.UTF8Encoding]::new($false))
         }

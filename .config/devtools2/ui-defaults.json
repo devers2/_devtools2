@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "DevTools2 중앙 UI 기본값 — 모든 도구 설치 스크립트가 이 파일을 참조합니다.",
+    "font.terminal_face: 터미널 앱(Windows Terminal, Neovim)용 폰트 (Nerd Font 아이콘 필수)",
+    "font.gui_face: GUI 앱(Sublime Merge)용 폰트 (Nerd Font 패치판은 CJK 폭 메트릭 깨짐 → 공식 D2Coding 사용)",
+    "font.size: 기본 폰트 크기 (pt). 모든 도구가 이 값을 기준으로 적용합니다.",
+    "font.line_height: 줄 높이 비율 (CSS line-height와 동일 개념). WT cellHeight, SM line_padding 등에 매핑됩니다."
+  ],
+  "font": {
+    "terminal_face": "D2KodingLigature Nerd Font Mono",
+    "gui_face": "D2Coding ligature",
+    "size": 12,
+    "line_height": 1.3
+  }
+}
