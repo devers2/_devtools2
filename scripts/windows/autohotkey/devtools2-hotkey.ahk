@@ -235,7 +235,10 @@ _LaunchSublimeMerge() {
     smergePaths := [
         progFiles "\Sublime Merge\sublime_merge.exe",
         progFilesX86 "\Sublime Merge\sublime_merge.exe",
-        localApp "\Programs\Sublime Merge\sublime_merge.exe"
+        localApp "\Programs\Sublime Merge\sublime_merge.exe",
+        progFiles "\Sublime Merge\smerge.exe",
+        progFilesX86 "\Sublime Merge\smerge.exe",
+        localApp "\Programs\Sublime Merge\smerge.exe"
     ]
 
     for p in smergePaths {
