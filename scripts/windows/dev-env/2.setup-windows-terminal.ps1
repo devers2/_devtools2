@@ -66,9 +66,9 @@ try {
     $_dt2FontSize = $_uiDefaults.font.size
     $_dt2LineHeight = $_uiDefaults.font.line_height
 } catch {
-    Write-Warn "ui-defaults.json 로드 실패, 기본값 사용 (font.size=12, line_height=1.3)"
-    $_dt2FontSize = 12
-    $_dt2LineHeight = 1.3
+    Write-Warn "ui-defaults.json 로드 실패, 기본값 사용 (font.size=11.5, line_height=1.5)"
+    $_dt2FontSize = 11.5
+    $_dt2LineHeight = 1.5
 }
 
 Write-Host ""

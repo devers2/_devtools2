@@ -3,17 +3,21 @@
     // DevTools2 Sublime Merge 전역 설정 (Preferences.sublime-settings)
     // ==========================================================================
 
-    // 테마 및 색상 스킴 (Neovim 및 Windows Terminal 과 동일한 Kanagawa 테마 적용)
+    // 공식 다크 UI 테마 및 블랙 계열 대표 컬러 스킴(Monokai)
     "theme": "Merge Dark.sublime-theme",
     "dark_theme": "Merge Dark.sublime-theme",
     "light_theme": "Merge Dark.sublime-theme",
-    "color_scheme": "Packages/User/kanagawa.sublime-color-scheme",
-    "dark_color_scheme": "Packages/User/kanagawa.sublime-color-scheme",
-    "light_color_scheme": "Packages/User/kanagawa.sublime-color-scheme",
+    "color_scheme": "Monokai.sublime-color-scheme",
+    "dark_color_scheme": "Monokai.sublime-color-scheme",
+    "light_color_scheme": "Monokai.sublime-color-scheme",
 
     // 에디터 폰트 설정 (공식 D2Coding 리거처 폰트 적용 - 한글 겹침 방지)
     "font_face": "D2Coding ligature",
-    "font_size": 12,
+    "font_size": 11.5,
+
+    // 줄 간격 (nvim의 cellHeight 1.5와 유사하게 여유로운 줄 높이 제공)
+    "line_padding_top": 3,
+    "line_padding_bottom": 3,
 
     // Diff 뷰어 가독성 옵션
     "diff_algorithm": "myers",
