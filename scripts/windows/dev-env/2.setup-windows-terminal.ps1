@@ -338,12 +338,12 @@ if (-not (Test-Path $settingsPath)) {
         if (-not $settings.profiles.defaults) {
             $settings.profiles | Add-Member -NotePropertyName defaults -NotePropertyValue ([PSCustomObject]@{}) -Force
         }
-        # size: 폰트 사이즈 (WT 공식 스키마 기본값 12)
         # cellHeight: CSS line-height와 유사하게 셀(줄) 높이를 조정합니다(WT 공식 스키마 확인, release-1.24 기준, 기본값 1.2)
-        $settings.profiles.defaults | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{ face = $fontFace; size = 11.5; cellHeight = '1.5' }) -Force
+        # 한글 겹침(DirectWrite 소수점 글꼴 너비 반올림 오차) 방지를 위해 정수 표준 크기를 유지합니다.
+        $settings.profiles.defaults | Add-Member -NotePropertyName font -NotePropertyValue ([PSCustomObject]@{ face = $fontFace; cellHeight = '1.3' }) -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName opacity -NotePropertyValue 97 -Force
         $settings.profiles.defaults | Add-Member -NotePropertyName colorScheme -NotePropertyValue "Kanagawa" -Force
-        Write-Success "기본 폰트($fontFace, 11.5pt) / 투명도(97) / Kanagawa 테마 적용 완료 (profiles.defaults)"
+        Write-Success "기본 폰트($fontFace) / 투명도(97) / Kanagawa 테마 적용 완료 (profiles.defaults)"
 
         # ── ALT+c / ALT+h 단축키: TUI(nvim/lazygit) 입력 누출 방지를 위해 터미널 sendInput 대신
         #    셸(readline bind -x)에서 전담 처리하므로, Windows Terminal 잔존 sendInput 액션을 정리합니다.

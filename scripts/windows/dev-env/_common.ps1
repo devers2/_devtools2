@@ -244,20 +244,21 @@ function Prompt-Password {
 }
 
 # 프로세스 종료 시까지 스피너를 표시해 대기 (타임아웃 없음 — 프로세스가 끝날 때까지 무조건 대기)
+# CP949/DBCS 콘솔 바이트 어긋남 및 한글 깨짐/겹침 방지를 위해 표준 1바이트 ASCII 회전 기호 사용
 function Wait-ProcessWithSpinner {
     param(
         [System.Diagnostics.Process]$Process,
         [string]$Message
     )
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+    $spinner = @('-', '\\', '|', '/')
     $spinIdx = 0
     while (-not $Process.HasExited) {
         $char = $spinner[$spinIdx]
-        Write-Host -NoNewline "`r  [$char] $Message...   " -ForegroundColor Cyan
+        Write-Host -NoNewline "`r  [$char] $Message...       " -ForegroundColor Cyan
         $spinIdx = ($spinIdx + 1) % $spinner.Count
         Start-Sleep -Milliseconds 150
     }
-    Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
+    Write-Host "`r  [완료] $Message 완료!        " -ForegroundColor Green
 }
 
 # 조건(scriptblock)이 참이 될 때까지 스피너를 표시해 대기 (타임아웃 지원, 초과 시 $false 반환)
@@ -271,22 +272,22 @@ function Wait-WithSpinner {
         [scriptblock]$Condition,
         [int]$MaxTimeoutSeconds = 300
     )
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+    $spinner = @('-', '\\', '|', '/')
     $spinIdx = 0
     $startTime = Get-Date
     while ($true) {
         $elapsed = (Get-Date) - $startTime
         if ($elapsed.TotalSeconds -gt $MaxTimeoutSeconds) {
-            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)   " -ForegroundColor Red
+            Write-Host "`r  [시간 초과] $Message (제한 시간 초과)        " -ForegroundColor Red
             return $false
         }
         $done = [bool](& $Condition)
         if ($done) {
-            Write-Host "`r  [완료] $Message 완료!   " -ForegroundColor Green
+            Write-Host "`r  [완료] $Message 완료!        " -ForegroundColor Green
             return $true
         }
         $char = $spinner[$spinIdx % $spinner.Count]
-        Write-Host -NoNewline "`r  [$char] $Message...   " -ForegroundColor Cyan
+        Write-Host -NoNewline "`r  [$char] $Message...       " -ForegroundColor Cyan
         Start-Sleep -Milliseconds 150
         $spinIdx++
     }

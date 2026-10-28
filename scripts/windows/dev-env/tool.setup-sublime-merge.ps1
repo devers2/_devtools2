@@ -158,10 +158,17 @@ if (Test-Path $DevTools2Wsl) {
 
     # 동기화할 설정 파일 매핑: @{ 소스파일명 = 타겟파일명 }
     $filesToSync = @{
-        "Preferences.sublime-settings"  = "Preferences.sublime-settings"
-        "Default.sublime-keymap"        = "Default (Windows).sublime-keymap"
-        "kanagawa.sublime-color-scheme" = "kanagawa.sublime-color-scheme"
-        "Merge Dark.sublime-theme"      = "Merge Dark.sublime-theme"
+        "Preferences.sublime-settings"                 = "Preferences.sublime-settings"
+        "Default.sublime-keymap"                       = "Default (Windows).sublime-keymap"
+        "kanagawa.sublime-color-scheme"                = "kanagawa.sublime-color-scheme"
+        "Merge Dark.sublime-theme"                     = "Merge Dark.sublime-theme"
+        "Merge.sublime-theme"                          = "Merge.sublime-theme"
+        "Commit Message.sublime-settings"              = "Commit Message.sublime-settings"
+        "Commit Message - Merge Dark.sublime-settings" = "Commit Message - Merge Dark.sublime-settings"
+        "File Mode.sublime-settings"                   = "File Mode.sublime-settings"
+        "File Mode - Merge Dark.sublime-settings"      = "File Mode - Merge Dark.sublime-settings"
+        "Git Output.sublime-settings"                  = "Git Output.sublime-settings"
+        "Git Output - Merge Dark.sublime-settings"     = "Git Output - Merge Dark.sublime-settings"
     }
 
     foreach ($dataDir in $targetDataDirs) {
@@ -294,6 +301,8 @@ if (-not [string]::IsNullOrWhiteSpace($wslHomePosix)) {
 
         $sessionJson = $sessionObj | ConvertTo-Json -Depth 20
         [System.IO.File]::WriteAllText($sessionFile, $sessionJson, [System.Text.UTF8Encoding]::new($false))
+        $autoSaveSessionFile = Join-Path $localDir "Auto Save Session.sublime_session"
+        [System.IO.File]::WriteAllText($autoSaveSessionFile, $sessionJson, [System.Text.UTF8Encoding]::new($false))
         Write-Success "Sublime Merge 세션 및 시작 경로(project_dir) 등록 완료: $dataDir"
     }
 
