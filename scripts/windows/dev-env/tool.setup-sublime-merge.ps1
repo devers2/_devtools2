@@ -36,10 +36,10 @@ $_commonContent = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/deve
 $_uiDefaultsUrl = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/.config/devtools2/ui-defaults.json"
 try {
     $_uiDefaults = Invoke-RestMethod -Uri $_uiDefaultsUrl -Headers $_commonHeaders -ErrorAction Stop
-    $_dt2FontSize = [int]($_uiDefaults.font.size)
+    $_dt2FontSize = $_uiDefaults.font.size
 } catch {
-    Write-Warn "ui-defaults.json 로드 실패, 기본값 사용 (font.size=12)"
-    $_dt2FontSize = 12
+    Write-Warn "ui-defaults.json 로드 실패, 기본값 사용 (font.size=11.5)"
+    $_dt2FontSize = 11.5
 }
 
 # ==============================================================================
@@ -185,23 +185,34 @@ Write-Host "  동기화 대상 데이터 디렉터리 수: $($targetDataDirs.Cou
 
 # 동기화할 설정 파일 매핑: @{ 소스파일명 = 타겟파일명 }
 $filesToSync = @{
-    "Preferences.sublime-settings"                 = "Preferences.sublime-settings"
-    "Default.sublime-keymap"                       = "Default (Windows).sublime-keymap"
-    "kanagawa.sublime-color-scheme"                = "kanagawa.sublime-color-scheme"
-    "Merge Dark.sublime-theme"                     = "Merge Dark.sublime-theme"
-    "Merge.sublime-theme"                          = "Merge.sublime-theme"
-    "Commit Message.sublime-settings"              = "Commit Message.sublime-settings"
-    "Commit Message - Merge Dark.sublime-settings" = "Commit Message - Merge Dark.sublime-settings"
-    "File Mode.sublime-settings"                   = "File Mode.sublime-settings"
-    "File Mode - Merge Dark.sublime-settings"      = "File Mode - Merge Dark.sublime-settings"
-    "Git Output.sublime-settings"                  = "Git Output.sublime-settings"
-    "Git Output - Merge Dark.sublime-settings"     = "Git Output - Merge Dark.sublime-settings"
+    "Preferences.sublime-settings" = "Preferences.sublime-settings"
+    "Default.sublime-keymap"       = "Default (Windows).sublime-keymap"
 }
+
+# 과거 커스텀 테마 오버라이드 잔재 정리 (공식 빌트인 다크 테마 정상 로드 보장)
+$legacyFilesToRemove = @(
+    "kanagawa.sublime-color-scheme",
+    "Merge Dark.sublime-theme",
+    "Merge.sublime-theme",
+    "Commit Message.sublime-settings",
+    "Commit Message - Merge Dark.sublime-settings",
+    "File Mode.sublime-settings",
+    "File Mode - Merge Dark.sublime-settings",
+    "Git Output.sublime-settings",
+    "Git Output - Merge Dark.sublime-settings"
+)
 
 foreach ($dataDir in $targetDataDirs) {
     $userDir = Join-Path $dataDir "Packages\User"
     if (-not (Test-Path $userDir)) {
         New-Item -ItemType Directory -Path $userDir -Force | Out-Null
+    }
+    # 과거 커스텀 오버라이드 파일들 삭제 (공식 빌트인 다크 테마 정상 로드 보장)
+    foreach ($legFile in $legacyFilesToRemove) {
+        $legPath = Join-Path $userDir $legFile
+        if (Test-Path $legPath) {
+            Remove-Item $legPath -Force -ErrorAction SilentlyContinue
+        }
     }
 
     foreach ($srcName in $filesToSync.Keys) {
@@ -229,7 +240,7 @@ foreach ($dataDir in $targetDataDirs) {
             }
             # Preferences.sublime-settings 의 font_size 를 중앙 설정(ui-defaults.json) 값으로 동적 반영
             if ($srcName -eq 'Preferences.sublime-settings' -and $_dt2FontSize) {
-                $fileContent = $fileContent -replace '"font_size":\s*\d+', ('"font_size": ' + $_dt2FontSize)
+                $fileContent = $fileContent -replace '"font_size":\s*[\d.]+', ('"font_size": ' + $_dt2FontSize)
             }
             [System.IO.File]::WriteAllText($dstFile, $fileContent, [System.Text.UTF8Encoding]::new($false))
         }
