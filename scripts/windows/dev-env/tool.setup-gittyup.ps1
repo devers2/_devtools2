@@ -158,8 +158,8 @@ if (-not (Test-Path $gittyupAppdata)) {
 
 $WslGittyupConfig = "$DevTools2Wsl\.config\gittyup"
 
-# 1) Gittyup 설정 파일 동기화 (theme.lua 및 Gittyup.ini)
-$filesToSync = @("theme.lua", "Gittyup.ini")
+# 1) Gittyup 설정 파일 동기화 (theme.lua, Gittyup.ini, editor.lua)
+$filesToSync = @("theme.lua", "Gittyup.ini", "editor.lua")
 foreach ($fName in $filesToSync) {
     $srcFile = if (Test-Path $WslGittyupConfig) { Join-Path $WslGittyupConfig $fName } else { $null }
     $dstFile = Join-Path $gittyupAppdata $fName
@@ -175,8 +175,8 @@ foreach ($fName in $filesToSync) {
     }
 
     if ($content) {
-        # ui-defaults.json 에서 읽은 폰트/사이즈를 theme.lua 및 Gittyup.ini 에 동적 주입
-        if ($fName -eq "theme.lua") {
+        # ui-defaults.json 에서 읽은 폰트/사이즈를 theme.lua, editor.lua 및 Gittyup.ini 에 동적 주입
+        if ($fName -in @("theme.lua", "editor.lua")) {
             $content = $content -replace 'family\s*=\s*"[^"]*"', ('family = "' + $_dt2GuiFont + '"')
             $content = $content -replace 'size\s*=\s*[\d.]+', ('size = ' + $_dt2FontSize)
         } elseif ($fName -eq "Gittyup.ini") {
