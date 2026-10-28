@@ -74,11 +74,8 @@ mkdir -p "$SMERGE_MODULE_DIR"
 if [ "${IS_WSL2:-false}" = true ]; then
     print_info "[WSL2] Windows 네이티브 Sublime Merge 연동을 구성합니다..."
     
-    _win_user="${WIN_USERPROFILE:-}"
-    if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
-        _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
-        [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=$(wslpath "$_raw_home" 2>/dev/null || true)
-    fi
+    ensure_wsl_interop
+    _win_user=$(get_win_userprofile || true)
 
     _win_smerge=""
     for _p in \

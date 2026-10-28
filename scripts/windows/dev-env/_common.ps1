@@ -757,3 +757,91 @@ function Register-WslInterop {
 }
 
 
+
+# ==============================================================================
+# winget 패키지 스마트 설치 및 최신 업데이트 공용 헬퍼
+# ==============================================================================
+# [설계 원칙 / Rationale]
+# 1. Zero-Prompt on Installed: 패키지가 이미 설치되어 있는 경우 불필요한 설치 질문을 생략하고,
+#    winget upgrade 확인을 통해 최신 버전이 있을 때만 백그라운드 업데이트를 수행합니다.
+# 2. Process Handle & Spinner: PS 5.1/7 호환을 위해 Start-Process -PassThru 후 $p.Handle 을
+#    열어두어 프로세스 종료 후 ExitCode 가 $null 이 되는 문제를 방지하며, 스피너로 진행 상태를 시각화합니다.
+# 3. Environment Path Refresh: 설치/업데이트 완료 직후 시스템 및 사용자 PATH 환경변수를
+#    동기화하여 후속 단계에서 새로 설치된 CLI 명령을 즉시 인식할 수 있도록 합니다.
+# 4. Success Code Resilience: 0 외에도 3010(재부팅 대기), -1978335189(이미 최신),
+#    -1978335212(이미 설치됨) 등을 정상 완료로 간주합니다.
+# ==============================================================================
+function Install-OrUpdateWingetPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PackageId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DisplayName,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$IsInstalled,
+
+        [string]$PromptDefault = "N",
+
+        [string]$PromptMessage = "",
+
+        [switch]$SkipPrompt
+    )
+
+    $successCodes = @(0, 3010, -1978335189, -1978335212)
+
+    if ($IsInstalled) {
+        Write-Info "${DisplayName} 이(가) 이미 설치되어 있습니다. 최신 버전 확인 중..."
+        $upgradeNeeded = $false
+        try {
+            $wgUpgradeCheck = winget upgrade --id $PackageId 2>$null
+            $upgradeOutput = $wgUpgradeCheck -join ""
+            if ($LASTEXITCODE -eq 0 -and $upgradeOutput -match $PackageId) {
+                $upgradeNeeded = $true
+            }
+        } catch {}
+
+        if ($upgradeNeeded) {
+            Write-Info "${DisplayName} 최신 버전이 있습니다. 업데이트를 진행합니다..."
+            $safeId = $PackageId -replace '[^a-zA-Z0-9]', '_'
+            $p = Start-Process winget -ArgumentList "upgrade --id $PackageId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\${safeId}_upgrade.log" -RedirectStandardError "$env:TEMP\${safeId}_upgrade_err.log" -ErrorAction SilentlyContinue
+            $null = $p.Handle
+            Wait-ProcessWithSpinner -Process $p -Message "${DisplayName} 업데이트 진행 중"
+            Remove-Item "$env:TEMP\${safeId}_upgrade.log", "$env:TEMP\${safeId}_upgrade_err.log" -Force -ErrorAction SilentlyContinue
+            if ($successCodes -contains $p.ExitCode) {
+                Write-Success "${DisplayName} 업데이트 완료"
+                $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+                return $true
+            } else {
+                Write-Skip "${DisplayName} 업데이트를 건너뛰었습니다."
+                return $true
+            }
+        } else {
+            Write-Skip "${DisplayName} 이(가) 이미 최신 버전입니다."
+            return $true
+        }
+    } else {
+        if (-not $SkipPrompt) {
+            $askMsg = if (-not [string]::IsNullOrWhiteSpace($PromptMessage)) { $PromptMessage } else { "👉 ${DisplayName} 을(를) 설치하시겠습니까?" }
+            if (-not (Prompt-Confirm $askMsg $PromptDefault)) {
+                Write-Skip "${DisplayName} 설치를 건너뜁니다."
+                return $false
+            }
+        }
+        Write-Host "  ${DisplayName} 을(를) winget으로 설치합니다..." -ForegroundColor White
+        $safeId = $PackageId -replace '[^a-zA-Z0-9]', '_'
+        $p = Start-Process winget -ArgumentList "install --id $PackageId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\${safeId}_install.log" -RedirectStandardError "$env:TEMP\${safeId}_install_err.log" -ErrorAction SilentlyContinue
+        $null = $p.Handle
+        Wait-ProcessWithSpinner -Process $p -Message "${DisplayName} 설치 진행 중"
+        Remove-Item "$env:TEMP\${safeId}_install.log", "$env:TEMP\${safeId}_install_err.log" -Force -ErrorAction SilentlyContinue
+        if ($successCodes -contains $p.ExitCode) {
+            Write-Success "${DisplayName} 설치 완료"
+            $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+            return $true
+        } else {
+            Write-Warn "${DisplayName} winget 설치 실패."
+            return $false
+        }
+    }
+}

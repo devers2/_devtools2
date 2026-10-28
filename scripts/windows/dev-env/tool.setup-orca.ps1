@@ -78,31 +78,39 @@ Write-Host "🐋 Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 스�
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 
 # ==============================================================================
-# [Step 1] 설치 의사 확인 ([y/N])
+# [Step 1] WSL2 배포판 감지 및 기존 설치 여부 사전 확인
 # ==============================================================================
-Write-Step "[Step 1] Orca 설치 의사 확인"
-
-if (-not (Prompt-Confirm "👉 Orca(멀티 에이전트 오케스트레이션 ADE)를 설치하시겠습니까?" "N")) {
-    Write-Skip "Orca 설치를 건너뜁니다."
-    Write-Host ""
-    return $false
-}
-
-# ==============================================================================
-# [Step 2] WSL2 배포판 이름 자동 감지
-# ==============================================================================
-Write-Step "[Step 2] WSL2 배포판 감지"
+Write-Step "[Step 1] WSL2 배포판 감지 및 설치 여부 확인"
 
 $WslDistro = Resolve-WslDistro $WslDistro
 Write-Host "  적용 대상 WSL 배포판: $WslDistro" -ForegroundColor White
 
-# WSL2 쪽 Orca(orca serve 헤드리스)를 먼저 설치/점검합니다(tool.setup-orca.sh).
-# 이미 설치되어 있어도 매번 실행합니다: 새 버전 업데이트, 실행 라이브러리, 에이전트 CLI, 서비스 설정을
-# 다시 점검하기 위해서입니다. 리눅스 스크립트의 질문은 wsl 출력을 Out-Host 로 넘기는 구조에서 입력이
-# 불안정할 수 있어, 여기 PowerShell 에서 먼저 묻고 환경변수(DT2_ORCA_*)로 답을 넘깁니다.
+# WSL2 쪽 Orca 서버 및 Windows Orca 데스크톱 앱 기존 설치 여부 사전 감지
 $orcaRoot = "/var/opt/_devtools2/modules/orca"
-[string]$orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f $orcaRoot/orca-linux.AppImage -o -f $orcaRoot/orca-linux-arm64.AppImage && echo FOUND")
+[string]$orcaAppImageCheck = (wsl -d $WslDistro -- bash -c "test -f $orcaRoot/orca-linux.AppImage -o -f $orcaRoot/orca-linux-arm64.AppImage && echo FOUND" 2>$null)
 $orcaServerInstalled = ($orcaAppImageCheck.Trim() -eq "FOUND")
+
+$orcaDesktopInstalled = $false
+try {
+    $orcaPaths = @(
+        "$env:LOCALAPPDATA\Programs\orca\Orca.exe",
+        "$env:LOCALAPPDATA\Programs\Orca\Orca.exe",
+        "$env:ProgramFiles\Orca\Orca.exe"
+    )
+    foreach ($p in $orcaPaths) {
+        if (Test-Path $p) { $orcaDesktopInstalled = $true; break }
+    }
+} catch {}
+
+if ($orcaServerInstalled -or $orcaDesktopInstalled) {
+    Write-Info "Orca가 이미 설치되어 있습니다. 구성 점검 및 최신 버전 업데이트를 진행합니다."
+} else {
+    if (-not (Prompt-Confirm "👉 Orca(멀티 에이전트 오케스트레이션 ADE)를 설치하시겠습니까?" "N")) {
+        Write-Skip "Orca 설치를 건너뜁니다."
+        Write-Host ""
+        return $false
+    }
+}
 
 # 1) 업데이트 여부 (설치된 버전 기록 .version 과 GitHub 최신 태그 비교)
 $orcaUpdate = "n"
@@ -197,42 +205,8 @@ try {
     }
 } catch {}
 
-if ($orcaInstalled) {
-    Write-Skip "Orca 데스크톱 앱이 이미 설치되어 있습니다."
-    # WSL2 서버와 버전을 맞추기 위해 Windows 앱 업데이트도 제안합니다(앱이 스스로 업데이트했다면 "이미 최신").
-    if (Prompt-Confirm "👉 Windows Orca 앱도 최신 버전인지 확인하고 업데이트할까요?" "Y") {
-        $pu = Start-Process winget -ArgumentList "upgrade --id StablyAI.Orca --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\orca_upgrade.log" -RedirectStandardError "$env:TEMP\orca_upgrade_err.log" -ErrorAction SilentlyContinue
-        if ($pu) {
-            # PS 5.1: 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
-            $null = $pu.Handle
-            Wait-ProcessWithSpinner -Process $pu -Message "Orca 데스크톱 앱 업데이트 확인 중"
-            # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전)
-            if ($pu.ExitCode -eq 0) {
-                Write-Success "Orca 데스크톱 앱 업데이트 완료"
-            } elseif ($pu.ExitCode -eq -1978335189) {
-                Write-Success "Orca 데스크톱 앱이 이미 최신 버전입니다."
-            } else {
-                Write-Warn "Orca 데스크톱 앱 업데이트를 확인하지 못했습니다(종료 코드: $($pu.ExitCode)). 앱의 자체 업데이트 기능을 이용해 주세요."
-            }
-        } else {
-            Write-Warn "winget 을 실행하지 못해 Windows Orca 앱 업데이트를 건너뜁니다."
-        }
-        Remove-Item "$env:TEMP\orca_upgrade.log", "$env:TEMP\orca_upgrade_err.log" -Force -ErrorAction SilentlyContinue
-    }
-} else {
-    Write-Host "  Orca 데스크톱 앱을 winget으로 설치합니다..." -ForegroundColor White
-    $p = Start-Process winget -ArgumentList "install --id StablyAI.Orca --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\orca_install.log" -RedirectStandardError "$env:TEMP\orca_install_err.log"
-    # PS 5.1: -Wait 없이 띄운 프로세스는 핸들을 미리 열어 두지 않으면 종료 후 .ExitCode 가 $null 입니다(Rule 8).
-    $null = $p.Handle
-    Wait-ProcessWithSpinner -Process $p -Message "Orca 데스크톱 앱 설치 진행 중"
-    # -1978335189 = APPINSTALLER_CLI_ERROR_NO_APPLICABLE_UPGRADE (이미 최신 버전 설치됨)
-    if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
-        Write-Success "Orca 데스크톱 앱 설치 완료"
-    } else {
-        Write-Warn "Orca winget 설치 실패(종료 코드: $($p.ExitCode)). 수동 설치: https://www.onorca.dev/"
-    }
-    Remove-Item "$env:TEMP\orca_install.log", "$env:TEMP\orca_install_err.log" -Force -ErrorAction SilentlyContinue
-}
+# 이미 설치된 경우 최신 버전 자동 업데이트, 미설치 시에만 사용자 확인
+$null = Install-OrUpdateWingetPackage -PackageId "StablyAI.Orca" -DisplayName "Orca 데스크톱 앱" -IsInstalled $orcaInstalled -PromptDefault "Y"
 
 # ==============================================================================
 # [Step 4] WSL2 헤드리스 orca serve 상태 확인

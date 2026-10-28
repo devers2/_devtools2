@@ -56,11 +56,8 @@ print_banner "⚡ Zed 에디터 설치 및 연동 (tool.setup-zed.sh)"
 ZED_MODULE_DIR="$DEVTOOLS2/modules/zed"
 
 if [ "${IS_WSL2:-false}" = true ]; then
-    _win_user="${WIN_USERPROFILE:-}"
-    if [ -z "$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
-        _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
-        [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=$(wslpath "$_raw_home" 2>/dev/null || true)
-    fi
+    ensure_wsl_interop
+    _win_user=$(get_win_userprofile || true)
 
     _win_zed=""
     for _p in \

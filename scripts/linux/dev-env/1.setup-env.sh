@@ -178,13 +178,7 @@ EOF
 
 # WSL2 환경 추가 설정 (NTFS LS_COLORS 및 userprofile)
 if [ "$IS_WSL2" = true ]; then
-    WIN_USERPROFILE=""
-    if command -v cmd.exe >/dev/null 2>&1; then
-        _raw_win_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
-        if [ -n "$_raw_win_home" ] && command -v wslpath >/dev/null 2>&1; then
-            WIN_USERPROFILE=$(wslpath "$_raw_win_home" 2>/dev/null || true)
-        fi
-    fi
+    WIN_USERPROFILE=$(get_win_userprofile || true)
     cat <<EOF >>"$_DEVTOOLS2_ENV_TMP"
 # Windows-mounted NTFS 디렉터리 배경색 수정 (WSL2에서 터미널 Kanagawa 테마 가독성 확보)
 if [ -n "\${LS_COLORS:-}" ]; then
