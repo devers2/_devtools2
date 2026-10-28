@@ -153,6 +153,7 @@ return {
         { '<leader>gS', desc = 'Git Stash' },
         { '<leader>gx', '<cmd>GitConflictListQf<cr>', desc = 'Git 충돌 목록 보기 (List Conflicts)' },
         { '<leader>gu', desc = 'Gittyup GUI 열기 (Open Gittyup)' },
+        { '<leader>gU', desc = 'Gittyup GUI 열기 - 현재 파일 (Open Gittyup - Current File)' },
         { '<leader>gY', desc = 'Git 브라우저 - 링크 복사 (Git Browse copy)' },
 
         -- ── Git 변경 조각 그룹 (<leader>gh / Hunks) ──

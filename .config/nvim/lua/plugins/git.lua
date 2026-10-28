@@ -44,6 +44,37 @@ return {
         end,
         desc = 'Gittyup GUI 열기 (Open Gittyup)',
       },
+      {
+        '<leader>gU',
+        function()
+          local file = vim.api.nvim_buf_get_name(0)
+          if file == '' then
+            file = '.'
+          end
+          local dir = vim.fn.fnamemodify(file, ':p:h')
+
+          -- WSL2 환경 감지
+          local is_wsl = vim.fn.has('wsl') == 1 or vim.fn.filereadable('/proc/sys/fs/binfmt_misc/WSLInterop') == 1
+          if is_wsl and vim.fn.executable('powershell.exe') == 1 then
+            local win_path = vim.fn.system('wslpath -w ' .. vim.fn.shellescape(dir)):gsub('%s+', '')
+            vim.fn.jobstart({
+              'powershell.exe',
+              '-NoProfile',
+              '-Command',
+              'Start-Process gittyup -ArgumentList @("' .. win_path .. '") -ErrorAction SilentlyContinue',
+            }, { detach = true })
+            vim.notify('Gittyup 실행 (파일): ' .. vim.fn.fnamemodify(file, ':t'), vim.log.levels.INFO)
+          else
+            if vim.fn.executable('gittyup') == 1 then
+              vim.fn.jobstart({ 'gittyup', dir }, { detach = true })
+              vim.notify('Gittyup 실행 (파일): ' .. vim.fn.fnamemodify(file, ':t'), vim.log.levels.INFO)
+            else
+              vim.notify('gittyup 실행 파일을 찾을 수 없습니다.', vim.log.levels.ERROR)
+            end
+          end
+        end,
+        desc = 'Gittyup GUI 열기 - 현재 파일 (Open Gittyup - Current File)',
+      },
     },
   },
 
