@@ -18,6 +18,12 @@
 # 없음 — 이 파일은 함수 정의만 있어 param 블록이 필요 없음)을 그대로 따릅니다.
 # ==============================================================================
 
+# ==============================================================================
+# 전역 공통 점자 스피너 프레임 (Braille Spinner Frames)
+# Linux _common.sh 의 _spinner_frames 와 100% 동일한 유니코드 점자 프레임을 공유합니다.
+# ==============================================================================
+$global:DT2_SPINNER_FRAMES = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+
 function Write-Step {
     param([string]$Message)
     Write-Host ""
@@ -250,7 +256,7 @@ function Wait-ProcessWithSpinner {
         [System.Diagnostics.Process]$Process,
         [string]$Message
     )
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+    $spinner = $global:DT2_SPINNER_FRAMES
     $spinIdx = 0
     while (-not $Process.HasExited) {
         $char = $spinner[$spinIdx]
@@ -272,7 +278,7 @@ function Wait-WithSpinner {
         [scriptblock]$Condition,
         [int]$MaxTimeoutSeconds = 300
     )
-    $spinner = @('⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏')
+    $spinner = $global:DT2_SPINNER_FRAMES
     $spinIdx = 0
     $startTime = Get-Date
     while ($true) {
@@ -335,7 +341,7 @@ function Invoke-WslShutdown {
         return $true
     }
 
-    $spinner   = @('⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏')
+    $spinner   = $global:DT2_SPINNER_FRAMES
     $spinIdx   = 0
     $startTime = Get-Date
 
