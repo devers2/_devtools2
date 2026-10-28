@@ -614,6 +614,35 @@ EOF
             echo "      앱 설치 후 아래 링크를 'Settings → Remote Orca Servers → Add Server' 에 붙여넣으세요:"
             echo "      $_orca_pair_link"
         fi
+
+        # ── 수동 페어링 안내 (자동 성공 여부와 무관하게 항상 표시) ──────────────
+        # 자동 페어링이 조용히 실패하거나, 나중에 다른 기기에서 연결하거나,
+        # WSL2 IP가 재부팅으로 바뀌었을 때를 위해 수동 연결 정보를 항상 남겨둡니다.
+        _wsl_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+        echo ""
+        echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "   📋 수동 페어링 안내 (자동 페어링이 안 됐거나 다른 기기에서 연결할 때)"
+        echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        if [ -n "${_orca_pair_link:-}" ]; then
+            echo "   페어링 링크:"
+            echo "      $_orca_pair_link"
+            echo ""
+            echo "   → Orca 앱의 'Settings → Remote Orca Servers → Add Server' 에 위 링크를 붙여넣으세요."
+        else
+            echo "   ⚠️  페어링 링크를 자동으로 찾지 못했습니다(알려진 업스트림 버그일 수 있음)."
+            echo "      참고: https://github.com/stablyai/orca/issues/9759"
+            echo "      직접 확인: journalctl --user -u orca-serve.service --no-pager | grep orca://"
+        fi
+        echo ""
+        if [ -n "$_wsl_ip" ]; then
+            echo "   수동 서버 주소 (페어링 링크가 없을 때 직접 입력):"
+            echo "      ${_wsl_ip}:6768"
+            echo "      ※ 127.0.0.1 은 Orca 가 원격 클라이언트용으로 권장하지 않습니다."
+            echo "      ※ WSL2 IP 는 재부팅마다 바뀔 수 있습니다 — 연결이 끊기면 이 스크립트를 다시 실행하세요."
+        else
+            echo "   WSL2 IP 확인 실패. 터미널에서 'hostname -I' 로 직접 확인하세요."
+        fi
+        echo "   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     else
         echo "   💬 일반 데스크톱 GUI 앱으로 바로 실행할 수 있습니다: $ORCA_APPIMAGE"
     fi
