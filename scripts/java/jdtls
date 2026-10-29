@@ -88,7 +88,7 @@ fi
 # ── 4. JDTLS 최종 실행 (Lombok 주입 및 안정적인 JDK 21 런타임 바인딩) ─────────
 if [ -n "$JDTLS_BIN" ] && [ -x "$JDTLS_BIN" ]; then
     export JAVA_HOME="$DEVTOOLS2/modules/java/jdk-21"
-    export PATH="$DEVTOOLS2/modules/java/jdk-21/bin:$DEVTOOLS2/modules/gradle/gradle-9/bin:$PATH"
+    export PATH="$DEVTOOLS2/modules/java/jdk-21/bin:$DEVTOOLS2/modules/gradle/current/bin:$PATH"
 
     if [ -n "$LOMBOK_JAR" ]; then
         exec "$JDTLS_BIN" "--jvm-arg=-javaagent:$LOMBOK_JAR" "$@"

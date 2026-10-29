@@ -124,7 +124,7 @@ _dt2_path_prepend() {
     esac
 }
 
-export NODE_HOME="$DEVTOOLS2/modules/nodejs/node-v24"
+export NODE_HOME="$DEVTOOLS2/modules/nodejs/current"   # 메이저 무관 폴더 (버전은 tool-versions.toml [track] nodejs)
 export NPM_CONFIG_GLOBALCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
 
 EOF
@@ -143,7 +143,7 @@ else
     export JAVA_HOME="$DEVTOOLS2/modules/java/jdk-21"
 fi
 
-export GRADLE_HOME="$DEVTOOLS2/modules/gradle/gradle-9"
+export GRADLE_HOME="$DEVTOOLS2/modules/gradle/current"   # 메이저 무관 폴더 (버전은 tool-versions.toml [track] gradle)
 
 # py_switch.sh 로 고른 Python(DT2_PYTHON_HOME)이 있으면 그 값을, 없으면 기본 Python 3.14 를 사용합니다.
 if [ -n "${DT2_PYTHON_HOME:-}" ] && [ -d "$DT2_PYTHON_HOME" ]; then
