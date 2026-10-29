@@ -98,6 +98,8 @@ _DT2_PATH_DIRS=(
     '$DEVTOOLS2/modules/fzf'
     '$DEVTOOLS2/modules/lazygit'
     '$DEVTOOLS2/modules/gh'
+    '$DEVTOOLS2/modules/delta'
+    '$DEVTOOLS2/modules/difftastic'
     '$DEVTOOLS2/modules/sublime-merge/bin'
     '$DEVTOOLS2/modules/sublime-merge'
     '$DEVTOOLS2/modules/ast-grep'
@@ -287,6 +289,40 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
     if [ -d "$DEVTOOLS2/.git" ] && [ "$(git -C "$DEVTOOLS2" config --local --get core.filemode 2>/dev/null || true)" = "false" ]; then
         git -C "$DEVTOOLS2" config core.filemode true 2>/dev/null || true
     fi
+fi
+
+# Git diff 표시·병합 기본값 (delta · difftastic · zdiff3 · histogram)
+# - 순수 Linux CLI(SSH·서버)에서도 diff 를 보기 좋게 하고 병합 충돌을 판단하기 쉽게 하는 전역 설정입니다.
+# - 사용자가 직접 다른 값을 넣었으면 건드리지 않습니다: 비어 있거나 DevTools2 가 넣은 값일 때만 씁니다(멱등).
+# - [되돌리기] delta·difftastic 이 없거나 실행에 실패하면 pager 가 less / cat 으로 자동 폴백하므로
+#   도구를 지워도 git 은 그대로 동작합니다. 설정 자체를 빼려면 git config --global --unset <키>.
+#   ● core.pager / interactive.diffFilter: delta (없으면 less -FRX / cat)
+#   ● delta.*: 줄 번호, n/N 으로 파일 단위 이동 — 좌우 비교는 lazygit 의 '|' 전환 또는 git -c delta.side-by-side=true
+#   ● merge.conflictStyle=zdiff3: 충돌 블록에 공통 조상(base)도 표시 (git-conflict.nvim·diffview 병합 화면에도 보임)
+#   ● diff.algorithm=histogram: 기본(myers)보다 사람이 읽기 좋은 diff
+#   ● diff.colorMoved=default: 옮겨진 줄을 추가/삭제와 다른 색으로 표시
+#   ● alias dft / dlog: difftastic 구조 비교 (git dft, git dlog)
+_dt2_git_set() {  # <키> <값> [DevTools2 가 예전에 넣었던 값...]
+    local key="$1" val="$2" cur; shift 2
+    cur=$(git config --global --get "$key" 2>/dev/null || true)
+    [ "$cur" = "$val" ] && return 0
+    if [ -n "$cur" ]; then
+        local old ours=false
+        for old in "$@"; do [ "$cur" = "$old" ] && ours=true; done
+        [ "$ours" = true ] || return 0   # 사용자가 직접 넣은 값은 유지
+    fi
+    git config --global "$key" "$val"
+}
+if command -v git >/dev/null 2>&1; then
+    _dt2_git_set core.pager 'command -v delta >/dev/null 2>&1 && exec delta || exec less -FRX'
+    _dt2_git_set interactive.diffFilter 'command -v delta >/dev/null 2>&1 && exec delta --color-only || exec cat'
+    _dt2_git_set delta.navigate true
+    _dt2_git_set delta.line-numbers true
+    _dt2_git_set merge.conflictStyle zdiff3
+    _dt2_git_set diff.algorithm histogram
+    _dt2_git_set diff.colorMoved default
+    _dt2_git_set alias.dft '-c diff.external=difft diff'
+    _dt2_git_set alias.dlog '-c diff.external=difft log -p --ext-diff'
 fi
 
 # 2) systemd 사용자 서비스 및 데스크톱 앱 연동용 ~/.config/environment.d/devtools2.conf 생성

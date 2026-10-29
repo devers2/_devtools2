@@ -109,6 +109,8 @@ ASTGREP_INSTALLED=false;  { [ -f "$MODULES_DIR/ast-grep/sg" ] || [ -f "$MODULES_
 BITWARDEN_INSTALLED=false;[ -f "$MODULES_DIR/bitwarden/bw" ]       && BITWARDEN_INSTALLED=true
 RCLONE_INSTALLED=false;   [ -f "$MODULES_DIR/rclone/rclone" ]      && RCLONE_INSTALLED=true
 GH_INSTALLED=false;       [ -f "$MODULES_DIR/gh/gh" ]              && GH_INSTALLED=true
+DELTA_INSTALLED=false;    [ -f "$MODULES_DIR/delta/delta" ]        && DELTA_INSTALLED=true
+DIFFT_INSTALLED=false;    [ -f "$MODULES_DIR/difftastic/difft" ]   && DIFFT_INSTALLED=true
 WIN32YANK_INSTALLED=false
 [ "$IS_WSL2" = true ] && [ -f "$MODULES_DIR/win32yank/win32yank.exe" ] && WIN32YANK_INSTALLED=true
 
@@ -134,6 +136,8 @@ _cli_status "ast-grep"        ast_grep  "$ASTGREP_INSTALLED"
 _cli_status "rclone"          rclone    "$RCLONE_INSTALLED"
 _cli_status "bitwarden-cli"   bitwarden "$BITWARDEN_INSTALLED"
 _cli_status "gh (GitHub CLI)" gh        "$GH_INSTALLED"
+_cli_status "delta"           delta     "$DELTA_INSTALLED"
+_cli_status "difftastic"      difftastic "$DIFFT_INSTALLED"
 if [ "$IS_WSL2" = true ]; then
     _cli_status "win32yank"   win32yank "$WIN32YANK_INSTALLED"
 fi
@@ -144,7 +148,8 @@ echo ""
 DUPLICATE_MODE="${DT2_DUPLICATE_MODE:-keep}"
 _HAS_INSTALLED=false
 for _b in "$FZF_INSTALLED" "$LAZYGIT_INSTALLED" "$RIPGREP_INSTALLED" \
-           "$FD_INSTALLED" "$ASTGREP_INSTALLED" "$BITWARDEN_INSTALLED" "$RCLONE_INSTALLED" "$WIN32YANK_INSTALLED" "$GH_INSTALLED"; do
+           "$FD_INSTALLED" "$ASTGREP_INSTALLED" "$BITWARDEN_INSTALLED" "$RCLONE_INSTALLED" "$WIN32YANK_INSTALLED" "$GH_INSTALLED" \
+           "$DELTA_INSTALLED" "$DIFFT_INSTALLED"; do
     [ "$_b" = true ] && _HAS_INSTALLED=true && break
 done
 
@@ -239,6 +244,22 @@ get_cli_tool_url() {
             ;;
         win32yank)
             echo "https://github.com/equalsraf/win32yank/releases/download/v${ver}/win32yank-x64.zip"
+            ;;
+        delta)
+            # 압축 구조: delta-<ver>-<triple>/delta → strip 1 로 $MODULES_DIR/delta/delta 에 설치 (태그에 'v' 없음)
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/dandavison/delta/releases/download/${ver}/delta-${ver}-aarch64-unknown-linux-gnu.tar.gz"
+            else
+                echo "https://github.com/dandavison/delta/releases/download/${ver}/delta-${ver}-x86_64-unknown-linux-musl.tar.gz"
+            fi
+            ;;
+        difftastic)
+            # 압축 구조: difft 단일 파일 → strip 0 (태그에 'v' 없음)
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/Wilfred/difftastic/releases/download/${ver}/difft-${ver}-aarch64-unknown-linux-gnu.tar.gz"
+            else
+                echo "https://github.com/Wilfred/difftastic/releases/download/${ver}/difft-${ver}-x86_64-unknown-linux-musl.tar.gz"
+            fi
             ;;
     esac
 }
@@ -404,6 +425,14 @@ install_cli_tool "rclone" "rclone - 클라우드 동기화 도구" "rclone/rclon
 # gh (GitHub CLI): 하위 호환이 좋고 에이전트가 최신 기능을 가정하므로 track "latest" (실제 설치 버전은 gh --version)
 _gh_cur=""; [ "$GH_INSTALLED" = true ] && _gh_cur=$("$MODULES_DIR/gh/gh" --version 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
 install_cli_tool "gh" "gh - GitHub CLI (PR·이슈·Actions, 모든 에이전트 공용)" "cli/cli" "gh" "gh/gh" 2 "$GH_INSTALLED" "" "$_gh_cur"
+# delta / difftastic: lazygit·git diff 표시 도구 (실제 설치 버전은 --version 으로 비교)
+#   ● delta: 문법 색상·줄 안 단어 강조·좌우 비교 — lazygit 기본 pager 와 git 의 core.pager
+#   ● difftastic(difft): 문법 트리 기준 구조 비교 — lazygit 의 '|' 전환 목록과 git dft 별칭
+#   ● 둘 다 없거나 실행에 실패해도 lazygit·git 은 예전 일반 diff 로 자동 폴백합니다(.config/lazygit/config.yml, 1.setup-env.sh)
+_delta_cur=""; [ "$DELTA_INSTALLED" = true ] && _delta_cur=$("$MODULES_DIR/delta/delta" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+install_cli_tool "delta" "delta - git diff 표시 도구 (문법 색상·좌우 비교)" "dandavison/delta" "delta" "delta/delta" 1 "$DELTA_INSTALLED" "" "$_delta_cur"
+_difft_cur=""; [ "$DIFFT_INSTALLED" = true ] && _difft_cur=$("$MODULES_DIR/difftastic/difft" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+install_cli_tool "difftastic" "difftastic (difft) - 구조 기준 diff 도구" "Wilfred/difftastic" "difftastic" "difftastic/difft" 0 "$DIFFT_INSTALLED" "" "$_difft_cur"
 
 if [ "$IS_WSL2" = true ]; then
     install_cli_tool "win32yank" "win32yank - 클립보드 공유 도구" "equalsraf/win32yank" "win32yank" "win32yank/win32yank.exe" 0 "$WIN32YANK_INSTALLED"

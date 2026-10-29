@@ -34,10 +34,31 @@ gui:
       - '#E46876'
 
 git:
-  # 커밋 페이저 설정 (Lazygit 최신 스키마)
-  pagers:
-    - colorArg: always
-      pager: delta --dark --paging=never 2>/dev/null || cat
+  # diff 표시 방식 (Lazygit 0.66+ 스키마 diffRenderers — 예전 이름 pagers)
+  # - 여러 개를 등록해 두고 lazygit 안에서 '|' 키(반대 방향 '\')로 바꿔 가며 봅니다. 첫 항목이 기본값입니다.
+  # - 예전 설정(delta --dark ... 2>/dev/null || cat)은 delta 가 설치되어 있지 않아 항상 cat(일반 diff)으로
+  #   보이고 있었습니다. 이제 3.install-cli-tools.sh 가 delta·difftastic 을 설치합니다.
+  # - [폴백] delta / difft 가 없으면 각각 cat(일반 diff) / diff -u 로 자동 폴백하므로 도구를 지워도 lazygit 은
+  #   그대로 열립니다. 언제든 '|' 로 마지막 항목(git 기본)으로 돌아갈 수 있습니다.
+  # - {{colorScheme}}: 터미널 배경(dark/light) / {{width}}: diff 창 너비 / {{diffContext}}: '{' '}' 로 바꾸는 문맥 줄 수
+  #   (delta 의 --navigate 는 lazygit 안에서 동작하지 않아 넣지 않음 — git CLI 쪽에만 설정)
+  diffRenderers:
+    # 1) delta: 문법 색상 + 줄 안 단어 단위 강조 + 줄 번호 (기본)
+    - name: delta
+      command: command -v delta >/dev/null 2>&1 && exec delta --{{colorScheme}} --paging=never --line-numbers || exec cat
+    # 2) delta 좌우 비교: 창 너비({{width}})에 맞춰 왼쪽 이전 │ 오른쪽 이후
+    - name: delta 좌우 비교
+      command: command -v delta >/dev/null 2>&1 && exec delta --{{colorScheme}} --paging=never --side-by-side --line-numbers --width={{width}} || exec cat
+    # 3) difftastic: 문법 트리 기준 구조 비교 (들여쓰기·줄바꿈만 바뀐 곳은 변경으로 안 봄 — 리팩토링 diff 에 유용)
+    #    git 의 외부 diff(diff.external) 방식이라 인수 7개(경로 이전파일 해시 모드 이후파일 해시 모드)를 받으므로,
+    #    difft 가 없을 때 diff -u 로 폴백하도록 sh -c 로 감쌉니다.
+    #    (diff -u 는 차이가 있으면 종료 코드 1 이라 git 이 "외부 diff 프로그램이 죽음"으로 처리하므로 exit 0 으로 끝냄)
+    - name: difftastic
+      type: extDiff
+      command: sh -c 'command -v difft >/dev/null 2>&1 && exec difft --color=always --background={{colorScheme}} --context={{diffContext}} "$@"; diff -u --color=always "$2" "$5"; exit 0' difft
+    # 4) git 기본 diff (도구 없이 원래 방식 그대로)
+    - name: git 기본
+      type: rawGit
 
 # 커스텀 명령어 메뉴
 customCommands: []
