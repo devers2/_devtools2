@@ -366,13 +366,18 @@ fi
 # ==============================================================================
 if command -v git >/dev/null 2>&1; then
     print_info "Git difftool 및 mergetool 설정 중..."
+    # 화면(GUI)이 없는 순수 CLI 환경(SSH 접속, 서버, WSLg 미사용)에서는 smerge 를 띄울 수 없어 git mergetool /
+    # difftool 이 실패하므로, DISPLAY·WAYLAND_DISPLAY 가 없거나 smerge 가 없으면 Neovim diff 모드로 대신 엽니다.
+    #   ● mergetool 폴백 화면: 위쪽에 LOCAL(ours) │ BASE │ REMOTE(theirs), 아래쪽 전체 폭에 MERGED(결과)
+    #     — 결과 창에서 :diffget LOCAL / :diffget REMOTE (또는 git-conflict.nvim 의 co / ct / cb) 후 :wqa
+    #     (취소는 :cq — trustExitCode 라 git 이 병합 실패로 처리)
     git config --global merge.tool smerge
-    git config --global mergetool.smerge.cmd 'smerge mergetool "$BASE" "$LOCAL" "$REMOTE" -o "$MERGED"'
+    git config --global mergetool.smerge.cmd 'if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v smerge >/dev/null 2>&1; then smerge mergetool "$BASE" "$LOCAL" "$REMOTE" -o "$MERGED"; else nvim -d "$LOCAL" "$BASE" "$REMOTE" "$MERGED" -c "wincmd J"; fi'
     git config --global mergetool.smerge.trustExitCode true
     git config --global diff.tool smerge
-    git config --global difftool.smerge.cmd 'smerge "$LOCAL" "$REMOTE"'
+    git config --global difftool.smerge.cmd 'if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v smerge >/dev/null 2>&1; then smerge "$LOCAL" "$REMOTE"; else nvim -d "$LOCAL" "$REMOTE"; fi'
     git config --global difftool.prompt false
-    print_done "Git 글로벌 smerge 연동 완료 (git diff / git mergetool)"
+    print_done "Git 글로벌 smerge 연동 완료 (git diff / git mergetool — 화면이 없으면 Neovim 으로 폴백)"
 fi
 
 # ==============================================================================
