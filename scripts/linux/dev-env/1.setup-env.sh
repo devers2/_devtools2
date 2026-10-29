@@ -123,6 +123,25 @@ _dt2_path_prepend() {
     esac
 }
 
+# WSL2 ↔ Windows 크로스 플랫폼 파일 권한(100755) 오탐 자동 방어:
+# 터미널에서 git clone 실행 완료 시 해당 저장소에 core.filemode false 를 자동 적용
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    git() {
+        command git "\$@"
+        local _rc=\$?
+        if [ \$_rc -eq 0 ] && [ "\${1:-}" = "clone" ]; then
+            local _target_dir="\${!#}"
+            _target_dir="\${_target_dir%/}"
+            _target_dir="\${_target_dir##*/}"
+            _target_dir="\${_target_dir%.git}"
+            if [ -d "\$_target_dir/.git" ]; then
+                command git -C "\$_target_dir" config core.filemode false 2>/dev/null || true
+            fi
+        fi
+        return \$_rc
+    }
+fi
+
 export NODE_HOME="$DEVTOOLS2/modules/nodejs/node-v24"
 export NPM_CONFIG_GLOBALCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
 
@@ -252,6 +271,24 @@ if [ -d "$DEVTOOLS2/.git" ] && [ -f "$DEVTOOLS2/scripts/git-hooks/pre-commit" ];
     elif [ "$_cur_hooks" != "scripts/git-hooks" ]; then
         print_warn "git core.hooksPath 가 이미 '$_cur_hooks' 로 설정되어 있어 비밀 정보 차단 훅을 연결하지 않았습니다."
     fi
+fi
+
+# 1-3) WSL2 환경 전용: Windows ↔ WSL2 파일 권한(filemode) 오탐 영구 차단
+# - 새로 clone 하거나 init 하는 모든 프로젝트에 core.filemode false 가 자동 적용되도록
+#   init.defaultConfig 및 Git template post-checkout 훅을 등록합니다.
+# - 순수 Linux 네이티브 환경에서는 POSIX 권한이 완벽히 유지되므로 이 설정을 건드리지 않습니다.
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    git config --global core.filemode false 2>/dev/null || true
+    git config --global init.defaultConfig.core.filemode false 2>/dev/null || true
+    _git_tpl_hooks="$HOME/.config/git/template/hooks"
+    mkdir -p "$_git_tpl_hooks" 2>/dev/null || true
+    cat <<'EOF' > "$_git_tpl_hooks/post-checkout"
+#!/bin/sh
+# WSL2 ↔ Windows 크로스 플랫폼 파일 권한 오탐 자동 방어
+git config core.filemode false 2>/dev/null || true
+EOF
+    chmod +x "$_git_tpl_hooks/post-checkout" 2>/dev/null || true
+    git config --global init.templateDir "$HOME/.config/git/template" 2>/dev/null || true
 fi
 
 # 2) systemd 사용자 서비스 및 데스크톱 앱 연동용 ~/.config/environment.d/devtools2.conf 생성
