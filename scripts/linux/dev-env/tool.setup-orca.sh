@@ -262,6 +262,12 @@ if [ "$_orca_proceed" = true ]; then
     #   (기존 Gemini CLI 확장은 'agy plugin import gemini' 로 옮길 수 있음)
     # 무인 실행에서는 묻지 않고 건너뜁니다. DT2_ORCA_AGENTS="claude,codex,antigravity" 로 지정할 수 있습니다(none=설치 안 함).
     # (예전 이름 "gemini" 를 넣어도 antigravity 로 처리)
+    # [이미 설치된 에이전트 CLI 는 묻지 않고 최신으로 업데이트]
+    #   에이전트 CLI 는 자주 업데이트되고 하위 호환이 좋은 편이며, Linux 에서는 사용자가 따로 업데이트하기 번거로워
+    #   이 단계에서 각자의 공식 업데이트 명령을 실행합니다(새 버전이 있을 때만 바뀌고, 이미 최신이면 그대로).
+    #   ● Claude Code: claude update / Antigravity: agy update / Codex: npm 레지스트리 최신과 비교 후 npm i -g @openai/codex@latest
+    #   ● 업데이트에 실패해도 기존 설치는 그대로 두고 계속 진행합니다(시간 제한 180초).
+    #   ● 건너뛰려면 DT2_ORCA_AGENTS_UPDATE=n
     case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
     if ! command -v npm >/dev/null 2>&1 && [ -f "$HOME/.config/devtools2/env.sh" ]; then
         # shellcheck disable=SC1091
@@ -278,11 +284,39 @@ if [ "$_orca_proceed" = true ]; then
     _orca_agent_names=("claude" "codex" "agy")
     _orca_agent_labels=("Claude Code" "Codex" "Antigravity CLI (Google, Gemini CLI 후속)")
     _orca_agent_defaults=("N" "N" "N")
+    # 설치된 에이전트 CLI 의 버전 문자열 (업데이트 전후 비교용)
+    _orca_agent_ver() { "$1" --version 2>/dev/null | head -n 1 | grep -oE '[0-9]+(\.[0-9]+)+' | head -n 1 || true; }
+    # 설치된 에이전트 CLI 를 공식 업데이트 명령으로 최신화 (새 버전이 있을 때만 바뀜, 실패해도 계속)
+    _orca_agent_update() {
+        local cmd="$1" label="$2" before after latest
+        before=$(_orca_agent_ver "$cmd")
+        case "$cmd" in
+            claude) timeout -k 5 180 claude update < /dev/null >/dev/null 2>&1 || true ;;
+            agy)    timeout -k 5 180 agy update < /dev/null >/dev/null 2>&1 || true ;;
+            codex)
+                latest=$(timeout 30 npm view @openai/codex version 2>/dev/null || true)
+                if [ -n "$latest" ] && [ "$latest" != "$before" ]; then
+                    timeout -k 5 180 npm install -g --no-audit --no-fund "@openai/codex@latest" < /dev/null >/dev/null 2>&1 || true
+                fi
+                ;;
+        esac
+        hash -r
+        after=$(_orca_agent_ver "$cmd")
+        if [ -n "$after" ] && [ "$after" != "$before" ]; then
+            echo "      ⬆️  $label: ${before:-?} → $after 업데이트 완료 ($(command -v "$cmd"))"
+        else
+            echo "      ✅ $label: 설치됨, 최신 버전 ${after:-${before:-?}} ($(command -v "$cmd"))"
+        fi
+    }
     for _i in "${!_orca_agent_names[@]}"; do
         _cmd="${_orca_agent_names[$_i]}"
         _label="${_orca_agent_labels[$_i]}"
         if command -v "$_cmd" >/dev/null 2>&1; then
-            echo "      ✅ $_label: 설치됨 ($(command -v "$_cmd"))"
+            if [ "${DT2_ORCA_AGENTS_UPDATE:-y}" = "n" ]; then
+                echo "      ✅ $_label: 설치됨 ($(command -v "$_cmd")) — 업데이트 건너뜀 (DT2_ORCA_AGENTS_UPDATE=n)"
+            else
+                _orca_agent_update "$_cmd" "$_label"
+            fi
             continue
         fi
         _want=false
