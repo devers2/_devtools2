@@ -466,6 +466,15 @@ if (Test-Path $existingVhdx) {
 
 if (-not $skipDownload) {
     # ── 1. Ubuntu 배포판 버전 선택 (동적 탐지) ─────────────────────────────
+    # [1순위] Microsoft 공식 WSL 배포판 목록(DistributionInfo.json)에서 LTS 버전을 가져옵니다.
+    #   ● wsl --install / wsl --list --online 이 쓰는 것과 같은 목록이라 새 LTS 가 나오면 자동으로 보입니다.
+    #   ● Canonical 은 26.04 부터 WSL 이미지를 cloud-images.ubuntu.com/wsl 이 아니라 releases.ubuntu.com 에
+    #     새 형식(.wsl — 내용은 일반 rootfs tar.gz)으로만 올립니다. 예전처럼 cloud-images 만 보면 26.04 가
+    #     목록에 없어 24.04 가 "최신 LTS"로 잘못 표시됐습니다(2026-10 확인).
+    #   ● 각 이미지의 다운로드 URL 과 SHA256 이 함께 들어 있어 아래 무결성 검증에 그대로 씁니다.
+    #   ● LTS(짝수 연도 .04)만, 최신 LTS 부터 3개($ltsKeep)만 보여 주며 1번(최신 LTS)이 기본값입니다.
+    #     설치 후 문제가 있으면 이전 LTS 를 골라 다시 설치하면 됩니다.
+    # [2순위 폴백] 공식 목록 조회에 실패하면 아래의 기존 방식(cloud-images 탐지)을 그대로 씁니다:
     # cloud-images.ubuntu.com/wsl/releases/ 에서 사용 가능한 LTS 버전을
     # 런타임에 자동 탐지합니다. 각 버전의 /current/ 디렉터리에서 rootfs
     # 파일명을 파싱하여 codename(noble, jammy 등)을 추출합니다.
@@ -473,28 +482,62 @@ if (-not $skipDownload) {
     Write-Step "[Step 3-1] Ubuntu 배포판 버전 선택"
     Write-Info "설치 가능한 Ubuntu LTS 버전을 확인하는 중..."
 
-    $availableVersions = @()
+    $ltsKeep = 3
+    # 아키텍처는 버전 목록(이미지 URL)부터 필요하므로 여기서 먼저 정합니다 (Step 3-3 에서 그대로 사용)
+    $isArm64 = ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64)
+    $arch = if ($isArm64) { "arm64" } else { "amd64" }
+
+    # 버전("26.04") → @{ Ver; Url; Sha256 } (Microsoft 공식 목록에서 찾은 이미지)
+    $msDistros = [ordered]@{}
     try {
-        $releasesHtml = Invoke-RestMethod -Uri "https://cloud-images.ubuntu.com/wsl/releases/" -TimeoutSec 15 -ErrorAction Stop
-        # HTML 디렉터리 목록에서 "22.04/", "24.04/" 같은 버전 링크 추출
-        # Apache 버전(2.4, 3.2 등)을 제외하기 위해 >= 20.00 필터 적용
-        $versionMatches = [regex]::Matches($releasesHtml, 'href="(\d+\.\d+)/"')
-        foreach ($m in $versionMatches) {
-            $ver = $m.Groups[1].Value
-            if ([double]$ver -ge 20.0) {
-                $availableVersions += $ver
-            }
+        $distInfo = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json" -TimeoutSec 15 -ErrorAction Stop
+        $found = @()
+        foreach ($d in @($distInfo.ModernDistributions.Ubuntu)) {
+            # "Ubuntu"(= 최신 LTS 별칭) 은 버전이 붙은 항목과 중복이라 건너뛰고 "Ubuntu-NN.04" 만 봅니다
+            $vm = [regex]::Match([string]$d.Name, '^Ubuntu-(\d+)\.04$')
+            if (-not $vm.Success) { continue }
+            if (([int]$vm.Groups[1].Value % 2) -ne 0) { continue }   # 짝수 연도 .04 = LTS
+            $urlObj = if ($isArm64) { $d.Arm64Url } else { $d.Amd64Url }
+            if ($null -eq $urlObj -or [string]::IsNullOrWhiteSpace([string]$urlObj.Url)) { continue }
+            $sha = [string]$urlObj.Sha256
+            if (-not [string]::IsNullOrWhiteSpace($sha)) { $sha = ($sha.Trim().ToLower() -replace '^0x', '') }
+            $found += [pscustomobject]@{ Ver = "$($vm.Groups[1].Value).04"; Url = [string]$urlObj.Url; Sha256 = $sha }
         }
-        # 최신 버전이 맨 앞에 오도록 내림차순 정렬
-        $availableVersions = $availableVersions | Sort-Object { [System.Version]($_ + ".0") } -Descending
+        foreach ($f in @($found | Sort-Object { [System.Version]($_.Ver + ".0") } -Descending | Select-Object -First $ltsKeep)) {
+            $msDistros[$f.Ver] = $f
+        }
     } catch {
-        Write-Warn "온라인 버전 목록 조회에 실패했습니다. 기본 버전(24.04, 22.04)을 사용합니다."
-        $availableVersions = @("24.04", "22.04")
+        Write-Warn "Microsoft 공식 WSL 배포판 목록 조회에 실패했습니다. Canonical cloud-images 목록으로 확인합니다."
     }
 
-    if ($availableVersions.Count -eq 0) {
-        Write-Warn "사용 가능한 Ubuntu 버전을 찾을 수 없습니다. 기본 버전(24.04, 22.04)을 사용합니다."
-        $availableVersions = @("24.04", "22.04")
+    if ($msDistros.Count -gt 0) {
+        $availableVersions = @($msDistros.Keys)
+    } else {
+        $availableVersions = @()
+        try {
+            $releasesHtml = Invoke-RestMethod -Uri "https://cloud-images.ubuntu.com/wsl/releases/" -TimeoutSec 15 -ErrorAction Stop
+            # HTML 디렉터리 목록에서 "22.04/", "24.04/" 같은 버전 링크 추출
+            # Apache 버전(2.4, 3.2 등)을 제외하기 위해 >= 20.00 필터 적용
+            $versionMatches = [regex]::Matches($releasesHtml, 'href="(\d+\.\d+)/"')
+            foreach ($m in $versionMatches) {
+                $ver = $m.Groups[1].Value
+                if ([double]$ver -ge 20.0) {
+                    $availableVersions += $ver
+                }
+            }
+            # 최신 버전이 맨 앞에 오도록 내림차순 정렬
+            $availableVersions = $availableVersions | Sort-Object { [System.Version]($_ + ".0") } -Descending
+        } catch {
+            Write-Warn "온라인 버전 목록 조회에 실패했습니다. 기본 버전(24.04, 22.04)을 사용합니다."
+            $availableVersions = @("24.04", "22.04")
+        }
+
+        if ($availableVersions.Count -eq 0) {
+            Write-Warn "사용 가능한 Ubuntu 버전을 찾을 수 없습니다. 기본 버전(24.04, 22.04)을 사용합니다."
+            $availableVersions = @("24.04", "22.04")
+        }
+        # 폴백 목록도 최신 LTS 부터 3개만
+        $availableVersions = @($availableVersions | Select-Object -First $ltsKeep)
     }
 
     # 각 버전의 codename 을 rootfs 파일명에서 동적으로 추출
@@ -502,7 +545,8 @@ if (-not $skipDownload) {
     $versionMap = [ordered]@{}
     foreach ($ver in $availableVersions) {
         $codename = $null
-        try {
+        # 공식 목록에서 찾은 버전은 이미지 URL 을 이미 알므로 cloud-images 조회를 건너뜁니다(표시는 아래 알려진 코드명)
+        if (-not $msDistros.Contains($ver)) { try {
             $currentHtml = Invoke-RestMethod -Uri "https://cloud-images.ubuntu.com/wsl/releases/$ver/current/" -TimeoutSec 10 -ErrorAction Stop
             $codenameMatch = [regex]::Match($currentHtml, 'ubuntu-([a-z]+)-wsl-')
             if ($codenameMatch.Success) {
@@ -510,12 +554,13 @@ if (-not $skipDownload) {
             }
         } catch {
             # codename 조회 실패 시 무시 — 아래에서 폴백 처리
-        }
+        } }
         # 잘 알려진 LTS codename 폴백 매핑
         if ([string]::IsNullOrEmpty($codename)) {
             $knownCodenames = @{
                 "24.04" = "noble"; "22.04" = "jammy"; "20.04" = "focal"
-                "26.04" = "euphoric"; "28.04" = "unknown"
+                # 26.04 정식 코드명은 Resolute Raccoon (예전 값 "euphoric" 은 잘못된 추정이었음)
+                "26.04" = "resolute"; "28.04" = "unknown"
             }
             if ($knownCodenames.ContainsKey($ver)) {
                 $codename = $knownCodenames[$ver]
@@ -533,8 +578,12 @@ if (-not $skipDownload) {
     foreach ($ver in $versionMap.Keys) {
         $cn = $versionMap[$ver]
         $cnCapital = (Get-Culture).TextInfo.ToTitleCase($cn)
+        # 코드명을 모르는 새 LTS(unknown)는 괄호 안에 버전 설명만 표시
+        $cnPart = if ($cn -eq "unknown") { "" } else { "$cnCapital - " }
         $label = if ($vIdx -eq 1) {
-            "Ubuntu $ver LTS ($cnCapital - 최신 LTS 권장)"
+            "Ubuntu $ver LTS (${cnPart}최신 LTS 권장)"
+        } elseif ($cn -eq "unknown") {
+            "Ubuntu $ver LTS"
         } else {
             "Ubuntu $ver LTS ($cnCapital)"
         }
@@ -595,8 +644,7 @@ if (-not $skipDownload) {
 
     # ── 3. Canonical 공식 Ubuntu WSL RootFS 다운로드 (미러 및 원본 폴백 지원) ──
     Write-Step "[Step 3-3] Ubuntu WSL RootFS 다운로드"
-    $isArm64 = ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64)
-    $arch = if ($isArm64) { "arm64" } else { "amd64" }
+    # ($isArm64 / $arch 는 Step 3-1 에서 이미 정했습니다)
     $rootfsFileName = "ubuntu-$ubuntuCodename-wsl-$arch-wsl.rootfs.tar.gz"
 
     # 우선순위 미러 및 공식 CDN URL 목록 (다중 URL 자동 폴백 지원)
@@ -604,6 +652,13 @@ if (-not $skipDownload) {
         "https://cloud-images.ubuntu.com/wsl/releases/$ubuntuVer/current/$rootfsFileName",
         "https://cloud-images.ubuntu.com/wsl/$ubuntuCodename/current/$rootfsFileName"
     )
+    # Microsoft 공식 목록에서 고른 버전: releases.ubuntu.com 의 .wsl 이미지(내용은 rootfs tar.gz)를 사용
+    # (wsl --import 는 gzip 압축을 내용으로 판별하므로 임시 파일 이름은 기존과 같은 .tar.gz 로 둡니다)
+    $msImage = $null
+    if ($msDistros.Contains($ubuntuVer)) {
+        $msImage = $msDistros[$ubuntuVer]
+        $rootfsUrls = @($msImage.Url)
+    }
 
     $tempTarPath = Join-Path $env:TEMP "ubuntu-$ubuntuCodename-wsl-$arch.rootfs.tar.gz"
     $downloadOk = Download-WithProgress -Urls $rootfsUrls -DestinationPath $tempTarPath -Description "Ubuntu $ubuntuVer LTS ($arch)"
@@ -617,8 +672,10 @@ if (-not $skipDownload) {
     # ── RootFS SHA256 무결성 검증 (같은 폴더의 공식 SHA256SUMS 기준) ──
     # 불일치하면 손상·변조된 이미지로 배포판을 만들지 않도록 중단합니다.
     # SHA256SUMS 자체를 받지 못한 경우에만 경고 후 계속합니다.
+    # (Microsoft 공식 목록 이미지는 목록에 들어 있는 SHA256 을 그대로 기준값으로 씁니다)
     $expectedSha = $null
-    foreach ($u in $rootfsUrls) {
+    if ($msImage -and -not [string]::IsNullOrWhiteSpace($msImage.Sha256)) { $expectedSha = $msImage.Sha256 }
+    if (-not $expectedSha) { foreach ($u in $rootfsUrls) {
         $sumsUrl = ($u -replace '/[^/]+$', '') + '/SHA256SUMS'
         try {
             $sums = [string](Invoke-RestMethod -Uri $sumsUrl -TimeoutSec 15 -ErrorAction Stop)
@@ -628,7 +685,7 @@ if (-not $skipDownload) {
             }
         } catch {}
         if ($expectedSha) { break }
-    }
+    } }
     if ($expectedSha) {
         $actualSha = (Get-FileHash -Path $tempTarPath -Algorithm SHA256).Hash.ToLower()
         if ($actualSha -ne $expectedSha) {
