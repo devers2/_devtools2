@@ -301,7 +301,44 @@ if [ -d "$SMERGE_CONFIG_SRC" ]; then
     ln -sfn "$SMERGE_CONFIG_SRC" "$HOME/.config/sublime-merge/Packages/User"
     print_done "설정 파일 심볼릭 링크 완료: $SMERGE_CONFIG_SRC"
 
-    # 2) Sublime Merge 시작 세션에 기본 저장소 경로 등록 (Local Repositories)
+    # 2) 중앙 UI 기본값(.config/devtools2/ui-defaults.json)을 Preferences 에 반영 — diff 코드 글꼴·크기·줄 간격
+    # - Neovim(Windows Terminal/Ghostty)과 같은 글꼴 크기·줄 높이를 쓰도록 단일 파일에서 관리합니다.
+    #   (예전에는 Windows 판 설치 PS1 이 복사하면서 반영했으나, Linux 판으로 전환하며 이 단계로 옮김)
+    # - Sublime Merge 는 사용자 폴더의 플랫폼별 설정(Preferences (Linux).sublime-settings)을 읽지 않음을 실측했으므로
+    #   저장소의 Preferences 파일 값을 직접 갱신합니다. 값이 이미 같으면 파일을 건드리지 않습니다(멱등, git 변경 없음).
+    # - 줄 간격 환산: nvim/WT 는 줄 높이 "비율"(line_height, 예 1.5), Sublime 은 위·아래 여백 px 입니다.
+    #   D2Coding 의 기본 줄 높이는 글자 크기(px)의 약 1.17배(WSLg 1:1 캡처 실측)이므로
+    #   여백 합계 = round((line_height - 1.17) × 글자 px), 글자 px = pt × 96/72, 위쪽에 1px 더 배분합니다.
+    #   (11.5pt / 1.5 → 15.3px, 여백 5px → 위 3 / 아래 2)
+    python3 - "$DEVTOOLS2/.config/devtools2/ui-defaults.json" "$SMERGE_CONFIG_SRC/Preferences.sublime-settings" <<'PYEOF' || print_warn "ui-defaults.json 값을 Sublime Merge Preferences 에 반영하지 못했습니다."
+import json, re, sys
+
+ui_path, pref_path = sys.argv[1], sys.argv[2]
+font = json.load(open(ui_path, encoding="utf-8")).get("font", {})
+size = float(font.get("size", 11.5))
+face = font.get("gui_face", "D2Coding ligature")
+line_height = float(font.get("line_height", 1.5))
+
+px = size * 96 / 72
+total = max(0, round((line_height - 1.17) * px))
+top, bottom = (total + 1) // 2, total // 2
+size_str = ("%g" % size)
+
+text = open(pref_path, encoding="utf-8").read()
+new = text
+new = re.sub(r'("font_face"\s*:\s*)"[^"]*"', lambda m: m.group(1) + json.dumps(face, ensure_ascii=False), new, count=1)
+new = re.sub(r'("font_size"\s*:\s*)[0-9.]+', lambda m: m.group(1) + size_str, new, count=1)
+new = re.sub(r'("line_padding_top"\s*:\s*)[0-9]+', lambda m: m.group(1) + str(top), new, count=1)
+new = re.sub(r'("line_padding_bottom"\s*:\s*)[0-9]+', lambda m: m.group(1) + str(bottom), new, count=1)
+if new != text:
+    with open(pref_path, "w", encoding="utf-8") as f:
+        f.write(new)
+    print(f"[완료] ui-defaults.json 반영: font_face={face}, font_size={size_str}, line_padding={top}/{bottom}")
+else:
+    print(f"[건너뜀] Preferences 가 이미 ui-defaults.json 과 같습니다 (font_size={size_str}, line_padding={top}/{bottom})")
+PYEOF
+
+    # 3) Sublime Merge 시작 세션에 기본 저장소 경로 등록 (Local Repositories)
     python3 - <<PYEOF 2>/dev/null || true
 import json, os
 
