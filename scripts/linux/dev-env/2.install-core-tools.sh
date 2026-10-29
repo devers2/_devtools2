@@ -144,7 +144,10 @@ else
         "Ghostty" "(WSL2 - 설치 건너뜀)" "⏭️  해당 없음"
 fi
 echo ""
-echo "   ℹ️  Python 은 아직 track 대상이 아니라 스크립트에 지정된 버전(3.14·3.12)으로 설치합니다."
+for _pm in 3.14 3.12; do
+    _pd="$DEVTOOLS2/modules/python/python-${_pm//./}"
+    printf "   %-14s  track: %-10s  %s\n" "Python $_pm" "$(get_track "python${_pm//./}" "$_pm")" "$(_fmts "$([ -x "$_pd/bin/python3" ] && echo true || echo false)")"
+done
 echo ""
 
 # ── 중복 처리 방식 선택 ──────────────────────────────────────────
@@ -385,25 +388,124 @@ echo "🐍 3. Python 포터블 설치 중..."
 mkdir -p "$DEVTOOLS2/modules/python"
 cd "$DEVTOOLS2/modules/python"
 
-if [ -d "$DEVTOOLS2/modules/python/python-314" ]; then
-    echo "   ⏭️ [건너뜀] python-314 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/python/python-314'"
-else
-    install_tool \
-        'https://github.com/indygreg/python-build-standalone/releases/download/20260414/cpython-3.14.4+20260414-{ARCH}-unknown-linux-gnu-install_only.tar.gz' \
-        'x86_64' \
-        'aarch64' \
-        'python-314'
-fi
+# ── 버전 결정: [track] python314 / python312 (기본 "3.14" / "3.12" = 그 마이너 안의 최신 패치) ──────
+# Python 의 3.14 → 3.15 는 매년 나오는 기능 릴리스로 사실상 메이저 업그레이드라, JDK(jdk-21·jdk-25)처럼
+# 마이너마다 폴더(python-314·python-312)를 따로 두고 track 은 패치(3.14.x)만 따라갑니다.
+#   ● 폴더 경로가 그대로라 패치 업데이트 뒤에도 PYTHON_HOME·VS Code 설정·가상환경(venv)이 그대로 동작합니다.
+#   ● 3.15 를 추가하려면 [track] python315 = "3.15" 와 아래 _install_python_minor 3.15 호출을 추가합니다.
+#   ● 예전에는 다운로드 주소(빌드 20260414)가 고정이고 폴더가 있으면 건너뛰어 보안 패치를 받지 못했습니다.
+#   ● 다운로드 주소는 프로젝트의 현재 위치(astral-sh)를 씁니다(예전 indygreg 주소는 GitHub 리디렉트에 의존).
+_pbs_triple="x86_64-unknown-linux-gnu"
+[ "$IS_ARM64" = true ] && _pbs_triple="aarch64-unknown-linux-gnu"
+set +e; _PBS_INDEX=$(fetch_python_build_index "$_pbs_triple"); set -e
+# 인수로 마이너를 주면 그 마이너의 버전만 출력합니다(가장 높은 마이너가 아니면 "범위 밖 새 버전" 안내를 내지 않기 위함)
+_pbs_list_versions() { printf '%s\n' "$_PBS_INDEX" | awk -v m="${1:-}" 'NF && (m == "" || index($1, m ".") == 1) { print $1 }'; }
 
-if [ -d "$DEVTOOLS2/modules/python/python-312" ]; then
-    echo "   ⏭️ [건너뜀] python-312 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/python/python-312'"
-else
-    install_tool \
-        'https://github.com/astral-sh/python-build-standalone/releases/download/20260414/cpython-3.12.13+20260414-{ARCH}-unknown-linux-gnu-install_only.tar.gz' \
-        'x86_64' \
-        'aarch64' \
-        'python-312'
-fi
+# 사용법: _install_python_minor <마이너, 예: 3.14> [notice]
+#   notice: 범위 밖 새 마이너(예: 3.15) 안내를 표시 — 가장 높은 마이너에만 줍니다
+#           (3.12 에도 주면 "python312 값을 3.15 로 바꾸라"는 엉뚱한 안내가 됨)
+_install_python_minor() {
+    local minor="$1" notice="${2:-}"
+    local key="python${minor//./}" dir="python-${minor//./}"
+    local pdir="$DEVTOOLS2/modules/python/$dir"
+    local pinned ver tag sha="" line track cur="" installed=false
+    pinned=$(get_pinned_version "$key")             # 마지막 설치 기록 "3.14.4+20260414"
+    track=$(get_track "$key" "$minor")
+    if [ "$notice" = "notice" ]; then
+        ver=$(resolve_track_version "$key" "$minor" _pbs_list_versions)
+    else
+        ver=$(resolve_track_version "$key" "$minor" _pbs_list_versions "$minor")
+    fi
+    # 폴더(python-314)가 마이너에 묶여 있으므로 다른 마이너를 가리키는 track(예: python314 = "3.15")은 받지 않습니다
+    # (위 "범위 밖 새 버전" 안내를 보고 값만 바꾸면 3.15 가 python-314 폴더에 설치되는 것을 막기 위함)
+    if [ -n "$ver" ] && [[ "$ver" != "${minor}."* ]]; then
+        print_warn "  ${key}: track \"${track}\" 은 ${minor}.x 범위가 아니라 무시합니다. 새 마이너는 새 키(예: python315 = \"3.15\")와 _install_python_minor 호출로 추가하세요."
+        ver=""
+    fi
+    if [[ "$ver" == *+* ]]; then
+        # 정확한 고정("3.14.4+20260414"): 버전과 빌드 날짜를 그대로 사용
+        tag="${ver#*+}"; ver="${ver%%+*}"
+    elif [ -n "$ver" ]; then
+        line=$(printf '%s\n' "$_PBS_INDEX" | awk -v v="$ver" '$1 == v { print; exit }')
+        tag=$(awk '{ print $2 }' <<<"$line"); sha=$(awk '{ print $3 }' <<<"$line")
+        if [ -z "$tag" ]; then
+            # 버전만 고정(빌드 날짜 없음)했는데 최신 릴리스에 그 버전이 없으면 주소를 만들 수 없음
+            print_warn "  ${key}: track \"${track}\" 의 빌드를 찾지 못했습니다. 정확히 고정하려면 \"버전+빌드날짜\"(예: ${pinned}) 형식으로 쓰세요."
+            ver=""
+        fi
+    fi
+    if [ -z "$ver" ] || [ -z "$tag" ]; then
+        # 목록 조회 실패 시 마지막 설치 버전으로 폴백
+        ver="${pinned%%+*}"; tag="${pinned#*+}"
+    fi
+    [ "$sha" = "-" ] && sha=""
+
+    if [ -x "$pdir/bin/python3" ]; then
+        installed=true
+        cur=$("$pdir/bin/python3" --version 2>/dev/null | awk '{ print $2 }' || true)
+    fi
+
+    # ── 설치/업데이트/건너뛰기 결정 (필수 도구라 미설치면 묻지 않고 설치) ──
+    decide_app_action "Python ${minor}" "$installed" "$cur" "$ver" "A" "DT2_PYTHON${minor//./}"
+    local action="$DT2_APP_ACTION"
+    # ── 중복 처리: 업데이트하지 않은 경우 사용자가 고른 중복 처리 방식(재설치 등) 적용 ──
+    if [ "$action" = "skip" ] && [ "$installed" = true ] && [ "$(_resolve_action true "Python ${minor}")" = "reinstall" ]; then
+        action="update"
+    fi
+    [ "$action" = "skip" ] && return 0
+
+    local file="cpython-${ver}+${tag}-${_pbs_triple}-install_only.tar.gz"
+    local url="https://github.com/astral-sh/python-build-standalone/releases/download/${tag}/${file}"
+    [ -n "$sha" ] || sha=$(github_asset_sha256 "astral-sh/python-build-standalone" "$tag" "$file")
+    local stage="$DEVTOOLS2/modules/python/.dt2-new-${dir}" old="$DEVTOOLS2/modules/python/.dt2-old-${dir}"
+    rm -rf "$stage" "$old"; mkdir -p "$stage"
+
+    echo "   📦 Python ${ver} (빌드 ${tag}) 설치..."
+    if ! download_with_progress "$url" "$stage/$file" "Python ${ver}"; then
+        print_warn "Python ${ver} 다운로드 실패 ($url) — 기존 설치를 유지합니다."
+        rm -rf "$stage"; return 0
+    fi
+    if [ -n "$sha" ]; then
+        if ! verify_sha256 "$stage/$file" "$sha"; then
+            print_warn "Python ${ver} SHA256 불일치 — 기존 설치를 유지합니다."
+            rm -rf "$stage"; return 0
+        fi
+    else
+        print_warn "Python ${ver} 체크섬을 조회하지 못해 검증 없이 설치합니다."
+    fi
+    if ! tar -xzf "$stage/$file" -C "$stage" || [ ! -x "$stage/python/bin/python3" ]; then
+        print_warn "Python ${ver} 압축 해제 실패 — 기존 설치를 유지합니다."
+        rm -rf "$stage"; return 0
+    fi
+
+    # 새 버전 준비가 끝난 뒤에만 기존 설치를 교체합니다(실패 시 기존 Python 유지).
+    if [ -d "$pdir" ]; then
+        mv "$pdir" "$old"
+        # 사용자가 이 Python 에 직접 pip 로 설치한 패키지·명령은 새 설치로 옮깁니다.
+        # (같은 마이너의 패치 업데이트는 ABI 가 같아 그대로 동작하고, 명령의 #! 경로도 폴더가 같아 유효)
+        local sp_old="$old/lib/python${minor}/site-packages" sp_new="$stage/python/lib/python${minor}/site-packages" it
+        if [ -d "$sp_old" ] && [ -d "$sp_new" ]; then
+            for it in "$sp_old"/* "$sp_old"/.[!.]*; do
+                [ -e "$it" ] || continue
+                [ -e "$sp_new/$(basename "$it")" ] || mv "$it" "$sp_new/"
+            done
+        fi
+        for it in "$old/bin"/*; do
+            [ -e "$it" ] || [ -L "$it" ] || continue
+            [ -e "$stage/python/bin/$(basename "$it")" ] || [ -L "$stage/python/bin/$(basename "$it")" ] || mv "$it" "$stage/python/bin/"
+        done
+    fi
+    mv "$stage/python" "$pdir"
+    rm -rf "$stage" "$old"
+    echo "   ✅ Python ${ver} 설치 완료 ($dir)"
+    # 마지막 설치 버전과 다르면 이 PC 의 설치 이력(data/state) 업데이트
+    if [ "${ver}+${tag}" != "$pinned" ]; then
+        update_pinned_version "$key" "${ver}+${tag}"
+    fi
+}
+
+_install_python_minor 3.14 notice
+_install_python_minor 3.12
 
 echo "✅ Python 설치 완료 ($ARCH)"
 echo ""

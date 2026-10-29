@@ -144,6 +144,33 @@ except Exception:
 ' 2>/dev/null || true
 }
 
+# Python 포터블 빌드(astral-sh/python-build-standalone) 최신 릴리스의 버전·태그·SHA256 목록
+# 이 프로젝트는 릴리스 태그가 버전이 아니라 빌드 날짜(예: 20261026)이고, 실제 CPython 버전은 파일 이름
+# (cpython-3.14.10+20261026-x86_64-unknown-linux-gnu-install_only.tar.gz)에 들어 있습니다.
+# 릴리스마다 지원 중인 모든 마이너(3.11~3.15 등)의 최신 패치를 함께 빌드하므로 최신 릴리스 하나만 보면
+# 각 마이너의 최신 패치를 알 수 있습니다(릴리스 JSON 약 2MB — 전체 목록은 너무 커서 보지 않음).
+# 사용법: fetch_python_build_index <아키텍처 triple, 예: x86_64-unknown-linux-gnu>
+# 출력: "버전 태그 sha256" 줄 목록 (조회 실패 시 빈 출력, sha256 은 GitHub digest 미제공 시 "-")
+fetch_python_build_index() {
+    local triple="$1"
+    local -a auth=()
+    [ -n "${GITHUB_TOKEN:-}" ] && auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+    curl -sf --max-time 30 "${auth[@]}" "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest" 2>/dev/null \
+        | python3 -c '
+import json, re, sys
+triple = sys.argv[1]
+try:
+    rel = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for a in rel.get("assets", []):
+    m = re.fullmatch(r"cpython-(\d+\.\d+\.\d+)\+(\d+)-" + re.escape(triple) + r"-install_only\.tar\.gz", a.get("name", ""))
+    if m:
+        d = a.get("digest") or ""
+        print(m.group(1), m.group(2), d[7:] if d.startswith("sha256:") and len(d) == 71 else "-")
+' "$triple" 2>/dev/null || true
+}
+
 # track 범위 안의 설치 대상 버전 결정
 # 사용법: resolve_track_version <toml 키> <기본 track> <버전 목록 명령...>
 # 출력: 대상 버전('v' 없음). 정확한 버전 고정이면 그대로, 목록 조회 실패 시 빈 값(호출부가 TOML 배열로 폴백)
