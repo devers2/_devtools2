@@ -142,6 +142,17 @@ if [ ! -f "\$WIN_SMERGE" ]; then
     fi
 fi
 
+# Windows ↔ WSL2 환경에서 실행 권한(100755) 오탐을 방지하기 위해,
+# 열려는 대상 디렉터리가 Git 저장소이면 core.filemode false 를 선제적으로 자동 보정
+for _target in "\$@" "."; do
+    if [ -d "\$_target" ]; then
+        _gdir=\$(git -C "\$_target" rev-parse --git-dir 2>/dev/null || true)
+        if [ -n "\$_gdir" ] && [ -d "\$_gdir" ]; then
+            git -C "\$_target" config core.filemode false 2>/dev/null || true
+        fi
+    fi
+done
+
 # 인자 변환: 존재하는 Linux 파일/디렉토리 경로는 Windows UNC/절대 경로로 변환
 args=()
 for arg in "\$@"; do
