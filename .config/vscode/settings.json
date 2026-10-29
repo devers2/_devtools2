@@ -103,7 +103,7 @@
 
   /* [Gradle 경로] */
   // ❗Gradle 실행 파일 경로: Gradle Wrapper 가 없거나 java.import.gradle.wrapper.enabled 가 false 로 설정된 경우에만 필요, 일반적으로는 Gradle Wrapper 사용 권장
-  // "java.import.gradle.home": "/var/opt/_devtools2/modules/gradle/gradle-9",
+  // "java.import.gradle.home": "/var/opt/_devtools2/modules/gradle/current",
   "java.import.gradle.wrapper.enabled": true, // Gradle Wrapper 사용 여부 → true: Wrapper 사용(기본값, 프로젝트 루트 디렉토리의 'gradlew' 스크립트 사용), false: 시스템에 설치된 Gradle 사용(java.import.gradle.home 설정 필요)
 
   /* Maven 관련 */

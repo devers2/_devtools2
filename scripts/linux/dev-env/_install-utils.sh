@@ -52,18 +52,133 @@ _ensure_pkg() {
     fi
 }
 
+# ── 버전 범위(track) 정책: tool-versions.toml 의 [track] 한 곳에서 모든 도구의 버전 정책을 관리 ──────
+# 예전에는 도구마다 버전을 정하는 방법이 달랐습니다(설치 때 "최신/지정/개별" 선택, TOML 직접 수정,
+# 코드에 메이저 고정(node-v24·gradle-9), 항상 최신). 이제 모든 도구가 같은 규칙을 따릅니다.
+#   track 값:  "latest" → 항상 최신(메이저 포함) / "24" → 메이저 24 안에서 최신 /
+#              "0.12" → 0.12.x 안에서 최신 / "0.74.1" 처럼 전체 버전 → 정확히 그 버전으로 고정
+#   ● 설치 스크립트가 track 범위 안의 최신 버전을 찾고, 설치된 버전과 다르면 업데이트 여부를 묻습니다
+#     (판단은 decide_app_action). 범위 밖에 더 새 버전이 있으면 안내만 합니다(메이저 업그레이드는 track 한 줄 변경).
+#   ● 버전 목록 조회에 실패하면 TOML 버전 배열의 첫 항목(마지막 공유 기본 버전)으로 폴백합니다.
+
+# [track] 섹션에서 도구의 track 값 읽기 (없으면 두 번째 인수 기본값)
+get_track() {
+    local key="$1" def="${2:-}" v
+    v=$(_read_toml | awk -v k="$key" '
+        /^\[/ { in_t = ($0 ~ /^\[track\]/) ; next }
+        in_t && $0 ~ "^"k"[[:space:]]*=" { sub(/^[^=]*=[[:space:]]*/, ""); gsub(/"/, ""); sub(/[[:space:]]*#.*/, ""); print; exit }')
+    echo "${v:-$def}"
+}
+
+# track 이 "정확한 버전 고정"인지 (숫자 구간 3개 이상, 또는 8u504-b01·17.0.18+8 처럼 숫자·점 외 문자 포함)
+_track_is_exact() {
+    local t="$1"
+    [ "$t" != "latest" ] || return 1
+    [[ "$t" =~ [^0-9.] ]] && return 0
+    [ "$(tr -cd '.' <<<"$t" | wc -c)" -ge 2 ]
+}
+
+# 표준입력의 버전 목록(한 줄에 하나, 'v' 없음) 중 track 범위 안의 최신 버전
+_pick_in_track() {
+    local t="$1"
+    if [ "$t" = "latest" ]; then
+        sort -V | tail -n 1
+    else
+        grep -E "^${t//./\\.}(\.|$)" | sort -V | tail -n 1
+    fi
+}
+
+# GitHub 릴리스 목록에서 정식 버전만 추출 (draft·prerelease 제외, 태그 접두어·'v' 제거, 숫자 버전만)
+# 사용법: list_github_release_versions <owner/repo> [태그 접두어(예: cli-v)]
+# GITHUB_TOKEN 이 있으면 인증 헤더를 붙여 API 호출 한도(시간당 60회)를 완화합니다.
+list_github_release_versions() {
+    local repo="$1" prefix="${2:-}"
+    local _auth=()
+    [ -n "${GITHUB_TOKEN:-}" ] && _auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+    curl -sf --max-time 15 "${_auth[@]}" "https://api.github.com/repos/${repo}/releases?per_page=100" 2>/dev/null \
+        | python3 -c '
+import json, re, sys
+prefix = sys.argv[1]
+try:
+    rels = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+for r in rels if isinstance(rels, list) else []:
+    if r.get("draft") or r.get("prerelease"):
+        continue
+    tag = r.get("tag_name", "")
+    if prefix and tag.startswith(prefix):
+        tag = tag[len(prefix):]
+    tag = tag[1:] if tag[:1] in "vV" else tag
+    if re.fullmatch(r"\d+(\.\d+)+", tag):
+        print(tag)
+' "$prefix" 2>/dev/null || true
+}
+
+# Node.js LTS 버전 목록 ('v' 없음) — track "latest" 도 Current 가 아닌 최신 LTS 를 고르도록 LTS 만 출력
+list_nodejs_lts_versions() {
+    curl -sf --max-time 15 "https://nodejs.org/dist/index.json" 2>/dev/null \
+        | python3 -c '
+import json, sys
+try:
+    for v in json.load(sys.stdin):
+        if v.get("lts"):
+            print(v["version"].lstrip("v"))
+except Exception:
+    pass
+' 2>/dev/null || true
+}
+
+# Gradle 정식 버전 목록 (스냅샷·나이틀리·RC·마일스톤·broken 제외)
+list_gradle_versions() {
+    curl -sf --max-time 15 "https://services.gradle.org/versions/all" 2>/dev/null \
+        | python3 -c '
+import json, sys
+try:
+    for v in json.load(sys.stdin):
+        if v.get("snapshot") or v.get("nightly") or v.get("releaseNightly") or v.get("rcFor") or v.get("milestoneFor") or v.get("broken"):
+            continue
+        print(v["version"])
+except Exception:
+    pass
+' 2>/dev/null || true
+}
+
+# track 범위 안의 설치 대상 버전 결정
+# 사용법: resolve_track_version <toml 키> <기본 track> <버전 목록 명령...>
+# 출력: 대상 버전('v' 없음). 정확한 버전 고정이면 그대로, 목록 조회 실패 시 빈 값(호출부가 TOML 배열로 폴백)
+# 범위 밖에 더 새 버전이 있으면 표준에러로 안내합니다(메이저 업그레이드 = [track] 값 변경).
+resolve_track_version() {
+    local key="$1" def_track="$2"; shift 2
+    local track list best top
+    track=$(get_track "$key" "$def_track")
+    if _track_is_exact "$track"; then
+        echo "${track#v}"
+        return 0
+    fi
+    list=$("$@")
+    [ -n "$list" ] || return 0
+    best=$(printf '%s\n' "$list" | _pick_in_track "$track")
+    top=$(printf '%s\n' "$list" | sort -V | tail -n 1)
+    if [ -n "$top" ] && [ -n "$best" ] && [ "$top" != "$best" ]; then
+        print_info "  ${key}: track \"${track}\" 범위 밖에 새 버전 ${top} 이 있습니다. 올리려면 tool-versions.toml 의 [track] ${key} 값을 바꾸세요." >&2
+    fi
+    echo "$best"
+}
+
 # ── 앱 설치·업데이트 여부 결정 공용 함수 (앱 규칙) ─────────────────────────────
 # Zed · Orca · VS Code · Sublime Merge · Ghostty 처럼 "버전 고정(TOML)"이 아닌 사용자 앱이 모두 같은 규칙으로
 # 동작하도록 판단을 한 곳에 모았습니다. 새 앱을 추가할 때도 이 함수를 쓰면 동일하게 동작합니다.
 # (Java·Node.js·Python·Neovim·CLI 도구 같은 개발 런타임/도구는 재현성을 위해 TOML 버전 고정 방식을 그대로 씁니다)
 #
 #   ● 미설치: 설치 여부 확인 (기본값은 앱별 지정, 보통 N / 기본 터미널처럼 꼭 필요한 앱은 Y)
+#             설치 기본값 "A"(auto)는 묻지 않고 바로 설치합니다 — Java·Node.js·CLI 도구처럼 개발 환경에 필수인 도구용
 #   ● 설치됨: 최신 버전 조회 → 새 버전이 있으면 업데이트 여부 확인 (기본값 Y)
 #             최신 버전 조회 실패 또는 이미 최신이면 건너뜀. 설치는 됐지만 현재 버전을 모르면 업데이트를 제안
 #   ● 무인 실행(DT2_NONINTERACTIVE=1 또는 tty 없음): 업데이트하지 않고 기존 설치 유지 (기존 Orca 규칙을 공통화)
 #   ● 환경변수 강제: <접두사>_CHOICE=y|n (설치 여부), <접두사>_UPDATE=y|n (업데이트 여부)
 #
-# 사용법: decide_app_action <표시 이름> <설치여부 true|false> <현재 버전> <최신 버전> <설치 기본값 Y|N> <환경변수 접두사> [업데이트 안내문]
+# 사용법: decide_app_action <표시 이름> <설치여부 true|false> <현재 버전> <최신 버전> <설치 기본값 Y|N|A> <환경변수 접두사> [업데이트 안내문]
 # 결과: 전역 변수 DT2_APP_ACTION = install | update | skip  (함수 반환값은 항상 0)
 decide_app_action() {
     local _name="$1" _installed="$2" _cur="$3" _latest="$4" _install_def="${5:-N}" _prefix="$6" _update_note="${7:-}"
@@ -72,7 +187,10 @@ decide_app_action() {
     DT2_APP_ACTION="skip"
 
     if [ "$_installed" != true ]; then
-        if [ -n "$_choice" ]; then
+        if [ "$_install_def" = "A" ] && [ -z "$_choice" ]; then
+            DT2_APP_ACTION="install"
+            return 0
+        elif [ -n "$_choice" ]; then
             [ "${_choice,,}" = "y" ] && DT2_APP_ACTION="install"
         elif prompt_confirm "   👉 ${_name}을(를) 설치하시겠습니까?" "$_install_def"; then
             DT2_APP_ACTION="install"
@@ -645,48 +763,7 @@ _resolve_action() {
 # 설치 상태를 사람이 읽기 좋은 문자열로 표시 (true/false → 이모지+문구)
 _fmts() { [ "$1" = true ] && echo '✅ 설치됨' || echo '⬜ 미설치'; }
 
-# ─────────────────────────────────────────────────────────────────
-# 버전 설치 방식 선택 프롬프트 (1=최신 / 2=TOML 고정 / 3=도구별 개별) — 공용
-# 결과: 전역 변수 VERSION_MODE 에 "latest" | "pinned" | "individual" 설정
-# (2.install-core-tools.sh / 3.install-cli-tools.sh 공용)
-# ─────────────────────────────────────────────────────────────────
-_select_version_mode() {
-    if [ -n "${DT2_VERSION_MODE:-}" ]; then
-        VERSION_MODE="$DT2_VERSION_MODE"
-        print_info "환경변수(DT2_VERSION_MODE) 설정 적용됨: $VERSION_MODE"
-        return 0
-    fi
-    if dt2_is_noninteractive; then
-        VERSION_MODE="pinned"
-        print_info "비대화형 모드: 기본 고정(TOML) 버전으로 자동 진행됩니다."
-        return 0
-    fi
-
-    print_question "❓ 적용할 버전 선택 방식을 선택하세요:"
-    echo ""
-    print_option "1" "모든 도구 최신 버전으로 설치 (온라인 최신 릴리스)"
-    print_option "2" "모든 도구 지정 버전으로 설치 (TOML 고정/최종 설치 버전)" "[기본값]"
-    print_option "3" "도구별 개별 확인 (최신/지정 버전 선택)"
-    echo ""
-    prompt_read _ver_choice "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "
-    echo ""
-    case "${_ver_choice:-2}" in
-        1) VERSION_MODE="latest"     ; print_info "버전 선택: 모든 도구 최신 버전 선택됨" ;;
-        3) VERSION_MODE="individual" ; print_info "버전 선택: 도구별 개별 확인 선택됨" ;;
-        *) VERSION_MODE="pinned"     ; print_info "버전 선택: 모든 도구 지정(TOML) 버전 선택됨" ;;
-    esac
-
-    # TOML 고정 버전이 아닌 다른 버전을 설치할 수 있는 경우, 문제가 생겼을 때
-    # 되돌리는 방법을 미리 안내합니다 (tool-versions.toml 상단 규칙과 동일한 절차).
-    if [ "$VERSION_MODE" != "pinned" ]; then
-        echo ""
-        print_info "💡 참고: 선택하신 방식은 TOML에 고정된 기본 버전과 다른 버전을 설치할 수 있습니다."
-        print_info "   설치한 버전이 호환되지 않는 문제가 발생하면, 아래 파일을 열어 배열 맨 앞에"
-        print_info "   새로 추가된 버전 항목을 지워 이전 버전으로 되돌린 뒤, 이 스크립트를 다시"
-        print_info "   실행해 '2) 지정 버전으로 설치'를 선택하면 이전 고정 버전으로 재설치됩니다."
-        print_info "   TOML 파일 위치: $TOOL_VERSIONS_TOML"
-    fi
-}
+# (예전 _select_version_mode: 설치 때 "최신/지정/개별" 버전 선택 방식을 묻던 함수 — tool-versions.toml [track] 정책으로 대체되어 제거)
 
 # ─────────────────────────────────────────────────────────────────
 # 🐛 Gradle DAP (디버거 Attach) 전역 설정 공용 함수

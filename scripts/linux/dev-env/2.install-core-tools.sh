@@ -74,12 +74,7 @@ _ensure_pkg wget
 # ─────────────────────────────────────────────────────────────────
 
 # Node.js 최신 v24.x 버전을 반환합니다 ('v' 포함, 예: v24.16.0).
-fetch_latest_nodejs() {
-    curl -sf --max-time 10 "https://nodejs.org/dist/index.json" \
-        2>/dev/null \
-        | grep -o '"version":"v24\.[^"]*"' | head -1 \
-        | cut -d'"' -f4 || true
-}
+# (Node.js 최신 버전 조회는 공용 list_nodejs_lts_versions + [track] nodejs 로 대체)
 
 # 로그 설정: data/logs 폴더에 실행 시점별로 기록
 LOG_DIR="$DEVTOOLS2/data/logs"
@@ -94,16 +89,35 @@ ls -1t "$LOG_DIR"/deploy_*.log 2>/dev/null | tail -n +20 | xargs -r rm -f -- 2>/
 exec > >(tee -i "$LOG_FILE") 2>&1
 
 # ─────────────────────────────────────────────────────────────────
-# ⚙️  PRE-FLIGHT: 설치 방식 선택 (Node.js, Ghostty 대상)
+# ⚙️  PRE-FLIGHT: 버전 정책 확인 (tool-versions.toml [track])
 # ─────────────────────────────────────────────────────────────────
+# 버전 정책은 tool-versions.toml 의 [track] 한 곳에서 관리합니다 (_install-utils.sh 의 resolve_track_version).
+# 예전처럼 설치 때마다 "최신/지정/개별" 버전 선택 방식을 묻지 않고, 각 도구의 track 범위 안 최신 버전을 설치합니다.
 
-# 최종 설치 버전 읽기
+# [폴더 이름에서 메이저 버전 제거] node-v24 → nodejs/current, gradle-9 → gradle/current
+# 메이저가 폴더 이름에 박혀 있으면 [track] 으로 메이저를 올릴 때(예: nodejs = "26") 경로까지 바꿔야 했습니다.
+# 기존 설치는 다시 받지 않고 이름만 옮기며, 예전 이름은 새 폴더를 가리키는 링크로 남겨
+# env.sh(1.setup-env.sh) 를 다시 만들기 전의 셸·scripts/java/jdtls 등이 깨지지 않게 합니다.
+_dt2_migrate_dir() {  # <예전 폴더> <새 폴더>
+    local old="$1" new="$2"
+    if [ -d "$old" ] && [ ! -L "$old" ] && [ ! -e "$new" ]; then
+        mv "$old" "$new"
+        echo "   📁 설치 폴더 이름 변경: $(basename "$old") → $(basename "$new")"
+    fi
+    if [ -e "$new" ] && [ ! -e "$old" ] && [ ! -L "$old" ]; then
+        ln -s "$(basename "$new")" "$old"
+    fi
+}
+_dt2_migrate_dir "$DEVTOOLS2/modules/nodejs/node-v24" "$DEVTOOLS2/modules/nodejs/current"
+_dt2_migrate_dir "$DEVTOOLS2/modules/gradle/gradle-9" "$DEVTOOLS2/modules/gradle/current"
+
+# 마지막 설치 버전 읽기 (data/state 기록, 없으면 TOML 버전 배열 첫 항목 — 목록 조회 실패 시 폴백)
 NODEJS_PINNED=$(get_pinned_version "nodejs")
 GHOSTTY_PINNED=$(get_pinned_version "ghostty")
 
 # 설치 상태 확인
 NODEJS_INSTALLED=false
-[ -d "$DEVTOOLS2/modules/nodejs/node-v24" ] && NODEJS_INSTALLED=true
+[ -d "$DEVTOOLS2/modules/nodejs/current" ] && NODEJS_INSTALLED=true
 
 GHOSTTY_INSTALLED=false
 if [ "$IS_WSL2" = false ] && [ -f "$DEVTOOLS2/modules/ghostty/ghostty" ]; then
@@ -114,19 +128,23 @@ fi
 
 echo ""
 echo "==========================================================================="
-echo "📋 버전 관리 대상 도구 현황 (Node.js, Ghostty)"
+echo "📋 버전 관리 대상 도구 현황 (버전 정책: tool-versions.toml [track])"
 echo ""
-printf "   %-14s  최종 설치 버전: %-12s  %s\n" \
-    "Node.js" "$NODEJS_PINNED" "$(_fmts "$NODEJS_INSTALLED")"
+printf "   %-14s  track: %-10s  %s\n" "Node.js" "$(get_track nodejs 24)" "$(_fmts "$NODEJS_INSTALLED")"
+for _jv in $(get_supported_jdk_versions); do
+    printf "   %-14s  track: %-10s\n" "JDK $_jv" "$(get_track "jdk${_jv}" "$_jv")"
+done
+printf "   %-14s  track: %-10s\n" "Gradle" "$(get_track gradle latest)"
+printf "   %-14s  track: %-10s\n" "Neovim" "$(get_track neovim 0.12)"
 if [ "$IS_WSL2" = false ]; then
-    printf "   %-14s  최종 설치 버전: %-12s  %s\n" \
-        "Ghostty" "$GHOSTTY_PINNED" "$(_fmts "$GHOSTTY_INSTALLED")"
+    printf "   %-14s  track: %-10s  %s\n" \
+        "Ghostty" "$(get_track ghostty latest)" "$(_fmts "$GHOSTTY_INSTALLED")"
 else
     printf "   %-14s  %-28s  %s\n" \
         "Ghostty" "(WSL2 - 설치 건너뜀)" "⏭️  해당 없음"
 fi
 echo ""
-echo "   ℹ️  Java, Gradle, Python, Neovim은 버전 고정 설치입니다."
+echo "   ℹ️  Python 은 아직 track 대상이 아니라 스크립트에 지정된 버전(3.14·3.12)으로 설치합니다."
 echo ""
 
 # ── 중복 처리 방식 선택 ──────────────────────────────────────────
@@ -136,7 +154,7 @@ _HAS_INSTALLED=false
 [ "$NODEJS_INSTALLED" = true ] && _HAS_INSTALLED=true
 [ "$IS_WSL2" = false ] && [ "$GHOSTTY_INSTALLED" = true ] && _HAS_INSTALLED=true
 [ -d "$DEVTOOLS2/modules/java" ] && [ -n "$(ls -A "$DEVTOOLS2/modules/java" 2>/dev/null)" ] && _HAS_INSTALLED=true
-[ -d "$DEVTOOLS2/modules/gradle/gradle-9" ] && _HAS_INSTALLED=true
+[ -d "$DEVTOOLS2/modules/gradle/current" ] && _HAS_INSTALLED=true
 [ -d "$DEVTOOLS2/modules/neovim/nvim" ] && _HAS_INSTALLED=true
 
 if [ -n "${DT2_DUPLICATE_MODE:-}" ]; then
@@ -158,27 +176,7 @@ elif [ "$_HAS_INSTALLED" = true ]; then
     echo ""
 fi
 
-# ── 버전 설치 방식 선택 ──────────────────────────────────────────
-# _select_version_mode() 는 _install-utils.sh 에서 로드됨 (3.install-cli-tools.sh 와 공유)
-_select_version_mode
-
-# 설치에 사용할 실제 버전 초기화 (기본: 최종 설치 버전)
-NODEJS_VERSION="$NODEJS_PINNED"
-GHOSTTY_VERSION="$GHOSTTY_PINNED"
-
-# 일괄 최신 버전 모드: 미리 최신 버전 조회
-if [ "$VERSION_MODE" = "latest" ]; then
-    echo ""
-    echo "   🔍 최신 버전 조회 중..."
-    _nl=$(fetch_latest_nodejs)
-    if [ -n "$_nl" ]; then
-        NODEJS_VERSION="$_nl"
-        echo "   ✓ Node.js:  최신 → $_nl  (최종 설치: $NODEJS_PINNED)"
-    else
-        echo "   ⚠️  Node.js: 최신 버전 조회 실패 → 최종 설치 버전으로 대체: $NODEJS_PINNED"
-    fi
-    # (Ghostty 는 버전 선택 방식과 무관하게 6단계에서 앱 규칙으로 최신 버전을 직접 확인합니다)
-fi
+# (예전 "버전 설치 방식 선택(최신/지정/개별)" 질문과 최신 일괄 조회는 [track] 정책으로 대체되어 제거했습니다)
 
 echo ""
 echo "==========================================================================="
@@ -202,57 +200,23 @@ install_adoptium_jdk() {
     local dest_dir="$2"
     local target_path="$DEVTOOLS2/modules/java/$dest_dir"
 
-    # 이미 설치되어 있으면 설치 버전과 지정 버전을 비교합니다. 같으면 건너뛰고, 다르면
-    # (TOML 에 보안 패치 버전이 올라온 경우 등) 중복 처리 방식에 따라 갱신 여부를 정합니다.
-    local _reinstall=false
-    if [ -d "$target_path" ]; then
-        local _cur_ver _want_ver
-        _cur_ver=$(_installed_jdk_version "$target_path")
-        _want_ver=$(get_pinned_version "jdk${major}")
-        if [ -n "$_cur_ver" ] && [ -n "$_want_ver" ] && ! _jdk_version_matches "$_cur_ver" "$_want_ver" "$major"; then
-            echo "   ⚠️  JDK $major 설치 버전($_cur_ver)이 지정 버전($_want_ver)과 다릅니다."
-            if [ "$(_resolve_action true "JDK $major")" = "reinstall" ]; then
-                _reinstall=true
-            else
-                echo "   ⏭️ [건너뜀] 기존 JDK $major 를 유지합니다. 갱신하려면 중복 처리에서 '삭제 후 재설치'를 고르거나 DT2_DUPLICATE_MODE=reinstall 로 다시 실행하세요."
-                return 0
-            fi
-        elif [ "$(_resolve_action true "JDK $major")" = "reinstall" ]; then
-            _reinstall=true
-        else
-            echo "   ⏭️ [건너뜀] JDK $major ($dest_dir${_cur_ver:+, $_cur_ver})가 이미 설치되어 있습니다."
-            return 0
-        fi
-    fi
-
+    # 이미 설치되어 있으면 설치 버전과 대상 버전을 비교합니다. 같으면 건너뛰고, 다르면
+    # (track 범위 안에 보안 패치 버전이 새로 나온 경우 등) 업데이트 여부를 묻습니다(decide_app_action).
     local jdk_arch="$([ "$IS_ARM64" = true ] && echo 'aarch64' || echo 'x64')"
-    local pinned_ver
+    local pinned_ver track
     pinned_ver=$(get_pinned_version "jdk${major}")
+    track=$(get_track "jdk${major}" "$major")
     local dl_url=""
     local checksum=""
     local actual_ver=""
 
-    # 1. 버전 결정 (latest / individual / pinned)
-    local use_latest=false
-    if [ "$VERSION_MODE" = "latest" ]; then
-        use_latest=true
-    elif [ "$VERSION_MODE" = "individual" ]; then
-        echo ""
-        echo "   JDK $major 설치 버전 선택:"
-        echo "   1) 최신 버전: Adoptium API 최신 패치 자동 조회"
-        echo "   2) 최종 설치 버전: ${pinned_ver:-default} [기본값]"
-        echo ""
-        local _ans=""
-        prompt_read _ans "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-        case "${_ans:-2}" in
-            1) use_latest=true ;;
-            *) use_latest=false ;;
-        esac
-        echo ""
-    fi
-
-    # 1순위: 최신 모드 또는 고정 버전이 없을 때 Adoptium API를 통해 같은 메이저의 최신 패치 및 체크섬 동적 조회
-    if [ "$use_latest" = true ] || [ -z "$pinned_ver" ]; then
+    # 1. 버전 결정: [track] jdk<메이저>
+    #    - 전체 버전 고정(예: "17.0.18+8", "8u482-b08") → 그 버전을 공식 릴리스 URL 로 설치
+    #    - 메이저(예: "17") → Adoptium API 로 같은 메이저의 최신 패치 및 체크섬 동적 조회
+    #    (JDK 는 여러 메이저를 나란히 설치하므로 메이저를 올리는 대신 새 jdk<메이저> 항목을 추가합니다)
+    if _track_is_exact "$track"; then
+        actual_ver="$track"
+    else
         echo -n "   🔍 Adoptium API 에서 JDK $major 최신 패치 조회 중... "
         local meta
         meta=$(fetch_adoptium_release "$major" "$jdk_arch")
@@ -262,13 +226,13 @@ install_adoptium_jdk() {
             checksum=$(echo "$meta" | cut -d'|' -f3)
             echo "완료 ($actual_ver)"
         else
-            echo "실패 → 고정 버전으로 폴백"
+            echo "실패 → 마지막 설치 버전으로 폴백"
         fi
     fi
 
     # 2순위: API 미사용 또는 조회 실패 시 tool-versions.toml 고정 버전 및 공식 릴리스 URL로 폴백
     if [ -z "$dl_url" ]; then
-        actual_ver="${pinned_ver:-default}"
+        actual_ver="${actual_ver:-${pinned_ver:-default}}"
         if [ "$major" = "8" ]; then
             local ver_nodash="${actual_ver//-/}"
             dl_url="https://github.com/adoptium/temurin8-binaries/releases/download/jdk${actual_ver}/OpenJDK8U-jdk_${jdk_arch}_linux_hotspot_${ver_nodash}.tar.gz"
@@ -278,6 +242,28 @@ install_adoptium_jdk() {
             dl_url="https://github.com/adoptium/temurin${major}-binaries/releases/download/jdk-${ver_enc}/OpenJDK${major}U-jdk_${jdk_arch}_linux_hotspot_${ver_us}.tar.gz"
         fi
         checksum="${dl_url}.sha256.txt"
+    fi
+
+    # 2. 설치/업데이트/건너뛰기 결정 (필수 도구라 미설치면 묻지 않고 설치)
+    local _reinstall=false
+    if [ -d "$target_path" ]; then
+        local _cur_ver
+        _cur_ver=$(_installed_jdk_version "$target_path")
+        if [ -n "$_cur_ver" ] && _jdk_version_matches "$_cur_ver" "$actual_ver" "$major"; then
+            if [ "$(_resolve_action true "JDK $major")" = "reinstall" ]; then
+                _reinstall=true
+            else
+                echo "   ⏭️ [건너뜀] JDK $major ($dest_dir, $_cur_ver)이 이미 최신 버전입니다."
+                return 0
+            fi
+        else
+            decide_app_action "JDK $major" true "$_cur_ver" "$actual_ver" "A" "DT2_JDK${major}"
+            if [ "$DT2_APP_ACTION" = "update" ] || [ "$(_resolve_action true "JDK $major")" = "reinstall" ]; then
+                _reinstall=true
+            else
+                return 0
+            fi
+        fi
     fi
 
     echo "   📦 JDK $major $actual_ver 다운로드 및 설치..."
@@ -350,36 +336,45 @@ mkdir -p "$DEVTOOLS2/modules/gradle"
 cd "$DEVTOOLS2/modules/gradle"
 
 GRADLE_PINNED=$(get_pinned_version "gradle")
-GRADLE_VERSION="${GRADLE_PINNED:-9.7.1}"
+# [track] gradle (기본 "latest"): 프로젝트는 각자 Gradle wrapper(gradlew)로 자기 버전을 쓰므로 전역 Gradle 은
+# 새 프로젝트·wrapper 생성용으로 최신을 따릅니다. 목록 조회 실패 시 마지막 설치 버전(TOML/data/state)으로 폴백.
+GRADLE_VERSION=$(resolve_track_version gradle latest list_gradle_versions)
+GRADLE_VERSION="${GRADLE_VERSION:-${GRADLE_PINNED:-9.7.1}}"
+_GRADLE_DIR="$DEVTOOLS2/modules/gradle/current"
 
-# 설치된 Gradle 버전(lib/gradle-core-api-<버전>.jar)과 지정 버전을 비교합니다.
+# 설치된 Gradle 버전(lib/gradle-core-api-<버전>.jar)과 대상 버전을 비교합니다.
 _GRADLE_CUR=""
-_GRADLE_REINSTALL=false
-if [ -d "$DEVTOOLS2/modules/gradle/gradle-9" ]; then
-    _GRADLE_CUR=$(find "$DEVTOOLS2/modules/gradle/gradle-9/lib" -maxdepth 1 -name 'gradle-core-api-*.jar' 2>/dev/null \
+_GRADLE_INSTALLED=false
+if [ -d "$_GRADLE_DIR" ]; then
+    _GRADLE_INSTALLED=true
+    _GRADLE_CUR=$(find "$_GRADLE_DIR/lib" -maxdepth 1 -name 'gradle-core-api-*.jar' 2>/dev/null \
         | head -1 | sed -E 's|.*/gradle-core-api-(.+)\.jar$|\1|')
-    if [ -n "$_GRADLE_CUR" ] && [ "$_GRADLE_CUR" != "$GRADLE_VERSION" ]; then
-        echo "   ⚠️  Gradle 설치 버전($_GRADLE_CUR)이 지정 버전($GRADLE_VERSION)과 다릅니다."
-    fi
-    [ "$(_resolve_action true "Gradle")" = "reinstall" ] && _GRADLE_REINSTALL=true
+fi
+decide_app_action "Gradle" "$_GRADLE_INSTALLED" "$_GRADLE_CUR" "$GRADLE_VERSION" "A" "DT2_GRADLE"
+_GRADLE_ACTION="$DT2_APP_ACTION"
+if [ "$_GRADLE_ACTION" = "skip" ] && [ "$_GRADLE_INSTALLED" = true ] && [ "$(_resolve_action true "Gradle")" = "reinstall" ]; then
+    _GRADLE_ACTION="update"
 fi
 
-if [ -d "$DEVTOOLS2/modules/gradle/gradle-9" ] && [ "$_GRADLE_REINSTALL" != true ]; then
-    echo "   ⏭️ [건너뜀] Gradle(gradle-9${_GRADLE_CUR:+, $_GRADLE_CUR})이 이미 설치되어 있습니다. 갱신하려면 중복 처리에서 '삭제 후 재설치'를 고르거나 DT2_DUPLICATE_MODE=reinstall 로 다시 실행하세요."
-else
+if [ "$_GRADLE_ACTION" != "skip" ]; then
     _gradle_url="https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
     _gradle_sha="${_gradle_url}.sha256"
     if safe_download_and_extract "$_gradle_url" "$DEVTOOLS2/modules/gradle" 0 "$_gradle_sha" "Gradle $GRADLE_VERSION" \
         && [ -d "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" ]; then
-        # 재설치: 새 버전 압축 해제에 성공한 뒤에만 기존 gradle-9 를 교체합니다.
-        # (기존 gradle-9 가 남아 있는 채로 mv 하면 새 폴더가 gradle-9 "안으로" 들어갑니다)
-        rm -rf "$DEVTOOLS2/modules/gradle/gradle-9"
-        mv -f "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" "$DEVTOOLS2/modules/gradle/gradle-9"
+        # 재설치: 새 버전 압축 해제에 성공한 뒤에만 기존 current 를 교체합니다.
+        # (기존 폴더가 남아 있는 채로 mv 하면 새 폴더가 그 "안으로" 들어갑니다)
+        rm -rf "$_GRADLE_DIR"
+        mv -f "$DEVTOOLS2/modules/gradle/gradle-${GRADLE_VERSION}" "$_GRADLE_DIR"
         echo "   ✅ Gradle $GRADLE_VERSION 설치 완료"
+        if [ "$GRADLE_VERSION" != "$GRADLE_PINNED" ]; then
+            update_pinned_version "gradle" "$GRADLE_VERSION"
+        fi
     else
         echo "   ❌ Gradle 설치 실패 (기존 설치가 있으면 그대로 유지됩니다)" >&2
     fi
 fi
+# 예전 이름(gradle-9)으로 참조하던 곳을 위한 호환 링크
+_dt2_migrate_dir "$DEVTOOLS2/modules/gradle/gradle-9" "$_GRADLE_DIR"
 
 echo "✅ Gradle 설치 완료"
 echo ""
@@ -419,51 +414,50 @@ echo "🟢 4. Node.js 포터블 설치 중..."
 mkdir -p "$DEVTOOLS2/modules/nodejs"
 cd "$DEVTOOLS2/modules/nodejs"
 
-# ── 개별 선택 모드: Node.js 버전 결정 ────────────────────────────
-if [ "$VERSION_MODE" = "individual" ]; then
-    echo -n "   🔍 Node.js 최신 버전 조회 중... "
-    set +e; _nl_ind=$(fetch_latest_nodejs); set -e
-    [ -n "$_nl_ind" ] && echo "완료 ($_nl_ind)" || echo "실패 (조회 불가)"
-    echo ""
-    echo "   Node.js 설치 버전 선택:"
-    echo "   1) 최신 버전: ${_nl_ind:-[조회 실패 - 선택 불가]}"
-    echo "   2) 최종 설치 버전: $NODEJS_PINNED [기본값]"
-    echo ""
-    prompt_read _nv_sel "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-    case "${_nv_sel:-2}" in
-        1) [ -n "$_nl_ind" ] && NODEJS_VERSION="$_nl_ind" || NODEJS_VERSION="$NODEJS_PINNED" ;;
-        *) NODEJS_VERSION="$NODEJS_PINNED" ;;
-    esac
-    echo ""
+# ── 버전 결정: [track] nodejs (기본 "24" = 메이저 24 의 최신 LTS 패치) ─────────
+# 메이저를 올리려면 [track] nodejs 값만 바꿉니다(예: "26"). 설치 폴더는 메이저와 무관한 nodejs/current 입니다.
+# (메이저를 바꾸면 npm 전역 패키지 중 네이티브 모듈은 다시 설치해야 할 수 있습니다)
+NODEJS_VERSION=$(resolve_track_version nodejs 24 list_nodejs_lts_versions)
+if [ -n "$NODEJS_VERSION" ]; then
+    NODEJS_VERSION="v${NODEJS_VERSION#v}"
+else
+    NODEJS_VERSION="$NODEJS_PINNED"   # 목록 조회 실패 시 마지막 설치 버전으로 폴백
+fi
+_nodejs_cur=""
+[ -x "$DEVTOOLS2/modules/nodejs/current/bin/node" ] && _nodejs_cur=$("$DEVTOOLS2/modules/nodejs/current/bin/node" --version 2>/dev/null || true)
+
+# ── 설치/업데이트/건너뛰기 결정 (필수 도구라 미설치면 묻지 않고 설치) ──
+decide_app_action "Node.js" "$NODEJS_INSTALLED" "$_nodejs_cur" "$NODEJS_VERSION" "A" "DT2_NODEJS"
+_nodejs_action="$DT2_APP_ACTION"
+# ── 중복 처리: 업데이트하지 않은 경우 사용자가 고른 중복 처리 방식(재설치 등) 적용 ──
+if [ "$_nodejs_action" = "skip" ] && [ "$NODEJS_INSTALLED" = true ] && [ "$(_resolve_action true "Node.js")" = "reinstall" ]; then
+    _nodejs_action="update"
 fi
 
-# ── 중복 처리: 설치 여부 결정 ────────────────────────────────────
-_nodejs_action=$(_resolve_action "$NODEJS_INSTALLED" "Node.js")
-
 # ── 설치 실행 ─────────────────────────────────────────────────────
-if [ "$_nodejs_action" = "skip" ]; then
-    echo "   ⏭️  [건너뜀] node-v24 디렉토리가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -rf '$DEVTOOLS2/modules/nodejs/node-v24'"
-else
-    if [ "$_nodejs_action" = "reinstall" ]; then
-        echo "   🗑️  기존 node-v24 디렉토리 삭제 중..."
-        rm -rf "$DEVTOOLS2/modules/nodejs/node-v24"
+if [ "$_nodejs_action" != "skip" ]; then
+    if [ "$_nodejs_action" = "update" ]; then
+        echo "   🗑️  기존 Node.js(current) 디렉토리 삭제 중..."
+        rm -rf "$DEVTOOLS2/modules/nodejs/current"
     fi
     echo "   📦 Node.js $NODEJS_VERSION 설치..."
     install_tool \
         "https://nodejs.org/dist/${NODEJS_VERSION}/node-${NODEJS_VERSION}-linux-{ARCH}.tar.xz" \
-        'x64' 'arm64' 'node-v24'
-    # 최신 버전으로 설치한 경우 이력 업데이트
+        'x64' 'arm64' 'current'
+    # 마지막 설치 버전과 다르면 이 PC 의 설치 이력(data/state) 업데이트
     if [ "$NODEJS_VERSION" != "$NODEJS_PINNED" ]; then
         update_pinned_version "nodejs" "$NODEJS_VERSION"
     fi
 fi
+# 예전 이름(node-v24)으로 참조하던 곳을 위한 호환 링크
+_dt2_migrate_dir "$DEVTOOLS2/modules/nodejs/node-v24" "$DEVTOOLS2/modules/nodejs/current"
 
 # 전역 패키지 저장소 생성 및 복구
 mkdir -p "$DEVTOOLS2/data/.npm-packages"
 cd "$DEVTOOLS2/data/.npm-packages"
 
 # 임시 PATH 추가 (방금 설치한 Node.js 바이너리를 현재 셸 환경에 즉시 연동)
-export PATH="$DEVTOOLS2/modules/nodejs/node-v24/bin:$PATH"
+export PATH="$DEVTOOLS2/modules/nodejs/current/bin:$PATH"
 export NPM_CONFIG_GLOBALCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
 unset NPM_CONFIG_USERCONFIG
 # setup_npm_mirror는 npmmirror 불가/폴백 시 return 1을 반환하는 정상 케이스가 있어
@@ -678,7 +672,13 @@ mkdir -p "$DEVTOOLS2/modules/neovim"
 cd "$DEVTOOLS2/modules/neovim"
 
 NEOVIM_PINNED=$(get_pinned_version "neovim")
-NEOVIM_VERSION="${NEOVIM_PINNED:-v0.12.5}"
+# [track] neovim (기본 "0.12"): 0.12.x 안에서 최신 패치. 마이너(0.13)는 플러그인 호환을 확인한 뒤 track 을 바꿔 올립니다.
+NEOVIM_VERSION=$(resolve_track_version neovim 0.12 list_github_release_versions neovim/neovim)
+if [ -n "$NEOVIM_VERSION" ]; then
+    NEOVIM_VERSION="v${NEOVIM_VERSION#v}"
+else
+    NEOVIM_VERSION="${NEOVIM_PINNED:-v0.12.5}"   # 목록 조회 실패 시 마지막 설치 버전으로 폴백
+fi
 _nvim_arch="$([ "$IS_ARM64" = true ] && echo 'arm64' || echo 'x86_64')"
 _nvim_asset="nvim-linux-${_nvim_arch}.tar.gz"
 _nvim_url="https://github.com/neovim/neovim/releases/download/${NEOVIM_VERSION}/${_nvim_asset}"
@@ -708,26 +708,14 @@ fi
 
 _do_nvim_install=false
 if [ -n "$_installed_nvim_ver" ]; then
-    if [ "$_installed_nvim_ver" = "$NEOVIM_VERSION" ]; then
-        if [ "$DUPLICATE_MODE" = "remove" ]; then
-            print_info "Neovim $_installed_nvim_ver 재설치 진행 (중복 처리: 삭제 후 재설치 모드)"
-            _do_nvim_install=true
-        else
-            print_skip "Neovim $_installed_nvim_ver (이미 최신 핀 버전이 설치되어 있습니다)"
-        fi
-    else
-        print_info "Neovim 핀 버전 변경 감지: $_installed_nvim_ver → $NEOVIM_VERSION"
-        if [ "$DUPLICATE_MODE" = "keep" ]; then
-            print_skip "Neovim 기존 버전 유지 ($_installed_nvim_ver)"
-        elif [ "$DUPLICATE_MODE" = "remove" ]; then
-            _do_nvim_install=true
-        else
-            if prompt_confirm "👉 Neovim을 $NEOVIM_VERSION 로 업데이트하시겠습니까?" "Y"; then
-                _do_nvim_install=true
-            else
-                print_skip "Neovim 기존 버전 유지 ($_installed_nvim_ver)"
-            fi
-        fi
+    # 설치/업데이트 판단은 공용 함수 decide_app_action (track 범위 안에 새 버전 → 업데이트 여부 확인, 기본 Y)
+    # (예전에는 중복 처리 방식이 "기존 도구 유지"(기본값)이면 새 버전이 있어도 업데이트하지 않았음)
+    decide_app_action "Neovim" true "$_installed_nvim_ver" "$NEOVIM_VERSION" "A" "DT2_NEOVIM"
+    if [ "$DT2_APP_ACTION" = "update" ]; then
+        _do_nvim_install=true
+    elif [ "$DUPLICATE_MODE" = "remove" ]; then
+        print_info "Neovim $_installed_nvim_ver 재설치 진행 (중복 처리: 삭제 후 재설치 모드)"
+        _do_nvim_install=true
     fi
 elif [ -d "$_nvim_dir" ]; then
     # 디렉터리는 있으나 바이너리가 없거나 손상된 경우
@@ -748,6 +736,9 @@ if [ "$_do_nvim_install" = true ]; then
     if install_neovim; then
         rm -rf "$_nvim_old"
         echo "   ✅ Neovim $NEOVIM_VERSION 설치 완료"
+        if [ "$NEOVIM_VERSION" != "$NEOVIM_PINNED" ]; then
+            update_pinned_version "neovim" "$NEOVIM_VERSION"
+        fi
     else
         rm -rf "$_nvim_dir"
         [ -d "$_nvim_old" ] && mv "$_nvim_old" "$_nvim_dir"
@@ -772,14 +763,16 @@ else
     cd "$DEVTOOLS2/modules/ghostty"
 
     # ── 설치 여부·버전 결정: 앱 규칙 (미설치 → 설치 여부 확인 / 설치됨 → 최신 버전 확인 후 업데이트 여부 확인) ──
-    # Ghostty 는 Linux 데스크톱의 기본 터미널 "앱"이라, Java·Node.js 같은 개발 런타임과 달리 TOML 버전 고정
-    # (버전 선택 방식: 최신/지정/개별)을 따르지 않고 Zed·Orca·VS Code·Sublime Merge 와 같은 규칙을 씁니다.
+    # Ghostty 는 Linux 데스크톱의 기본 터미널 "앱"이라 [track] ghostty = "latest"(항상 최신)이고,
+    # 설치 여부를 묻는 앱 규칙(Zed·Orca·VS Code·Sublime Merge 와 동일)을 씁니다.
+    # (Java·Node.js 같은 필수 개발 런타임은 같은 track 정책을 따르되 미설치면 묻지 않고 설치)
     #   ● 미설치: 설치 여부 확인 (기본 터미널이라 기본값 Y) → 최신 버전 설치 (조회 실패 시 최종 설치 버전)
     #   ● 설치됨: 최신 버전 조회 → 새 버전이 있으면 업데이트 여부 확인 (기본값 Y), 조회 실패 시 확인 건너뜀
     #   ● GHOSTTY_PINNED 는 마지막으로 설치에 성공한 버전입니다(설치 성공 시 update_pinned_version 으로 기록).
     #   ● 업데이트하지 않은 경우에는 중복 처리 방식(DUPLICATE_MODE: 재설치 등)을 기존처럼 존중합니다.
+    #   ● 대상 버전은 [track] ghostty(기본 "latest") 범위 안의 최신 — 다른 도구와 같은 resolve_track_version 사용
     echo -n "   🔍 Ghostty 최신 버전 조회 중... "
-    set +e; _gl_latest=$(fetch_latest_github "pkgforge-dev/ghostty-appimage" | sed 's/^v//'); set -e
+    set +e; _gl_latest=$(resolve_track_version ghostty latest list_github_release_versions pkgforge-dev/ghostty-appimage); set -e
     [ -n "$_gl_latest" ] && echo "완료 ($_gl_latest)" || echo "실패 (조회 불가)"
 
     # 판단은 공용 함수 decide_app_action(_install-utils.sh)에 맡깁니다 (Zed·Orca·VS Code·Sublime Merge 와 동일 규칙)

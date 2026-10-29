@@ -89,15 +89,7 @@ fi
 # TOOL_VERSIONS_TOML/_read_toml/get_pinned_version/update_pinned_version/fetch_latest_github 는
 # _install-utils.sh 에서 로드됨 (2.install-core-tools.sh 와 공유)
 
-# Bitwarden CLI 최신 릴리즈 버전을 반환합니다 (cli-v 태그만 필터링). 이 스크립트 전용이라 공유 안 함.
-fetch_latest_bitwarden_cli() {
-    curl -sf --max-time 10 \
-        "https://api.github.com/repos/bitwarden/clients/releases" \
-        2>/dev/null \
-        | grep '"tag_name"' | grep 'cli-v' | head -1 \
-        | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/' \
-        | sed 's/^cli-v//' || true
-}
+# (Bitwarden CLI 최신 버전 조회는 공용 list_github_release_versions "bitwarden/clients" "cli-v" 로 대체)
 
 # show_spinner 는 _common.sh 에서 로드됨
 
@@ -105,16 +97,8 @@ fetch_latest_bitwarden_cli() {
 # ⚙️  PRE-FLIGHT: 설치 방식 선택 (CLI 도구 9종)
 # ─────────────────────────────────────────────────────────────────
 
-# 최종 설치 버전 읽기
-FZF_PINNED=$(get_pinned_version "fzf")
-LAZYGIT_PINNED=$(get_pinned_version "lazygit")
-RIPGREP_PINNED=$(get_pinned_version "ripgrep")
-FD_PINNED=$(get_pinned_version "fd")
-ASTGREP_PINNED=$(get_pinned_version "ast_grep")
-BITWARDEN_ARM_PINNED=$(get_pinned_version "bitwarden_arm")
-WIN32YANK_PINNED=$(get_pinned_version "win32yank")
-RCLONE_PINNED=$(get_pinned_version "rclone")
-GH_PINNED=$(get_pinned_version "gh")
+# 버전 정책은 tool-versions.toml 의 [track] 한 곳에서 관리합니다 (_install-utils.sh 의 resolve_track_version).
+# 예전처럼 설치 때마다 "최신/지정/개별" 버전 선택 방식을 묻지 않고, 각 도구의 track 범위 안 최신 버전을 설치합니다.
 
 # 설치 상태 확인
 FZF_INSTALLED=false;      [ -f "$MODULES_DIR/fzf/fzf" ]           && FZF_INSTALLED=true
@@ -128,17 +112,6 @@ GH_INSTALLED=false;       [ -f "$MODULES_DIR/gh/gh" ]              && GH_INSTALL
 WIN32YANK_INSTALLED=false
 [ "$IS_WSL2" = true ] && [ -f "$MODULES_DIR/win32yank/win32yank.exe" ] && WIN32YANK_INSTALLED=true
 
-# 설치에 사용할 실제 버전 초기화 (기본: 최종 설치 버전)
-FZF_VERSION="$FZF_PINNED"
-LAZYGIT_VERSION="$LAZYGIT_PINNED"
-RIPGREP_VERSION="$RIPGREP_PINNED"
-FD_VERSION="$FD_PINNED"
-ASTGREP_VERSION="$ASTGREP_PINNED"
-BITWARDEN_ARM_VERSION="$BITWARDEN_ARM_PINNED"
-WIN32YANK_VERSION="$WIN32YANK_PINNED"
-RCLONE_VERSION="$RCLONE_PINNED"
-GH_VERSION="$GH_PINNED"
-
 # 상태 포매팅 헬퍼(_fmts)는 _install-utils.sh 에서 로드됨
 
 echo ""
@@ -148,22 +121,21 @@ print_info "📍 최상위 경로: $DEVTOOLS2"
 print_info "📍 설치 폴더: $MODULES_DIR"
 if [ "$IS_WSL2" = true ]; then print_info "📍 환경: WSL2 감지됨"; fi
 echo ""
-echo "📋 버전 관리 대상 도구 현황"
+echo "📋 버전 관리 대상 도구 현황 (버전 정책: tool-versions.toml [track])"
 echo ""
-printf "   %-16s  최종 설치 버전: %-12s  %s\n" "fzf"           "$FZF_PINNED"     "$(_fmts "$FZF_INSTALLED")"
-printf "   %-16s  최종 설치 버전: %-12s  %s\n" "lazygit"        "$LAZYGIT_PINNED" "$(_fmts "$LAZYGIT_INSTALLED")"
-printf "   %-16s  최종 설치 버전: %-12s  %s\n" "ripgrep"        "$RIPGREP_PINNED" "$(_fmts "$RIPGREP_INSTALLED")"
-printf "   %-16s  최종 설치 버전: %-12s  %s\n" "fd-find"        "$FD_PINNED"      "$(_fmts "$FD_INSTALLED")"
-printf "   %-16s  최종 설치 버전: %-12s  %s\n" "ast-grep"       "$ASTGREP_PINNED" "$(_fmts "$ASTGREP_INSTALLED")"
-printf "   %-16s  최종 설치 버전: %-12s  %s\n" "rclone"         "$RCLONE_PINNED"  "$(_fmts "$RCLONE_INSTALLED")"
-printf "   %-16s  %-28s  %s\n" "gh (GitHub CLI)" "(앱 규칙 - 항상 최신 확인)" "$(_fmts "$GH_INSTALLED")"
-if [ "$IS_ARM64" = true ]; then
-    printf "   %-16s  최종 설치 버전: %-12s  %s\n" "bitwarden-cli" "$BITWARDEN_ARM_PINNED" "$(_fmts "$BITWARDEN_INSTALLED")"
-else
-    printf "   %-16s  %-28s  %s\n" "bitwarden-cli" "(직접 다운로드 - 항상 최신)" "$(_fmts "$BITWARDEN_INSTALLED")"
-fi
+_cli_status() {  # <표시 이름> <toml 키> <설치 여부>
+    printf "   %-16s  track: %-10s  %s\n" "$1" "$(get_track "$2" latest)" "$(_fmts "$3")"
+}
+_cli_status "fzf"             fzf       "$FZF_INSTALLED"
+_cli_status "lazygit"         lazygit   "$LAZYGIT_INSTALLED"
+_cli_status "ripgrep"         ripgrep   "$RIPGREP_INSTALLED"
+_cli_status "fd-find"         fd        "$FD_INSTALLED"
+_cli_status "ast-grep"        ast_grep  "$ASTGREP_INSTALLED"
+_cli_status "rclone"          rclone    "$RCLONE_INSTALLED"
+_cli_status "bitwarden-cli"   bitwarden "$BITWARDEN_INSTALLED"
+_cli_status "gh (GitHub CLI)" gh        "$GH_INSTALLED"
 if [ "$IS_WSL2" = true ]; then
-    printf "   %-16s  최종 설치 버전: %-12s  %s\n" "win32yank" "$WIN32YANK_PINNED" "$(_fmts "$WIN32YANK_INSTALLED")"
+    _cli_status "win32yank"   win32yank "$WIN32YANK_INSTALLED"
 fi
 echo ""
 
@@ -195,91 +167,7 @@ elif [ "$_HAS_INSTALLED" = true ]; then
     echo ""
 fi
 
-# ── 버전 설치 방식 선택 ──────────────────────────────────────────
-# _select_version_mode() 는 _install-utils.sh 에서 로드됨 (2.install-core-tools.sh 와 공유)
-_select_version_mode
-
-# 일괄 최신 버전 모드: 미리 모든 최신 버전 일괄 조회
-if [ "$VERSION_MODE" = "latest" ]; then
-    echo ""
-    echo "   🔍 최신 버전 조회 중 (GitHub API)..."
-
-    _v=$(fetch_latest_github "junegunn/fzf" | sed 's/^v//')
-    if [ -n "$_v" ]; then
-        FZF_VERSION="$_v"
-        echo "   ✓ fzf:          최신 → $_v  (최종 설치: $FZF_PINNED)"
-    else
-        echo "   ⚠️  fzf:         조회 실패 → 최종 설치 버전 사용: $FZF_PINNED"
-    fi
-
-    _v=$(fetch_latest_github "jesseduffield/lazygit" | sed 's/^v//')
-    if [ -n "$_v" ]; then
-        LAZYGIT_VERSION="$_v"
-        echo "   ✓ lazygit:      최신 → $_v  (최종 설치: $LAZYGIT_PINNED)"
-    else
-        echo "   ⚠️  lazygit:     조회 실패 → 최종 설치 버전 사용: $LAZYGIT_PINNED"
-    fi
-
-    _v=$(fetch_latest_github "BurntSushi/ripgrep")
-    if [ -n "$_v" ]; then
-        RIPGREP_VERSION="$_v"
-        echo "   ✓ ripgrep:      최신 → $_v  (최종 설치: $RIPGREP_PINNED)"
-    else
-        echo "   ⚠️  ripgrep:     조회 실패 → 최종 설치 버전 사용: $RIPGREP_PINNED"
-    fi
-
-    _v=$(fetch_latest_github "sharkdp/fd" | sed 's/^v//')
-    if [ -n "$_v" ]; then
-        FD_VERSION="$_v"
-        echo "   ✓ fd-find:      최신 → $_v  (최종 설치: $FD_PINNED)"
-    else
-        echo "   ⚠️  fd-find:     조회 실패 → 최종 설치 버전 사용: $FD_PINNED"
-    fi
-
-    _v=$(fetch_latest_github "ast-grep/ast-grep" | sed 's/^v//')
-    if [ -n "$_v" ]; then
-        ASTGREP_VERSION="$_v"
-        echo "   ✓ ast-grep:     최신 → $_v  (최종 설치: $ASTGREP_PINNED)"
-    else
-        echo "   ⚠️  ast-grep:    조회 실패 → 최종 설치 버전 사용: $ASTGREP_PINNED"
-    fi
-
-    _v=$(fetch_latest_github "rclone/rclone" | sed 's/^v//')
-    if [ -n "$_v" ]; then
-        RCLONE_VERSION="$_v"
-        echo "   ✓ rclone:       최신 → $_v  (최종 설치: $RCLONE_PINNED)"
-    else
-        echo "   ⚠️  rclone:      조회 실패 → 최종 설치 버전 사용: $RCLONE_PINNED"
-    fi
-
-    # (gh 는 버전 선택 방식과 무관하게 설치 단계에서 앱 규칙으로 최신 버전을 직접 확인합니다)
-
-    # bitwarden: ARM64만 버전 관리 (x86_64는 항상 최신 직접 다운로드)
-    if [ "$IS_ARM64" = true ]; then
-        _v=$(fetch_latest_bitwarden_cli)
-        if [ -n "$_v" ]; then
-            BITWARDEN_ARM_VERSION="$_v"
-            echo "   ✓ bitwarden-cli (ARM64): 최신 → $_v  (최종 설치: $BITWARDEN_ARM_PINNED)"
-        else
-            echo "   ⚠️  bitwarden-cli: 조회 실패 → 최종 설치 버전 사용: $BITWARDEN_ARM_PINNED"
-        fi
-    fi
-
-    if [ "$IS_WSL2" = true ]; then
-        _v=$(fetch_latest_github "equalsraf/win32yank" | sed 's/^v//')
-        if [ -n "$_v" ]; then
-            WIN32YANK_VERSION="$_v"
-            echo "   ✓ win32yank:    최신 → $_v  (최종 설치: $WIN32YANK_PINNED)"
-        else
-            echo "   ⚠️  win32yank:   조회 실패 → 최종 설치 버전 사용: $WIN32YANK_PINNED"
-        fi
-    fi
-
-    echo ""
-fi
-
-print_sep
-echo ""
+# (예전 "버전 설치 방식 선택(최신/지정/개별)" 질문과 일괄 최신 조회는 [track] 정책으로 대체되어 제거했습니다)
 
 # _resolve_action() 은 _install-utils.sh 에서 로드됨 (2.install-core-tools.sh 와 공유)
 
@@ -334,10 +222,12 @@ get_cli_tool_url() {
             fi
             ;;
         bitwarden)
+            # x86_64 도 ARM64 처럼 GitHub 릴리스의 버전별 파일을 씁니다 — 예전 공식 "항상 최신" 직접 다운로드 URL 은
+            # 버전을 고정·비교할 수 없어 [track] 정책(고정·되돌리기)을 적용할 수 없었기 때문입니다.
             if [ "$IS_ARM64" = true ]; then
                 echo "https://github.com/bitwarden/clients/releases/download/cli-v${ver}/bw-linux-arm64-${ver}.zip"
             else
-                echo "https://vault.bitwarden.com/download/?app=cli&platform=linux"
+                echo "https://github.com/bitwarden/clients/releases/download/cli-v${ver}/bw-linux-${ver}.zip"
             fi
             ;;
         rclone)
@@ -392,53 +282,33 @@ install_cli_tool() {
     local id="$1"             # fzf
     local label="$2"          # "fzf - 터미널용 퍼지 파인더"
     local repo="$3"           # junegunn/fzf
-    local pinned_ver="$4"     # $FZF_PINNED
-    local current_ver="$5"    # $FZF_VERSION
-    local installed="$6"      # $FZF_INSTALLED
-    local bin_rel_path="$7"   # fzf/fzf
-    local strip_num="${8:-0}" # 0 or 1
-    local toml_key="$9"       # fzf
+    local toml_key="$4"       # fzf  ([track] 키 = TOML 버전 배열 키 = data/state 기록 키)
+    local bin_rel_path="$5"   # fzf/fzf
+    local strip_num="${6:-0}" # 0 or 1
+    local installed="$7"      # $FZF_INSTALLED
+    local tag_prefix="${8:-}" # GitHub 태그 접두어 (예: Bitwarden 의 "cli-v")
+    local cur_ver="${9:-}"    # 실제 설치 버전(--version 등으로 알 수 있을 때), 없으면 data/state 기록 버전
 
-    # 1. 버전 결정 (개별 선택 모드)
-    local selected_ver="$current_ver"
-    if [ "$VERSION_MODE" = "individual" ]; then
-        if [ "$id" = "bitwarden" ] && [ "$IS_ARM64" != true ]; then
-            selected_ver="(최신)"
-        else
-            echo -n "   🔍 $id 최신 버전 조회 중... "
-            local _latest=""
-            if [ "$id" = "bitwarden" ]; then
-                _latest=$(fetch_latest_bitwarden_cli)
-            elif [ "$id" = "ripgrep" ]; then
-                _latest=$(fetch_latest_github "$repo")
-            else
-                _latest=$(fetch_latest_github "$repo" | sed 's/^v//')
-            fi
-            [ -n "$_latest" ] && echo "완료 ($_latest)" || echo "실패"
-            echo ""
-            echo "   $id 설치 버전 선택:"
-            echo "   1) 최신 버전: ${_latest:-[조회 실패 - 선택 불가]}"
-            echo "   2) 최종 설치 버전: $pinned_ver [기본값]"
-            echo ""
-            local _vs=""
-            prompt_read _vs "   선택 [1/${_C_DEFAULT}2${_C_RESET}]: "
-            case "${_vs:-2}" in
-                1) [ -n "$_latest" ] && selected_ver="$_latest" || selected_ver="$pinned_ver" ;;
-                *) selected_ver="$pinned_ver" ;;
-            esac
-            echo ""
-        fi
-    fi
+    # 1. 버전 결정: [track] 범위 안의 최신 버전 (GitHub 릴리스 목록 조회 실패 시 TOML 배열 첫 항목으로 폴백)
+    local pinned_ver selected_ver
+    pinned_ver=$(get_pinned_version "$toml_key")   # 이 PC 에 마지막으로 설치한 버전(data/state) 또는 TOML 첫 항목
+    [ -z "$cur_ver" ] && cur_ver="$pinned_ver"
+    selected_ver=$(resolve_track_version "$toml_key" latest list_github_release_versions "$repo" "$tag_prefix")
+    [ -z "$selected_ver" ] && selected_ver=$(_get_toml_version "$toml_key")
 
-    # 2. 설치/재설치/건너뛰기 결정
+    # 2. 설치/업데이트/건너뛰기 결정 — 공용 함수 decide_app_action (필수 도구라 미설치면 묻지 않고 설치,
+    #    설치됨 + track 범위 안에 새 버전 → 업데이트 여부 확인(기본 Y), 무인 실행은 기존 유지)
+    #    업데이트하지 않은 경우에는 중복 처리 방식(재설치 등)을 기존처럼 존중합니다.
     local action
-    action=$(_resolve_action "$installed" "$id")
-
-    echo "📦 $id $selected_ver 설치..."
-    if [ "$action" = "skip" ]; then
-        echo "   ⏭️  [건너뜀] 이미 설치되어 있습니다."
-        return 0
+    decide_app_action "$id" "$installed" "$cur_ver" "$selected_ver" "A" "DT2_$(echo "$id" | tr 'a-z-' 'A-Z_')"
+    action="$DT2_APP_ACTION"
+    if [ "$action" = "skip" ] && [ "$installed" = true ] && [ "$(_resolve_action true "$id")" = "reinstall" ]; then
+        action="reinstall"
     fi
+
+    # (건너뛰는 경우의 안내는 decide_app_action 이 출력)
+    [ "$action" = "skip" ] && return 0
+    echo "📦 $id $selected_ver 설치..."
 
     # 3. 재설치 시 기존 바이너리 삭제
     if [ "$action" = "reinstall" ]; then
@@ -522,33 +392,21 @@ install_cli_tool() {
 # 설치에 실패한 도구 목록 (마지막에 요약 출력)
 # 도구 하나가 실패해도 나머지 설치는 계속하므로 종료 코드는 바꾸지 않고, 실패 내역을 눈에 띄게 알립니다.
 _CLI_FAILED=()
-install_cli_tool "fzf" "fzf - 터미널용 퍼지 파인더" "junegunn/fzf" "$FZF_PINNED" "$FZF_VERSION" "$FZF_INSTALLED" "fzf/fzf" 0 "fzf"
-install_cli_tool "lazygit" "lazygit - 터미널 UI Git 도구" "jesseduffield/lazygit" "$LAZYGIT_PINNED" "$LAZYGIT_VERSION" "$LAZYGIT_INSTALLED" "lazygit/lazygit" 0 "lazygit"
-install_cli_tool "ripgrep" "ripgrep (rg) - 코드 검색 도구" "BurntSushi/ripgrep" "$RIPGREP_PINNED" "$RIPGREP_VERSION" "$RIPGREP_INSTALLED" "ripgrep/rg" 1 "ripgrep"
-install_cli_tool "fd" "fd-find (fd) - 파일 검색 도구" "sharkdp/fd" "$FD_PINNED" "$FD_VERSION" "$FD_INSTALLED" "fd/fd" 1 "fd"
-install_cli_tool "ast-grep" "ast-grep (sg) - 구조적 코드 검색 도구" "ast-grep/ast-grep" "$ASTGREP_PINNED" "$ASTGREP_VERSION" "$ASTGREP_INSTALLED" "ast-grep/ast-grep" 0 "ast_grep"
-install_cli_tool "bitwarden" "Bitwarden CLI (bw)" "bitwarden/clients" "$BITWARDEN_ARM_PINNED" "$BITWARDEN_ARM_VERSION" "$BITWARDEN_INSTALLED" "bitwarden/bw" 0 "bitwarden_arm"
-install_cli_tool "rclone" "rclone - 클라우드 동기화 도구" "rclone/rclone" "$RCLONE_PINNED" "$RCLONE_VERSION" "$RCLONE_INSTALLED" "rclone/rclone" 0 "rclone"
-# gh (GitHub CLI): 버전 고정(TOML) 대신 앱 규칙(항상 최신)을 따릅니다 — 공용 함수 decide_app_action(_install-utils.sh)
-#   ● 미설치: 설치 여부 확인(기본값 Y) → 최신 버전 설치 / 설치됨: 실제 설치 버전(gh --version)과 최신 버전 비교 →
-#     새 버전이 있으면 업데이트 여부 확인(기본값 Y). 최신 버전 조회 실패 시 미설치면 TOML 의 마지막 설치 버전으로 설치.
-#   ● 하위 호환이 잘 유지되고 Claude Code 등 에이전트가 최신 gh 기능을 가정하므로 고정하지 않습니다.
-#   ● install_cli_tool 에는 "미설치"로 넘겨 버전 선택(개별 모드)·중복 처리 질문 없이 결정된 버전을 바로 설치합니다
-#     (같은 폴더에 덮어써 설치되므로 업데이트도 동일). TOML 은 설치 성공 시 마지막 설치 버전으로 갱신됩니다.
-_gh_latest=$(fetch_latest_github "cli/cli" 2>/dev/null | sed 's/^v//' || true)
-_gh_cur=""
-if [ "$GH_INSTALLED" = true ]; then
-    _gh_cur=$("$MODULES_DIR/gh/gh" --version 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
-fi
-decide_app_action "gh (GitHub CLI)" "$GH_INSTALLED" "$_gh_cur" "$_gh_latest" "Y" "DT2_GH"
-if [ "$DT2_APP_ACTION" != "skip" ]; then
-    GH_VERSION="${_gh_latest:-$GH_PINNED}"
-    VERSION_MODE=pinned install_cli_tool "gh" "gh - GitHub CLI (PR·이슈·Actions, 모든 에이전트 공용)" "cli/cli" "$GH_PINNED" "$GH_VERSION" false "gh/gh" 2 "gh"
-fi
-
+install_cli_tool "fzf" "fzf - 터미널용 퍼지 파인더" "junegunn/fzf" "fzf" "fzf/fzf" 0 "$FZF_INSTALLED"
+install_cli_tool "lazygit" "lazygit - 터미널 UI Git 도구" "jesseduffield/lazygit" "lazygit" "lazygit/lazygit" 0 "$LAZYGIT_INSTALLED"
+install_cli_tool "ripgrep" "ripgrep (rg) - 코드 검색 도구" "BurntSushi/ripgrep" "ripgrep" "ripgrep/rg" 1 "$RIPGREP_INSTALLED"
+install_cli_tool "fd" "fd-find (fd) - 파일 검색 도구" "sharkdp/fd" "fd" "fd/fd" 1 "$FD_INSTALLED"
+install_cli_tool "ast-grep" "ast-grep (sg) - 구조적 코드 검색 도구" "ast-grep/ast-grep" "ast_grep" "ast-grep/ast-grep" 0 "$ASTGREP_INSTALLED"
+# Bitwarden: 실제 설치 버전을 bw --version 으로 비교 (x86_64 는 예전 "항상 최신" 설치라 data/state 기록이 없음)
+_bw_cur=""; [ "$BITWARDEN_INSTALLED" = true ] && _bw_cur=$("$MODULES_DIR/bitwarden/bw" --version 2>/dev/null | head -n 1 | tr -d '[:space:]' || true)
+install_cli_tool "bitwarden" "Bitwarden CLI (bw)" "bitwarden/clients" "bitwarden" "bitwarden/bw" 0 "$BITWARDEN_INSTALLED" "cli-v" "$_bw_cur"
+install_cli_tool "rclone" "rclone - 클라우드 동기화 도구" "rclone/rclone" "rclone" "rclone/rclone" 0 "$RCLONE_INSTALLED"
+# gh (GitHub CLI): 하위 호환이 좋고 에이전트가 최신 기능을 가정하므로 track "latest" (실제 설치 버전은 gh --version)
+_gh_cur=""; [ "$GH_INSTALLED" = true ] && _gh_cur=$("$MODULES_DIR/gh/gh" --version 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+install_cli_tool "gh" "gh - GitHub CLI (PR·이슈·Actions, 모든 에이전트 공용)" "cli/cli" "gh" "gh/gh" 2 "$GH_INSTALLED" "" "$_gh_cur"
 
 if [ "$IS_WSL2" = true ]; then
-    install_cli_tool "win32yank" "win32yank - 클립보드 공유 도구" "equalsraf/win32yank" "$WIN32YANK_PINNED" "$WIN32YANK_VERSION" "$WIN32YANK_INSTALLED" "win32yank/win32yank.exe" 0 "win32yank"
+    install_cli_tool "win32yank" "win32yank - 클립보드 공유 도구" "equalsraf/win32yank" "win32yank" "win32yank/win32yank.exe" 0 "$WIN32YANK_INSTALLED"
     if [ -d "$MODULES_DIR/win32yank" ]; then
         ensure_path_in_bashrc "$MODULES_DIR/win32yank"
     fi

@@ -148,7 +148,9 @@ jobs:
           chown -R tester:tester /__w/
           su - tester -c "
             export DT2_NONINTERACTIVE=1
-            export DT2_VERSION_MODE=pinned
+            # 버전은 tool-versions.toml [track] 정책을 따릅니다(예전 DT2_VERSION_MODE 는 제거됨).
+            # 버전 목록 조회(GitHub API) 호출 한도를 완화하기 위해 워크플로 토큰을 넘깁니다.
+            export GITHUB_TOKEN=${{ github.token }}
             export DT2_DUPLICATE_MODE=skip
             export DT2_ORCA_CHOICE=n
             export DT2_VSCODE_CHOICE=n
