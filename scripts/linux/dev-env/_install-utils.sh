@@ -52,6 +52,251 @@ _ensure_pkg() {
     fi
 }
 
+# ── 한글 입력기(IME) 확인 및 설치 (WSL2 WSLg · Linux 데스크톱 공용) ──────────
+# GUI 앱(Sublime Merge 등)에서 한글을 입력하려면 디스플레이 서버에 등록되는 입력기가 필요합니다.
+# ⚠️ 포터블 원칙의 예외: 입력기는 시스템 서비스라 apt 로 직접 설치해야 합니다(0.init-devtools2.sh 상단 메모 참고).
+#   ● 이미 한글 엔진(fcitx5-hangul / ibus-hangul / kime / nimf / fcitx-hangul)이 있으면 설치를 건너뜁니다.
+#   ● Linux GNOME + ibus 환경: GNOME 은 ibus 와 통합되어 있으므로 fcitx5 를 새로 넣지 않고
+#     ibus-hangul 만 추가한 뒤 GNOME 입력 소스에 한국어(Hangul)를 등록합니다(충돌 방지).
+#   ● 그 외(WSL2 포함): fcitx5 + fcitx5-hangul 을 설치합니다.
+#     - Linux 데스크톱: im-config 로 기본 입력기를 fcitx5 로 지정합니다(다음 로그인부터 적용).
+#     - WSL2: 데스크톱 세션(im-config/autostart)이 없으므로 환경변수 지정과 데몬 기동은
+#       앱 실행 래퍼(예: modules/sublime-merge/bin/smerge)가 실행 시점에 담당합니다.
+#   ● fcitx5 사용자 설정(~/.config/fcitx5/profile, config)이 없을 때만 한글 기본 프로필과
+#     한/영 전환 키(Hangul, 오른쪽 Alt)를 생성합니다(기존 사용자 설정 보존).
+#     config 가 이미 있으면 기존 키는 그대로 두고, Windows AutoHotkey 가 WSLg 창에 보내는 전용 키
+#     (한/영: Control+Alt+Shift+F12, 영문: Control+Alt+Shift+F11) 중 빠진 것만 보충합니다.
+#     (예전 보조 전환 키 Shift+Space 는 fcitx5 가 없을 때 공백이 입력되는 부작용이 있어 더 이상 넣지 않음)
+# 반환: 0 = 한글 입력기 준비됨(또는 비 apt 배포판이라 건너뜀), 1 = 설치 실패
+ensure_korean_ime() {
+    if ! command -v dpkg-query >/dev/null 2>&1 || ! command -v apt-get >/dev/null 2>&1; then
+        print_warn "apt 기반 배포판이 아니어서 한글 입력기 자동 설치를 건너뜁니다. (fcitx5-hangul 또는 ibus-hangul 을 직접 설치하세요)"
+        return 0
+    fi
+    _dt2_pkg_installed() { dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"; }
+
+    local _p _engine=""
+    for _p in fcitx5-hangul ibus-hangul kime nimf fcitx-hangul; do
+        if _dt2_pkg_installed "$_p"; then
+            _engine="$_p"
+            break
+        fi
+    done
+
+    if [ -n "$_engine" ]; then
+        print_skip "한글 입력기가 이미 설치되어 있습니다: $_engine"
+    else
+        local _use_ibus=false _pkgs=()
+        if [ "${IS_WSL2:-false}" != true ] && _dt2_pkg_installed ibus \
+            && { echo "${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome || command -v gnome-shell >/dev/null 2>&1; }; then
+            _use_ibus=true
+            _pkgs=(ibus-hangul)
+        else
+            _pkgs=(fcitx5 fcitx5-hangul fcitx5-frontend-gtk3 fcitx5-frontend-qt5)
+            [ "${IS_WSL2:-false}" != true ] && _pkgs+=(im-config)
+        fi
+
+        print_info "한글 입력기가 없어 설치합니다: ${_pkgs[*]}"
+        local _sudo=()
+        if [ "$(id -u)" -ne 0 ]; then
+            command -v sudo >/dev/null 2>&1 || { print_error "sudo 가 없어 한글 입력기를 설치할 수 없습니다."; return 1; }
+            _sudo=(sudo)
+            # 출력은 로그로 보내므로 비밀번호 프롬프트가 묻히지 않도록 먼저 인증을 받아 둡니다.
+            normalize_tty
+            sudo -v || { print_error "sudo 인증에 실패해 한글 입력기 설치를 건너뜁니다."; return 1; }
+        fi
+        # ⚠️ 종료코드를 확인하지 않으면 설치가 실패해도 아래에서 "설치 완료"가
+        # 그대로 출력됩니다(3.install-cli-tools.sh의 apt install 오류 처리 관례와 동일하게 맞춤).
+        if ! { "${_sudo[@]}" apt-get update -qq && "${_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${_pkgs[@]}"; } >"$DT2_TMP/_ime_apt.log" 2>&1; then
+            print_error "한글 입력기 설치에 실패했습니다. (로그: $DT2_TMP/_ime_apt.log)"
+            return 1
+        fi
+
+        if [ "$_use_ibus" = true ]; then
+            _engine="ibus-hangul"
+            # GNOME 입력 소스에 ('ibus', 'hangul') 이 없을 때만 추가 (GUI 세션 밖에서 실행되면 조용히 건너뜀)
+            if command -v gsettings >/dev/null 2>&1; then
+                local _src
+                _src=$(gsettings get org.gnome.desktop.input-sources sources 2>/dev/null || true)
+                if [ -n "$_src" ] && ! echo "$_src" | grep -q "'hangul'"; then
+                    if [ "$_src" = "@a(ss) []" ] || [ "$_src" = "[]" ]; then
+                        _src="[('xkb', 'us'), ('ibus', 'hangul')]"
+                    else
+                        _src="${_src%]}, ('ibus', 'hangul')]"
+                    fi
+                    gsettings set org.gnome.desktop.input-sources sources "$_src" 2>/dev/null || true
+                fi
+            fi
+        else
+            _engine="fcitx5-hangul"
+            # im-config를 비대화형 모드로 실행하여 fcitx5 지정 (Linux 데스크톱 전용)
+            if [ "${IS_WSL2:-false}" != true ] && command -v im-config >/dev/null 2>&1; then
+                im-config -n fcitx5 >/dev/null 2>&1 || print_warn "im-config 로 기본 입력기를 fcitx5 로 지정하지 못했습니다."
+            fi
+        fi
+        print_done "한글 입력기 설치 완료: $_engine"
+        [ "${IS_WSL2:-false}" != true ] && print_info "  다음 로그인(또는 재부팅)부터 한글 입력기가 활성화됩니다."
+        # keyd 가 fcitx5 설치 전에 배포되었다면 전역 ESC → 영문 전환(C-A-S-f11)이 꺼진 채로 배포되어 있으므로 재배포 안내
+        # (4.setup-keyboard.sh 는 fcitx5 설치 여부를 보고 .config/keyd/default.conf 의 영문 전환 매크로를 켜고 끕니다)
+        if [ "$_engine" = "fcitx5-hangul" ] && [ -f /etc/keyd/default.conf ] && ! grep -q "C-A-S-f11" /etc/keyd/default.conf 2>/dev/null; then
+            print_info "  전역 ESC → 영문 전환을 켜려면 keyd 설정을 다시 배포하세요: sudo bash ${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/4.setup-keyboard.sh"
+        fi
+    fi
+
+    # fcitx5 기본 프로필(영문 + 한글) 및 한/영 전환 키 — 파일이 없을 때만 생성
+    # (단, 전환 키 config 는 AHK 연동 전용 키가 꼭 있어야 하므로 기존 파일에도 빠진 키만 보충합니다)
+    if [ "$_engine" = "fcitx5-hangul" ]; then
+        local _fdir="${XDG_CONFIG_HOME:-$HOME/.config}/fcitx5"
+        mkdir -p "$_fdir"
+        if [ ! -f "$_fdir/profile" ]; then
+            cat >"$_fdir/profile" <<'EOF'
+[Groups/0]
+Name=Default
+Default Layout=us
+DefaultIM=hangul
+
+[Groups/0/Items/0]
+Name=keyboard-us
+Layout=
+
+[Groups/0/Items/1]
+Name=hangul
+Layout=
+
+[GroupOrder]
+0=Default
+EOF
+        fi
+        # 한/영 전환 키(TriggerKeys)와 영문 전환 키(DeactivateKeys)
+        # - 한/영 키는 키보드·WSLg 키 매핑에 따라 Hangul 또는 Alt_R 로 들어오므로 둘 다 등록합니다
+        #   (Linux 데스크톱에서 물리 한/영 키·오른쪽 Alt 를 그대로 쓰는 경우).
+        # - Control+Alt+Shift+F12 / F11 은 Windows AutoHotkey(devtools2-hotkey.ahk Part 5)가
+        #   WSLg 창에서 한/영 키와 Esc·CapsLock 탭·Ctrl+[ 를 대신해 보내는 "안전한 전용 키"입니다.
+        #   어떤 앱(Sublime Merge/Text 기본 키맵 포함)에서도 쓰지 않는 조합이라, fcitx5 가 없거나 꺼져 있어도
+        #   공백 입력 같은 부작용이 생기지 않습니다. (예전 보조 전환 키 Shift+Space 는 이 부작용 때문에 제외)
+        #   AHK 쪽 조합과 반드시 함께 바꿔야 합니다.
+        # - 파일이 없으면 새로 만들고, 사용자 설정 파일이 이미 있으면 기존 키는 그대로 두고
+        #   위 키들 중 빠진 것만 해당 섹션 끝에 추가합니다(기존 사용자 설정 보존, 멱등).
+        python3 - "$_fdir/config" <<'PYEOF' || print_warn "fcitx5 전환 키 설정을 기록하지 못했습니다: $_fdir/config"
+import os, re, sys
+
+path = sys.argv[1]
+wanted = {
+    "Hotkey/TriggerKeys": ["Hangul", "Alt_R", "Control+Alt+Shift+F12"],
+    "Hotkey/DeactivateKeys": ["Control+Alt+Shift+F11"],
+}
+lines = open(path, encoding="utf-8").read().splitlines() if os.path.exists(path) else []
+
+for section, keys in wanted.items():
+    header = f"[{section}]"
+    if header not in [l.strip() for l in lines]:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(header)
+    start = [l.strip() for l in lines].index(header) + 1
+    end = start
+    while end < len(lines) and not lines[end].strip().startswith("["):
+        end += 1
+    entries = {}
+    for l in lines[start:end]:
+        m = re.match(r"\s*(\d+)\s*=\s*(.*)$", l)
+        if m:
+            entries[int(m.group(1))] = m.group(2).strip()
+    insert_at = end
+    while insert_at > start and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    next_idx = max(entries) + 1 if entries else 0
+    for k in keys:
+        if k not in entries.values():
+            lines.insert(insert_at, f"{next_idx}={k}")
+            insert_at += 1
+            next_idx += 1
+
+with open(path, "w", encoding="utf-8") as f:
+    f.write("\n".join(lines) + "\n")
+PYEOF
+        # 실행 중인 fcitx5 는 종료 시 메모리의 설정으로 파일을 덮어쓰므로, 바뀐 파일을 즉시 다시 읽게 합니다.
+        if pgrep -u "$(id -u)" -x fcitx5 >/dev/null 2>&1 && command -v fcitx5-remote >/dev/null 2>&1; then
+            fcitx5-remote -r >/dev/null 2>&1 || true
+        fi
+    fi
+    return 0
+}
+
+# ── GUI 한글 폰트 확인 및 설치 (WSL2 WSLg · Linux 데스크톱 공용) ──────────────
+# GUI 앱(Sublime Merge 등)의 메뉴·목록 같은 UI 글꼴은 fontconfig 의 기본 sans-serif 를 따릅니다.
+#   ● WSL2 에는 데스크톱 글꼴이 없어 sans-serif 가 터미널용 'D2Coding Nerd Font Mono' 로 잡히는데,
+#     Mono 계열 Nerd Font 는 모든 글자를 한 칸 폭으로 취급해 두 칸 폭인 한글이 서로 겹쳐 보입니다
+#     (실측: Sublime Merge 커밋 목록 한글 겹침). 또 GTK 기본 글꼴 'Cantarell 11' 이 없어 같은 글꼴이
+#     11pt 로 대체되어 제목 표시줄·메뉴 글자가 앱 본문보다 비정상적으로 크게 보였습니다.
+#   ● 가변폭(proportional) 한글 글꼴이 하나도 없을 때만 Ubuntu 데스크톱 기본 한글 글꼴인
+#     fonts-noto-cjk(Noto Sans CJK KR)를 설치합니다 → WSL 과 Linux 데스크톱의 UI 글꼴이 같아집니다.
+#     (Linux 데스크톱은 대부분 이미 있어 건너뜀)
+#   ● WSL2 전용 보정 (데스크톱 환경이 없어 기본값을 정해 줄 주체가 없으므로):
+#     - ~/.config/fontconfig/conf.d/60-devtools2-sans.conf: sans-serif 선호 순서를
+#       Noto Sans CJK KR → D2Coding ligature(가변폭 글꼴 설치 실패 시에도 겹침만은 방지) 로 지정
+#       (사용자 fonts.conf 는 건드리지 않는 별도 파일, 멱등)
+#     - GTK 글꼴이 기본값 'Cantarell 11'(미설치 글꼴)일 때만 'Sans 9' 로 변경 (사용자가 바꾼 값은 보존)
+#   ⚠️ 포터블 원칙의 예외: 시스템 fontconfig 가 읽는 글꼴 패키지라 apt 로 설치합니다.
+# 반환: 0 = 준비됨(또는 비 apt 배포판이라 설치 건너뜀), 1 = 글꼴 설치 실패
+ensure_korean_gui_font() {
+    local _rc=0
+    # fc-list 의 spacing 출력: 고정폭은 spacing=90/100 이 붙고 가변폭은 붙지 않음
+    if command -v fc-list >/dev/null 2>&1 && fc-list ':lang=ko' spacing 2>/dev/null | grep -qv 'spacing='; then
+        print_skip "가변폭 한글 UI 글꼴이 이미 설치되어 있습니다."
+    elif ! command -v apt-get >/dev/null 2>&1; then
+        print_warn "apt 기반 배포판이 아니어서 한글 UI 글꼴 자동 설치를 건너뜁니다. (Noto Sans CJK 등을 직접 설치하세요)"
+    else
+        print_info "가변폭 한글 UI 글꼴이 없어 설치합니다: fonts-noto-cjk (Noto Sans CJK KR)"
+        local _sudo=()
+        if [ "$(id -u)" -ne 0 ]; then
+            if command -v sudo >/dev/null 2>&1; then
+                _sudo=(sudo)
+                # 출력은 로그로 보내므로 비밀번호 프롬프트가 묻히지 않도록 먼저 인증을 받아 둡니다.
+                normalize_tty
+                sudo -v || _sudo=(false)
+            else
+                _sudo=(false)
+            fi
+        fi
+        # 패키지 목록이 오래되어 실패하면 목록을 갱신한 뒤 한 번 더 시도합니다.
+        if { "${_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fonts-noto-cjk \
+            || { "${_sudo[@]}" apt-get update -qq && "${_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fonts-noto-cjk; }; } >"$DT2_TMP/_font_apt.log" 2>&1; then
+            print_done "한글 UI 글꼴 설치 완료: Noto Sans CJK KR"
+        else
+            print_warn "한글 UI 글꼴 설치에 실패했습니다. (로그: $DT2_TMP/_font_apt.log) — D2Coding 으로 대체합니다."
+            _rc=1
+        fi
+    fi
+
+    if [ "${IS_WSL2:-false}" = true ]; then
+        local _fc_dir="${XDG_CONFIG_HOME:-$HOME/.config}/fontconfig/conf.d"
+        mkdir -p "$_fc_dir"
+        cat >"$_fc_dir/60-devtools2-sans.conf" <<'EOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<!-- DevTools2 (WSL2 전용, _install-utils.sh 의 ensure_korean_gui_font 가 생성):
+     WSLg GUI 앱의 기본 UI 글꼴이 Mono Nerd Font 로 잡혀 한글이 겹치는 문제를 막기 위해
+     sans-serif 선호 순서를 지정합니다. -->
+<fontconfig>
+  <alias>
+    <family>sans-serif</family>
+    <prefer>
+      <family>Noto Sans CJK KR</family>
+      <family>D2Coding ligature</family>
+    </prefer>
+  </alias>
+</fontconfig>
+EOF
+        if command -v gsettings >/dev/null 2>&1 \
+            && [ "$(gsettings get org.gnome.desktop.interface font-name 2>/dev/null || true)" = "'Cantarell 11'" ]; then
+            gsettings set org.gnome.desktop.interface font-name 'Sans 9' 2>/dev/null || true
+        fi
+        command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1 || true
+    fi
+    return $_rc
+}
+
 # ── 아키텍처별 tar.gz 아카이브 다운로드 및 폴더 정리 설치 공용 함수 ─────────
 # 사용법: install_tool <URL_TEMPLATE> <X64_ARCH> <ARM_ARCH> <TARGET_DIR>
 # URL_TEMPLATE 내 '{ARCH}' 문자열이 현재 아키텍처 식별자로 치환됩니다.

@@ -3,11 +3,23 @@
 # Sublime Merge 설치 및 Git Diff/Merge 연동 스크립트 (tool.setup-sublime-merge.sh)
 #
 # 주요 기능:
-#   1. Linux 네이티브 환경: 공식 최신 tar.xz 다운로드 및 $DEVTOOLS2/modules/sublime-merge 포터블 스마트 설치 ([y/N], 기본값 N)
-#   2. WSL2 환경: Windows 네이티브 smerge.exe 탐색 및 WSL 전용 경로 변환(wslpath) 브릿지 래퍼 생성
-#   3. $DEVTOOLS2/.config/sublime-merge 설정 파일 자동 링크/동기화 (다크 Monokai, 11.5pt)
-#   4. Git 글로벌 difftool 및 mergetool 로 smerge 자동 등록
-#   5. Linux 데스크탑 환경: .desktop 앱 바로가기 및 GNOME 커스텀 키바인딩(Ctrl+Alt+G) 등록
+#   1. Linux 데스크톱 / WSL2(WSLg) 공통: 공식 최신 tar.xz 다운로드 및 $DEVTOOLS2/modules/sublime-merge
+#      스마트 설치 ([y/N], 기본값 N). GUI 가 없는 서버(헤드리스) 환경에서는 설치를 건너뜁니다.
+#   2. WSL2 환경: WSLg(WSL GUI 앱 지원) 활성화 확인 — Linux 앱을 Windows 창으로 실행
+#   3. 한글 입력기 확인 및 설치 (없을 때만, _install-utils.sh 의 ensure_korean_ime 공용 함수)
+#   4. smerge 실행 래퍼 생성 (WSL2 에서는 fcitx5 입력기 환경변수·데몬을 실행 시점에 준비)
+#   5. $DEVTOOLS2/.config/sublime-merge 설정 파일 자동 링크/동기화 (다크 Monokai, 11.5pt)
+#   6. Git 글로벌 difftool 및 mergetool 로 smerge 자동 등록
+#   7. 앱 바로가기(.desktop) 등록 (WSL2 는 WSLg 가 Windows 시작 메뉴에 자동 노출)
+#      및 Linux GNOME 커스텀 키바인딩(Ctrl+Alt+G) 등록 (WSL2 는 Windows AutoHotkey 가 담당)
+#
+# [WSL2 에서 Windows 판 대신 Linux 판(WSLg)을 쓰는 이유]
+#   Windows 판 Sublime Merge 는 번들 git.exe 로 \\wsl.localhost(9P) 경로의 저장소를 다뤄야 해서
+#   ● 실행 비트(100755) 오탐 ● Linux 심볼릭 링크 lstat 실패("Function not implemented") 오탐
+#   ● 양쪽 git 이 같은 .git/index 를 번갈아 재작성하는 전체 재해시(대형 저장소 수십 초)
+#   ● index.lock 잔존 ● autocrlf=true 로 Discard 시 CRLF 기록 ● safe.directory 등록
+#   같은 문제가 계속 발생했습니다. Linux 판은 WSL 의 git 과 ext4 파일시스템을 직접 쓰므로
+#   이 문제들이 구조적으로 생기지 않습니다.
 #
 # ------------------------------------------------------------------------------
 # ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
@@ -56,222 +68,225 @@ fi
 print_banner "🔀 Sublime Merge (Git Diff & Merge) 설치 및 연동 (tool.setup-sublime-merge.sh)"
 
 # 사용자 의사 확인 환경변수 (비대화형 실행 지원)
+#   DT2_SMERGE_CHOICE=n → 전체 건너뜀 / DT2_SMERGE_CHOICE=y → 설치·업데이트 확인 프롬프트를 자동 승인
+_smerge_auto_yes=false
 if [ -n "${DT2_SMERGE_CHOICE:-}" ]; then
     [ "${DT2_SMERGE_CHOICE,,}" = "n" ] && { print_skip "Sublime Merge 설치를 건너뜁니다."; exit 0; }
+    [ "${DT2_SMERGE_CHOICE,,}" = "y" ] && _smerge_auto_yes=true
 fi
 
 # ==============================================================================
-# [Step 1] 환경별 바이너리 설치 및 PATH 연동
+# [Step 0] GUI 환경 확인 (Sublime Merge 는 GUI 전용 앱)
+#   - WSL2: WSLg 가 꺼져 있으면 .wslconfig 에 활성화 설정을 기록하고 계속 설치합니다
+#           (WSL 재시작 후 바로 실행 가능하도록 바이너리·설정을 미리 준비).
+#   - Linux: 현재 GUI 세션(DISPLAY/WAYLAND_DISPLAY)이 있거나, SSH 로 접속했더라도
+#            데스크톱 세션(xsessions/wayland-sessions)이 설치된 머신이면 데스크톱 환경으로 판단합니다.
+#            둘 다 아니면 헤드리스 서버이므로 설치를 건너뜁니다 (터미널에서는 lazygit 사용).
+# ==============================================================================
+if [ "${IS_WSL2:-false}" = true ]; then
+    if ensure_wslg; then
+        print_info "[WSL2] WSLg 활성화 확인 완료 → Linux 판 Sublime Merge 를 Windows 창으로 실행합니다."
+    fi
+else
+    if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] \
+        && ! ls /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop >/dev/null 2>&1; then
+        print_skip "GUI 데스크톱 환경이 없는 서버로 감지되어 Sublime Merge 설치를 건너뜁니다. (터미널에서는 lazygit 을 사용하세요)"
+        exit 0
+    fi
+fi
+
+# ==============================================================================
+# [Step 1] 바이너리 설치 (Linux 데스크톱 / WSL2 공통: 포터블 tar.xz)
+#   ⚠️ 공식 tar.xz 에는 'smerge' 실행 파일이 없고 'sublime_merge' 만 들어 있습니다.
+#      (deb 패키지는 /usr/bin/smerge 심볼릭 링크를 따로 만들어 줌)
+#      따라서 설치 여부/버전은 sublime_merge 로 확인하고, smerge 명령은 bin/smerge 래퍼가 제공합니다.
 # ==============================================================================
 SMERGE_MODULE_DIR="$DEVTOOLS2/modules/sublime-merge"
 mkdir -p "$SMERGE_MODULE_DIR"
 
-if [ "${IS_WSL2:-false}" = true ]; then
-    print_info "[WSL2] Windows 네이티브 Sublime Merge 연동을 구성합니다..."
-    
-    ensure_wsl_interop
-    _win_user=$(get_win_userprofile || true)
+print_info "포터블 Sublime Merge 설치 확인 중..."
 
-    _win_smerge=""
-    if command -v cmd.exe >/dev/null 2>&1; then
-        _where_out=$(cmd.exe /c "where smerge.exe" 2>/dev/null | tr -d '\r' | head -n 1 || true)
-        if [ -n "$_where_out" ] && command -v wslpath >/dev/null 2>&1; then
-            _conv=$(wslpath "$_where_out" 2>/dev/null || true)
-            [ -f "$_conv" ] && _win_smerge="$_conv"
-        fi
-    fi
+# 최신 안정 빌드 번호 조회 (SublimeHQ 공식 다운로드 페이지 HTML 크롤링)
+print_info "SublimeHQ 공식 사이트에서 최신 안정 빌드 확인 중..."
+_latest_build=""
+_html_content=$(curl -sSfL --max-time 10 https://www.sublimemerge.com/download 2>/dev/null || true)
+if [ -n "$_html_content" ]; then
+    _latest_build=$(echo "$_html_content" | grep -oP 'sublime_merge_build_\K[0-9]+' | head -n 1 || true)
+fi
 
-    if [ -z "$_win_smerge" ]; then
-        for _p in \
-            "/mnt/c/Program Files/Sublime Merge/smerge.exe" \
-            "/mnt/c/Program Files (x86)/Sublime Merge/smerge.exe" \
-            "$_win_user/AppData/Local/Programs/Sublime Merge/smerge.exe" \
-            "/mnt/c/Users/${USER:-}/AppData/Local/Programs/Sublime Merge/smerge.exe" \
-            $_win_user/AppData/Local/Microsoft/WinGet/Packages/SublimeHQ.SublimeMerge*/smerge.exe \
-            /mnt/c/Users/${USER:-}/AppData/Local/Microsoft/WinGet/Packages/SublimeHQ.SublimeMerge*/smerge.exe; do
-            if [ -f "$_p" ]; then
-                _win_smerge="$_p"
-                break
-            fi
-        done
-    fi
+# 현재 설치된 빌드 번호 확인 (출력 예: "Sublime Merge Build 2132")
+_installed_build=""
+if [ -x "$SMERGE_MODULE_DIR/sublime_merge" ]; then
+    _installed_build=$("$SMERGE_MODULE_DIR/sublime_merge" --version 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
+fi
 
-    # Windows 실행 파일이 아직 없더라도 기본 설치 경로로 래퍼를 생성해 둠 (나중에 winget 설치 시 즉시 작동)
-    if [ -z "$_win_smerge" ]; then
-        _win_smerge="/mnt/c/Program Files/Sublime Merge/smerge.exe"
-        print_warn "Windows 호스트에 smerge.exe 가 아직 감지되지 않았습니다."
-        print_info "  기본 경로($_win_smerge)를 기준으로 WSL 브릿지 래퍼를 선제 생성합니다."
-        print_info "  Windows 설치 스크립트(setup-devtools2-wsl.ps1) 또는 winget으로 설치를 완료하세요:"
-        print_info "    winget install --id SublimeHQ.SublimeMerge"
+if [ -z "$_latest_build" ]; then
+    if [ -n "$_installed_build" ]; then
+        # 조회 실패 시 기본값과 비교하면 더 오래된 빌드로 "업데이트"하자고 묻게 되므로 업데이트 확인 자체를 건너뜀
+        print_warn "최신 빌드 번호 조회 실패 → 업데이트 확인을 건너뜁니다. (현재: Build $_installed_build)"
+        _latest_build="$_installed_build"
     else
-        print_info "감지된 Windows Sublime Merge 실행 파일: $_win_smerge"
+        _latest_build="2132"
+        print_warn "최신 빌드 번호 조회 실패 → 기본 안정 빌드($_latest_build) 사용"
+    fi
+else
+    print_info "최신 안정 빌드 확인: Build $_latest_build"
+fi
+
+_do_install=false
+if [ -z "$_installed_build" ]; then
+    # 미설치 → 사용자 확인 (기본값 N)
+    if [ "$_smerge_auto_yes" = true ] || prompt_confirm "   👉 Sublime Merge (Git Diff & Merge GUI)를 설치하시겠습니까?" "N"; then
+        _do_install=true
+    else
+        print_skip "Sublime Merge 설치를 건너뜁니다."
+        exit 0
+    fi
+elif [ "$_installed_build" -ge "$_latest_build" ] 2>/dev/null; then
+    # 이미 최신 → 건너뜀
+    print_skip "Sublime Merge Build $_installed_build 이 이미 최신 버전입니다."
+else
+    # 구버전 → 업데이트 안내 후 진행 (기본값 N)
+    print_info "현재 설치: Build $_installed_build → 최신: Build $_latest_build"
+    if [ "$_smerge_auto_yes" = true ] || prompt_confirm "   ⚠️  최신 빌드로 업데이트하시겠습니까?" "N"; then
+        _do_install=true
+    else
+        print_skip "Sublime Merge 업데이트를 건너뜁니다. (현재: Build $_installed_build)"
+    fi
+fi
+
+if [ "$_do_install" = true ]; then
+    _smerge_arch="x64"
+    if [ "${IS_ARM64:-false}" = "true" ] || [ "$(uname -m 2>/dev/null)" = "aarch64" ]; then
+        _smerge_arch="arm64"
     fi
 
-    # WSL2 전용 smerge 브릿지 래퍼 생성
-    # - Linux POSIX 경로(/home/...)를 Windows UNC 경로(\\wsl$\...)로 wslpath 변환하여 전달
-    # - git mergetool 호출 시 종료 대기(wait)를 위해 백그라운드(&)가 아닌 동기 실행
-    mkdir -p "$SMERGE_MODULE_DIR/bin"
-    _wrapper_path="$SMERGE_MODULE_DIR/bin/smerge"
-    
-    cat <<EOF > "$_wrapper_path"
+    _smerge_url="https://download.sublimetext.com/sublime_merge_build_${_latest_build}_${_smerge_arch}.tar.xz"
+    _smerge_tmp="$DT2_TMP/sublime_merge_${_latest_build}_${_smerge_arch}.tar.xz"
+
+    if download_with_progress "$_smerge_url" "$_smerge_tmp" "Sublime Merge Build $_latest_build (${_smerge_arch})"; then
+        echo -n "   📦 Sublime Merge 아카이브 압축 해제 중..."
+        # 기존 바이너리를 임시 백업 후 설치 (실패 시 롤백)
+        if [ -n "$_installed_build" ]; then
+            _smerge_old="$SMERGE_MODULE_DIR/.dt2-old-smerge"
+            rm -rf "$_smerge_old"
+            mkdir -p "$_smerge_old"
+            # bin 폴더(DevTools2 실행 래퍼)는 보존, 바이너리만 백업
+            find "$SMERGE_MODULE_DIR" -mindepth 1 -maxdepth 1 -not -name bin -not -name ".dt2-old-smerge" -exec mv {} "$_smerge_old/" \;
+        fi
+
+        tar -xJf "$_smerge_tmp" --strip-components=1 -C "$SMERGE_MODULE_DIR"
+        rm -f "$_smerge_tmp"
+        echo " 완료"
+
+        # 설치 성공 확인 후 백업 정리 또는 롤백
+        if [ -x "$SMERGE_MODULE_DIR/sublime_merge" ]; then
+            rm -rf "$SMERGE_MODULE_DIR/.dt2-old-smerge" 2>/dev/null || true
+            if [ -n "$_installed_build" ]; then
+                print_done "Sublime Merge 업데이트 완료: Build $_installed_build → Build $_latest_build"
+            else
+                print_done "Sublime Merge 포터블 설치 완료: Build $_latest_build"
+            fi
+        elif [ -d "$SMERGE_MODULE_DIR/.dt2-old-smerge" ]; then
+            # 설치 실패 → 롤백
+            find "$SMERGE_MODULE_DIR/.dt2-old-smerge" -mindepth 1 -maxdepth 1 -exec mv {} "$SMERGE_MODULE_DIR/" \;
+            rm -rf "$SMERGE_MODULE_DIR/.dt2-old-smerge"
+            print_warn "설치 실패 → 이전 Build $_installed_build 로 롤백했습니다."
+        fi
+        chmod +x "$SMERGE_MODULE_DIR/sublime_merge" 2>/dev/null || true
+    else
+        print_error "Sublime Merge 다운로드에 실패했습니다. 네트워크를 확인하세요: $_smerge_url"
+        rm -f "$_smerge_tmp" 2>/dev/null || true
+    fi
+fi
+
+if [ ! -x "$SMERGE_MODULE_DIR/sublime_merge" ]; then
+    print_error "Sublime Merge 실행 파일이 없어 연동 단계를 진행할 수 없습니다: $SMERGE_MODULE_DIR/sublime_merge"
+    exit 1
+fi
+
+# 과거 버전이 만든 포터블 Data 폴더 정리
+# - 실행 파일 옆에 Data 폴더가 있으면 Sublime Merge 가 포터블 모드로 동작해 세션·캐시·라이선스 같은
+#   개인 데이터를 그룹 공유 디렉터리(modules, 2770)에 기록합니다. 개인 데이터는 사용자별
+#   ~/.config/sublime-merge 에 두어야 하므로, 라이선스 파일이 없는(=DevTools2 가 만든 세션뿐인) 경우에만 제거합니다.
+if [ -d "$SMERGE_MODULE_DIR/Data" ]; then
+    if [ -z "$(find "$SMERGE_MODULE_DIR/Data" -name '*.sublime_license' -print -quit 2>/dev/null)" ]; then
+        rm -rf "$SMERGE_MODULE_DIR/Data"
+        print_info "포터블 Data 폴더를 정리했습니다. (설정은 사용자별 ~/.config/sublime-merge 를 사용)"
+    else
+        print_warn "$SMERGE_MODULE_DIR/Data 에 라이선스 파일이 있어 포터블 모드를 유지합니다."
+    fi
+fi
+
+# ==============================================================================
+# [Step 2] 한글 입력기 및 한글 UI 글꼴 확인·설치 (없을 때만)
+#   - WSL2 는 기본적으로 입력기가 없고, WSLg 창에는 Windows IME 가 적용되지 않으므로
+#     fcitx5-hangul 이 있어야 커밋 메시지에 한글을 입력할 수 있습니다.
+#   - Linux 데스크톱은 대부분 ibus/fcitx5 가 이미 있어 그대로 건너뜁니다.
+#   - 가변폭 한글 UI 글꼴(Noto Sans CJK KR)도 없을 때만 함께 설치합니다 (WSL2 는 기본 UI 글꼴·GTK 글꼴 크기 보정 포함).
+# ==============================================================================
+ensure_korean_ime || print_warn "한글 입력기 준비에 실패했습니다. 나중에 install_hangle.sh 로 다시 시도할 수 있습니다."
+
+# 한글 UI 글꼴 (없을 때만) — 커밋 목록 한글 겹침, 과도하게 큰 제목/메뉴 글꼴 방지 (상세: ensure_korean_gui_font 주석)
+ensure_korean_gui_font || true
+
+# ==============================================================================
+# [Step 3] smerge 실행 래퍼 생성 ($SMERGE_MODULE_DIR/bin/smerge)
+#   - nvim(<leader>gu), git mergetool, .desktop 바로가기, Windows AutoHotkey(Ctrl+Alt+G)가
+#     모두 이 래퍼를 통해 실행됩니다. (1.setup-env.sh 의 PATH 목록에서 bin 이 모듈 루트보다 앞섬)
+#   - WSL2: WSLg 에는 데스크톱 세션(im-config/autostart)이 없으므로 실행 시점에
+#     ● fcitx5 입력기 환경변수(GTK_IM_MODULE 등) 지정
+#     ● 세션 DBus 주소 보정 (fcitx GTK 입력 모듈은 DBus 로 fcitx5 와 통신; wsl.exe -e 실행 시 비어 있을 수 있음)
+#     ● fcitx5 데몬이 없으면 기동 (WSLg 컴포지터는 Wayland 입력기 프로토콜을 지원하지 않아 wayland 애드온은 끔)
+#   - 공통: 날짜 형식만 LC_TIME=C.UTF-8 로 고정 (ko_KR 로캘의 오전/오후가 잘려 날짜가 깨지는 문제 방지)
+#   - 공통: 제목 표시줄·메뉴 바만 GTK 다크(GTK_THEME=Adwaita:dark) 적용 (눈부심 감소, 나머지 UI 는 라이트)
+#   - mergetool 은 종료 대기가 필요하므로 백그라운드(&)가 아닌 exec 로 직접 실행합니다.
+#     (sublime_merge 는 일반 실행 시 스스로 백그라운드로 분리되어 즉시 반환됩니다)
+#   - 과거 WSL2 용 Windows smerge.exe 브릿지 래퍼도 이 단계에서 덮어써집니다.
+# ==============================================================================
+mkdir -p "$SMERGE_MODULE_DIR/bin"
+_wrapper_path="$SMERGE_MODULE_DIR/bin/smerge"
+cat <<EOF > "$_wrapper_path"
 #!/bin/bash
 # ==============================================================================
-# WSL2 -> Windows Sublime Merge CLI Bridge Wrapper
-# Generated by tool.setup-sublime-merge.sh
+# Sublime Merge 실행 래퍼 (Generated by tool.setup-sublime-merge.sh)
 # ==============================================================================
-WIN_SMERGE="$_win_smerge"
+SMERGE_BIN="$SMERGE_MODULE_DIR/sublime_merge"
+if [ ! -x "\$SMERGE_BIN" ]; then
+    echo "[오류] Sublime Merge 실행 파일을 찾을 수 없습니다: \$SMERGE_BIN" >&2
+    echo "  tool.setup-sublime-merge.sh 를 다시 실행하세요." >&2
+    exit 1
+fi
 
-if [ ! -f "\$WIN_SMERGE" ]; then
-    # 대체 경로 2차 탐색
-    _win_user="\${WIN_USERPROFILE:-}"
-    if [ -z "\$_win_user" ] && command -v cmd.exe >/dev/null 2>&1; then
-        _raw_home=\$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' || true)
-        [ -n "\$_raw_home" ] && command -v wslpath >/dev/null 2>&1 && _win_user=\$(wslpath "\$_raw_home" 2>/dev/null || true)
+if grep -qi microsoft /proc/version 2>/dev/null && command -v fcitx5 >/dev/null 2>&1; then
+    export GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx
+    if [ -z "\${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "/run/user/\$(id -u)/bus" ]; then
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$(id -u)/bus"
     fi
-
-    if [ -f "/mnt/c/Program Files/Sublime Merge/smerge.exe" ]; then
-        WIN_SMERGE="/mnt/c/Program Files/Sublime Merge/smerge.exe"
-    elif [ -f "/mnt/c/Program Files (x86)/Sublime Merge/smerge.exe" ]; then
-        WIN_SMERGE="/mnt/c/Program Files (x86)/Sublime Merge/smerge.exe"
-    elif [ -n "\$_win_user" ] && [ -f "\$_win_user/AppData/Local/Programs/Sublime Merge/smerge.exe" ]; then
-        WIN_SMERGE="\$_win_user/AppData/Local/Programs/Sublime Merge/smerge.exe"
-    else
-        echo "[오류] Windows Sublime Merge (smerge.exe)를 찾을 수 없습니다: \$WIN_SMERGE" >&2
-        echo "  Windows PowerShell 에서 winget install --id SublimeHQ.SublimeMerge 로 설치하세요." >&2
-        exit 1
+    if ! pgrep -u "\$(id -u)" -x fcitx5 >/dev/null 2>&1; then
+        fcitx5 -d --replace --disable=wayland,waylandim >/dev/null 2>&1 || true
     fi
 fi
 
-# Windows ↔ WSL2 환경에서 실행 권한(100755) 오탐을 방지하기 위해,
-# 열려는 대상 디렉터리가 Git 저장소이면 core.filemode false 를 선제적으로 자동 보정
-for _target in "\$@" "."; do
-    if [ -d "\$_target" ]; then
-        _gdir=\$(git -C "\$_target" rev-parse --git-dir 2>/dev/null || true)
-        if [ -n "\$_gdir" ] && [ -d "\$_gdir" ]; then
-            git -C "\$_target" config core.filemode false 2>/dev/null || true
-        fi
-    fi
-done
+# 날짜 표시는 시스템 로캘(glib)을 따르는데, ko_KR 로캘의 '오전/오후' 를 Sublime Merge 가 중간에서 잘라
+# "수 28 10월 2026, 12:25 오" / "화 5:33 오" 처럼 깨져 보이므로 날짜 형식만 영어로 고정합니다.
+# (Windows 판과 동일한 "Wed, Oct 28, 2026, 12:21 AM" / "Tue, 5:33 PM" 형식. UI 언어·한글 입력에는 영향 없음)
+export LC_TIME=C.UTF-8
 
-# 인자 변환: 존재하는 Linux 파일/디렉토리 경로는 Windows UNC/절대 경로로 변환
-args=()
-for arg in "\$@"; do
-    if [ -e "\$arg" ]; then
-        args+=("\$(wslpath -w "\$arg" 2>/dev/null || echo "\$arg")")
-    else
-        args+=("\$arg")
-    fi
-done
+# 제목 표시줄(창 드래그 영역)과 메뉴 바(File, Edit…)는 Sublime Merge 테마가 아니라 GTK 가 그리므로
+# GTK 다크 테마를 지정해 눈부심을 줄입니다. (나머지 UI 는 평가판 라이트 테마 그대로)
+# - gsettings 의 color-scheme/gtk-theme 로는 적용되지 않음을 실측했습니다. Sublime Merge 가 자기 UI 테마(라이트)에 맞춰
+#   GTK 다크 선호를 스스로 끄기 때문이며, 앱이 덮어쓸 수 없는 GTK_THEME 환경변수로만 적용됩니다.
+# - 사용자가 이미 GTK_THEME 를 지정했다면 그 값을 존중합니다.
+export GTK_THEME="\${GTK_THEME:-Adwaita:dark}"
 
-# mergetool 대기(wait) 및 CLI 상호작용 지원을 위해 직접 동기 실행
-"\$WIN_SMERGE" "\${args[@]}"
+exec "\$SMERGE_BIN" "\$@"
 EOF
-    chmod +x "$_wrapper_path"
-
-    # bashrc PATH 추가
-    ensure_path_in_bashrc "$SMERGE_MODULE_DIR/bin"
-    print_done "WSL2 Sublime Merge 브릿지 래퍼 생성 완료: $_wrapper_path"
-
-else
-    # ── Linux 네이티브 환경: 포터블 tar.xz 다운로드 및 설치 ─────────────────
-    print_info "[Linux] 네이티브 포터블 Sublime Merge 설치 확인 중..."
-
-    # 최신 안정 빌드 번호 조회 (SublimeHQ 공식 다운로드 페이지 HTML 크롤링)
-    print_info "SublimeHQ 공식 사이트에서 최신 안정 빌드 확인 중..."
-    _latest_build=""
-    _html_content=$(curl -sSfL --max-time 10 https://www.sublimemerge.com/download 2>/dev/null || true)
-    if [ -n "$_html_content" ]; then
-        _latest_build=$(echo "$_html_content" | grep -oP 'sublime_merge_build_\K[0-9]+' | head -n 1 || true)
-    fi
-
-    if [ -z "$_latest_build" ]; then
-        _latest_build="2102"
-        print_warn "최신 빌드 번호 조회 실패 → 기본 안정 빌드($_latest_build) 사용"
-    else
-        print_info "최신 안정 빌드 확인: Build $_latest_build"
-    fi
-
-    # 현재 설치된 빌드 번호 확인
-    _installed_build=""
-    if [ -x "$SMERGE_MODULE_DIR/smerge" ]; then
-        _installed_build=$("$SMERGE_MODULE_DIR/smerge" --version 2>/dev/null | grep -oE '[0-9]+' | head -n 1 || true)
-    fi
-
-    _do_install=false
-    if [ -z "$_installed_build" ]; then
-        # 미설치 → 사용자 확인 (기본값 N)
-        if prompt_confirm "   👉 Sublime Merge (Git Diff & Merge GUI)를 설치하시겠습니까?" "N"; then
-            _do_install=true
-        else
-            print_skip "Sublime Merge 설치를 건너뜁니다."
-            exit 0
-        fi
-    elif [ "$_installed_build" = "$_latest_build" ]; then
-        # 이미 최신 → 건너뜀
-        print_skip "Sublime Merge Build $_installed_build 이 이미 최신 버전입니다."
-    else
-        # 구버전 → 업데이트 안내 후 진행 (기본값 N)
-        print_info "현재 설치: Build $_installed_build → 최신: Build $_latest_build"
-        if prompt_confirm "   ⚠️  최신 빌드로 업데이트하시겠습니까?" "N"; then
-            _do_install=true
-        else
-            print_skip "Sublime Merge 업데이트를 건너뜁니다. (현재: Build $_installed_build)"
-        fi
-    fi
-
-    if [ "$_do_install" = true ]; then
-        _smerge_arch="x64"
-        if [ "${IS_ARM64:-false}" = "true" ] || [ "$(uname -m 2>/dev/null)" = "aarch64" ]; then
-            _smerge_arch="arm64"
-        fi
-
-        _smerge_url="https://download.sublimetext.com/sublime_merge_build_${_latest_build}_${_smerge_arch}.tar.xz"
-        _smerge_tmp="$DT2_TMP/sublime_merge_${_latest_build}_${_smerge_arch}.tar.xz"
-
-        if download_with_progress "$_smerge_url" "$_smerge_tmp" "Sublime Merge Build $_latest_build (${_smerge_arch})"; then
-            echo -n "   📦 Sublime Merge 아카이브 압축 해제 중..."
-            # 기존 바이너리를 임시 백업 후 설치 (실패 시 롤백)
-            if [ -n "$_installed_build" ]; then
-                _smerge_old="$SMERGE_MODULE_DIR/.dt2-old-smerge"
-                rm -rf "$_smerge_old"
-                mkdir -p "$_smerge_old"
-                # Data 폴더(설정/포터블 데이터)는 보존, 바이너리만 백업
-                find "$SMERGE_MODULE_DIR" -maxdepth 1 -not -name Data -not -name "$(basename "$SMERGE_MODULE_DIR")" -not -name ".dt2-old-smerge" -exec mv {} "$_smerge_old/" \;
-            fi
-
-            tar -xJf "$_smerge_tmp" --strip-components=1 -C "$SMERGE_MODULE_DIR"
-            rm -f "$_smerge_tmp"
-            echo " 완료"
-
-            # 설치 성공 확인 후 백업 정리 또는 롤백
-            if [ -x "$SMERGE_MODULE_DIR/smerge" ]; then
-                rm -rf "$SMERGE_MODULE_DIR/.dt2-old-smerge" 2>/dev/null || true
-                if [ -n "$_installed_build" ]; then
-                    print_done "Sublime Merge 업데이트 완료: Build $_installed_build → Build $_latest_build"
-                else
-                    print_done "Sublime Merge 포터블 설치 완료: Build $_latest_build"
-                fi
-            elif [ -d "$SMERGE_MODULE_DIR/.dt2-old-smerge" ]; then
-                # 설치 실패 → 롤백
-                find "$SMERGE_MODULE_DIR/.dt2-old-smerge" -maxdepth 1 -exec mv {} "$SMERGE_MODULE_DIR/" \;
-                rm -rf "$SMERGE_MODULE_DIR/.dt2-old-smerge"
-                print_warn "설치 실패 → 이전 Build $_installed_build 로 롤백했습니다."
-            fi
-
-            # 포터블 모드 디렉터리 준비 (실행 파일 옆 Data 폴더)
-            mkdir -p "$SMERGE_MODULE_DIR/Data/Packages"
-            chmod +x "$SMERGE_MODULE_DIR/sublime_merge" "$SMERGE_MODULE_DIR/smerge" 2>/dev/null || true
-        else
-            print_error "Sublime Merge 다운로드에 실패했습니다. 네트워크를 확인하세요: $_smerge_url"
-            rm -f "$_smerge_tmp" 2>/dev/null || true
-        fi
-    fi
-
-    ensure_path_in_bashrc "$SMERGE_MODULE_DIR"
-fi
+chmod +x "$_wrapper_path"
+print_done "smerge 실행 래퍼 생성 완료: $_wrapper_path"
 
 # ==============================================================================
-# [Step 2] 설정 파일 심볼릭 링크 연동
+# [Step 4] 설정 파일 심볼릭 링크 연동
 # ==============================================================================
 print_info "Sublime Merge 설정 파일 링크 구성 중..."
 SMERGE_CONFIG_SRC="$DEVTOOLS2/.config/sublime-merge/Packages/User"
@@ -284,18 +299,13 @@ if [ -d "$SMERGE_CONFIG_SRC" ]; then
         mv "$HOME/.config/sublime-merge/Packages/User" "$HOME/.config/sublime-merge/Packages/User.bak.$(date +%Y%m%d%H%M%S)"
     fi
     ln -sfn "$SMERGE_CONFIG_SRC" "$HOME/.config/sublime-merge/Packages/User"
-
-    # 2) Linux 네이티브 포터블 경로 Data/Packages/User 심볼릭 링크
-    if [ -d "$SMERGE_MODULE_DIR/Data/Packages" ]; then
-        ln -sfn "$SMERGE_CONFIG_SRC" "$SMERGE_MODULE_DIR/Data/Packages/User"
-    fi
     print_done "설정 파일 심볼릭 링크 완료: $SMERGE_CONFIG_SRC"
 
-    # 3) Sublime Merge 시작 세션에 기본 저장소 경로 등록 (Local Repositories)
+    # 2) Sublime Merge 시작 세션에 기본 저장소 경로 등록 (Local Repositories)
     python3 - <<PYEOF 2>/dev/null || true
 import json, os
 
-dirs = ["$HOME/.config/sublime-merge/Local", "$SMERGE_MODULE_DIR/Data/Local"]
+dirs = ["$HOME/.config/sublime-merge/Local"]
 targets = ["$HOME/_devtools2", "${DEVTOOLS2:-}", "$HOME"]
 
 for d in dirs:
@@ -324,7 +334,8 @@ PYEOF
 fi
 
 # ==============================================================================
-# [Step 3] Git difftool & mergetool 연동
+# [Step 5] Git difftool & mergetool 연동
+#   (WSL2 도 이제 WSL 의 git 을 직접 쓰므로 Windows git.exe 의 safe.directory/filemode 보정은 필요 없습니다)
 # ==============================================================================
 if command -v git >/dev/null 2>&1; then
     print_info "Git difftool 및 mergetool 설정 중..."
@@ -335,78 +346,52 @@ if command -v git >/dev/null 2>&1; then
     git config --global difftool.smerge.cmd 'smerge "$LOCAL" "$REMOTE"'
     git config --global difftool.prompt false
     print_done "Git 글로벌 smerge 연동 완료 (git diff / git mergetool)"
-
-    # ── WSL2: Windows Git 의 safe.directory 및 filemode 자동 등록 ──
-    # Sublime Merge(Windows 네이티브)가 WSL2 파일시스템(\\wsl.localhost\...)의
-    # 저장소를 열 때 Git 의 "dubious ownership" 보안 검사에 걸리지 않도록
-    # Windows 쪽 git config 에 safe.directory 를 등록합니다.
-    # 또한 Windows ↔ WSL2 간 실행 비트(100755 vs 100644) 불일치로 인한
-    # 스크립트 대량 Unstaged 오탐을 방지하기 위해 WSL2 환경에서만 core.filemode false 를 등록합니다.
-    # (순수 Linux 네이티브 환경에서는 ext4 POSIX 권한이 완벽히 유지되므로 이 설정을 건드리지 않습니다.)
-    if [ "${IS_WSL2:-false}" = true ]; then
-        git config core.filemode false 2>/dev/null || true
-        if command -v git.exe >/dev/null 2>&1; then
-            git.exe config --global core.filemode false 2>/dev/null || true
-            _wsl_distro_name=""
-        if [ -n "${WSL_DISTRO_NAME:-}" ]; then
-            _wsl_distro_name="$WSL_DISTRO_NAME"
-        elif [ -f /etc/wsl-distribution-name ]; then
-            _wsl_distro_name=$(cat /etc/wsl-distribution-name 2>/dev/null | tr -d '\r\n')
-        fi
-        _dt2_path="${DEVTOOLS2:-/var/opt/_devtools2}"
-        if [ -n "$_wsl_distro_name" ]; then
-            _safe_dir="%(prefix)///wsl.localhost/${_wsl_distro_name}${_dt2_path}"
-            _existing=$(git.exe config --global --get-all safe.directory 2>/dev/null || true)
-            if ! echo "$_existing" | grep -qF "$_safe_dir"; then
-                git.exe config --global --add safe.directory "$_safe_dir"
-                print_done "Windows Git safe.directory 등록: $_safe_dir"
-            fi
-        fi
-    fi
-fi
 fi
 
 # ==============================================================================
-# [Step 4] Linux 데스크탑 환경 통합 (앱 바로가기 + 전역 단축키)
-#   - Sublime Merge .desktop 앱 바로가기 등록
-#   - GNOME 커스텀 키바인딩 등록:
+# [Step 6] 데스크탑 환경 통합 (앱 바로가기 + 전역 단축키)
+#   - Sublime Merge .desktop 앱 바로가기 등록 (Linux 앱 메뉴 / WSL2 는 WSLg 가 Windows 시작 메뉴에 노출)
+#   - GNOME 커스텀 키바인딩 등록 (Linux 데스크톱 전용):
 #     • Ctrl+Alt+G → Sublime Merge
 #     • Ctrl+Alt+T → Ghostty (기존 gnome-terminal 이중 실행 방지를 위해 내장 단축키 해제)
-#   - WSL2 / 헤드리스(CLI) 환경에서는 자동 건너뜀
+#   - GNOME 단축키 등록은 WSL2 / 헤드리스(CLI) 환경에서는 자동 건너뜀
+#   - WSL2 의 Ctrl+Alt+G 는 Windows AutoHotkey(devtools2-hotkey.ahk)가 담당합니다.
 # ==============================================================================
-if [ "${IS_WSL2:-false}" = false ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v gsettings >/dev/null 2>&1; then
-    print_info "Linux 데스크탑 환경 감지 → 앱 바로가기 및 전역 단축키 등록 중..."
 
-    # ── 4-1. Sublime Merge .desktop 앱 바로가기 ──────────────────────────────
-    _desktop_dir="$HOME/.local/share/applications"
-    mkdir -p "$_desktop_dir"
+# ── 6-1. Sublime Merge .desktop 앱 바로가기 ──────────────────────────────
+_desktop_dir="$HOME/.local/share/applications"
+mkdir -p "$_desktop_dir"
 
-    # Sublime Merge 아이콘 경로: tarball에 포함된 Icon 디렉터리 또는 실행 파일 기본 경로
-    _smerge_icon=""
-    if [ -f "$SMERGE_MODULE_DIR/Icon/128x128/sublime-merge.png" ]; then
-        _smerge_icon="$SMERGE_MODULE_DIR/Icon/128x128/sublime-merge.png"
-    elif [ -f "$SMERGE_MODULE_DIR/Icon/48x48/sublime-merge.png" ]; then
-        _smerge_icon="$SMERGE_MODULE_DIR/Icon/48x48/sublime-merge.png"
-    fi
+# Sublime Merge 아이콘 경로: tarball에 포함된 Icon 디렉터리 또는 실행 파일 기본 경로
+_smerge_icon=""
+if [ -f "$SMERGE_MODULE_DIR/Icon/128x128/sublime-merge.png" ]; then
+    _smerge_icon="$SMERGE_MODULE_DIR/Icon/128x128/sublime-merge.png"
+elif [ -f "$SMERGE_MODULE_DIR/Icon/48x48/sublime-merge.png" ]; then
+    _smerge_icon="$SMERGE_MODULE_DIR/Icon/48x48/sublime-merge.png"
+fi
 
-    cat > "$_desktop_dir/sublime_merge.desktop" <<DESKTOP_EOF
+# Exec 는 입력기 환경을 준비하는 bin/smerge 래퍼를 가리킵니다.
+cat > "$_desktop_dir/sublime_merge.desktop" <<DESKTOP_EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=Sublime Merge
 GenericName=Git Client
 Comment=Git Diff & Merge 시각화 도구 (DevTools2)
-Exec=$SMERGE_MODULE_DIR/sublime_merge %F
+Exec=$_wrapper_path %F
 Terminal=false
 MimeType=inode/directory;application/x-git-repository;
 Icon=$_smerge_icon
 Categories=Development;RevisionControl;
 StartupNotify=true
 DESKTOP_EOF
-    chmod +x "$_desktop_dir/sublime_merge.desktop"
-    print_done ".desktop 앱 바로가기 등록 완료: $_desktop_dir/sublime_merge.desktop"
+chmod +x "$_desktop_dir/sublime_merge.desktop"
+print_done ".desktop 앱 바로가기 등록 완료: $_desktop_dir/sublime_merge.desktop"
 
-    # ── 4-2. GNOME 커스텀 키바인딩 등록 헬퍼 ─────────────────────────────────
+if [ "${IS_WSL2:-false}" = false ] && [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v gsettings >/dev/null 2>&1; then
+    print_info "Linux 데스크탑 환경 감지 → 전역 단축키 등록 중..."
+
+    # ── 6-2. GNOME 커스텀 키바인딩 등록 헬퍼 ─────────────────────────────────
     # GNOME custom-keybindings 는 dconf 경로 기반 배열 구조입니다.
     # 이미 같은 이름의 바인딩이 있으면 덮어쓰고(멱등), 없으면 새 슬롯을 추가합니다.
     _GNOME_KB_BASE="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding"
@@ -476,7 +461,7 @@ DESKTOP_EOF
         print_done "GNOME 단축키 등록: $_binding → $_name ($_command)"
     }
 
-    # ── 4-3. 기존 GNOME 내장 터미널 단축키 해제 (이중 실행 방지) ─────────────
+    # ── 6-3. 기존 GNOME 내장 터미널 단축키 해제 (이중 실행 방지) ─────────────
     # Ubuntu GNOME 기본값: Ctrl+Alt+T → gnome-terminal
     # 이 내장 바인딩을 해제하지 않으면 Ghostty와 gnome-terminal이 동시에 실행됩니다.
     _builtin_terminal=$(gsettings get org.gnome.settings-daemon.plugins.media-keys terminal 2>/dev/null || true)
@@ -485,7 +470,7 @@ DESKTOP_EOF
         print_done "GNOME 내장 터미널 단축키 해제 완료 (이중 실행 방지)"
     fi
 
-    # ── 4-4. Ctrl+Alt+T → Ghostty 터미널 등록 ────────────────────────────────
+    # ── 6-4. Ctrl+Alt+T → Ghostty 터미널 등록 ────────────────────────────────
     _ghostty_cmd=""
     if [ -x "$DEVTOOLS2/modules/ghostty/ghostty" ]; then
         _ghostty_cmd="$DEVTOOLS2/modules/ghostty/ghostty"
@@ -500,25 +485,22 @@ DESKTOP_EOF
         print_info "  Ghostty 설치 후 수동 등록: gsettings → 설정 → 키보드 → 바로 가기"
     fi
 
-    # ── 4-5. Ctrl+Alt+G → Sublime Merge 등록 ─────────────────────────────────
-    _smerge_cmd=""
-    if [ -x "$SMERGE_MODULE_DIR/sublime_merge" ]; then
-        _smerge_cmd="$SMERGE_MODULE_DIR/sublime_merge"
-    elif command -v smerge >/dev/null 2>&1; then
-        _smerge_cmd="smerge"
-    fi
 
-    if [ -n "$_smerge_cmd" ]; then
-        _register_gnome_keybinding "Sublime Merge" "$_smerge_cmd" "<Primary><Alt>g"
-    fi
+    # ── 6-5. Ctrl+Alt+G → Sublime Merge 등록 ─────────────────────────────────
+    _register_gnome_keybinding "Sublime Merge" "$_wrapper_path" "<Primary><Alt>g"
 
 else
     if [ "${IS_WSL2:-false}" = true ]; then
-        print_info "[WSL2] 데스크탑 단축키는 Windows AutoHotkey(devtools2-hotkey.ahk)에서 관리합니다."
+        print_info "[WSL2] 전역 단축키(Ctrl+Alt+G)는 Windows AutoHotkey(devtools2-hotkey.ahk)에서 관리합니다."
     else
-        print_info "GUI 데스크탑 환경이 감지되지 않아 앱 바로가기/단축키 등록을 건너뜁니다."
+        print_info "현재 GUI 세션이 감지되지 않아 GNOME 전역 단축키 등록을 건너뜁니다. (데스크톱 로그인 후 다시 실행하세요)"
     fi
 fi
 
 print_done "Sublime Merge 전체 연동 단계 완료"
+if [ "${IS_WSL2:-false}" = true ]; then
+    print_info "  실행: WSL 터미널에서 'smerge .' / nvim <leader>gu / Windows Ctrl+Alt+G"
+    print_info "  한/영 전환: 한/영 키(오른쪽 Alt) — Windows IME 는 WSLg 창에 적용되지 않아 AutoHotkey 가 WSL fcitx5 로 전달합니다."
+    print_info "  Esc / CapsLock 탭 / Ctrl+[ 를 누르면 WSLg 창에서도 fcitx5 가 영문으로 전환됩니다."
+fi
 echo ""

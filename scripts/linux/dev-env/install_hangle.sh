@@ -1,52 +1,34 @@
 #!/bin/bash
-# [주의] 이 스크립트는 Fcitx5를 설치하고 환경 변수를 설정합니다.
+# [주의] 이 스크립트는 한글 입력기(Fcitx5 또는 GNOME ibus-hangul)를 설치하고 설정합니다.
 #
 # ⚠️ 포터블 원칙의 예외입니다(전체 목록/이유는 0.init-devtools2.sh 상단 메모 참고).
 # fcitx5는 디스플레이 서버(X11/Wayland)의 입력기 프레임워크에 직접 등록되는 시스템 서비스라
 # 바이너리 복사로는 개념적으로 동작할 수 없습니다(항상 대상 OS에 직접 설치 필요).
+#
+# 실제 설치 로직은 _install-utils.sh 의 ensure_korean_ime 공용 함수에 있습니다
+# (tool.setup-sublime-merge.sh 등 GUI 도구 설치 스크립트와 동일한 로직을 공유).
+#   ● 이미 한글 엔진이 있으면 건너뜀 / GNOME+ibus 는 ibus-hangul / 그 외(WSL2 포함)는 fcitx5-hangul
+#   ● 예전 버전처럼 ~/.bashrc 에 GTK_IM_MODULE 등을 직접 쓰지 않습니다:
+#     Linux 데스크톱은 im-config 가 로그인 세션 환경변수를 설정하고,
+#     WSL2 는 앱 실행 래퍼가 실행 시점에 환경변수와 fcitx5 데몬을 준비합니다.
 
-echo ">>> 패키지 목록 업데이트 및 Fcitx5 설치 시작..."
-sudo apt update
-# ⚠️ 종료코드를 확인하지 않으면 설치가 실패해도 아래에서 "설치가 완료되었습니다"가
-# 그대로 출력됩니다(3.install-cli-tools.sh의 apt install 오류 처리 관례와 동일하게 맞춤).
-if ! sudo apt install -y fcitx5 fcitx5-hangul im-config; then
-    echo "❌ Fcitx5 패키지 설치에 실패했습니다. 위 오류 메시지를 확인해주세요." >&2
-    exit 1
-fi
+set -euo pipefail
 
-echo ">>> 기본 입력기를 Fcitx5로 설정 중..."
+DT2_REF="${DT2_REF:-main}"
+_GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF}/scripts/linux/dev-env"
+_SCRIPT_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+for _lib in _common.sh _install-utils.sh; do
+    if [ -f "$_SCRIPT_DIR/$_lib" ]; then
+        # shellcheck disable=SC1090
+        source "$_SCRIPT_DIR/$_lib"
+    elif [ -f "${DEVTOOLS2:-}/scripts/linux/dev-env/$_lib" ]; then
+        # shellcheck disable=SC1090
+        source "$DEVTOOLS2/scripts/linux/dev-env/$_lib"
+    else
+        # shellcheck disable=SC1090
+        source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/$_lib") || { echo "[오류] $_lib 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+    fi
+done
 
-# im-config를 비대화형 모드로 실행하여 fcitx5 지정
-if ! im-config -n fcitx5; then
-    echo "❌ im-config를 통한 Fcitx5 기본 입력기 설정에 실패했습니다." >&2
-    exit 1
-fi
-
-# 원본 .bashrc 백업은 처음 한 번만 만듭니다(재실행할 때마다 덮어쓰면 원래 백업이 사라짐).
-if [ ! -f ~/.bashrc.bak ]; then
-    echo ">>> .bashrc 파일 백업 생성 중..."
-    cp ~/.bashrc ~/.bashrc.bak
-fi
-
-echo ">>> 환경 변수 등록 중..."
-
-# 이미 설정이 되어 있는지 확인 후 중복 삽입 방지
-if ! grep -q "GTK_IM_MODULE=fcitx" ~/.bashrc; then
-    cat <<EOF >> ~/.bashrc
-
-# Fcitx5 Input Method Settings
-export GTK_IM_MODULE=fcitx
-export QT_IM_MODULE=fcitx
-export XMODIFIERS=@im=fcitx
-
-EOF
-    echo ">>> 환경 변수가 .bashrc에 등록되었습니다."
-else
-    echo ">>> 이미 환경 변수가 등록되어 있어 건너뜁니다."
-fi
-
-echo "-------------------------------------------------------"
-echo "설치가 완료되었습니다."
-echo "1. 시스템을 '재부팅'해야 모든 설정이 적용됩니다."
-echo "2. 재부팅 후 'Fcitx5 Configuration' 앱에서 한글(Hangul)을 추가하세요."
-echo "-------------------------------------------------------"
+print_banner "⌨️  한글 입력기 설치 및 설정 (install_hangle.sh)"
+ensure_korean_ime

@@ -14,6 +14,10 @@
 #   - 다른 키와   → Ctrl (overload)
 #   - Shift + CapsLock → 대문자 고정 ON
 #   - 대문자 고정 ON 상태에서 CapsLock 또는 ESC → 대문자 고정 OFF
+#
+# 전역 ESC → 영문 전환 (Windows AutoHotkey 의 _SetImeToEnglish 와 동일한 경험):
+#   - Esc / CapsLock 탭 / Ctrl+[ 입력 직후 fcitx5 영문 전환 전용 키(Ctrl+Alt+Shift+F11)를 이어서 전송
+#   - fcitx5 를 실제 입력기로 쓰는 경우에만 활성화 (아니면 터미널에 이상한 문자가 찍히지 않도록 순수 키로 배포)
 # ==============================================================================
 
 set -euo pipefail
@@ -167,33 +171,52 @@ print_subsep
 # /etc/keyd 디렉토리 생성
 mkdir -p /etc/keyd
 
-# 직접 수정한 기존 설정을 잃지 않도록, 내용이 다른 기존 파일은 덮어쓰기 전에 한 번 백업합니다.
-if [ -f "$KEYD_CONF_DEST" ] && [ -f "$KEYD_CONF_SRC" ] && ! cmp -s "$KEYD_CONF_SRC" "$KEYD_CONF_DEST"; then
-    _keyd_bak="${KEYD_CONF_DEST}.bak.$(date +%Y%m%d%H%M%S)"
-    cp -p "$KEYD_CONF_DEST" "$_keyd_bak"
-    print_info "기존 keyd 설정을 백업했습니다: $_keyd_bak"
-fi
+# 배포할 최종 설정을 먼저 임시 파일로 만든 뒤(소스 선택 → fcitx5 유무에 따른 변환) 기존 파일과 비교합니다.
+# (변환 전 소스와 비교하면 fcitx5 미설치 환경에서 실행할 때마다 불필요한 백업이 쌓이므로 최종 결과로 비교)
+_keyd_tmp=$(mktemp)
+trap 'rm -f "$_keyd_tmp"' EXIT
 
 if [ -f "$KEYD_CONF_SRC" ]; then
-    print_info "로컬 설정 파일 복사: $KEYD_CONF_SRC → $KEYD_CONF_DEST"
-    cp -f "$KEYD_CONF_SRC" "$KEYD_CONF_DEST"
-    print_success "keyd 설정 파일 배포 완료."
-elif curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/.config/keyd/default.conf" -o "$KEYD_CONF_DEST" 2>/dev/null; then
-    print_info "GitHub 원격에서 최신 default.conf 다운로드 완료 → $KEYD_CONF_DEST"
-    print_success "keyd 설정 파일 원격 배포 완료."
+    print_info "로컬 설정 파일 사용: $KEYD_CONF_SRC"
+    cp -f "$KEYD_CONF_SRC" "$_keyd_tmp"
+elif curl -sSfL --max-time 5 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/.config/keyd/default.conf" -o "$_keyd_tmp" 2>/dev/null; then
+    print_info "GitHub 원격에서 최신 default.conf 다운로드 완료"
 else
     # 네트워크 연결 원격 다운로드 및 로컬 소스 모두 없을 때 인라인으로 생성
+    # (.config/keyd/default.conf 와 동일한 내용을 유지해야 합니다)
     print_warn "설정 소스를 찾을 수 없어 기본 설정을 인라인으로 생성합니다."
-    cat > "$KEYD_CONF_DEST" <<'EOF'
+    cat > "$_keyd_tmp" <<'EOF'
 [ids]
 *
 
+# ------------------------------------------------------------------------------
+# [전역 ESC → 영문 전환] Windows AutoHotkey(devtools2-hotkey.ahk)의 _SetImeToEnglish 와 동일한 경험
+# - Esc / CapsLock 탭 / Ctrl+[ 를 누르면 원래 키를 보낸 직후 fcitx5 '입력기 비활성화(=영문)' 전용 키
+#   Ctrl+Alt+Shift+F11 (keyd 표기 C-A-S-f11) 을 이어서 보냅니다. Neovim 뿐 아니라 Sublime Merge,
+#   터미널 등 fcitx5 를 쓰는 모든 앱에서 한글 상태가 영문으로 돌아옵니다.
+# - 이 키는 fcitx5 설정(~/.config/fcitx5/config 의 [Hotkey/DeactivateKeys])에 등록되어 있어
+#   fcitx5 가 가로채므로 앱에는 전달되지 않습니다(_install-utils.sh 의 ensure_korean_ime 가 기록).
+#   Windows(WSLg) 쪽 AHK 와 같은 조합이므로 바꿀 때는 세 곳(keyd, AHK, fcitx5 config)을 함께 바꿔야 합니다.
+# - ⚠️ fcitx5 가 없는 환경(ibus 등)에서는 이 키가 앱에 그대로 전달되어 터미널에 이상한 문자가 찍힐 수 있으므로,
+#   4.setup-keyboard.sh 가 fcitx5 를 실제 입력기로 쓰지 않으면(미설치, 또는 ibus-hangul 사용) macro(<키> C-A-S-f11) 를 <키> 로 되돌려 배포합니다.
+# - keyd 매크로는 길게 눌러도 자동 반복되지 않습니다(Esc 연타 용도에는 영향 없음).
+# ------------------------------------------------------------------------------
+
 [main]
 # 짧게 누르면 esc, 다른 키와 조합하면 control (keyd overload)
-capslock = overload(control, esc)
+# (탭 시 esc 직후 fcitx5 영문 전환 키도 함께 전송)
+capslock = overload(control, macro(esc C-A-S-f11))
+
+# Esc 키 → esc 입력 + fcitx5 영문 전환
+esc = macro(esc C-A-S-f11)
 
 # 오른쪽 컨트롤 키를 명시적으로 지정하여 keyd 에서 정확하게 인식할 수 있도록 함
 rightcontrol = rightcontrol
+
+[control]
+# Vim 표준 Esc 대체키 Ctrl+[ → Ctrl+[ 입력 + fcitx5 영문 전환 (AHK Part 3 과 동일)
+# keyd 는 [control] 레이어의 바인딩을 실행할 때 Ctrl 을 잠시 떼고 보내므로 매크로 안에서 C- 를 명시합니다.
+leftbrace = macro(C-leftbrace C-A-S-f11)
 
 [shift]
 # Shift 키를 누른 상태에서 CapsLock → 대문자 고정 ON (caps 레이어 진입)
@@ -205,11 +228,53 @@ capslock = toggle(caps)
 # CapsLock 또는 ESC 키 → ESC 입력 + 대문자 고정 OFF (AHK(devtools2-hotkey.ahk)의
 # CapsLock/ESC 처리와 동일하게 맞춤). toggle(caps)만 쓰면 레이어만 해제되고 실제
 # ESC 키 입력은 전송되지 않으므로, 매크로를 먼저 실행한 뒤 토글하는 togglem을 사용합니다.
-capslock = togglem(caps, esc)
-esc = togglem(caps, esc)
+# (ESC 직후 fcitx5 영문 전환 키도 함께 전송)
+capslock = togglem(caps, macro(esc C-A-S-f11))
+esc = togglem(caps, macro(esc C-A-S-f11))
 EOF
-    print_success "기본 설정 파일 생성 완료: $KEYD_CONF_DEST"
 fi
+
+# fcitx5 가 없는 환경(ibus 등)에서는 ESC 계열 키 뒤에 붙는 fcitx5 영문 전환 키(C-A-S-f11)가
+# 앱에 그대로 전달되어 터미널에 이상한 문자가 찍힐 수 있으므로 순수 키로 되돌립니다.
+#   macro(esc C-A-S-f11) → esc,  macro(C-leftbrace C-A-S-f11) → C-leftbrace
+# (나중에 fcitx5 를 설치했다면 이 스크립트를 다시 실행하면 영문 전환 동작이 켜집니다)
+# 판단 기준: fcitx5 가 "설치"가 아니라 "실제 사용 중인 입력기"인지 확인합니다.
+#   Ubuntu 한국어 설치는 기본으로 ibus-hangul 이 들어 있어, fcitx5 가 설치만 되어 있고 ibus 를 쓰는 경우
+#   C-A-S-f11 을 받아 줄 입력기가 없어 터미널에 문자가 찍힐 수 있기 때문입니다.
+#   ● fcitx5 설치 + ibus-hangul 미설치 → fcitx5 사용으로 판단
+#   ● 둘 다 설치 → im-config 선택(사용자 ~/.xinputrc 또는 시스템 /etc/X11/xinit/xinputrc)이 fcitx5 일 때만
+#   (이 스크립트는 sudo 로 실행되므로 사용자 홈은 SUDO_USER 로 찾습니다)
+_dt2_pkg_ok() { dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "ok installed"; }
+_fcitx5_active=false
+if _dt2_pkg_ok fcitx5; then
+    if ! _dt2_pkg_ok ibus-hangul; then
+        _fcitx5_active=true
+    else
+        _target_home=$(getent passwd "${SUDO_USER:-$(id -un)}" 2>/dev/null | cut -d: -f6)
+        for _xinputrc in "${_target_home:-/nonexistent}/.xinputrc" /etc/X11/xinit/xinputrc; do
+            if [ -f "$_xinputrc" ]; then
+                grep -qE '^[[:space:]]*run_im[[:space:]]+fcitx5' "$_xinputrc" && _fcitx5_active=true
+                break
+            fi
+        done
+    fi
+fi
+if [ "$_fcitx5_active" = true ]; then
+    print_info "fcitx5 감지 → Esc / CapsLock 탭 / Ctrl+[ 입력 시 한글 입력기를 영문으로 전환합니다."
+else
+    sed -i -E 's/macro\(([^ )]+) C-A-S-f11\)/\1/g' "$_keyd_tmp"
+    print_info "fcitx5 를 사용하지 않는 환경 → 전역 ESC 영문 전환 없이 기본 키 리매핑만 배포합니다."
+fi
+
+# 직접 수정한 기존 설정을 잃지 않도록, 내용이 다른 기존 파일은 덮어쓰기 전에 한 번 백업합니다.
+if [ -f "$KEYD_CONF_DEST" ] && ! cmp -s "$_keyd_tmp" "$KEYD_CONF_DEST"; then
+    _keyd_bak="${KEYD_CONF_DEST}.bak.$(date +%Y%m%d%H%M%S)"
+    cp -p "$KEYD_CONF_DEST" "$_keyd_bak"
+    print_info "기존 keyd 설정을 백업했습니다: $_keyd_bak"
+fi
+
+install -m 644 "$_keyd_tmp" "$KEYD_CONF_DEST"
+print_success "keyd 설정 파일 배포 완료: $KEYD_CONF_DEST"
 
 print_info "적용된 설정 내용:"
 cat "$KEYD_CONF_DEST" | sed 's/^/    /'

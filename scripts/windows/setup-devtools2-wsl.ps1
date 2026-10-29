@@ -5,7 +5,8 @@
 #   1. Windows WSL2 가상 머신 생성 및 활성화 (0.setup-wsl.ps1)
 #   2. WSL2 내부로 Linux 초기화 스크립트를 실행하여 깃 자격증명 설정 및 클론 진행
 #   3. WSL2 내부의 환경변수 설정, 핵심 개발 런타임 및 CLI 유틸리티 도구 일괄 자동 설치
-#   4. Windows 호스트용 AutoHotkey, Windows Terminal, Sublime Merge, VS Code, Zed, Orca 자동 설치 및 설정 연동
+#   4. Windows 호스트용 AutoHotkey, Windows Terminal, VS Code, Zed, Orca 자동 설치 및 설정 연동
+#      (Sublime Merge 는 WSL2 안의 Linux 판을 WSLg 로 실행 — scripts/linux/dev-env/tool.setup-sublime-merge.sh)
 #
 # ------------------------------------------------------------------------------
 # ⚠️ [AI / 개발자 필독 - 설계 절대 원칙]
@@ -557,23 +558,34 @@ if ($interopCheck -ne "OK") {
 # ==============================================================================
 Write-Step "[Step 3] WSL2 개발 환경 빌드 및 패키지 일괄 설치"
 
-Write-SubStep "▶ (1/3) WSL2 환경 변수 주입 (~/.bashrc)"
+Write-SubStep "▶ (1/4) WSL2 환경 변수 주입 (~/.bashrc)"
 wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/1.setup-env.sh' -o /tmp/_dt2_1.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_REF='$DT2_REF' bash -l /tmp/_dt2_1.sh"
 $envExit = $LASTEXITCODE
 wsl -d $wslDistro -u $wslUser -- rm -f /tmp/_dt2_1.sh 2>$null
 if ($envExit -ne 0) { Revoke-WslTempSudo; Write-Fail "환경 변수 설정 실패"; Pause-Script; exit 1 }
 
-Write-SubStep "▶ (2/3) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, Ghostty)"
+Write-SubStep "▶ (2/4) WSL2 핵심 개발 도구 설치 (Java, Node.js, Python, Neovim, Ghostty)"
 wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/2.install-core-tools.sh' -o /tmp/_dt2_2.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_REF='$DT2_REF' bash -l /tmp/_dt2_2.sh"
 $coreExit = $LASTEXITCODE
 wsl -d $wslDistro -u $wslUser -- rm -f /tmp/_dt2_2.sh 2>$null
 if ($coreExit -ne 0) { Revoke-WslTempSudo; Write-Fail "핵심 도구 설치 실패"; Pause-Script; exit 1 }
 
-Write-SubStep "▶ (3/3) WSL2 CLI 유틸리티 및 apt 패키지 설치"
+Write-SubStep "▶ (3/4) WSL2 CLI 유틸리티 및 apt 패키지 설치"
 wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/3.install-cli-tools.sh' -o /tmp/_dt2_3.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_REF='$DT2_REF' bash -l /tmp/_dt2_3.sh"
 $cliExit = $LASTEXITCODE
 wsl -d $wslDistro -u $wslUser -- rm -f /tmp/_dt2_3.sh 2>$null
 if ($cliExit -ne 0) { Revoke-WslTempSudo; Write-Fail "CLI 유틸리티 설치 실패"; Pause-Script; exit 1 }
+
+# Sublime Merge 는 WSL2 안의 Linux 판을 WSLg 창으로 실행합니다(Windows 판은 \\wsl.localhost 9P 경로 때문에
+# 심볼릭 링크/실행 권한 오탐, index 전체 재해시 지연 등이 반복되어 전환 — tool.setup-sublime-merge.sh 상단 참조).
+# - 이 단계에서 WSLg 활성화 확인과 한글 입력기(fcitx5-hangul, 없을 때만) 설치도 함께 진행합니다.
+# - [Step 2]의 임시 passwordless sudo 가 살아 있는 Step 3 안에서 실행해야 apt 설치 시 비밀번호를 묻지 않습니다.
+# - 선택 도구이므로 실패해도 전체 설치를 중단하지 않고 경고만 표시합니다.
+Write-SubStep "▶ (4/4) WSL2 Sublime Merge (WSLg) 및 한글 입력기 설치"
+wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/tool.setup-sublime-merge.sh' -o /tmp/_dt2_smerge.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_REF='$DT2_REF' bash -l /tmp/_dt2_smerge.sh"
+$smergeExit = $LASTEXITCODE
+wsl -d $wslDistro -u $wslUser -- rm -f /tmp/_dt2_smerge.sh 2>$null
+if ($smergeExit -ne 0) { Write-Warn "Sublime Merge 설치 중 오류가 발생했습니다 (계속 진행). WSL 에서 tool.setup-sublime-merge.sh 를 다시 실행할 수 있습니다." }
 
 
 Write-Success "WSL2 내부 가상 머신 개발 환경 구축 완료!"
@@ -599,7 +611,7 @@ if (Test-Path $wslDevtools2Root) {
 Write-Step "[Step 4] Windows 호스트 전용 개발도구 연동"
 
 # ── 4-1. AutoHotkey (CapsLock 리매핑 + Ctrl+Alt+T 단축키) ────────────────────
-Write-SubStep "▶ (1/6) AutoHotkey 배포 및 단축키 등록"
+Write-SubStep "▶ (1/5) AutoHotkey 배포 및 단축키 등록"
 try {
     Invoke-RemotePsScript -Url "$RAW_WIN/1.setup-autohotkey.ps1" -Arguments @{ WslDistro = $wslDistro }
 } catch {
@@ -607,39 +619,31 @@ try {
 }
 
 # ── 4-2. Windows Terminal (폰트/테마/fzf 단축키) ─────────────────────────────
-Write-SubStep "▶ (2/6) Windows Terminal 폰트/테마/단축키 설정"
+Write-SubStep "▶ (2/5) Windows Terminal 폰트/테마/단축키 설정"
 try {
     Invoke-RemotePsScript -Url "$RAW_WIN/2.setup-windows-terminal.ps1" -Arguments @{ WslDistro = $wslDistro }
 } catch {
     Write-Warn "Windows Terminal 설정 중 오류 발생 (계속 진행): $($_.Exception.Message)"
 }
 
-# ── 4-3. Sublime Merge (Git Diff & Merge 클라이언트 설치 및 설정 연동) ───────
-Write-SubStep "▶ (3/6) Sublime Merge 설치 및 설정 연동"
-try {
-    Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-sublime-merge.ps1" -Arguments @{ WslDistro = $wslDistro }
-} catch {
-    Write-Warn "Sublime Merge 설정 중 오류 발생 (계속 진행): $($_.Exception.Message)"
-}
-
-# ── 4-4. VSCode (에디터 설치, 심볼릭 링크 및 확장 동기화) ────────────────────
-Write-SubStep "▶ (4/6) VSCode 에디터 설치 및 설정/확장 연동"
+# ── 4-3. VSCode (에디터 설치, 심볼릭 링크 및 확장 동기화) ────────────────────
+Write-SubStep "▶ (3/5) VSCode 에디터 설치 및 설정/확장 연동"
 try {
     Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-vscode.ps1" -Arguments @{ WslDistro = $wslDistro }
 } catch {
     Write-Warn "VSCode 설정 중 오류 발생 (계속 진행): $($_.Exception.Message)"
 }
 
-# ── 4-5. Zed ─────────────────────────────────────────────────────────────────
-Write-SubStep "▶ (5/6) Zed 에디터 설치 및 설정 연동"
+# ── 4-4. Zed ─────────────────────────────────────────────────────────────────
+Write-SubStep "▶ (4/5) Zed 에디터 설치 및 설정 연동"
 try {
     Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-zed.ps1" -Arguments @{ WslDistro = $wslDistro }
 } catch {
     Write-Warn "Zed 설정 중 오류 발생 (계속 진행): $($_.Exception.Message)"
 }
 
-# ── 4-6. Orca (Windows GUI 클라이언트 — 에이전트 실행부는 WSL2의 orca serve) ──
-Write-SubStep "▶ (6/6) Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 안내"
+# ── 4-5. Orca (Windows GUI 클라이언트 — 에이전트 실행부는 WSL2의 orca serve) ──
+Write-SubStep "▶ (5/5) Orca GUI 클라이언트 설치 및 WSL2 서버 페어링 안내"
 try {
     $userChoseOrca = Invoke-RemotePsScript -Url "$RAW_WIN/tool.setup-orca.ps1" -Arguments @{ WslDistro = $wslDistro }
 } catch {

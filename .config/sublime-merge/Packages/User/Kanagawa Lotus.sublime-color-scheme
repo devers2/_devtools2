@@ -1,0 +1,145 @@
+// ==============================================================================
+// Kanagawa Lotus — Sublime Merge 용 라이트 색 구성 (DevTools2)
+//
+// - Neovim 의 rebelot/kanagawa.nvim 'lotus'(라이트) 변형의 팔레트와 역할 대응(themes.lua 의
+//   ui / syn / vcs / diff 테이블)을 그대로 옮겼습니다. nvim 은 'wave'(다크)를 쓰지만, 같은 테마 계열의
+//   글자색 배합을 diff 에서도 보도록 하기 위함입니다.
+// - [다크(wave)가 아니라 라이트(lotus)인 이유]
+//   Sublime Merge 평가판은 UI 테마가 라이트로 고정되고, 오른쪽 상세 패널(Summary 탭, Working Directory 머리글,
+//   Discard All / Stage All 버튼 줄)의 배경이 diff 색 구성의 background 를 그대로 따라갑니다
+//   (Merge.sublime-theme: detail_panel_bg = var(--background)). 반면 그 위의 글자·버튼 색은 라이트 테마용으로
+//   고정되어 있어, diff 를 다크로 만들면 머리글과 버튼이 거의 보이지 않게 됩니다(실측). 그래서 라이트 계열을 씁니다.
+// - [배경만 회색인 이유] 원래 Lotus 배경(lotusWhite3 #f2ecbc, 크림색)은 눈이 부셔서, 글자색 배합은 Lotus 그대로 두고
+//   배경(variables 의 "bg")만 Commits 목록(#ebedef)과 사이드바(#dcdee0) 사이의 차분한 밝은 회색 #e1e4e7 로 바꿨습니다.
+//   (라이트 테마의 글자·버튼 색은 밝은 배경 기준이라, 이보다 많이 어둡게 하면 머리글·버튼이 다시 흐려집니다.
+//    실측 비교: 크림 #f2ecbc / 회색 #ebedef / #e1e4e7 / 다크 #54546D·#272822 — 사용자 테마 덮어쓰기는 평가판에서 적용되지 않음)
+// - 라이선스 등록 후 다크 테마(Merge Dark)에서는 "... - Merge Dark.sublime-settings" 의 Monokai 가 적용됩니다.
+// - 팔레트 출처: kanagawa.nvim lua/kanagawa/colors.lua (lotus*), lua/kanagawa/themes.lua (lotus = function)
+// ==============================================================================
+{
+    "name": "Kanagawa Lotus",
+    "author": "DevTools2 (palette: rebelot/kanagawa.nvim)",
+    "variables":
+    {
+        // 글자색: 회색 배경에서 더 또렷하도록 Kanagawa Lotus 원래 값(괄호 안 #색상)보다 밝기 15% 진하게 사용
+        // (배경·diff 강조 배경 계열 white*, violet3, blue2, green3, red4, yellow4 는 원래 값 유지)
+        // 배경: 차분한 밝은 회색 (원래 Lotus 크림색은 lotusWhite3 #f2ecbc)
+        "bg": "#e1e4e7",
+        "ink1": "color(#545464 l(- 15%))",
+        "ink2": "color(#43436c l(- 15%))",
+        "gray": "#dcd7ba",
+        "gray2": "color(#716e61 l(- 15%))",
+        "gray3": "color(#8a8980 l(- 15%))",
+        "white0": "#d5cea3",
+        "white1": "#dcd5ac",
+        "white2": "#e5ddb0",
+        "white3": "#f2ecbc",
+        "white4": "#e7dba0",
+        "violet1": "color(#a09cac l(- 15%))",
+        "violet2": "color(#766b90 l(- 15%))",
+        "violet3": "#c9cbd1",
+        "violet4": "color(#624c83 l(- 15%))",
+        "blue2": "#b5cbd2",
+        "blue4": "color(#4d699b l(- 15%))",
+        "blue5": "color(#5d57a3 l(- 15%))",
+        "green": "color(#6f894e l(- 15%))",
+        "green2": "color(#6e915f l(- 15%))",
+        "green3": "#b7d0ae",
+        "pink": "color(#b35b79 l(- 15%))",
+        "orange": "color(#cc6d00 l(- 15%))",
+        "orange2": "color(#e98a00 l(- 15%))",
+        "yellow": "color(#77713f l(- 15%))",
+        "yellow2": "color(#836f4a l(- 15%))",
+        "yellow3": "color(#de9800 l(- 15%))",
+        "yellow4": "#f9d791",
+        "red": "color(#c84053 l(- 15%))",
+        "red2": "color(#d7474b l(- 15%))",
+        "red3": "color(#e82424 l(- 15%))",
+        "red4": "#d9a594",
+        "aqua": "color(#597b75 l(- 15%))",
+        "teal1": "color(#4e8ca2 l(- 15%))",
+        "teal2": "color(#6693bf l(- 15%))",
+        "teal3": "color(#5a7785 l(- 15%))"
+    },
+    "globals":
+    {
+        // ui.fg / ui.bg
+        "foreground": "var(ink1)",
+        "background": "var(bg)",
+        "accent": "var(blue4)",
+        "caret": "var(ink2)",
+        "block_caret": "color(var(violet3) a(0.6))",
+        // CursorLine(ui.bg_p1), Visual(ui.bg_visual), Search(ui.bg_search)
+        "line_highlight": "color(var(bg) l(- 5%))",
+        "selection": "var(violet3)",
+        "selection_border": "var(violet3)",
+        "inactive_selection": "color(var(bg) l(- 8%))",
+        "find_highlight": "var(blue2)",
+        "find_highlight_foreground": "var(ink2)",
+        // LineNr(ui.nontext), Whitespace(ui.whitespace)
+        "gutter_foreground": "var(violet1)",
+        "invisibles": "var(violet1)",
+        "guide": "var(white0)",
+        "active_guide": "var(violet1)",
+        "stack_guide": "color(var(violet1) a(0.5))",
+        "misspelling": "var(red3)",
+        "shadow": "color(var(gray2) a(0.3))",
+        "brackets_options": "underline",
+        "brackets_foreground": "var(orange)",
+        "bracket_contents_options": "underline",
+        "bracket_contents_foreground": "var(blue4)",
+        "tags_options": "stippled_underline",
+        "tags_foreground": "var(violet4)"
+    },
+    "rules":
+    [
+        // ── 문법 강조 (themes.lua syn 테이블) ─────────────────────────────────
+        { "name": "Comment (syn.comment)", "scope": "comment, punctuation.definition.comment", "foreground": "var(gray3)", "font_style": "italic" },
+        { "name": "String (syn.string)", "scope": "string", "foreground": "var(green)" },
+        { "name": "Regex (syn.regex)", "scope": "string.regexp", "foreground": "var(yellow2)" },
+        { "name": "Number (syn.number)", "scope": "constant.numeric", "foreground": "var(pink)" },
+        { "name": "Constant (syn.constant)", "scope": "constant.language, constant.character, constant.other, support.constant", "foreground": "var(orange)" },
+        { "name": "Keyword (syn.keyword)", "scope": "keyword - keyword.operator, keyword.operator.word, storage.modifier", "foreground": "var(violet4)", "font_style": "italic" },
+        { "name": "Storage (syn.statement)", "scope": "storage", "foreground": "var(violet4)" },
+        { "name": "Operator (syn.operator)", "scope": "keyword.operator", "foreground": "var(yellow2)" },
+        { "name": "Punctuation (syn.punct)", "scope": "punctuation.separator, punctuation.terminator, punctuation.accessor, punctuation.section", "foreground": "var(teal1)" },
+        { "name": "Function (syn.fun)", "scope": "entity.name.function, variable.function, support.function, support.macro", "foreground": "var(blue4)" },
+        { "name": "Parameter (syn.parameter)", "scope": "variable.parameter", "foreground": "var(blue5)" },
+        { "name": "Type (syn.type)", "scope": "storage.type, support.type, support.class, entity.name.type, entity.name.class, entity.other.inherited-class", "foreground": "var(aqua)" },
+        { "name": "Identifier (syn.identifier)", "scope": "variable.member, variable.other.member, entity.other.attribute-name, support.type.property-name", "foreground": "var(yellow)" },
+        { "name": "Builtin variable (syn.special2)", "scope": "variable.language", "foreground": "var(red)", "font_style": "italic" },
+        { "name": "Preproc / Annotation (syn.preproc)", "scope": "meta.preprocessor, keyword.control.import, punctuation.definition.annotation, variable.annotation, meta.annotation", "foreground": "var(red)" },
+        { "name": "Tag", "scope": "entity.name.tag", "foreground": "var(violet4)" },
+        { "name": "Entity name", "scope": "entity.name - (entity.name.section | entity.name.tag | entity.name.label | entity.name.function | entity.name.type | entity.name.class)", "foreground": "var(aqua)" },
+        { "name": "Special (syn.special1)", "scope": "constant.character.escape, string.interpolated, punctuation.section.interpolation", "foreground": "var(teal2)" },
+        { "name": "Deprecated (syn.deprecated)", "scope": "invalid.deprecated", "foreground": "var(gray3)", "font_style": "italic" },
+        { "name": "Invalid (diag.error)", "scope": "invalid", "foreground": "var(red3)" },
+
+        // ── 마크업 ───────────────────────────────────────────────────────────
+        { "scope": "markup.heading", "foreground": "var(blue4)", "font_style": "bold" },
+        { "scope": "markup.bold", "font_style": "bold" },
+        { "scope": "markup.italic", "font_style": "italic" },
+        { "scope": "string.other.link, markup.underline.link", "foreground": "var(teal1)" },
+        { "scope": "markup.raw", "foreground": "var(green)" },
+        { "scope": "markup.quote", "foreground": "var(gray3)", "font_style": "italic" },
+
+        // ── Git / diff 텍스트 (vcs 테이블) ───────────────────────────────────
+        { "name": "diff.header", "scope": "meta.diff, meta.diff.header", "foreground": "var(violet4)" },
+        { "name": "diff.deleted", "scope": "markup.deleted", "foreground": "var(red2)" },
+        { "name": "diff.inserted", "scope": "markup.inserted", "foreground": "var(green2)" },
+        { "name": "diff.changed", "scope": "markup.changed", "foreground": "var(yellow3)" },
+
+        // ── Sublime Merge 메시지 ─────────────────────────────────────────────
+        { "scope": "constant.numeric.line-number.match", "foreground": "var(red)" },
+        { "scope": "message.error", "foreground": "var(red3)" },
+        { "scope": "message.warning", "foreground": "var(orange2)" },
+        { "scope": "message.info", "foreground": "var(teal3)" },
+
+        // ── Sublime Merge diff 줄/글자 배경 (diff 테이블: DiffAdd / DiffDelete / DiffText) ──
+        // nvim 처럼 줄 전체는 옅게(배경과 섞음), 실제로 바뀐 글자는 원색으로 강조합니다.
+        { "scope": "diff.deleted", "background": "color(var(red4) a(0.45))" },
+        { "scope": "diff.deleted.char", "background": "var(red4)" },
+        { "scope": "diff.inserted", "background": "color(var(green3) a(0.55))" },
+        { "scope": "diff.inserted.char", "background": "var(green3)" }
+    ]
+}

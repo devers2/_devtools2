@@ -97,8 +97,8 @@ _DT2_PATH_DIRS=(
     '$DEVTOOLS2/modules/fd'
     '$DEVTOOLS2/modules/fzf'
     '$DEVTOOLS2/modules/lazygit'
-    '$DEVTOOLS2/modules/sublime-merge'
     '$DEVTOOLS2/modules/sublime-merge/bin'
+    '$DEVTOOLS2/modules/sublime-merge'
     '$DEVTOOLS2/modules/ast-grep'
     '$DEVTOOLS2/modules/bitwarden'
     '$DEVTOOLS2/modules/rclone'
@@ -122,25 +122,6 @@ _dt2_path_prepend() {
         *) PATH="$1${PATH:+:$PATH}" ;;
     esac
 }
-
-# WSL2 ↔ Windows 크로스 플랫폼 파일 권한(100755) 오탐 자동 방어:
-# 터미널에서 git clone 실행 완료 시 해당 저장소에 core.filemode false 를 자동 적용
-if grep -qi microsoft /proc/version 2>/dev/null; then
-    git() {
-        command git "\$@"
-        local _rc=\$?
-        if [ \$_rc -eq 0 ] && [ "\${1:-}" = "clone" ]; then
-            local _target_dir="\${!#}"
-            _target_dir="\${_target_dir%/}"
-            _target_dir="\${_target_dir##*/}"
-            _target_dir="\${_target_dir%.git}"
-            if [ -d "\$_target_dir/.git" ]; then
-                command git -C "\$_target_dir" config core.filemode false 2>/dev/null || true
-            fi
-        fi
-        return \$_rc
-    }
-fi
 
 export NODE_HOME="$DEVTOOLS2/modules/nodejs/node-v24"
 export NPM_CONFIG_GLOBALCONFIG="$DEVTOOLS2/.config/nodejs/.npmrc"
@@ -273,22 +254,38 @@ if [ -d "$DEVTOOLS2/.git" ] && [ -f "$DEVTOOLS2/scripts/git-hooks/pre-commit" ];
     fi
 fi
 
-# 1-3) WSL2 환경 전용: Windows ↔ WSL2 파일 권한(filemode) 오탐 영구 차단
-# - 새로 clone 하거나 init 하는 모든 프로젝트에 core.filemode false 가 자동 적용되도록
-#   init.defaultConfig 및 Git template post-checkout 훅을 등록합니다.
-# - 순수 Linux 네이티브 환경에서는 POSIX 권한이 완벽히 유지되므로 이 설정을 건드리지 않습니다.
+# 1-3) [정리] 과거 Windows 판 Sublime Merge(번들 git.exe)용 WSL2 우회 설정 회수
+# - Sublime Merge 를 WSLg 기반 Linux 판으로 전환하면서 Windows git.exe 가 \\wsl.localhost(9P) 경로의
+#   WSL 저장소를 직접 다루지 않게 되었으므로, 그때 넣었던 아래 우회 설정은 더 이상 필요 없습니다.
+#   오히려 WSL git 에서 실제 변경을 숨기는 부작용이 있어 되돌립니다.
+#   ● core.filemode=false: WSL 에서 실행 권한(chmod +x) 변경이 git status 에 보이지 않음
+#   ● 심볼릭 링크 skip-worktree: WSL 에서 링크 대상 변경이 git status 에 보이지 않음
+#   ● core.checkStat=minimal / trustctime=false: 양쪽 git 의 index 재해시 핑퐁 방지용이었음
+# - DevTools2 가 만든 것(훅의 표식 문자열, 우리가 넣은 값과 일치하는 설정)만 되돌리며,
+#   사용자가 직접 넣은 다른 값은 건드리지 않습니다(멱등).
+# - 이미 clone 된 개별 저장소의 .git/hooks 와 로컬 core.filemode 는 저장소마다 남아 있을 수 있으므로
+#   필요하면 해당 저장소에서 `git config core.filemode true` 와
+#   `git ls-files -v | awk '/^S /{print $2}' | xargs -r git update-index --no-skip-worktree` 로 되돌리십시오.
 if grep -qi microsoft /proc/version 2>/dev/null; then
-    git config --global core.filemode false 2>/dev/null || true
-    git config --global init.defaultConfig.core.filemode false 2>/dev/null || true
-    _git_tpl_hooks="$HOME/.config/git/template/hooks"
-    mkdir -p "$_git_tpl_hooks" 2>/dev/null || true
-    cat <<'EOF' > "$_git_tpl_hooks/post-checkout"
-#!/bin/sh
-# WSL2 ↔ Windows 크로스 플랫폼 파일 권한 오탐 자동 방어
-git config core.filemode false 2>/dev/null || true
-EOF
-    chmod +x "$_git_tpl_hooks/post-checkout" 2>/dev/null || true
-    git config --global init.templateDir "$HOME/.config/git/template" 2>/dev/null || true
+    _git_tpl_dir="$HOME/.config/git/template"
+    for _hook in post-checkout post-merge; do
+        if grep -q "WSL2 ↔ Windows" "$_git_tpl_dir/hooks/$_hook" 2>/dev/null; then
+            rm -f "$_git_tpl_dir/hooks/$_hook"
+        fi
+    done
+    rmdir "$_git_tpl_dir/hooks" "$_git_tpl_dir" 2>/dev/null || true
+    if [ "$(git config --global --get init.templateDir 2>/dev/null || true)" = "$_git_tpl_dir" ] && [ ! -d "$_git_tpl_dir" ]; then
+        git config --global --unset init.templateDir 2>/dev/null || true
+    fi
+    [ "$(git config --global --get core.filemode 2>/dev/null || true)" = "false" ] && git config --global --unset core.filemode 2>/dev/null || true
+    [ "$(git config --global --get core.checkStat 2>/dev/null || true)" = "minimal" ] && git config --global --unset core.checkStat 2>/dev/null || true
+    [ "$(git config --global --get core.trustctime 2>/dev/null || true)" = "false" ] && git config --global --unset core.trustctime 2>/dev/null || true
+    # init.defaultConfig 는 실존하지 않는 Git 설정이라 아무 효과가 없었던 무효 키
+    git config --global --unset-all init.defaultConfig.core.filemode 2>/dev/null || true
+    # DevTools2 저장소 자체의 실행 권한 추적 복원 (실행 스크립트가 많아 chmod 변경 추적이 중요)
+    if [ -d "$DEVTOOLS2/.git" ] && [ "$(git -C "$DEVTOOLS2" config --local --get core.filemode 2>/dev/null || true)" = "false" ]; then
+        git -C "$DEVTOOLS2" config core.filemode true 2>/dev/null || true
+    fi
 fi
 
 # 2) systemd 사용자 서비스 및 데스크톱 앱 연동용 ~/.config/environment.d/devtools2.conf 생성

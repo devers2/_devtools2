@@ -1,3 +1,12 @@
 {
-    "color_scheme": "Monokai.sublime-color-scheme"
+    // 라이트 UI 테마(Merge.sublime-theme)용 색 구성 — Kanagawa Lotus (nvim kanagawa.nvim 의 라이트 변형)
+    // - 평가판(UNREGISTERED)은 UI 테마가 라이트로 고정되는데, 예전처럼 여기에 다크 Monokai 를 강제하면
+    //   라이트 테마의 글자·버튼 색(밝은 배경 기준)이 어두운 배경 위에 그려져
+    //   선택된 "Summary" 탭, "Working Directory" 머리글, "Discard All / Stage All" 버튼 등이 거의 보이지 않았습니다.
+    //   (상세 패널 배경이 diff 색 구성의 background 를 따라가므로 diff 만 다크로 분리할 수도 없음)
+    //   그래서 라이트 계열이면서 nvim(Kanagawa)과 같은 글자색 배합인 Kanagawa Lotus 를 씁니다.
+    //   (색 구성 정의: 같은 폴더의 Kanagawa Lotus.sublime-color-scheme)
+    // - 라이선스 등록 후 다크 테마(Merge Dark)를 쓰면 "... - Merge Dark.sublime-settings" 의 Monokai 가 적용되어
+    //   UI 와 diff 가 함께 다크로 통일됩니다.
+    "color_scheme": "Kanagawa Lotus.sublime-color-scheme"
 }
