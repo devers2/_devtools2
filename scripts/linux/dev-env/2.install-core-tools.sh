@@ -131,11 +131,14 @@ echo "==========================================================================
 echo "📋 버전 관리 대상 도구 현황 (버전 정책: tool-versions.toml [track])"
 echo ""
 printf "   %-14s  track: %-10s  %s\n" "Node.js" "$(get_track nodejs 24)" "$(_fmts "$NODEJS_INSTALLED")"
+# (JDK·Gradle·Neovim 줄에도 Node.js·Python 처럼 설치 상태를 표시 — 예전에는 track 만 나오고 상태 칸이 비어 있었음)
 for _jv in $(get_supported_jdk_versions); do
-    printf "   %-14s  track: %-10s\n" "JDK $_jv" "$(get_track "jdk${_jv}" "$_jv")"
+    _jd="$DEVTOOLS2/modules/java/jdk-${_jv}"
+    [ "$_jv" = "8" ] && _jd="$DEVTOOLS2/modules/java/jdk-1.8"
+    printf "   %-14s  track: %-10s  %s\n" "JDK $_jv" "$(get_track "jdk${_jv}" "$_jv")" "$(_fmts "$([ -x "$_jd/bin/java" ] && echo true || echo false)")"
 done
-printf "   %-14s  track: %-10s\n" "Gradle" "$(get_track gradle latest)"
-printf "   %-14s  track: %-10s\n" "Neovim" "$(get_track neovim 0.12)"
+printf "   %-14s  track: %-10s  %s\n" "Gradle" "$(get_track gradle latest)" "$(_fmts "$([ -x "$DEVTOOLS2/modules/gradle/current/bin/gradle" ] && echo true || echo false)")"
+printf "   %-14s  track: %-10s  %s\n" "Neovim" "$(get_track neovim 0.12)" "$(_fmts "$([ -x "$DEVTOOLS2/modules/neovim/nvim/bin/nvim" ] && echo true || echo false)")"
 if [ "$IS_WSL2" = false ]; then
     printf "   %-14s  track: %-10s  %s\n" \
         "Ghostty" "$(get_track ghostty latest)" "$(_fmts "$GHOSTTY_INSTALLED")"
@@ -150,33 +153,18 @@ for _pm in $(get_supported_python_minors); do
 done
 echo ""
 
-# ── 중복 처리 방식 선택 ──────────────────────────────────────────
-# 환경변수 DT2_DUPLICATE_MODE(remove|reinstall|keep|skip|individual)가 있으면 질문 없이 그 값을 씁니다.
+# ── 중복 처리 방식 (같은 버전 재설치) ─────────────────────────────
+# 예전에는 이미 설치된 도구가 있으면 "삭제 후 재설치 / 유지 / 도구별 개별 확인"을 매번 물었습니다.
+# 이제 새 버전 확인과 업데이트 여부는 도구마다 decide_app_action 이 따로 묻기 때문에, 이 질문에 남은 역할은
+# "같은 버전 다시 설치(깨진 설치 복구)"뿐이라 묻지 않고 기본값 keep(유지)으로 둡니다.
+#   ● 복구가 필요할 때: DT2_DUPLICATE_MODE=reinstall (전체 재설치) 또는 individual (도구마다 재설치 여부 질문)
+#   ● 환경변수 DT2_DUPLICATE_MODE(remove|reinstall|keep|skip|individual)는 CI·무인 실행용으로 그대로 지원합니다.
 DUPLICATE_MODE="${DT2_DUPLICATE_MODE:-keep}"
-_HAS_INSTALLED=false
-[ "$NODEJS_INSTALLED" = true ] && _HAS_INSTALLED=true
-[ "$IS_WSL2" = false ] && [ "$GHOSTTY_INSTALLED" = true ] && _HAS_INSTALLED=true
-[ -d "$DEVTOOLS2/modules/java" ] && [ -n "$(ls -A "$DEVTOOLS2/modules/java" 2>/dev/null)" ] && _HAS_INSTALLED=true
-[ -d "$DEVTOOLS2/modules/gradle/current" ] && _HAS_INSTALLED=true
-[ -d "$DEVTOOLS2/modules/neovim/nvim" ] && _HAS_INSTALLED=true
-
 if [ -n "${DT2_DUPLICATE_MODE:-}" ]; then
     print_info "환경변수(DT2_DUPLICATE_MODE) 설정 적용됨: $DUPLICATE_MODE"
-elif [ "$_HAS_INSTALLED" = true ]; then
-    print_question "⚠️  이미 설치된 도구가 감지되었습니다. 중복 처리 방식을 선택하세요:"
-    echo ""
-    print_option "1" "기존 도구 삭제 후 재설치 (덮어쓰기)"
-    print_option "2" "기존 도구 유지 (건너뛰기)" "[기본값]"
-    print_option "3" "도구별 개별 확인 (재설치/건너뛰기 선택)"
-    echo ""
-    prompt_read _dup_choice "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "
-    echo ""
-    case "${_dup_choice:-2}" in
-        1) DUPLICATE_MODE="remove"     ; print_info "중복 처리: 묻지 않고 삭제 후 재설치 선택됨" ;;
-        3) DUPLICATE_MODE="individual" ; print_info "중복 처리: 도구별 개별 확인 선택됨" ;;
-        *) DUPLICATE_MODE="keep"       ; print_info "중복 처리: 기존 도구 유지(건너뛰기) 선택됨" ;;
-    esac
-    echo ""
+else
+    echo "   ℹ️  설치된 도구는 새 버전이 있을 때만 업데이트 여부를 묻습니다."
+    echo "      같은 버전을 다시 설치(복구)하려면 DT2_DUPLICATE_MODE=reinstall 로 실행하세요."
 fi
 
 # (예전 "버전 설치 방식 선택(최신/지정/개별)" 질문과 최신 일괄 조회는 [track] 정책으로 대체되어 제거했습니다)
