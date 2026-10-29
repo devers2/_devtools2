@@ -66,7 +66,8 @@ print_subsep()  { printf "${_C_CYAN}%s${_C_RESET}\n" "--------------------------
 # icanon(행 편집), icrnl(CR→NL 변환), echo(입력 에코)를 복원합니다.
 normalize_tty() {
     if [ -c /dev/tty ]; then
-        stty icanon icrnl echo < /dev/tty 2>/dev/null || true
+        # 제어 터미널이 없으면(/dev/tty 열기 실패) 리다이렉션 오류 자체가 출력되므로 블록 전체의 stderr 를 버림
+        { stty icanon icrnl echo < /dev/tty; } 2>/dev/null || true
     elif [ -t 0 ]; then
         stty icanon icrnl echo 2>/dev/null || true
     fi
@@ -541,6 +542,34 @@ ensure_wsl_interop() {
             sudo sh -c "echo '$_interop_val' > /proc/sys/fs/binfmt_misc/register" 2>/dev/null || true
         fi
     fi
+}
+
+# ==============================================================================
+# WSLg(WSL GUI 앱 지원) 활성화 확인 공용 헬퍼
+# ==============================================================================
+# Linux GUI 앱(Sublime Merge 등)을 Windows 창으로 띄우려면 WSLg 가 켜져 있어야 합니다.
+# - 켜져 있으면(Wayland/X11 소켓 존재) 0 을 반환합니다.
+# - 꺼져 있으면 Windows %USERPROFILE%\.wslconfig 의 [wsl2] guiApplications=true 를
+#   기존 내용 보존 방식(set_wsl_conf_key)으로 기록하고 1 을 반환합니다.
+#   (.wslconfig 변경은 Windows 에서 'wsl --shutdown' 후 WSL 을 다시 열어야 적용됩니다.)
+# - WSLg 는 Windows 11 또는 Windows 10 22H2(19044+) 이상의 Store 판 WSL 에서만 지원됩니다.
+ensure_wslg() {
+    [ "${IS_WSL2:-false}" != true ] && ! grep -qi 'microsoft' /proc/version 2>/dev/null && return 1
+
+    if [ -S /mnt/wslg/runtime-dir/wayland-0 ] || [ -S /tmp/.X11-unix/X0 ]; then
+        return 0
+    fi
+
+    local _win_home
+    _win_home=$(get_win_userprofile 2>/dev/null || true)
+    if [ -n "$_win_home" ] && set_wsl_conf_key "wsl2" "guiApplications" "true" "$_win_home/.wslconfig"; then
+        print_warn "WSLg(GUI 앱 지원)가 꺼져 있어 $_win_home/.wslconfig 에 guiApplications=true 를 기록했습니다."
+    else
+        print_warn "WSLg(GUI 앱 지원)가 꺼져 있습니다. Windows %USERPROFILE%\\.wslconfig 의 [wsl2] 섹션에 guiApplications=true 를 추가하세요."
+    fi
+    print_info "  적용 방법: Windows PowerShell 에서 'wsl --shutdown' 실행 후 WSL 터미널을 다시 여세요."
+    print_info "  (WSLg 는 Windows 11 또는 Windows 10 22H2 이상의 최신 WSL 이 필요합니다: 'wsl --update')"
+    return 1
 }
 
 # ==============================================================================

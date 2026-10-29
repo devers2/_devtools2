@@ -4,6 +4,8 @@
     // ==========================================================================
 
     // 공식 다크 UI 테마 및 블랙 계열 대표 컬러 스킴(Monokai)
+    // (평가판은 UI 테마가 라이트로 고정되며, 그때 diff·커밋 메시지 등 뷰별 색 구성은
+    //  "... - Merge.sublime-settings"(라이트, Kanagawa Lotus)가, 다크 테마에서는 "... - Merge Dark.sublime-settings"(Monokai)가 덮어씁니다)
     "theme": "Merge Dark.sublime-theme",
     "dark_theme": "Merge Dark.sublime-theme",
     "light_theme": "Merge Dark.sublime-theme",
