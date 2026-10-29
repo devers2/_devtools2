@@ -36,7 +36,8 @@ jdk21 = "21"
 jdk25 = "25"
 gradle = "latest"      # 프로젝트는 각자 Gradle wrapper 를 쓰므로 전역 Gradle 은 최신(새 프로젝트·wrapper 생성용)
 neovim = "0.12"        # 마이너(0.13)는 플러그인 호환 확인 후 올림
-python314 = "3.14"     # Python 은 "3.14" 가 사실상 메이저(매년 기능 릴리스) → 패치만. 3.15 는 새 키·새 폴더로 추가
+python315 = "3.15"     # 2026-10 출시 최신 마이너 (설치만, 기본 PYTHON_HOME 은 3.14 유지 — 패키지 지원이 따라오면 전환)
+python314 = "3.14"     # Python 은 "3.14" 가 사실상 메이저(매년 기능 릴리스) → 패치만. 새 마이너는 새 키·새 폴더로 추가
 python312 = "3.12"     # 정확히 고정하려면 빌드 날짜까지: "3.12.13+20260414"
 ghostty = "latest"     # Linux 데스크톱 기본 터미널 앱
 # 3.install-cli-tools.sh
@@ -69,6 +70,8 @@ gradle = ["9.7.1", "9.4.1"]
 
 # Python 포터블 빌드 (astral-sh/python-build-standalone) — "CPython 버전+빌드 날짜(릴리스 태그)"
 # 이 프로젝트는 릴리스 태그가 빌드 날짜라 버전만으로는 다운로드 주소를 만들 수 없어 둘을 함께 기록합니다.
+# (키를 추가하면 설치 스크립트·명령 팔레트 Python 전환 목록에 자동 반영 — get_supported_python_minors)
+python315 = ["3.15.2+20261026"]
 python314 = ["3.14.4+20260414"]
 python312 = ["3.12.13+20260414"]
 

@@ -74,7 +74,16 @@ fi
 if [ ${#SUPPORTED_JDK_VERSIONS[@]} -eq 0 ]; then
     SUPPORTED_JDK_VERSIONS=("25" "21" "17" "8")
 fi
-SUPPORTED_PY_VERSIONS=("314" "312")
+# Python 도 JDK 와 같이 tool-versions.toml 의 python3NN 키(예: python315)에서 지원 버전 목록을 읽습니다 (높은 순)
+SUPPORTED_PY_VERSIONS=()
+if [ -f "$_tv_toml" ]; then
+    while IFS= read -r _ver; do
+        [ -n "$_ver" ] && SUPPORTED_PY_VERSIONS+=("$_ver")
+    done < <(grep -E '^python3[0-9]+ = \[' "$_tv_toml" 2>/dev/null | grep -oE '^python3[0-9]+' | sed 's/^python//' | sort -rn || true)
+fi
+if [ ${#SUPPORTED_PY_VERSIONS[@]} -eq 0 ]; then
+    SUPPORTED_PY_VERSIONS=("314" "312")
+fi
 
 # 홈 디렉토리 판별 (Windows의 경우 USERPROFILE도 고려)
 HOME_DIR="${HOME:-$USERPROFILE}"

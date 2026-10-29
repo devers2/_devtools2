@@ -703,6 +703,14 @@ PY
 }
 
 # tool-versions.toml 에서 지원하는 Adoptium JDK 메이저 버전 목록을 내림차순(예: "25 21 17 8")으로 반환합니다.
+# TOML 의 python3NN 키(예: python315)에서 설치 대상 Python 마이너 목록을 높은 순으로 반환 ("3.15 3.14 3.12")
+# JDK 처럼 TOML 에 키를 추가하면 설치 스크립트·명령 팔레트(Python 전환)에 자동으로 반영됩니다.
+get_supported_python_minors() {
+    local m
+    m=$(_read_toml | grep -E '^python3[0-9]+ = \[' 2>/dev/null | grep -oE '^python3[0-9]+' | sed -E 's/^python3/3./' | sort -t. -k2,2nr | tr '\n' ' ' | sed 's/ *$//' || true)
+    echo "${m:-3.14 3.12}"
+}
+
 get_supported_jdk_versions() {
     local jdks
     jdks=$(_read_toml | grep -E '^jdk[0-9]+ = \[' 2>/dev/null | grep -oE 'jdk[0-9]+' | sed 's/^jdk//' | sort -rn | tr '\n' ' ' | sed 's/ *$//' || true)

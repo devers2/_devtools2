@@ -2,17 +2,18 @@
 
 # =================================================================
 # 프로그램명: py_switch.sh
-# 기능: 상대 경로를 기반으로 PYTHON_HOME 버전을 전환 (314, 312)
+# 기능: 상대 경로를 기반으로 PYTHON_HOME 버전을 전환 (315, 314, 312 — modules/python/python-<버전> 폴더)
+#       - 버전 목록은 고정이 아니라 설치된 폴더 기준이라, tool-versions.toml 에 새 마이너를 추가해 설치하면 수정 없이 동작합니다.
 #       - ~/.bashrc 또는 ~/.zshrc 등에 PYTHON_HOME 및 PATH를 업데이트합니다.
 #       - 기존 PYTHON_HOME 설정이 존재하면 해당 라인을 수정하고, 없으면 추가합니다.
-# 사용법: source py_switch.sh 314  (또는 312)
+# 사용법: source py_switch.sh 314  (또는 315, 312)
 #         또는 . py_switch.sh 314
 # =================================================================
 
 # 1. 필수 인자(파이썬 버전) 확인
 VERSION=$1
 if [ -z "$VERSION" ]; then
-    echo "[Error] 파이썬 버전을 입력해주세요 (314, 312)."
+    echo "[Error] 파이썬 버전을 입력해주세요 (설치됨: $(ls -d "${DEVTOOLS2:-/var/opt/_devtools2}"/modules/python/python-* 2>/dev/null | sed 's|.*/python-||' | sort -rn | xargs))."
     echo "사용법: source py_switch.sh 314"
     return 1 2>/dev/null || exit 1
 fi

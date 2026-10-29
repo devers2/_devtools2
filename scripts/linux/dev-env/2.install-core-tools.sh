@@ -144,7 +144,7 @@ else
         "Ghostty" "(WSL2 - 설치 건너뜀)" "⏭️  해당 없음"
 fi
 echo ""
-for _pm in 3.14 3.12; do
+for _pm in $(get_supported_python_minors); do
     _pd="$DEVTOOLS2/modules/python/python-${_pm//./}"
     printf "   %-14s  track: %-10s  %s\n" "Python $_pm" "$(get_track "python${_pm//./}" "$_pm")" "$(_fmts "$([ -x "$_pd/bin/python3" ] && echo true || echo false)")"
 done
@@ -392,7 +392,8 @@ cd "$DEVTOOLS2/modules/python"
 # Python 의 3.14 → 3.15 는 매년 나오는 기능 릴리스로 사실상 메이저 업그레이드라, JDK(jdk-21·jdk-25)처럼
 # 마이너마다 폴더(python-314·python-312)를 따로 두고 track 은 패치(3.14.x)만 따라갑니다.
 #   ● 폴더 경로가 그대로라 패치 업데이트 뒤에도 PYTHON_HOME·VS Code 설정·가상환경(venv)이 그대로 동작합니다.
-#   ● 3.15 를 추가하려면 [track] python315 = "3.15" 와 아래 _install_python_minor 3.15 호출을 추가합니다.
+#   ● 새 마이너(예: 3.16)를 추가하려면 tool-versions.toml 에 [track] python316 = "3.16" 과
+#     [core_tools] python316 = [...] 를 추가합니다(설치 대상 목록은 get_supported_python_minors 가 TOML 에서 읽음).
 #   ● 예전에는 다운로드 주소(빌드 20260414)가 고정이고 폴더가 있으면 건너뛰어 보안 패치를 받지 못했습니다.
 #   ● 다운로드 주소는 프로젝트의 현재 위치(astral-sh)를 씁니다(예전 indygreg 주소는 GitHub 리디렉트에 의존).
 _pbs_triple="x86_64-unknown-linux-gnu"
@@ -419,7 +420,7 @@ _install_python_minor() {
     # 폴더(python-314)가 마이너에 묶여 있으므로 다른 마이너를 가리키는 track(예: python314 = "3.15")은 받지 않습니다
     # (위 "범위 밖 새 버전" 안내를 보고 값만 바꾸면 3.15 가 python-314 폴더에 설치되는 것을 막기 위함)
     if [ -n "$ver" ] && [[ "$ver" != "${minor}."* ]]; then
-        print_warn "  ${key}: track \"${track}\" 은 ${minor}.x 범위가 아니라 무시합니다. 새 마이너는 새 키(예: python315 = \"3.15\")와 _install_python_minor 호출로 추가하세요."
+        print_warn "  ${key}: track \"${track}\" 은 ${minor}.x 범위가 아니라 무시합니다. 새 마이너는 tool-versions.toml 에 새 키(예: python316 = \"3.16\")로 추가하세요."
         ver=""
     fi
     if [[ "$ver" == *+* ]]; then
@@ -504,8 +505,16 @@ _install_python_minor() {
     fi
 }
 
-_install_python_minor 3.14 notice
-_install_python_minor 3.12
+# 가장 높은 마이너에만 범위 밖 새 마이너 안내(notice)를 줍니다
+_py_first=true
+for _pm in $(get_supported_python_minors); do
+    if [ "$_py_first" = true ]; then
+        _install_python_minor "$_pm" notice
+        _py_first=false
+    else
+        _install_python_minor "$_pm"
+    fi
+done
 
 echo "✅ Python 설치 완료 ($ARCH)"
 echo ""
