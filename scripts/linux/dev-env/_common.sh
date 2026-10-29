@@ -558,7 +558,7 @@ get_win_userprofile() {
         ensure_wsl_interop
         if command -v cmd.exe >/dev/null 2>&1; then
             local _raw_home
-            _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '' || true)
+            _raw_home=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d $'\r' || true)
             if [ -n "$_raw_home" ] && command -v wslpath >/dev/null 2>&1; then
                 local _converted
                 _converted=$(wslpath "$_raw_home" 2>/dev/null || true)
