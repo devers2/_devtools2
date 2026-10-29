@@ -26,8 +26,17 @@
 #                                  사용법: bw_setup_git_config <default_name> <default_email>
 #   bw_save_git_credentials      → PAT 를 ~/.git-credentials 에 저장 (사용자 확인 후)
 #                                  사용법: bw_save_git_credentials <repo_url> <pat> <username>
+#   bw_git_credentials_exist     → ~/.git-credentials 에 해당 호스트(기본 github.com) 로그인이 있는지 확인
+#   bw_gh_auth_ok                → GitHub CLI(gh) 로그인 여부 확인 (gh 미설치면 "해당 없음"으로 성공)
+#   bw_setup_gh_auth             → PAT 로 GitHub CLI(gh) 로그인 (gh 미설치·이미 로그인이면 건너뜀)
+#                                  사용법: bw_setup_gh_auth <pat> [host]
+#   bw_setup_github_auth         → Bitwarden PAT 로 GitHub 로그인 일괄 설정 (설치 스크립트·프로젝트 설정 공용)
+#                                  git user.name/email + ~/.git-credentials + gh CLI 로그인.
+#                                  이미 로그인되어 있으면 Bitwarden 잠금 해제 없이 바로 끝냄.
+#                                  Bitwarden 미로그인(unauthenticated)이면 그 자리에서 bw login 진행.
+#                                  사용법: bw_setup_github_auth [bw_item_name]
 #   bw_git_clone                 → Bitwarden PAT 인증으로 git clone 수행
-#                                  (성공 시 bw_setup_git_config + bw_save_git_credentials 자동 호출)
+#                                  (성공 시 bw_setup_git_config + bw_save_git_credentials + bw_setup_gh_auth 자동 호출)
 #                                  사용법: bw_git_clone <repo_url> <target_dir> [bw_item_name]
 #                                  bw_item_name 기본값: $BW_DEFAULT_PAT_ITEM (기본 "github.com-main")
 #   bw_git_clone_interactive     → bw_git_clone 대화형 래퍼: Bitwarden 'GitHub' 항목 이름을 사용자에게
@@ -36,6 +45,9 @@
 #                                  → 개별 프로젝트 설정 스크립트/command-palette 등에서 항목명을
 #                                    직접 프롬프트하고 싶을 때 이 함수 하나만 호출하면 됩니다
 #                                    (프롬프트 문구/로직을 바꿀 일이 생기면 여기 한 곳만 수정)
+#   bw_git_clone_with_fallback   → 저장된 GitHub 로그인(~/.git-credentials)으로 먼저 clone 하고,
+#                                  로그인이 없거나 인증에 실패하면 bw_git_clone_interactive 로 폴백
+#                                  사용법: bw_git_clone_with_fallback <repo_url> <target_dir>
 #   normalize_tty                → bind -x (Readline) 터미널 모드 정규화 (icanon icrnl echo 복원)
 #
 # 공통 상수:
@@ -704,6 +716,103 @@ bw_save_git_credentials() {
     fi
 }
 
+# ── GitHub 로그인 상태 확인 / gh CLI 로그인 / 일괄 설정 (설치 스크립트·프로젝트 설정 공용) ──
+# 예전에는 GitHub 로그인(git 자격 증명)이 프로젝트 clone(bw_git_clone) 의 부산물로만 설정되었습니다.
+# 이제 설치 스크립트(3.install-cli-tools.sh)에서 GitHub CLI(gh)와 함께 한 번에 설정하고,
+# 프로젝트 설정 스크립트는 로그인이 안 되어 있을 때만 폴백으로 설정합니다(bw_git_clone_with_fallback).
+
+# ~/.git-credentials 에 해당 호스트 로그인이 있는지 (반환: 0 = 있음)
+bw_git_credentials_exist() {
+    local _host="${1:-github.com}"
+    [ -f ~/.git-credentials ] && grep -qE "@${_host}(/|:|$)" ~/.git-credentials 2>/dev/null
+}
+
+# GitHub CLI(gh) 가 해당 호스트에 로그인되어 있는지 (반환: 0 = 로그인됨 또는 gh 미설치)
+bw_gh_auth_ok() {
+    local _host="${1:-github.com}"
+    command -v gh >/dev/null 2>&1 || return 0
+    gh auth status --hostname "$_host" >/dev/null 2>&1
+}
+
+# PAT 로 GitHub CLI(gh) 로그인 (gh 미설치·이미 로그인이면 건너뜀)
+# ⚠️ 토큰은 명령 인자가 아니라 표준입력(--with-token)으로만 넘깁니다(ps//proc 노출 방지).
+# ⚠️ WSL·서버에는 OS 키링이 없어 gh 가 토큰을 ~/.config/gh/hosts.yml 에 평문 저장하므로 소유자 전용(700/600)으로 맞춥니다.
+# ⚠️ gh 가 git 자격 증명 도우미를 바꾸지 않도록 'gh auth setup-git' 은 실행하지 않습니다(~/.git-credentials 를 그대로 사용).
+bw_setup_gh_auth() {
+    local _pat="${1:-}" _host="${2:-github.com}"
+    [ -n "$_pat" ] || return 0
+    command -v gh >/dev/null 2>&1 || return 0
+    if gh auth status --hostname "$_host" >/dev/null 2>&1; then
+        echo "ℹ️  GitHub CLI(gh) 가 이미 로그인되어 있습니다. (host: $_host)"
+        return 0
+    fi
+    if printf '%s' "$_pat" | gh auth login --hostname "$_host" --git-protocol https --with-token >/dev/null 2>&1; then
+        chmod 700 "$HOME/.config/gh" 2>/dev/null || true
+        chmod 600 "$HOME/.config/gh/"*.yml 2>/dev/null || true
+        echo "✅ GitHub CLI(gh) 로그인 완료 (host: $_host)"
+    else
+        echo "⚠️  GitHub CLI(gh) 로그인에 실패했습니다. PAT 권한(classic 이면 repo, read:org)을 확인하거나 'gh auth login' 으로 직접 로그인하세요."
+    fi
+    return 0
+}
+
+# Bitwarden PAT 로 GitHub 로그인 일괄 설정: git user.name/email + ~/.git-credentials + gh CLI
+# 인수: $1 = Bitwarden 아이템 이름 (선택, 기본값: $BW_DEFAULT_PAT_ITEM)
+# 반환: 0 = 설정 완료 또는 이미 로그인됨, 1 = 실패(Bitwarden 미설치·로그인 실패·항목 없음 등)
+bw_setup_github_auth() {
+    local _item="${1:-$BW_DEFAULT_PAT_ITEM}" _host="github.com"
+
+    # 이미 로그인되어 있으면 Bitwarden 잠금 해제(마스터 비밀번호 입력) 없이 끝냅니다.
+    if bw_git_credentials_exist "$_host" && bw_gh_auth_ok "$_host"; then
+        echo "ℹ️  GitHub 로그인이 이미 설정되어 있습니다. (git 자격 증명$(command -v gh >/dev/null 2>&1 && echo ' + gh CLI'))"
+        return 0
+    fi
+
+    if ! command -v bw >/dev/null 2>&1; then
+        echo "❌ Bitwarden CLI(bw)를 찾을 수 없어 GitHub 로그인을 자동 설정할 수 없습니다." >&2
+        return 1
+    fi
+
+    # Bitwarden 에 아직 로그인하지 않은 PC(첫 설치)라면 그 자리에서 로그인합니다.
+    # bw login --raw 는 이메일·마스터 비밀번호(·2단계 인증)를 터미널에서 묻고 세션 키만 출력하므로,
+    # 잠금 해제(_bw_do_unlock)와 같은 방식으로 세션 파일(소유자 전용)에 저장해 비밀번호를 두 번 묻지 않습니다.
+    if bw status 2>/dev/null | grep -qE '"status": *"unauthenticated"'; then
+        echo "🔑 Bitwarden 에 로그인되어 있지 않습니다. 이메일·마스터 비밀번호로 로그인합니다."
+        normalize_tty
+        local _new_session
+        _new_session=$(bw login --raw </dev/tty) || { echo "❌ Bitwarden 로그인에 실패했습니다." >&2; return 1; }
+        if [ -n "$_new_session" ]; then
+            BW_SESSION="$_new_session"
+            export BW_SESSION
+            (umask 077; echo "$BW_SESSION" > "$_BW_SESSION_FILE")
+            chmod 600 "$_BW_SESSION_FILE" 2>/dev/null || true
+        fi
+    fi
+    bw_ensure_session || return 1
+
+    echo "⏳ Bitwarden에서 '${_item}' 계정 정보 조회 중..."
+    local _parsed _user _email _pat
+    _parsed=$(bw_find_item_live "$_item") || return 1
+    _user=$(printf "%s" "$_parsed" | cut -f1 | tr -d '@')
+    _email=$(printf "%s" "$_parsed" | cut -f2)
+    _pat=$(printf "%s" "$_parsed" | cut -f4)   # 사용자 지정 필드 "PAT" 값
+    if [ -z "$_pat" ]; then
+        echo "❌ '${_item}' 항목에 라벨이 \"PAT\"인 사용자 지정 필드를 찾을 수 없습니다." >&2
+        return 1
+    fi
+    echo "✅ GitHub 계정 확인: $_user ($_email)"
+
+    bw_setup_git_config "$_user" "$_email"
+    echo ""
+    bw_save_git_credentials "https://${_host}" "$_pat" "$_user"
+    # git user.name 이 이미 있어 bw_setup_git_config 가 건너뛴 경우에도 자격 증명 저장소를 쓰도록 보장
+    if [ -z "$(git config --global --get credential.helper 2>/dev/null)" ]; then
+        git config --global credential.helper store
+    fi
+    bw_setup_gh_auth "$_pat" "$_host"
+    return 0
+}
+
 # ── Bitwarden PAT 인증으로 git clone 수행 ─────────────────────────────────────
 # 인수:
 #   $1 = 클론할 저장소 URL (필수)
@@ -781,6 +890,8 @@ ASKEOF
         echo ""
         # PAT 저장 여부 질의 (credential store)
         bw_save_git_credentials "$_REPO_URL" "$_GIT_PAT" "$_bw_cfg_name"
+        # GitHub CLI(gh) 도 같은 PAT 로 로그인 (gh 미설치·이미 로그인이면 건너뜀)
+        bw_setup_gh_auth "$_GIT_PAT" "$(echo "$_REPO_URL" | sed -E 's|^https?://||' | cut -d'/' -f1)"
     else
         echo "❌ 깃 클론 실패 (종료 코드: $_RC)" >&2
     fi
@@ -807,6 +918,29 @@ bw_git_clone_interactive() {
     _BW_ITEM_NAME="${_BW_ITEM_NAME:-$_BW_DEFAULT_ITEM}"
 
     bw_git_clone "$_REPO_URL" "$_TARGET_DIR" "$_BW_ITEM_NAME"
+}
+
+# ── 저장된 GitHub 로그인으로 clone, 실패 시 Bitwarden PAT 로 폴백 ──────────────────
+# 설치 스크립트(3.install-cli-tools.sh)가 GitHub 로그인을 미리 설정해 두었으면 PAT 질문 없이 바로 clone 하고,
+# 로그인이 없거나(새 PC·설치 시 건너뜀) 저장된 PAT 가 만료되어 인증에 실패하면 기존 bw_git_clone_interactive 로 폴백합니다.
+# 인수: $1 = 저장소 URL, $2 = 로컬 대상 경로
+# 전제: 폴백 시 bw_ensure_session 이 선행 호출되어 BW_SESSION 이 유효해야 함
+bw_git_clone_with_fallback() {
+    local _REPO_URL="$1" _TARGET_DIR="$2" _host
+    _host=$(echo "$_REPO_URL" | sed -E 's|^https?://||' | cut -d'/' -f1)
+    if bw_git_credentials_exist "$_host"; then
+        echo "🚀 저장된 GitHub 로그인으로 저장소 클론 중: $_REPO_URL -> $_TARGET_DIR"
+        mkdir -p "$(dirname "$_TARGET_DIR")"
+        # GIT_TERMINAL_PROMPT=0: 저장된 PAT 가 만료됐으면 사용자명/비밀번호를 묻지 않고 바로 실패 → 폴백
+        if GIT_TERMINAL_PROMPT=0 git clone "$_REPO_URL" "$_TARGET_DIR"; then
+            echo "✅ 깃 클론 완료!"
+            return 0
+        fi
+        echo "⚠️  저장된 GitHub 로그인으로 클론하지 못했습니다(PAT 만료·권한 부족 등). Bitwarden PAT 로 다시 시도합니다."
+    else
+        echo "ℹ️  저장된 GitHub 로그인이 없어 Bitwarden PAT 로 클론합니다."
+    fi
+    bw_git_clone_interactive "$_REPO_URL" "$_TARGET_DIR"
 }
 
 # ── Bitwarden 서버 항목 JSON 파싱 공용 헬퍼 ─────────────────────────────────────
