@@ -117,7 +117,9 @@ GHOSTTY_PINNED=$(get_pinned_version "ghostty")
 
 # 설치 상태 확인
 NODEJS_INSTALLED=false
-[ -d "$DEVTOOLS2/modules/nodejs/current" ] && NODEJS_INSTALLED=true
+# ("설치됨"은 폴더가 아니라 실행 파일 기준 — 설치가 중간에 끊겨 폴더만 남으면 미설치로 보고 다시 설치,
+#  install_tool 이 압축 해제 후 기존 current 폴더를 교체)
+[ -x "$DEVTOOLS2/modules/nodejs/current/bin/node" ] && NODEJS_INSTALLED=true
 
 GHOSTTY_INSTALLED=false
 if [ "$IS_WSL2" = false ] && [ -f "$DEVTOOLS2/modules/ghostty/ghostty" ]; then
@@ -205,7 +207,8 @@ install_adoptium_jdk() {
     # 이미 설치되어 있으면 설치 버전과 대상 버전을 비교합니다. 같으면 건너뛰고, 다르면
     # (track 범위 안에 보안 패치 버전이 새로 나온 경우 등) 업데이트 여부를 묻습니다(decide_app_action).
     # 기존 버전 유지 모드(DT2_UPDATE_CHECK=keep): 설치된 JDK 는 Adoptium 조회 없이 건너뜁니다
-    if [ -d "$target_path" ] && ! dt2_should_check_update true "DT2_JDK${major}"; then
+    # ("설치됨"은 폴더가 아니라 실행 파일 기준 — 설치가 중간에 끊겨 폴더만 남은 경우는 아래에서 다시 설치)
+    if [ -x "$target_path/bin/java" ] && ! dt2_should_check_update true "DT2_JDK${major}"; then
         print_skip "JDK $major ($dest_dir, $(_installed_jdk_version "$target_path")) — 기존 버전 유지 (새 버전 확인 안 함)"
         return 0
     fi
@@ -254,7 +257,11 @@ install_adoptium_jdk() {
 
     # 2. 설치/업데이트/건너뛰기 결정 (필수 도구라 미설치면 묻지 않고 설치)
     local _reinstall=false
-    if [ -d "$target_path" ]; then
+    if [ -d "$target_path" ] && [ ! -x "$target_path/bin/java" ]; then
+        # 폴더는 있으나 java 실행 파일이 없음(설치 중단·손상) → 묻지 않고 다시 설치 (실패하면 기존 폴더 복원)
+        print_warn "JDK $major ($dest_dir) 설치가 손상되어(bin/java 없음) 다시 설치합니다."
+        _reinstall=true
+    elif [ -d "$target_path" ]; then
         local _cur_ver
         _cur_ver=$(_installed_jdk_version "$target_path")
         if [ -n "$_cur_ver" ] && _jdk_version_matches "$_cur_ver" "$actual_ver" "$major"; then
@@ -348,7 +355,7 @@ GRADLE_PINNED=$(get_pinned_version "gradle")
 # 새 프로젝트·wrapper 생성용으로 최신을 따릅니다. 목록 조회 실패 시 마지막 설치 버전(TOML/data/state)으로 폴백.
 # (기존 버전 유지 모드면 설치된 Gradle 은 버전 목록을 조회하지 않음 — 판단 안내는 decide_app_action)
 GRADLE_VERSION=""
-if dt2_should_check_update "$([ -d "$DEVTOOLS2/modules/gradle/current" ] && echo true || echo false)" "DT2_GRADLE"; then
+if dt2_should_check_update "$([ -x "$DEVTOOLS2/modules/gradle/current/bin/gradle" ] && echo true || echo false)" "DT2_GRADLE"; then
     GRADLE_VERSION=$(resolve_track_version gradle latest list_gradle_versions)
 fi
 GRADLE_VERSION="${GRADLE_VERSION:-${GRADLE_PINNED:-9.7.1}}"
@@ -357,7 +364,8 @@ _GRADLE_DIR="$DEVTOOLS2/modules/gradle/current"
 # 설치된 Gradle 버전(lib/gradle-core-api-<버전>.jar)과 대상 버전을 비교합니다.
 _GRADLE_CUR=""
 _GRADLE_INSTALLED=false
-if [ -d "$_GRADLE_DIR" ]; then
+# ("설치됨"은 폴더가 아니라 실행 파일 기준 — 폴더만 남은 손상 설치는 미설치로 보고 다시 설치하며, 설치 단계가 기존 current 를 교체)
+if [ -x "$_GRADLE_DIR/bin/gradle" ]; then
     _GRADLE_INSTALLED=true
     _GRADLE_CUR=$(find "$_GRADLE_DIR/lib" -maxdepth 1 -name 'gradle-core-api-*.jar' 2>/dev/null \
         | head -1 | sed -E 's|.*/gradle-core-api-(.+)\.jar$|\1|')
