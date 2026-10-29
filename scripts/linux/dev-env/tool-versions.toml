@@ -16,6 +16,29 @@
 # ─── 예시 ─────────────────────────────────────────────────────────────────────
 #  nodejs = ["v24.16.0", "v24.15.0"]
 #  → 최종 설치 버전 선택 시 "v24.16.0"(첫 번째 항목)이 설치됩니다.
+#
+# ─── 사용법: 여러 버전을 함께 두는 도구(JDK·Python)에 새 버전 추가·제거 ──────────────────────
+#  JDK 와 Python 은 버전마다 폴더를 따로 두고(jdk-25, python-315) 전환해 씁니다. 설치 대상 목록은
+#  이 파일의 [core_tools] 키(jdkNN / python3NN)에서 자동으로 읽으므로, 키만 추가하면 아래가 모두 따라옵니다.
+#    ● 설치 스크립트(2.install-core-tools.sh)의 설치·상태 표
+#    ● 명령 팔레트(scripts/fzf/command-palette)의 JDK / Python 전환 메뉴
+#    ● 전환 스크립트(scripts/linux/cmd/jdk_switch.sh · py_switch.sh) — 설치된 폴더 기준이라 수정 불필요
+#
+#  [JDK 29 추가]  (Adoptium LTS 메이저)
+#    1) [core_tools] 에   jdk29 = ["29.0.1+9"]      ← 버전 목록 조회 실패 시 쓸 폴백 버전 (Adoptium 표기)
+#    2) [track] 에        jdk29 = "29"              ← 생략하면 메이저("29") 안 최신 패치가 기본값
+#    3) 설치 스크립트 실행 → modules/java/jdk-29 설치,   전환: source jdk_switch.sh 29
+#
+#  [Python 3.16 추가]
+#    1) [core_tools] 에   python316 = ["3.16.0+20271020"]   ← "CPython 버전+빌드 날짜"(python-build-standalone 릴리스 태그)
+#                         (값은 https://github.com/astral-sh/python-build-standalone/releases 의 파일 이름
+#                          cpython-3.16.0+20271020-... 에서 확인. 폴백 전용이라 최신이 아니어도 됨)
+#    2) [track] 에        python316 = "3.16"        ← 생략하면 마이너("3.16") 안 최신 패치가 기본값
+#    3) 설치 스크립트 실행 → modules/python/python-316 설치,   전환: source py_switch.sh 316
+#
+#  [버전 제거]  키 두 줄을 지우면 이후 설치·메뉴 대상에서 빠집니다. 이미 설치된 폴더는 지우지 않으니
+#              필요 없으면 modules/java/jdk-NN 또는 modules/python/python-3NN 을 직접 삭제하세요.
+#  ⚠️ 기본 버전(새 셸의 JAVA_HOME·PYTHON_HOME)은 키 순서와 무관합니다 — 전환 스크립트(또는 팔레트)로 고릅니다.
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ──────────────────────────────────────────────────────────────────────────────
