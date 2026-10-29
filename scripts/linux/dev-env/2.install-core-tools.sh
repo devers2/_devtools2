@@ -155,17 +155,28 @@ echo ""
 
 # ── 중복 처리 방식 (같은 버전 재설치) ─────────────────────────────
 # 예전에는 이미 설치된 도구가 있으면 "삭제 후 재설치 / 유지 / 도구별 개별 확인"을 매번 물었습니다.
-# 이제 새 버전 확인과 업데이트 여부는 도구마다 decide_app_action 이 따로 묻기 때문에, 이 질문에 남은 역할은
-# "같은 버전 다시 설치(깨진 설치 복구)"뿐이라 묻지 않고 기본값 keep(유지)으로 둡니다.
+# 이제 새 버전 확인 여부는 아래 "새 버전 확인 방식" 질문 하나로 정하고(기존 버전 유지 / 도구별 확인), 업데이트 여부는
+# 도구마다 decide_app_action 이 묻기 때문에, 이 질문에 남은 역할은 "같은 버전 다시 설치(깨진 설치 복구)"뿐이라
+# 묻지 않고 기본값 keep(유지)으로 둡니다.
 #   ● 복구가 필요할 때: DT2_DUPLICATE_MODE=reinstall (전체 재설치) 또는 individual (도구마다 재설치 여부 질문)
 #   ● 환경변수 DT2_DUPLICATE_MODE(remove|reinstall|keep|skip|individual)는 CI·무인 실행용으로 그대로 지원합니다.
 DUPLICATE_MODE="${DT2_DUPLICATE_MODE:-keep}"
 if [ -n "${DT2_DUPLICATE_MODE:-}" ]; then
     print_info "환경변수(DT2_DUPLICATE_MODE) 설정 적용됨: $DUPLICATE_MODE"
-else
-    echo "   ℹ️  설치된 도구는 새 버전이 있을 때만 업데이트 여부를 묻습니다."
-    echo "      같은 버전을 다시 설치(복구)하려면 DT2_DUPLICATE_MODE=reinstall 로 실행하세요."
 fi
+
+# ── 설치된 도구의 새 버전 확인 방식 (한 번만 질문) ──────────────────────
+# 기본은 "기존 버전 유지"(설치된 도구는 새 버전 조회도 하지 않음), "도구별 새 버전 확인"을 고를 때만
+# 도구마다 track 범위 안의 새 버전을 조회해 업데이트 여부를 묻습니다 (dt2_select_update_check, _install-utils.sh).
+_HAS_INSTALLED=false
+[ "$NODEJS_INSTALLED" = true ] && _HAS_INSTALLED=true
+[ "$IS_WSL2" = false ] && [ "$GHOSTTY_INSTALLED" = true ] && _HAS_INSTALLED=true
+[ -d "$DEVTOOLS2/modules/java" ] && [ -n "$(ls -A "$DEVTOOLS2/modules/java" 2>/dev/null)" ] && _HAS_INSTALLED=true
+[ -d "$DEVTOOLS2/modules/gradle/current" ] && _HAS_INSTALLED=true
+[ -d "$DEVTOOLS2/modules/neovim/nvim" ] && _HAS_INSTALLED=true
+[ -n "$(ls -d "$DEVTOOLS2"/modules/python/python-* 2>/dev/null)" ] && _HAS_INSTALLED=true
+dt2_select_update_check "$_HAS_INSTALLED" "핵심 개발 도구"
+echo "   ℹ️  같은 버전을 다시 설치(복구)하려면 DT2_DUPLICATE_MODE=reinstall 로 실행하세요."
 
 # (예전 "버전 설치 방식 선택(최신/지정/개별)" 질문과 최신 일괄 조회는 [track] 정책으로 대체되어 제거했습니다)
 
@@ -193,6 +204,12 @@ install_adoptium_jdk() {
 
     # 이미 설치되어 있으면 설치 버전과 대상 버전을 비교합니다. 같으면 건너뛰고, 다르면
     # (track 범위 안에 보안 패치 버전이 새로 나온 경우 등) 업데이트 여부를 묻습니다(decide_app_action).
+    # 기존 버전 유지 모드(DT2_UPDATE_CHECK=keep): 설치된 JDK 는 Adoptium 조회 없이 건너뜁니다
+    if [ -d "$target_path" ] && ! dt2_should_check_update true "DT2_JDK${major}"; then
+        print_skip "JDK $major ($dest_dir, $(_installed_jdk_version "$target_path")) — 기존 버전 유지 (새 버전 확인 안 함)"
+        return 0
+    fi
+
     local jdk_arch="$([ "$IS_ARM64" = true ] && echo 'aarch64' || echo 'x64')"
     local pinned_ver track
     pinned_ver=$(get_pinned_version "jdk${major}")
@@ -329,7 +346,11 @@ cd "$DEVTOOLS2/modules/gradle"
 GRADLE_PINNED=$(get_pinned_version "gradle")
 # [track] gradle (기본 "latest"): 프로젝트는 각자 Gradle wrapper(gradlew)로 자기 버전을 쓰므로 전역 Gradle 은
 # 새 프로젝트·wrapper 생성용으로 최신을 따릅니다. 목록 조회 실패 시 마지막 설치 버전(TOML/data/state)으로 폴백.
-GRADLE_VERSION=$(resolve_track_version gradle latest list_gradle_versions)
+# (기존 버전 유지 모드면 설치된 Gradle 은 버전 목록을 조회하지 않음 — 판단 안내는 decide_app_action)
+GRADLE_VERSION=""
+if dt2_should_check_update "$([ -d "$DEVTOOLS2/modules/gradle/current" ] && echo true || echo false)" "DT2_GRADLE"; then
+    GRADLE_VERSION=$(resolve_track_version gradle latest list_gradle_versions)
+fi
 GRADLE_VERSION="${GRADLE_VERSION:-${GRADLE_PINNED:-9.7.1}}"
 _GRADLE_DIR="$DEVTOOLS2/modules/gradle/current"
 
@@ -386,7 +407,14 @@ cd "$DEVTOOLS2/modules/python"
 #   ● 다운로드 주소는 프로젝트의 현재 위치(astral-sh)를 씁니다(예전 indygreg 주소는 GitHub 리디렉트에 의존).
 _pbs_triple="x86_64-unknown-linux-gnu"
 [ "$IS_ARM64" = true ] && _pbs_triple="aarch64-unknown-linux-gnu"
-set +e; _PBS_INDEX=$(fetch_python_build_index "$_pbs_triple"); set -e
+# 버전 목록은 실제로 새 버전을 확인하는 마이너가 있을 때만 한 번 받습니다(기존 버전 유지 모드면 조회 안 함)
+_PBS_INDEX=""
+_PBS_FETCHED=false
+_pbs_ensure_index() {
+    [ "$_PBS_FETCHED" = true ] && return 0
+    set +e; _PBS_INDEX=$(fetch_python_build_index "$_pbs_triple"); set -e
+    _PBS_FETCHED=true
+}
 # 인수로 마이너를 주면 그 마이너의 버전만 출력합니다(가장 높은 마이너가 아니면 "범위 밖 새 버전" 안내를 내지 않기 위함)
 _pbs_list_versions() { printf '%s\n' "$_PBS_INDEX" | awk -v m="${1:-}" 'NF && (m == "" || index($1, m ".") == 1) { print $1 }'; }
 
@@ -398,6 +426,12 @@ _install_python_minor() {
     local key="python${minor//./}" dir="python-${minor//./}"
     local pdir="$DEVTOOLS2/modules/python/$dir"
     local pinned ver tag sha="" line track cur="" installed=false
+    # 기존 버전 유지 모드(DT2_UPDATE_CHECK=keep): 설치된 마이너는 버전 조회 없이 건너뜁니다
+    if [ -x "$pdir/bin/python3" ] && ! dt2_should_check_update true "DT2_PYTHON${minor//./}"; then
+        print_skip "Python ${minor} $("$pdir/bin/python3" --version 2>/dev/null | awk '{ print $2 }') — 기존 버전 유지 (새 버전 확인 안 함)"
+        return 0
+    fi
+    _pbs_ensure_index
     pinned=$(get_pinned_version "$key")             # 마지막 설치 기록 "3.14.4+20260414"
     track=$(get_track "$key" "$minor")
     if [ "$notice" = "notice" ]; then
@@ -521,7 +555,11 @@ cd "$DEVTOOLS2/modules/nodejs"
 # ── 버전 결정: [track] nodejs (기본 "24" = 메이저 24 의 최신 LTS 패치) ─────────
 # 메이저를 올리려면 [track] nodejs 값만 바꿉니다(예: "26"). 설치 폴더는 메이저와 무관한 nodejs/current 입니다.
 # (메이저를 바꾸면 npm 전역 패키지 중 네이티브 모듈은 다시 설치해야 할 수 있습니다)
-NODEJS_VERSION=$(resolve_track_version nodejs 24 list_nodejs_lts_versions)
+# (기존 버전 유지 모드면 설치된 Node.js 는 버전 목록을 조회하지 않음 — 판단 안내는 decide_app_action)
+NODEJS_VERSION=""
+if dt2_should_check_update "$NODEJS_INSTALLED" "DT2_NODEJS"; then
+    NODEJS_VERSION=$(resolve_track_version nodejs 24 list_nodejs_lts_versions)
+fi
 if [ -n "$NODEJS_VERSION" ]; then
     NODEJS_VERSION="v${NODEJS_VERSION#v}"
 else
@@ -777,7 +815,11 @@ cd "$DEVTOOLS2/modules/neovim"
 
 NEOVIM_PINNED=$(get_pinned_version "neovim")
 # [track] neovim (기본 "0.12"): 0.12.x 안에서 최신 패치. 마이너(0.13)는 플러그인 호환을 확인한 뒤 track 을 바꿔 올립니다.
-NEOVIM_VERSION=$(resolve_track_version neovim 0.12 list_github_release_versions neovim/neovim)
+# (기존 버전 유지 모드면 설치된 Neovim 은 버전 목록을 조회하지 않음 — 판단 안내는 decide_app_action)
+NEOVIM_VERSION=""
+if dt2_should_check_update "$([ -x "$DEVTOOLS2/modules/neovim/nvim/bin/nvim" ] && echo true || echo false)" "DT2_NEOVIM"; then
+    NEOVIM_VERSION=$(resolve_track_version neovim 0.12 list_github_release_versions neovim/neovim)
+fi
 if [ -n "$NEOVIM_VERSION" ]; then
     NEOVIM_VERSION="v${NEOVIM_VERSION#v}"
 else
@@ -875,9 +917,13 @@ else
     #   ● GHOSTTY_PINNED 는 마지막으로 설치에 성공한 버전입니다(설치 성공 시 update_pinned_version 으로 기록).
     #   ● 업데이트하지 않은 경우에는 중복 처리 방식(DUPLICATE_MODE: 재설치 등)을 기존처럼 존중합니다.
     #   ● 대상 버전은 [track] ghostty(기본 "latest") 범위 안의 최신 — 다른 도구와 같은 resolve_track_version 사용
-    echo -n "   🔍 Ghostty 최신 버전 조회 중... "
-    set +e; _gl_latest=$(resolve_track_version ghostty latest list_github_release_versions pkgforge-dev/ghostty-appimage); set -e
-    [ -n "$_gl_latest" ] && echo "완료 ($_gl_latest)" || echo "실패 (조회 불가)"
+    #   ● 기존 버전 유지 모드(DT2_UPDATE_CHECK=keep)면 설치된 Ghostty 는 최신 버전을 조회하지 않습니다
+    _gl_latest=""
+    if dt2_should_check_update "$GHOSTTY_INSTALLED" "DT2_GHOSTTY"; then
+        echo -n "   🔍 Ghostty 최신 버전 조회 중... "
+        set +e; _gl_latest=$(resolve_track_version ghostty latest list_github_release_versions pkgforge-dev/ghostty-appimage); set -e
+        [ -n "$_gl_latest" ] && echo "완료 ($_gl_latest)" || echo "실패 (조회 불가)"
+    fi
 
     # 판단은 공용 함수 decide_app_action(_install-utils.sh)에 맡깁니다 (Zed·Orca·VS Code·Sublime Merge 와 동일 규칙)
     # (이미 설치되어 있지만 최신 버전이 감지된 경우 스마트 업데이트 처리 → 결과 update)
