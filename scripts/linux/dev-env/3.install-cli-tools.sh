@@ -2,7 +2,7 @@
 
 # =================================================================
 # DevTools2 CLI 유틸리티 도구 설치 스크립트 (3.install-cli-tools.sh)
-# 대상: fzf, lazygit, ripgrep, fd, ast-grep,
+# 대상: fzf, lazygit, ripgrep, fd, ast-grep, gh(GitHub CLI, Bitwarden PAT 자동 로그인 포함),
 #       apt 패키지(build-essential, libreadline-dev, git, trash-cli),
 #       hererocks (Lua/Neovim 플러그인 관리용)
 # 참고: 바자이트(불변 OS) 환경에서 distrobox 컨테이너를 통해 설치하던
@@ -74,7 +74,7 @@ MODULES_DIR="$DEVTOOLS2/modules"
 
 # 경로 생성
 # 각 도구별로 독립된 폴더를 생성하여 관리를 용이하게 합니다.
-mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODULES_DIR/fd" "$MODULES_DIR/ast-grep" "$MODULES_DIR/bitwarden" "$MODULES_DIR/rclone"
+mkdir -p "$MODULES_DIR/fzf" "$MODULES_DIR/lazygit" "$MODULES_DIR/ripgrep" "$MODULES_DIR/fd" "$MODULES_DIR/ast-grep" "$MODULES_DIR/bitwarden" "$MODULES_DIR/rclone" "$MODULES_DIR/gh"
 
 # rclone 구성 파일 디렉터리 사전 확보 (사용자 홈 ~/.config/rclone — 사용자별 격리, 700)
 # (공유 트리 modules/rclone/.config 에 있던 예전 설정은 1.setup-env.sh 가 사용자 홈으로 옮깁니다)
@@ -102,7 +102,7 @@ fetch_latest_bitwarden_cli() {
 # show_spinner 는 _common.sh 에서 로드됨
 
 # ─────────────────────────────────────────────────────────────────
-# ⚙️  PRE-FLIGHT: 설치 방식 선택 (CLI 도구 8종)
+# ⚙️  PRE-FLIGHT: 설치 방식 선택 (CLI 도구 9종)
 # ─────────────────────────────────────────────────────────────────
 
 # 최종 설치 버전 읽기
@@ -114,6 +114,7 @@ ASTGREP_PINNED=$(get_pinned_version "ast_grep")
 BITWARDEN_ARM_PINNED=$(get_pinned_version "bitwarden_arm")
 WIN32YANK_PINNED=$(get_pinned_version "win32yank")
 RCLONE_PINNED=$(get_pinned_version "rclone")
+GH_PINNED=$(get_pinned_version "gh")
 
 # 설치 상태 확인
 FZF_INSTALLED=false;      [ -f "$MODULES_DIR/fzf/fzf" ]           && FZF_INSTALLED=true
@@ -123,6 +124,7 @@ FD_INSTALLED=false;       [ -f "$MODULES_DIR/fd/fd" ]              && FD_INSTALL
 ASTGREP_INSTALLED=false;  { [ -f "$MODULES_DIR/ast-grep/sg" ] || [ -f "$MODULES_DIR/ast-grep/ast-grep" ]; } && ASTGREP_INSTALLED=true
 BITWARDEN_INSTALLED=false;[ -f "$MODULES_DIR/bitwarden/bw" ]       && BITWARDEN_INSTALLED=true
 RCLONE_INSTALLED=false;   [ -f "$MODULES_DIR/rclone/rclone" ]      && RCLONE_INSTALLED=true
+GH_INSTALLED=false;       [ -f "$MODULES_DIR/gh/gh" ]              && GH_INSTALLED=true
 WIN32YANK_INSTALLED=false
 [ "$IS_WSL2" = true ] && [ -f "$MODULES_DIR/win32yank/win32yank.exe" ] && WIN32YANK_INSTALLED=true
 
@@ -135,6 +137,7 @@ ASTGREP_VERSION="$ASTGREP_PINNED"
 BITWARDEN_ARM_VERSION="$BITWARDEN_ARM_PINNED"
 WIN32YANK_VERSION="$WIN32YANK_PINNED"
 RCLONE_VERSION="$RCLONE_PINNED"
+GH_VERSION="$GH_PINNED"
 
 # 상태 포매팅 헬퍼(_fmts)는 _install-utils.sh 에서 로드됨
 
@@ -153,6 +156,7 @@ printf "   %-16s  최종 설치 버전: %-12s  %s\n" "ripgrep"        "$RIPGREP_
 printf "   %-16s  최종 설치 버전: %-12s  %s\n" "fd-find"        "$FD_PINNED"      "$(_fmts "$FD_INSTALLED")"
 printf "   %-16s  최종 설치 버전: %-12s  %s\n" "ast-grep"       "$ASTGREP_PINNED" "$(_fmts "$ASTGREP_INSTALLED")"
 printf "   %-16s  최종 설치 버전: %-12s  %s\n" "rclone"         "$RCLONE_PINNED"  "$(_fmts "$RCLONE_INSTALLED")"
+printf "   %-16s  %-28s  %s\n" "gh (GitHub CLI)" "(앱 규칙 - 항상 최신 확인)" "$(_fmts "$GH_INSTALLED")"
 if [ "$IS_ARM64" = true ]; then
     printf "   %-16s  최종 설치 버전: %-12s  %s\n" "bitwarden-cli" "$BITWARDEN_ARM_PINNED" "$(_fmts "$BITWARDEN_INSTALLED")"
 else
@@ -168,7 +172,7 @@ echo ""
 DUPLICATE_MODE="${DT2_DUPLICATE_MODE:-keep}"
 _HAS_INSTALLED=false
 for _b in "$FZF_INSTALLED" "$LAZYGIT_INSTALLED" "$RIPGREP_INSTALLED" \
-           "$FD_INSTALLED" "$ASTGREP_INSTALLED" "$BITWARDEN_INSTALLED" "$RCLONE_INSTALLED" "$WIN32YANK_INSTALLED"; do
+           "$FD_INSTALLED" "$ASTGREP_INSTALLED" "$BITWARDEN_INSTALLED" "$RCLONE_INSTALLED" "$WIN32YANK_INSTALLED" "$GH_INSTALLED"; do
     [ "$_b" = true ] && _HAS_INSTALLED=true && break
 done
 
@@ -248,6 +252,8 @@ if [ "$VERSION_MODE" = "latest" ]; then
         echo "   ⚠️  rclone:      조회 실패 → 최종 설치 버전 사용: $RCLONE_PINNED"
     fi
 
+    # (gh 는 버전 선택 방식과 무관하게 설치 단계에서 앱 규칙으로 최신 버전을 직접 확인합니다)
+
     # bitwarden: ARM64만 버전 관리 (x86_64는 항상 최신 직접 다운로드)
     if [ "$IS_ARM64" = true ]; then
         _v=$(fetch_latest_bitwarden_cli)
@@ -296,6 +302,14 @@ get_cli_tool_url() {
                 echo "https://github.com/jesseduffield/lazygit/releases/download/v${ver}/lazygit_${ver}_Linux_arm64.tar.gz"
             else
                 echo "https://github.com/jesseduffield/lazygit/releases/download/v${ver}/lazygit_${ver}_Linux_x86_64.tar.gz"
+            fi
+            ;;
+        gh)
+            # 압축 구조: gh_<ver>_linux_<arch>/bin/gh → strip 2 로 $MODULES_DIR/gh/gh 에 설치
+            if [ "$IS_ARM64" = true ]; then
+                echo "https://github.com/cli/cli/releases/download/v${ver}/gh_${ver}_linux_arm64.tar.gz"
+            else
+                echo "https://github.com/cli/cli/releases/download/v${ver}/gh_${ver}_linux_amd64.tar.gz"
             fi
             ;;
         ripgrep)
@@ -351,6 +365,9 @@ get_cli_tool_checksum_url() {
             ;;
         lazygit)
             echo "https://github.com/jesseduffield/lazygit/releases/download/v${ver}/checksums.txt"
+            ;;
+        gh)
+            echo "https://github.com/cli/cli/releases/download/v${ver}/gh_${ver}_checksums.txt"
             ;;
         ripgrep)
             if [ "$IS_ARM64" = true ]; then
@@ -512,6 +529,22 @@ install_cli_tool "fd" "fd-find (fd) - 파일 검색 도구" "sharkdp/fd" "$FD_PI
 install_cli_tool "ast-grep" "ast-grep (sg) - 구조적 코드 검색 도구" "ast-grep/ast-grep" "$ASTGREP_PINNED" "$ASTGREP_VERSION" "$ASTGREP_INSTALLED" "ast-grep/ast-grep" 0 "ast_grep"
 install_cli_tool "bitwarden" "Bitwarden CLI (bw)" "bitwarden/clients" "$BITWARDEN_ARM_PINNED" "$BITWARDEN_ARM_VERSION" "$BITWARDEN_INSTALLED" "bitwarden/bw" 0 "bitwarden_arm"
 install_cli_tool "rclone" "rclone - 클라우드 동기화 도구" "rclone/rclone" "$RCLONE_PINNED" "$RCLONE_VERSION" "$RCLONE_INSTALLED" "rclone/rclone" 0 "rclone"
+# gh (GitHub CLI): 버전 고정(TOML) 대신 앱 규칙(항상 최신)을 따릅니다 — 공용 함수 decide_app_action(_install-utils.sh)
+#   ● 미설치: 설치 여부 확인(기본값 Y) → 최신 버전 설치 / 설치됨: 실제 설치 버전(gh --version)과 최신 버전 비교 →
+#     새 버전이 있으면 업데이트 여부 확인(기본값 Y). 최신 버전 조회 실패 시 미설치면 TOML 의 마지막 설치 버전으로 설치.
+#   ● 하위 호환이 잘 유지되고 Claude Code 등 에이전트가 최신 gh 기능을 가정하므로 고정하지 않습니다.
+#   ● install_cli_tool 에는 "미설치"로 넘겨 버전 선택(개별 모드)·중복 처리 질문 없이 결정된 버전을 바로 설치합니다
+#     (같은 폴더에 덮어써 설치되므로 업데이트도 동일). TOML 은 설치 성공 시 마지막 설치 버전으로 갱신됩니다.
+_gh_latest=$(fetch_latest_github "cli/cli" 2>/dev/null | sed 's/^v//' || true)
+_gh_cur=""
+if [ "$GH_INSTALLED" = true ]; then
+    _gh_cur=$("$MODULES_DIR/gh/gh" --version 2>/dev/null | head -n 1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+fi
+decide_app_action "gh (GitHub CLI)" "$GH_INSTALLED" "$_gh_cur" "$_gh_latest" "Y" "DT2_GH"
+if [ "$DT2_APP_ACTION" != "skip" ]; then
+    GH_VERSION="${_gh_latest:-$GH_PINNED}"
+    VERSION_MODE=pinned install_cli_tool "gh" "gh - GitHub CLI (PR·이슈·Actions, 모든 에이전트 공용)" "cli/cli" "$GH_PINNED" "$GH_VERSION" false "gh/gh" 2 "gh"
+fi
 
 
 if [ "$IS_WSL2" = true ]; then
@@ -526,7 +559,8 @@ fi
 # ─────────────────────────────────────────────────────────────────
 echo "🔐 실행 권한 부여 및 검증 중..."
 for cmd in "$MODULES_DIR/ripgrep/rg" "$MODULES_DIR/fd/fd" "$MODULES_DIR/fzf/fzf" \
-           "$MODULES_DIR/lazygit/lazygit" "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/ast-grep/ast-grep" "$MODULES_DIR/bitwarden/bw" "$MODULES_DIR/rclone/rclone"; do
+           "$MODULES_DIR/lazygit/lazygit" "$MODULES_DIR/ast-grep/sg" "$MODULES_DIR/ast-grep/ast-grep" "$MODULES_DIR/bitwarden/bw" "$MODULES_DIR/rclone/rclone" \
+           "$MODULES_DIR/gh/gh"; do
     if [ -s "$cmd" ]; then
         chmod +x "$cmd"
     else
@@ -539,6 +573,52 @@ if [ ${#_CLI_FAILED[@]} -gt 0 ]; then
     print_info "  네트워크 확인 후 이 스크립트를 다시 실행하면 실패한 도구만 다시 설치합니다."
 else
     print_done "모든 바이너리 도구($ARCH) 설치가 완료되었습니다!"
+fi
+echo ""
+
+# ─────────────────────────────────────────────────────────────────
+# GitHub 로그인 연결 (Bitwarden PAT → git 자격 증명 + gh CLI)
+# ─────────────────────────────────────────────────────────────────
+# - 예전에는 프로젝트 설정 스크립트(setup-goono-eln.sh 등)가 저장소를 clone 할 때만 GitHub 로그인을 설정했습니다.
+#   이제 gh 설치와 함께 여기서 한 번 설정하고, 프로젝트 스크립트는 로그인이 없거나 실패할 때만 폴백합니다
+#   (bw-lib 의 bw_git_clone_with_fallback).
+# - 구현은 프로젝트 설정 스크립트와 같은 bw-lib(scripts/fzf/bw-lib)의 bw_setup_github_auth 를 그대로 씁니다.
+#   (폴더 이름은 fzf 지만 Bitwarden 세션·항목 조회·git 설정 함수만 쓰므로 fzf 없이 동작)
+#   ● git user.name/email + ~/.git-credentials(PAT, WSL 이면 Windows 쪽 동기화 포함) + gh CLI 로그인
+#   ● 이미 로그인되어 있으면 Bitwarden 잠금 해제 없이 건너뜀 / Bitwarden 미로그인이면 그 자리에서 bw login
+# - DT2_GITHUB_AUTH=y|n 로 묻지 않고 지정 가능. 무인 실행에서는 건너뜁니다(DT2_GITHUB_AUTH=y 로 강제).
+# - Bitwarden 항목 이름: BW_DEFAULT_PAT_ITEM (기본값 github.com-main, 사용자 지정 필드 "PAT" 에 GitHub PAT)
+echo "---------------------------------------------------------------------------"
+echo "🔑 GitHub 로그인 연결 (Bitwarden PAT → git push/pull · gh CLI)"
+# 방금 설치한 gh·bw 를 이 셸에서 바로 쓸 수 있도록 PATH 앞에 둡니다(env.sh 반영은 새 셸부터).
+export PATH="$MODULES_DIR/gh:$MODULES_DIR/bitwarden:$PATH"
+_dt2_gh_auth_choice="${DT2_GITHUB_AUTH:-}"
+if [ "${_dt2_gh_auth_choice,,}" = "n" ]; then
+    print_skip "DT2_GITHUB_AUTH=n → GitHub 로그인 연결을 건너뜁니다."
+else
+    _bw_lib="$DEVTOOLS2/scripts/fzf/bw-lib"
+    _bw_lib_ok=false
+    if [ -f "$_bw_lib" ]; then
+        # shellcheck disable=SC1090
+        source "$_bw_lib" && _bw_lib_ok=true
+    else
+        # shellcheck disable=SC1090
+        source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' \
+            "https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/scripts/fzf/bw-lib") && _bw_lib_ok=true
+    fi
+    if [ "$_bw_lib_ok" != true ]; then
+        print_warn "bw-lib 을 불러오지 못해 GitHub 로그인 연결을 건너뜁니다. (나중에 프로젝트 설정 스크립트가 폴백으로 설정)"
+    elif bw_git_credentials_exist "github.com" && bw_gh_auth_ok "github.com"; then
+        print_skip "GitHub 로그인이 이미 설정되어 있습니다. (git 자격 증명 + gh CLI)"
+    elif [ "${_dt2_gh_auth_choice,,}" != "y" ] && dt2_is_noninteractive; then
+        print_skip "비대화형 실행이라 GitHub 로그인 연결을 건너뜁니다 (DT2_GITHUB_AUTH=y 로 강제 가능)."
+    elif [ "${_dt2_gh_auth_choice,,}" = "y" ] || prompt_confirm "   👉 Bitwarden PAT 로 GitHub 로그인(git push/pull · gh CLI)을 설정하시겠습니까?" "Y"; then
+        if ! bw_setup_github_auth; then
+            print_warn "GitHub 로그인 연결에 실패했습니다. 나중에 프로젝트 설정 스크립트가 폴백으로 설정하거나, 직접 'gh auth login' 하세요."
+        fi
+    else
+        print_skip "GitHub 로그인 연결을 건너뜁니다. (프로젝트 설정 스크립트가 clone 할 때 폴백으로 설정)"
+    fi
 fi
 echo ""
 

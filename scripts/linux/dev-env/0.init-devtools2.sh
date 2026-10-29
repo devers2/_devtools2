@@ -109,8 +109,11 @@ dpkg --configure -a 2>/dev/null
 # 공용 미러 설정 함수 호출 (한국 카카오/KAIST 고속 미러 서버 3단 폴백 적용)
 setup_apt_mirror
 
-print_info "apt 패키지 다운로드 및 설치 중 (locales, language-pack-ko 포함)..."
-(apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko acl) > $DT2_TMP/_apt_install.log 2>&1 &
+# git: 바로 아래에서 _devtools2 저장소를 git clone 하므로 이 단계에서 반드시 설치합니다.
+#      (WSL Ubuntu 이미지에는 기본 포함되지만, 새로 설치한 Ubuntu Desktop 에는 git 이 없어 clone 이 실패했음.
+#       3.install-cli-tools.sh 의 apt 목록에도 git 이 있지만 그 단계는 clone 이후라 너무 늦음)
+print_info "apt 패키지 다운로드 및 설치 중 (git, locales, language-pack-ko 포함)..."
+(apt-get update && apt-get install -y git unzip tar curl wget rsync python3-pip locales language-pack-ko acl) > $DT2_TMP/_apt_install.log 2>&1 &
 _apt_pid=$!
 run_with_spinner "apt 설치/다운로드 진행 중..." "$_apt_pid"
 APT_DIRECT_EXIT=0
@@ -125,7 +128,7 @@ if [ "$APT_DIRECT_EXIT" -ne 0 ]; then
     else
         rm -f /var/lib/apt/lists/lock 2>/dev/null
     fi
-    (apt-get update && apt-get install -y unzip tar curl wget rsync python3-pip locales language-pack-ko acl) > $DT2_TMP/_apt_install.log 2>&1 &
+    (apt-get update && apt-get install -y git unzip tar curl wget rsync python3-pip locales language-pack-ko acl) > $DT2_TMP/_apt_install.log 2>&1 &
     _apt_pid=$!
     run_with_spinner "폴백 서버로 apt 재시도 중..." "$_apt_pid"
     APT_DIRECT_EXIT=0

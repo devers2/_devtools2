@@ -533,6 +533,8 @@ EOF
 #   - bw_ensure_session 을 통해 Bitwarden 세션 확보
 #   - 대상 디렉토리에 .git 이 이미 있으면 건너뜀 (멱등성)
 #   - 없으면 bw_git_clone_interactive 로 자동 PAT 인증 클론 수행
+#     (설치 스크립트가 GitHub 로그인을 미리 설정해 두었으면 저장된 로그인으로 바로 클론하고,
+#      로그인이 없거나 인증에 실패할 때만 Bitwarden PAT 클론으로 폴백 — bw-lib 의 bw_git_clone_with_fallback)
 # 인수:
 #   $1 = REPO_URL   (필수)
 #   $2 = TARGET_DIR (필수)
@@ -561,7 +563,7 @@ ensure_project_repo() {
     if [ -d "$TARGET_DIR/.git" ]; then
         echo "ℹ️  이미 깃 저장소가 존재합니다. 클론 단계를 건너뜁니다."
     else
-        bw_git_clone_interactive "$REPO_URL" "$TARGET_DIR" || return 1
+        bw_git_clone_with_fallback "$REPO_URL" "$TARGET_DIR" || return 1
     fi
 }
 
@@ -842,7 +844,10 @@ setup_s2_library_project() {
     if [ -d "$target_dir/.git" ]; then
         echo "ℹ️  이미 깃 저장소가 존재합니다. 클론 단계를 건너뜁니다."
     else
-        if command -v bw_git_clone_interactive &>/dev/null; then
+        if command -v bw_git_clone_with_fallback &>/dev/null; then
+            # 저장된 GitHub 로그인으로 먼저 클론, 로그인이 없거나 실패하면 Bitwarden PAT 로 폴백
+            bw_git_clone_with_fallback "$repo_url" "$target_dir" || return 1
+        elif command -v bw_git_clone_interactive &>/dev/null; then
             bw_git_clone_interactive "$repo_url" "$target_dir" || return 1
         else
             git clone "$repo_url" "$target_dir" || return 1
