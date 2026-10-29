@@ -145,17 +145,27 @@ echo ""
 
 # ── 중복 처리 방식 (같은 버전 재설치) ─────────────────────────────
 # 예전에는 이미 설치된 도구가 있으면 "삭제 후 재설치 / 유지 / 도구별 개별 확인"을 매번 물었습니다.
-# 이제 새 버전 확인과 업데이트 여부는 도구마다 decide_app_action 이 따로 묻기 때문에, 이 질문에 남은 역할은
-# "같은 버전 다시 설치(깨진 설치 복구)"뿐이라 묻지 않고 기본값 keep(유지)으로 둡니다.
+# 이제 새 버전 확인 여부는 아래 "새 버전 확인 방식" 질문 하나로 정하고(기존 버전 유지 / 도구별 확인), 업데이트 여부는
+# 도구마다 decide_app_action 이 묻기 때문에, 이 질문에 남은 역할은 "같은 버전 다시 설치(깨진 설치 복구)"뿐이라
+# 묻지 않고 기본값 keep(유지)으로 둡니다.
 #   ● 복구가 필요할 때: DT2_DUPLICATE_MODE=reinstall (전체 재설치) 또는 individual (도구마다 재설치 여부 질문)
 #   ● 환경변수 DT2_DUPLICATE_MODE(remove|reinstall|keep|skip|individual)는 CI·무인 실행용으로 그대로 지원합니다.
 DUPLICATE_MODE="${DT2_DUPLICATE_MODE:-keep}"
 if [ -n "${DT2_DUPLICATE_MODE:-}" ]; then
     print_info "환경변수(DT2_DUPLICATE_MODE) 설정 적용됨: $DUPLICATE_MODE"
-else
-    echo "   ℹ️  설치된 도구는 새 버전이 있을 때만 업데이트 여부를 묻습니다."
-    echo "      같은 버전을 다시 설치(복구)하려면 DT2_DUPLICATE_MODE=reinstall 로 실행하세요."
 fi
+
+# ── 설치된 도구의 새 버전 확인 방식 (한 번만 질문) ──────────────────────
+# 기본은 "기존 버전 유지"(설치된 도구는 새 버전 조회도 하지 않음), "도구별 새 버전 확인"을 고를 때만
+# 도구마다 track 범위 안의 새 버전을 조회해 업데이트 여부를 묻습니다 (dt2_select_update_check, _install-utils.sh).
+_HAS_INSTALLED=false
+for _b in "$FZF_INSTALLED" "$LAZYGIT_INSTALLED" "$RIPGREP_INSTALLED" \
+           "$FD_INSTALLED" "$ASTGREP_INSTALLED" "$BITWARDEN_INSTALLED" "$RCLONE_INSTALLED" "$WIN32YANK_INSTALLED" "$GH_INSTALLED" \
+           "$DELTA_INSTALLED" "$DIFFT_INSTALLED"; do
+    [ "$_b" = true ] && _HAS_INSTALLED=true && break
+done
+dt2_select_update_check "$_HAS_INSTALLED" "CLI 도구"
+echo "   ℹ️  같은 버전을 다시 설치(복구)하려면 DT2_DUPLICATE_MODE=reinstall 로 실행하세요."
 
 # (예전 "버전 설치 방식 선택(최신/지정/개별)" 질문과 일괄 최신 조회는 [track] 정책으로 대체되어 제거했습니다)
 
@@ -299,14 +309,19 @@ install_cli_tool() {
     local pinned_ver selected_ver
     pinned_ver=$(get_pinned_version "$toml_key")   # 이 PC 에 마지막으로 설치한 버전(data/state) 또는 TOML 첫 항목
     [ -z "$cur_ver" ] && cur_ver="$pinned_ver"
-    selected_ver=$(resolve_track_version "$toml_key" latest list_github_release_versions "$repo" "$tag_prefix")
+    local prefix="DT2_$(echo "$id" | tr 'a-z-' 'A-Z_')"
+    selected_ver=""
+    # 기존 버전 유지 모드면 설치된 도구는 버전 목록 조회(네트워크)도 하지 않습니다 (dt2_should_check_update)
+    if dt2_should_check_update "$installed" "$prefix"; then
+        selected_ver=$(resolve_track_version "$toml_key" latest list_github_release_versions "$repo" "$tag_prefix")
+    fi
     [ -z "$selected_ver" ] && selected_ver=$(_get_toml_version "$toml_key")
 
     # 2. 설치/업데이트/건너뛰기 결정 — 공용 함수 decide_app_action (필수 도구라 미설치면 묻지 않고 설치,
     #    설치됨 + track 범위 안에 새 버전 → 업데이트 여부 확인(기본 Y), 무인 실행은 기존 유지)
     #    업데이트하지 않은 경우에는 중복 처리 방식(재설치 등)을 기존처럼 존중합니다.
     local action
-    decide_app_action "$id" "$installed" "$cur_ver" "$selected_ver" "A" "DT2_$(echo "$id" | tr 'a-z-' 'A-Z_')"
+    decide_app_action "$id" "$installed" "$cur_ver" "$selected_ver" "A" "$prefix"
     action="$DT2_APP_ACTION"
     if [ "$action" = "skip" ] && [ "$installed" = true ] && [ "$(_resolve_action true "$id")" = "reinstall" ]; then
         action="reinstall"

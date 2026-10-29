@@ -193,6 +193,51 @@ resolve_track_version() {
     echo "$best"
 }
 
+# ── 설치된 도구의 새 버전 확인 방식 (DT2_UPDATE_CHECK) ───────────────────────────
+# 2.install-core-tools.sh / 3.install-cli-tools.sh 는 시작할 때 이미 설치된 도구가 있으면 한 번만 묻습니다.
+#   keep  : 기존 버전 유지 (기본값) — 설치된 도구는 새 버전 조회조차 하지 않습니다(네트워크 호출·질문 없음).
+#           미설치 도구만 track 범위 안의 최신 버전으로 설치합니다.
+#   check : 도구별 새 버전 확인 — 도구마다 track 범위 안의 최신 버전을 조회해, 새 버전이 있으면 업데이트 여부를 묻습니다.
+# 환경변수 DT2_UPDATE_CHECK 가 있으면 묻지 않고 그 값을 씁니다(무인 실행 기본값은 keep).
+# 값이 비어 있으면(이 질문이 없는 앱 설치 스크립트: Zed·VS Code·Orca·Sublime Merge) 예전처럼 check 로 동작합니다.
+# 사용법: dt2_select_update_check <설치된 도구가 있음 true|false> <대상 이름(예: "핵심 개발 도구")>
+dt2_select_update_check() {
+    local any="$1" label="$2" _uc=""
+    if [ -n "${DT2_UPDATE_CHECK:-}" ]; then
+        print_info "환경변수(DT2_UPDATE_CHECK) 설정 적용됨: $DT2_UPDATE_CHECK"
+        export DT2_UPDATE_CHECK
+        return 0
+    fi
+    DT2_UPDATE_CHECK="keep"
+    export DT2_UPDATE_CHECK
+    [ "$any" = true ] || return 0          # 설치된 도구가 없으면 물을 필요 없음(전부 새로 설치)
+    dt2_is_noninteractive && return 0      # 무인 실행: 기존 버전 유지
+    print_question "📦 이미 설치된 도구가 있습니다 (${label}). 새 버전을 확인할까요?"
+    echo ""
+    print_option "1" "기존 버전 유지 (새 버전 확인 안 함 — 미설치 도구만 설치)" "[기본값]"
+    print_option "2" "도구별 새 버전 확인 (새 버전이 있으면 도구마다 업데이트 여부 질문)"
+    echo ""
+    prompt_read _uc "   선택 [${_C_DEFAULT}1${_C_RESET}/2]: "
+    echo ""
+    case "${_uc:-1}" in
+        2) DT2_UPDATE_CHECK="check"; print_info "도구별 새 버전 확인을 선택했습니다." ;;
+        *) print_info "기존 버전을 유지합니다 (설치된 도구는 새 버전을 확인하지 않음)." ;;
+    esac
+    echo ""
+}
+
+# 이 도구의 새 버전을 조회·확인해야 하는지 (0 = 확인 / 1 = 기존 버전 유지)
+# 미설치, check 모드, 도구별 강제(<접두사>_UPDATE=y|n), 재설치 모드(DT2_DUPLICATE_MODE=reinstall 등)이면 확인합니다.
+# 사용법: dt2_should_check_update <설치여부 true|false> <환경변수 접두사, 예: DT2_JDK21>
+dt2_should_check_update() {
+    local installed="$1" prefix="$2" _uv
+    [ "$installed" = true ] || return 0
+    _uv="${prefix}_UPDATE"
+    [ -n "${!_uv:-}" ] && return 0
+    case "${DUPLICATE_MODE:-${DT2_DUPLICATE_MODE:-}}" in remove|reinstall|individual) return 0 ;; esac
+    [ "${DT2_UPDATE_CHECK:-check}" = "check" ]
+}
+
 # ── 앱 설치·업데이트 여부 결정 공용 함수 (앱 규칙) ─────────────────────────────
 # Zed · Orca · VS Code · Sublime Merge · Ghostty 처럼 "버전 고정(TOML)"이 아닌 사용자 앱이 모두 같은 규칙으로
 # 동작하도록 판단을 한 곳에 모았습니다. 새 앱을 추가할 때도 이 함수를 쓰면 동일하게 동작합니다.
@@ -204,6 +249,7 @@ resolve_track_version() {
 #             최신 버전 조회 실패 또는 이미 최신이면 건너뜀. 설치는 됐지만 현재 버전을 모르면 업데이트를 제안
 #   ● 무인 실행(DT2_NONINTERACTIVE=1 또는 tty 없음): 업데이트하지 않고 기존 설치 유지 (기존 Orca 규칙을 공통화)
 #   ● 환경변수 강제: <접두사>_CHOICE=y|n (설치 여부), <접두사>_UPDATE=y|n (업데이트 여부)
+#   ● 기존 버전 유지 모드(DT2_UPDATE_CHECK=keep, dt2_should_check_update): 설치됨이면 새 버전을 확인하지 않고 건너뜀
 #
 # 사용법: decide_app_action <표시 이름> <설치여부 true|false> <현재 버전> <최신 버전> <설치 기본값 Y|N|A> <환경변수 접두사> [업데이트 안내문]
 # 결과: 전역 변수 DT2_APP_ACTION = install | update | skip  (함수 반환값은 항상 0)
@@ -223,6 +269,10 @@ decide_app_action() {
             DT2_APP_ACTION="install"
         fi
         [ "$DT2_APP_ACTION" = "skip" ] && print_skip "${_name} 설치를 건너뜁니다."
+        return 0
+    fi
+    if ! dt2_should_check_update true "$_prefix"; then
+        print_skip "${_name}${_cur:+ ${_cur}} — 기존 버전 유지 (새 버전 확인 안 함)"
         return 0
     fi
 
