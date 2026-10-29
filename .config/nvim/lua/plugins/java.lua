@@ -116,6 +116,7 @@ return {
           main_class = main_cls,
           source_settings = s_path and (vim.fs.basename(vim.fs.dirname(s_path)) .. '/settings.json') or nil,
           source_launch = l_path and (vim.fs.basename(vim.fs.dirname(l_path)) .. '/launch.json') or nil,
+          settings_path = s_path, -- 오류 안내(util.jdtls_diagnose)에서 확인할 파일 전체 경로로 표시
         }
       end
 
@@ -327,6 +328,20 @@ return {
         _G.log_jdtls(string.format('Java Home    : %s', target_java_home or 'N/A'))
         _G.log_jdtls(string.format('Daemon Home  : %s', effective_jdk_home or 'N/A'))
         _G.log_jdtls(string.format('JDTLS Home   : %s', jdtls_java_home or 'N/A'))
+
+        -- [Java 설정 오류 안내] 설정 정보를 넘겨 두고, 잘못된 JDK 경로는 바로 알림
+        -- (Gradle 동기화 실패·jdtls 비정상 종료 시에도 이 정보로 "어느 파일의 어떤 키"를 확인할지 알려줌)
+        local diag = require('util.jdtls_diagnose')
+        diag.set_context({
+          root = root,
+          settings_path = p_cfg.settings_path,
+          gradle_jdk = gradle_jdk,
+          runtimes = p_runtimes,
+          daemon_home = effective_jdk_home,
+          jdtls_home = jdtls_java_home,
+          target_java = target_java_name or (java_version and ('Java ' .. java_version)),
+        })
+        diag.check_settings()
 
         local jdtls_executable = vim.fn.exepath('jdtls')
         local mason_bin_jdtls = _G.NVIM_SHARED_DIR .. '/mason/bin/jdtls'
@@ -574,6 +589,22 @@ return {
       -- JDTLS가 보내는 language/status (Init..., Starting Java..., ServiceReady 등)를 echo하기 전에 번역
       -- LazyVim은 opts.jdtls를 JDTLS config로 병합하므로 반드시 opts.jdtls.handlers에 등록해야 합니다.
       opts.jdtls.handlers = opts.jdtls.handlers or {}
+      -- [Java 설정 오류 안내] jdtls 로그 메시지에서 Gradle 동기화 실패를 찾아 원인·확인할 파일을 알림
+      -- (기본 핸들러는 그대로 호출해 lsp.log 기록 유지)
+      opts.jdtls.handlers['window/logMessage'] = function(err, result, ctx, config)
+        if result and type(result.message) == 'string' then
+          pcall(require('util.jdtls_diagnose').on_log_message, result.message)
+        end
+        local default_handler = vim.lsp.handlers['window/logMessage']
+        if default_handler then
+          return default_handler(err, result, ctx, config)
+        end
+      end
+      -- jdtls 프로세스가 비정상 종료되면 확인할 설정을 알림
+      opts.jdtls.on_exit = function(code, signal)
+        pcall(require('util.jdtls_diagnose').on_exit, code, signal)
+      end
+
       opts.jdtls.handlers['language/status'] = function(err, result)
         if result and result.message and type(result.message) == 'string' then
           result.message = require('util.translator').translate_message(result.message)
