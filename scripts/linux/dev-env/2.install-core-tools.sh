@@ -1050,6 +1050,26 @@ done
 echo ""
 echo "[정보] Gradle용 설정값 (1.setup-dev-env.sh에서 사용됨):"
 echo "  org.gradle.java.installations.paths=$INSTALLED_JDKS"
+
+# ── Gradle 툴체인 탐색 경로를 실제 설치된 JDK 로 갱신 ──
+# 이 값은 1.setup-env.sh(Step 8)가 ~/.gradle/gradle.properties 에 쓰지만, 1단계는 JDK 설치(이 2단계)보다 먼저 실행됩니다.
+# 그래서 tool-versions.toml 에 새 JDK(예: jdk29)를 추가해 설치하면 다음에 1단계를 다시 돌리기 전까지 Gradle 이
+# 그 JDK 를 툴체인으로 찾지 못했습니다("Cannot find a Java installation ... matching languageVersion=29").
+# 같은 키(DevTools2 관리 값)만 1.setup-env.sh 와 같은 형식(sort -V 순서)으로 맞추고, 다른 설정은 건드리지 않습니다.
+_gradle_props="$HOME/.gradle/gradle.properties"
+_detected_jdks=$(find "$DEVTOOLS2/modules/java" -mindepth 1 -maxdepth 1 -type d -name "jdk-*" 2>/dev/null | sort -V | paste -sd, - || true)
+if [ -n "$_detected_jdks" ]; then
+    mkdir -p "$HOME/.gradle"; touch "$_gradle_props"
+    if grep -q "^org.gradle.java.installations.paths=" "$_gradle_props" 2>/dev/null; then
+        if [ "$(grep "^org.gradle.java.installations.paths=" "$_gradle_props" | head -n 1 | sed 's|^org.gradle.java.installations.paths=||')" != "$_detected_jdks" ]; then
+            sed -i "s|^org.gradle.java.installations.paths=.*|org.gradle.java.installations.paths=${_detected_jdks}|" "$_gradle_props"
+            echo "  [갱신] ~/.gradle/gradle.properties 의 툴체인 탐색 경로를 설치된 JDK 로 맞췄습니다."
+        fi
+    else
+        printf '\norg.gradle.java.installations.paths=%s\n' "$_detected_jdks" >> "$_gradle_props"
+        echo "  [추가] ~/.gradle/gradle.properties 에 툴체인 탐색 경로를 추가했습니다."
+    fi
+fi
 echo ""
 
 echo "---------------------------------------------------------------------------"
