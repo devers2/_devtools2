@@ -167,17 +167,18 @@ if [ -n "${DT2_DUPLICATE_MODE:-}" ]; then
     print_info "환경변수(DT2_DUPLICATE_MODE) 설정 적용됨: $DUPLICATE_MODE"
 fi
 
-# ── 설치된 도구의 새 버전 확인 방식 (한 번만 질문) ──────────────────────
-# 기본은 "기존 버전 유지"(설치된 도구는 새 버전 조회도 하지 않음), "도구별 새 버전 확인"을 고를 때만
-# 도구마다 track 범위 안의 새 버전을 조회해 업데이트 여부를 묻습니다 (dt2_select_update_check, _install-utils.sh).
-_HAS_INSTALLED=false
-[ "$NODEJS_INSTALLED" = true ] && _HAS_INSTALLED=true
-[ "$IS_WSL2" = false ] && [ "$GHOSTTY_INSTALLED" = true ] && _HAS_INSTALLED=true
-[ -d "$DEVTOOLS2/modules/java" ] && [ -n "$(ls -A "$DEVTOOLS2/modules/java" 2>/dev/null)" ] && _HAS_INSTALLED=true
-[ -d "$DEVTOOLS2/modules/gradle/current" ] && _HAS_INSTALLED=true
-[ -d "$DEVTOOLS2/modules/neovim/nvim" ] && _HAS_INSTALLED=true
-[ -n "$(ls -d "$DEVTOOLS2"/modules/python/python-* 2>/dev/null)" ] && _HAS_INSTALLED=true
-dt2_select_update_check "$_HAS_INSTALLED" "핵심 개발 도구"
+# ── 설치된 도구의 새 버전 확인 방식: 사전 질문 없이 도구별 확인 ──────────────────
+# 핵심 개발 도구는 track 이 대부분 메이저·마이너 범위(JDK·Node.js·Python 은 패치만, Neovim 은 0.12.x)라
+# 업데이트해도 호환이 깨질 위험이 낮으므로, 3.install-cli-tools.sh 처럼 "기존 버전 유지 / 도구별 확인"을 먼저
+# 묻지 않고 바로 도구마다 새 버전을 확인해 업데이트 여부를 묻습니다(기본 Y, 무인 실행은 기존 유지).
+#   ● track 이 "latest" 인 Gradle 은 프로젝트가 각자 wrapper(gradlew)를 쓰고, Ghostty 는 앱이라 최신을 따르는 게 맞습니다.
+#   ● CLI 도구(3단계)는 "latest" track(lazygit·rclone·bitwarden·gh·delta·difftastic)이 많아 사전 질문을 유지합니다.
+#   ● 이 단계도 묻지 않고 기존 버전을 유지하려면 DT2_UPDATE_CHECK=keep 으로 실행합니다(dt2_should_check_update).
+if [ -n "${DT2_UPDATE_CHECK:-}" ]; then
+    print_info "환경변수(DT2_UPDATE_CHECK) 설정 적용됨: $DT2_UPDATE_CHECK"
+fi
+DT2_UPDATE_CHECK="${DT2_UPDATE_CHECK:-check}"
+export DT2_UPDATE_CHECK
 echo "   ℹ️  같은 버전을 다시 설치(복구)하려면 DT2_DUPLICATE_MODE=reinstall 로 실행하세요."
 
 # (예전 "버전 설치 방식 선택(최신/지정/개별)" 질문과 최신 일괄 조회는 [track] 정책으로 대체되어 제거했습니다)
