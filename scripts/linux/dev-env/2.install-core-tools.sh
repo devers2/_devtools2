@@ -177,15 +177,7 @@ if [ "$VERSION_MODE" = "latest" ]; then
     else
         echo "   ⚠️  Node.js: 최신 버전 조회 실패 → 최종 설치 버전으로 대체: $NODEJS_PINNED"
     fi
-    if [ "$IS_WSL2" = false ]; then
-        _gl=$(fetch_latest_github "pkgforge-dev/ghostty-appimage" | sed 's/^v//')
-        if [ -n "$_gl" ]; then
-            GHOSTTY_VERSION="$_gl"
-            echo "   ✓ Ghostty:  최신 → $_gl  (최종 설치: $GHOSTTY_PINNED)"
-        else
-            echo "   ⚠️  Ghostty: 최신 버전 조회 실패 → 최종 설치 버전으로 대체: $GHOSTTY_PINNED"
-        fi
-    fi
+    # (Ghostty 는 버전 선택 방식과 무관하게 6단계에서 앱 규칙으로 최신 버전을 직접 확인합니다)
 fi
 
 echo ""
@@ -779,38 +771,38 @@ else
     mkdir -p "$DEVTOOLS2/modules/ghostty"
     cd "$DEVTOOLS2/modules/ghostty"
 
-    # ── 개별 선택 모드: Ghostty 버전 결정 ────────────────────────
-    if [ "$VERSION_MODE" = "individual" ]; then
-        echo -n "   🔍 Ghostty 최신 버전 조회 중... "
-        set +e; _gl_ind=$(fetch_latest_github "pkgforge-dev/ghostty-appimage" | sed 's/^v//'); set -e
-        [ -n "$_gl_ind" ] && echo "완료 ($_gl_ind)" || echo "실패 (조회 불가)"
-        echo ""
-        echo "   Ghostty 설치 버전 선택:"
-        echo "   1) 최신 버전: ${_gl_ind:-[조회 실패 - 선택 불가]}"
-        echo "   2) 최종 설치 버전: $GHOSTTY_PINNED [기본값]"
-        echo ""
-        prompt_read _gv_sel "   선택 (1-2, 기본값: 2): "
-        case "${_gv_sel:-2}" in
-            1) [ -n "$_gl_ind" ] && GHOSTTY_VERSION="$_gl_ind" || GHOSTTY_VERSION="$GHOSTTY_PINNED" ;;
-            *) GHOSTTY_VERSION="$GHOSTTY_PINNED" ;;
-        esac
-        echo ""
-    fi
+    # ── 설치 여부·버전 결정: 앱 규칙 (미설치 → 설치 여부 확인 / 설치됨 → 최신 버전 확인 후 업데이트 여부 확인) ──
+    # Ghostty 는 Linux 데스크톱의 기본 터미널 "앱"이라, Java·Node.js 같은 개발 런타임과 달리 TOML 버전 고정
+    # (버전 선택 방식: 최신/지정/개별)을 따르지 않고 Zed·Orca·VS Code·Sublime Merge 와 같은 규칙을 씁니다.
+    #   ● 미설치: 설치 여부 확인 (기본 터미널이라 기본값 Y) → 최신 버전 설치 (조회 실패 시 최종 설치 버전)
+    #   ● 설치됨: 최신 버전 조회 → 새 버전이 있으면 업데이트 여부 확인 (기본값 Y), 조회 실패 시 확인 건너뜀
+    #   ● GHOSTTY_PINNED 는 마지막으로 설치에 성공한 버전입니다(설치 성공 시 update_pinned_version 으로 기록).
+    #   ● 업데이트하지 않은 경우에는 중복 처리 방식(DUPLICATE_MODE: 재설치 등)을 기존처럼 존중합니다.
+    echo -n "   🔍 Ghostty 최신 버전 조회 중... "
+    set +e; _gl_latest=$(fetch_latest_github "pkgforge-dev/ghostty-appimage" | sed 's/^v//'); set -e
+    [ -n "$_gl_latest" ] && echo "완료 ($_gl_latest)" || echo "실패 (조회 불가)"
 
-    # ── 중복 처리: 설치 여부 결정 ────────────────────────────────
-    _ghostty_action=$(_resolve_action "$GHOSTTY_INSTALLED" "Ghostty")
-
-    # 이미 설치되어 있지만 최신 버전이 감지된 경우 스마트 업데이트 처리
-    if [ "$GHOSTTY_INSTALLED" = true ] && [ -n "${GHOSTTY_VERSION:-}" ] && [ "$GHOSTTY_VERSION" != "$GHOSTTY_PINNED" ]; then
-        echo "   🆕 Ghostty 새 버전 감지: $GHOSTTY_PINNED → $GHOSTTY_VERSION"
-        if prompt_confirm "   👉 Ghostty 를 $GHOSTTY_VERSION 로 업데이트하시겠습니까?" "Y"; then
+    # 판단은 공용 함수 decide_app_action(_install-utils.sh)에 맡깁니다 (Zed·Orca·VS Code·Sublime Merge 와 동일 규칙)
+    # (이미 설치되어 있지만 최신 버전이 감지된 경우 스마트 업데이트 처리 → 결과 update)
+    decide_app_action "Ghostty (Linux 기본 터미널)" "$GHOSTTY_INSTALLED" "$GHOSTTY_PINNED" "${_gl_latest:-}" "Y" "DT2_GHOSTTY"
+    case "$DT2_APP_ACTION" in
+        install) _ghostty_action="install";   GHOSTTY_VERSION="${_gl_latest:-$GHOSTTY_PINNED}" ;;
+        update)  _ghostty_action="reinstall"; GHOSTTY_VERSION="$_gl_latest" ;;
+        *)       _ghostty_action="skip" ;;
+    esac
+    if [ "$GHOSTTY_INSTALLED" = true ]; then
+        # ── 중복 처리: 업데이트하지 않은 경우 사용자가 고른 중복 처리 방식(재설치 등) 적용 ──
+        if [ "$_ghostty_action" = "skip" ] && [ "$(_resolve_action "$GHOSTTY_INSTALLED" "Ghostty")" = "reinstall" ]; then
             _ghostty_action="reinstall"
         fi
     fi
 
     # ── 설치 실행 ─────────────────────────────────────────────────
     if [ "$_ghostty_action" = "skip" ]; then
-        echo "   ⏭️  [건너뜀] ghostty AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -f '$DEVTOOLS2/modules/ghostty/ghostty'"
+        # (미설치 후 설치 거절 / 이미 최신 / 업데이트 거절 — 안내는 위에서 출력)
+        if [ "$GHOSTTY_INSTALLED" = true ]; then
+            echo "   ⏭️  [건너뜀] ghostty AppImage가 이미 존재합니다. 새로 설치하려면 삭제하세요: sudo rm -f '$DEVTOOLS2/modules/ghostty/ghostty'"
+        fi
     else
         if [ "$_ghostty_action" = "reinstall" ]; then
             echo "   🗑️  기존 ghostty AppImage 삭제 중..."
@@ -841,6 +833,9 @@ else
             echo " ❌ Ghostty 다운로드 실패" >&2
         fi
     fi
+
+    # 글꼴 크기를 ui-defaults.json 과 동기화 (설치/건너뜀과 무관하게 매번 — GNOME 텍스트 배율 변경도 반영)
+    sync_ghostty_font_size "$DEVTOOLS2/.config/ghostty"
 
     # 네이티브 리눅스: Ghostty PATH 동적 등록
     if [ -d "$DEVTOOLS2/modules/ghostty" ]; then

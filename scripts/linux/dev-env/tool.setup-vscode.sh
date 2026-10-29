@@ -4,7 +4,7 @@
 #
 # 주요 기능:
 #   1. VS Code 설치 의사 확인 ([y/N], 기본값 N)
-#   2. Linux 네이티브 환경에서 .deb 패키지 다운로드 및 설치 (이미 설치 시 건너뜀)
+#   2. Linux 네이티브 환경에서 .deb 패키지 다운로드 및 설치 (이미 설치 시 최신 버전 확인 후 업데이트 여부 확인, 기본값 Y)
 #   3. extensions.txt 에 정의된 개발 확장 프로그램 자동 동기화 설치
 #   4. WSL2 환경 감지 시 Windows 호스트 전담 안내 및 안전 스킵
 #
@@ -54,6 +54,32 @@ fi
 
 print_banner "💻 VS Code 에디터 설치 및 확장 연동 (tool.setup-vscode.sh)"
 
+# ── Linux 네이티브: 공식 최신 .deb 다운로드 및 설치 (신규 설치·업데이트 공용) ──
+_vscode_install_deb() {
+    _vscode_tmp="$DT2_TMP/vscode_install_$$.deb"
+    _deb_os="linux-deb-x64"
+    if [ "${IS_ARM64:-false}" = "true" ] || [ "$(uname -m 2>/dev/null)" = "aarch64" ]; then
+        _deb_os="linux-deb-arm64"
+    fi
+    if download_with_progress "https://code.visualstudio.com/sha/download?build=stable&os=${_deb_os}" "$_vscode_tmp" "VSCode .deb 패키지"; then
+        echo -n "   📦 VSCode 패키지 설치 중..."
+        (sudo dpkg -i "$_vscode_tmp" >/dev/null 2>&1 || sudo apt-get install -f -y >/dev/null 2>&1 || true) &
+        show_spinner $!
+        wait $! 2>/dev/null || true
+        rm -f "$_vscode_tmp"
+        if command -v code >/dev/null 2>&1; then
+            echo " 완료"
+            print_done "VSCode 설치 완료"
+        else
+            echo " 실패"
+            print_warn "VSCode 패키지 설치에 실패했습니다. 수동으로 설치하세요: https://code.visualstudio.com/"
+        fi
+    else
+        print_warn "VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
+        rm -f "$_vscode_tmp"
+    fi
+}
+
 # ── 1. 기존 설치 여부 사전 감지 ──────────────────────────────────────────────
 _vscode_installed=false
 
@@ -76,7 +102,14 @@ if [ "${IS_WSL2:-false}" = true ]; then
 else
     if command -v code >/dev/null 2>&1; then
         _vscode_installed=true
-        print_skip "VSCode가 이미 설치되어 있습니다: $(command -v code)"
+        # 이미 설치됨: 최신 버전과 비교해 새 버전이 있으면 업데이트 여부를 묻습니다 (기본값 Y)
+        # (Zed·Orca·Ghostty·Sublime Merge 와 같은 "설치되어 있으면 최신 버전 확인" 규칙. 최신 버전 조회는 공식 업데이트 API 사용)
+        _vscode_cur=$(code --version 2>/dev/null | head -n 1 || true)
+        _vscode_latest=$(curl -sSfL --max-time 10 "https://update.code.visualstudio.com/api/releases/stable" 2>/dev/null \
+            | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | head -n 1 | tr -d '"' || true)
+        # 판단은 공용 함수 decide_app_action(_install-utils.sh, 앱 규칙)에 맡깁니다 (DT2_VSCODE_UPDATE=y|n 로 강제 가능)
+        decide_app_action "VS Code" true "$_vscode_cur" "$_vscode_latest" "N" "DT2_VSCODE"
+        [ "$DT2_APP_ACTION" = "update" ] && _vscode_install_deb
     fi
 fi
 
@@ -85,11 +118,9 @@ _do_vscode=false
 if [ "$_vscode_installed" = true ]; then
     _do_vscode=true
 else
-    if [ -n "${DT2_VSCODE_CHOICE:-}" ]; then
-        [ "${DT2_VSCODE_CHOICE,,}" = "y" ] && _do_vscode=true
-    elif prompt_confirm "👉 VS Code (Visual Studio Code)를 설치하시겠습니까?" "N"; then
-        _do_vscode=true
-    fi
+    # 설치 여부 확인은 공용 함수 decide_app_action 사용 (DT2_VSCODE_CHOICE=y|n 로 강제 가능, 기본값 N)
+    decide_app_action "VS Code (Visual Studio Code)" false "" "" "N" "DT2_VSCODE"
+    [ "$DT2_APP_ACTION" = "install" ] && _do_vscode=true
 
     if [ "$_do_vscode" = true ]; then
         if [ "${IS_WSL2:-false}" = true ]; then
@@ -99,31 +130,11 @@ else
             print_skip "VSCode 설치 및 확장 연동 단계 건너뜀"
             exit 0
         else
-            _vscode_tmp="$DT2_TMP/vscode_install_$$.deb"
-            _deb_os="linux-deb-x64"
-            if [ "${IS_ARM64:-false}" = "true" ] || [ "$(uname -m 2>/dev/null)" = "aarch64" ]; then
-                _deb_os="linux-deb-arm64"
-            fi
-            if download_with_progress "https://code.visualstudio.com/sha/download?build=stable&os=${_deb_os}" "$_vscode_tmp" "VSCode .deb 패키지"; then
-                echo -n "   📦 VSCode 패키지 설치 중..."
-                (sudo dpkg -i "$_vscode_tmp" >/dev/null 2>&1 || sudo apt-get install -f -y >/dev/null 2>&1 || true) &
-                show_spinner $!
-                wait $! 2>/dev/null || true
-                rm -f "$_vscode_tmp"
-                if command -v code >/dev/null 2>&1; then
-                    echo " 완료"
-                    print_done "VSCode 설치 완료"
-                else
-                    echo " 실패"
-                    print_warn "VSCode 패키지 설치에 실패했습니다. 수동으로 설치하세요: https://code.visualstudio.com/"
-                fi
-            else
-                print_warn "VSCode 다운로드 실패. 수동으로 설치하세요: https://code.visualstudio.com/"
-                rm -f "$_vscode_tmp"
-            fi
+            _vscode_install_deb
         fi
     else
-        print_skip "VSCode 설치를 건너뜁니다. 기존 설정은 유지됩니다."
+        # (건너뜀 안내는 decide_app_action 이 출력)
+        print_info "기존 설정은 유지됩니다."
     fi
 fi
 

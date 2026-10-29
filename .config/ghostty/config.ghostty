@@ -2,7 +2,12 @@
 font-family = "JetBrainsMono Nerd Font Mono"
 font-family = "D2Coding ligature"
 
-font-size = 10.2
+# 글꼴 크기: .config/devtools2/ui-defaults.json(font.size)이 원본입니다.
+# - 아래 값은 기본값(json 과 같은 11.5)이며, 실제 값은 맨 아래에서 불러오는 font.local.ghostty 가 덮어씁니다.
+# - font.local.ghostty 는 설치 스크립트가 "json 크기 ÷ GNOME 텍스트 크기 배율"로 역산해 PC 별로 생성합니다
+#   (Linux GTK 판 Ghostty 는 텍스트 배율을 곱해 그리므로, 화면에서 Windows Terminal 과 같은 크기로 보이게 하기 위함.
+#    예전에 직접 적어 두었던 10.2 는 배율 1.125 환경에서 11.5 로 보이도록 맞춘 값과 같습니다)
+font-size = 11.5
 
 # 폰트 렌더링 시 서브픽셀 안티앨리어싱(글자 테두리를 부드럽게 처리) 처리 여부 → font-style = "Regular" 와 같이 사용
 font-thicken = true
@@ -63,3 +68,5 @@ mouse-hide-while-typing = true
 # 스크롤백 히스토리 제한 (메모리 부족 OOM 방지)
 scrollback-limit = 10000
 
+# PC 별 자동 생성 글꼴 크기 (git 추적 제외, 없으면 무시) — config-file 은 이 파일 전체를 읽은 뒤에 적용되어 위 값을 덮어씁니다
+config-file = ?font.local.ghostty

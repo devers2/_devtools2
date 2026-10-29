@@ -98,29 +98,13 @@ else
 
     _latest_ver=$(fetch_latest_github "zed-industries/zed" 2>/dev/null | sed 's/^v//' || true)
 
+    # 이미 설치됨: 최신 버전과 비교 / 미설치 상태: 사용자 설치 의사 확인
+    # → 판단은 공용 함수 decide_app_action(_install-utils.sh, 앱 규칙)에 맡깁니다 (환경변수 DT2_ZED_CHOICE / DT2_ZED_UPDATE 지원)
+    _zed_installed=false
+    [ -x "$ZED_MODULE_DIR/bin/zed" ] && _zed_installed=true
+    decide_app_action "Zed 에디터" "$_zed_installed" "$_installed_ver" "$_latest_ver" "N" "DT2_ZED"
     _do_install=false
-    if [ -n "$_installed_ver" ]; then
-        # 이미 설치됨: 최신 버전과 비교
-        if [ -n "$_latest_ver" ] && [ "$_installed_ver" != "$_latest_ver" ]; then
-            print_info "Zed 새 버전 감지: v$_installed_ver → v$_latest_ver"
-            if prompt_confirm "👉 Zed 에디터를 v$_latest_ver 로 업데이트하시겠습니까?" "Y"; then
-                _do_install=true
-            else
-                print_skip "Zed 업데이트를 건너뜁니다. (현재 버전: v$_installed_ver 유지)"
-            fi
-        else
-            print_skip "Zed v$_installed_ver 이 이미 최신 버전입니다."
-        fi
-    else
-        # 미설치 상태: 사용자 설치 의사 확인
-        _do_zed=false
-        if [ -n "${DT2_ZED_CHOICE:-}" ]; then
-            [ "${DT2_ZED_CHOICE,,}" = "y" ] && _do_zed=true
-        elif prompt_confirm "👉 Zed 에디터를 설치하시겠습니까?" "N"; then
-            _do_zed=true
-        fi
-        [ "$_do_zed" = true ] && _do_install=true
-    fi
+    [ "$DT2_APP_ACTION" != "skip" ] && _do_install=true
 
     if [ "$_do_install" = true ]; then
         print_info "Zed 다운로드 및 압축 해제..."
@@ -133,9 +117,8 @@ else
             'zed'
         ensure_path_in_bashrc "$ZED_MODULE_DIR/bin"
         print_done "Zed 설치/업데이트 완료"
-    elif [ -z "$_installed_ver" ]; then
-        print_skip "Zed 에디터 설치를 건너뜁니다."
     fi
+    # (설치·업데이트를 건너뛴 경우의 안내는 decide_app_action 이 출력)
 fi
 
 echo ""

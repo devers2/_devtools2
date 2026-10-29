@@ -105,28 +105,14 @@ if [ -f "$ORCA_APPIMAGE" ]; then
 
     # ── 이미 설치됨: 새 버전이 있으면 업데이트 여부를 묻습니다 ──
     # (Windows Orca 앱은 스스로 업데이트되므로, WSL 쪽 서버만 옛 버전에 머물면 페어링·기능이 어긋날 수 있음)
-    if [ -z "$_orca_latest" ]; then
-        echo "   ℹ️  Orca 가 설치되어 있습니다(${_orca_cur:-버전 기록 없음}). 최신 버전 확인에 실패해 업데이트 확인은 건너뜁니다."
-    elif [ "$_orca_cur" = "$_orca_latest" ]; then
-        echo "   ✅ Orca 가 최신 버전입니다 ($_orca_cur)."
-    else
-        echo "   🆕 Orca 새 버전이 있습니다: ${_orca_cur:-알 수 없음(버전 기록 없음)} → $_orca_latest"
-        _do_update=false
-        if [ -n "${DT2_ORCA_UPDATE:-}" ]; then
-            [ "${DT2_ORCA_UPDATE,,}" = "y" ] && _do_update=true
-        elif dt2_is_noninteractive; then
-            # 무인 실행에서는 다른 도구들과 같은 규칙(기존 설치 유지)을 따릅니다.
-            echo "   ⏭️  비대화형 실행이라 업데이트를 건너뜁니다 (DT2_ORCA_UPDATE=y 로 강제 가능)."
-        elif prompt_confirm "👉 Orca 를 $_orca_latest 로 업데이트할까요? (실행 중인 orca serve 가 재시작되어 진행 중 세션이 끊길 수 있음)" "Y"; then
-            _do_update=true
-        fi
-        if [ "$_do_update" = true ]; then
-            if _orca_download "$_orca_latest"; then
-                echo "   ✅ Orca 업데이트 완료 → $_orca_latest"
-                _orca_updated=true
-            fi
-        else
-            echo "   ⏭️  Orca 업데이트를 건너뜁니다 (현재 버전 유지)."
+    # 판단은 공용 함수 decide_app_action(_install-utils.sh, 앱 규칙)에 맡깁니다.
+    # (최신 버전 확인 실패·이미 최신이면 건너뜀 / 버전 기록이 없으면 업데이트 제안 /
+    #  무인 실행에서는 다른 도구들과 같은 규칙(기존 설치 유지)을 따르며 DT2_ORCA_UPDATE=y 로 강제 가능)
+    decide_app_action "Orca" true "$_orca_cur" "$_orca_latest" "N" "DT2_ORCA" "(실행 중인 orca serve 가 재시작되어 진행 중 세션이 끊길 수 있음)"
+    if [ "$DT2_APP_ACTION" = "update" ]; then
+        if _orca_download "$_orca_latest"; then
+            echo "   ✅ Orca 업데이트 완료 → $_orca_latest"
+            _orca_updated=true
         fi
     fi
     echo "   ℹ️  아래 의존성·에이전트·systemd·페어링 상태는 매번 다시 점검합니다."
@@ -134,12 +120,10 @@ else
     echo "   ℹ️  Orca는 여러 코딩 에이전트를 Git worktree로 격리해 병렬로 실행/조율하는"
     echo "      에이전트 오케스트레이션 도구입니다 (Claude Code, Codex, Gemini 등 지원)."
     echo ""
+    # 설치 여부 확인도 공용 함수 decide_app_action 사용 (DT2_ORCA_CHOICE=y|n 로 강제 가능, 기본값 N)
+    decide_app_action "Orca" false "" "$_orca_latest" "N" "DT2_ORCA"
     _do_orca=false
-    if [ -n "${DT2_ORCA_CHOICE:-}" ]; then
-        [ "${DT2_ORCA_CHOICE,,}" = "y" ] && _do_orca=true
-    elif prompt_confirm "👉 Orca를 설치하시겠습니까?" "N"; then
-        _do_orca=true
-    fi
+    [ "$DT2_APP_ACTION" = "install" ] && _do_orca=true
 
     if [ "$_do_orca" = true ]; then
         if [ "$IS_WSL2" = true ]; then
@@ -153,7 +137,8 @@ else
             _orca_proceed=true
         fi
     else
-        echo "   ⏭️ Orca 설치를 건너뜁니다."
+        # (건너뜀 안내는 decide_app_action 이 출력)
+        :
     fi
 fi
 
