@@ -4,7 +4,8 @@
     "font.terminal_face: 터미널 앱(Windows Terminal, Neovim)용 폰트 (Nerd Font 아이콘 필수)",
     "font.gui_face: GUI 앱(Sublime Merge)용 폰트 (공식 D2Coding ligature 사용)",
     "font.size: 기본 폰트 크기 (pt). Neovim/WT 및 Sublime Merge 공통 표준값 11.5",
-    "font.line_height: 줄 높이 비율 (CSS line-height). Neovim/WT 표준값 1.5"
+    "font.line_height: 줄 높이 비율 (CSS line-height). Neovim/WT 표준값 1.5",
+    "Sublime Merge: Linux/WSL2(WSLg) 설치 스크립트(tool.setup-sublime-merge.sh)가 gui_face/size/line_height 를 Preferences 의 font_face/font_size/line_padding_* 로 환산해 반영"
   ],
   "font": {
     "terminal_face": "D2KodingLigature Nerd Font Mono",
