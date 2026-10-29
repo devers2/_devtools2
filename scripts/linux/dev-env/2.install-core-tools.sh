@@ -200,6 +200,35 @@ echo ""
 
 echo "---------------------------------------------------------------------------"
 # ── Adoptium Temurin JDK 설치 공용 헬퍼 함수 ───────────────────────
+# 교체(업데이트·재설치)된 JDK 로 실행 중인 프로세스 정리
+# 실행 중인 JVM 은 자기 JDK 폴더의 파일(jspawnhelper 등)을 계속 쓰므로, 폴더가 새 버전으로 바뀌면 다른 프로세스를
+# 띄우지 못합니다("Failed to exec spawn helper"). 특히 Gradle 데몬은 계속 재사용되어, 툴체인 탐색(각 JDK 의 java 실행)이
+# 전부 실패하고 jdtls 의 Gradle 동기화가 "Cannot find a Java installation ... matching languageVersion=8" 로 깨졌습니다.
+#   ● Gradle 데몬: 다음 빌드 때 자동으로 새로 뜨므로 바로 종료합니다.
+#   ● 그 밖의 프로세스(jdtls·IDE 등): 강제로 끄지 않고 다시 시작하라고 안내만 합니다.
+# 사용법: _dt2_stop_stale_jvm <JDK 폴더>
+_dt2_stop_stale_jvm() {
+    local dir="$1" pid args others=""
+    for pid in $(pgrep -u "$(id -u)" -f "${dir}/bin/java" 2>/dev/null || true); do
+        args=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)
+        case "$args" in
+            "${dir}/bin/java"*) ;;
+            *) continue ;;
+        esac
+        if [[ "$args" == *GradleDaemon* ]]; then
+            kill "$pid" 2>/dev/null && echo "   🔄 교체 전 JDK 로 떠 있던 Gradle 데몬(pid $pid)을 종료했습니다 (다음 빌드 때 새로 뜸)."
+        else
+            case "$args" in
+                *jdt.ls*|*jdtls*) others="${others:+$others, }jdtls(Neovim, pid $pid)" ;;
+                *)                others="${others:+$others, }pid $pid" ;;
+            esac
+        fi
+    done
+    if [ -n "$others" ]; then
+        print_warn "교체 전 JDK($(basename "$dir"))로 실행 중인 프로그램이 있습니다(${others}). Neovim(jdtls)·IDE 등은 다시 시작하세요."
+    fi
+}
+
 install_adoptium_jdk() {
     local major="$1"
     local dest_dir="$2"
@@ -294,6 +323,8 @@ install_adoptium_jdk() {
     if safe_download_and_extract "$dl_url" "$target_path" 1 "$checksum" "JDK $major"; then
         [ -n "$_backup" ] && rm -rf "$_backup"
         echo "   ✅ JDK $major ($dest_dir) 설치 완료"
+        # 교체된 경우: 예전 JDK 로 떠 있던 Gradle 데몬 정리 (위 _dt2_stop_stale_jvm 설명 참고)
+        [ "$_reinstall" = true ] && _dt2_stop_stale_jvm "$target_path"
         if [ -n "$actual_ver" ] && [ "$actual_ver" != "$pinned_ver" ]; then
             update_pinned_version "jdk${major}" "$actual_ver"
         fi

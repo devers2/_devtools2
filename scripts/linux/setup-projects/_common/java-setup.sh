@@ -70,6 +70,7 @@ VSCODE_JAVA_EXTENSIONS=(
 # ── 1. .vscode/settings.json 생성 (Java 런타임 및 Gradle JDK 설정) ───────────
 # nvim.projectRoot     : Neovim project_config.lua가 읽는 수동 루트 지정 키
 # java.import.gradle.java.home : Gradle 데몬/JDTLS 구동용 → --gradle-jdk-version 지정 버전 (기본값: 21)
+#                                (21 미만이면 Neovim 은 Gradle 데몬에만 쓰고 jdtls 는 JDK 21 이상으로 실행 — plugins/java.lua)
 # java.configuration.runtimes  : 프로젝트 빌드 타깃 JDK → --jdk-version 지정 버전
 # 인수:
 #   $1 = TARGET_DIR         (필수)

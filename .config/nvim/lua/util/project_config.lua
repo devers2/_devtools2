@@ -26,6 +26,7 @@ Neovim과 VS Code 간의 설정 일원화를 위해 공통 탐색 우선순위�
                                          설정 파일이 있는 디렉토리 기준 상대경로 / 절대경로 / ~ /
                                          ${workspaceFolder} 지원
     - java.import.gradle.java.home     : Gradle 데몬 및 JDTLS 구동용 JDK 경로 (VS Code 표준)
+                                         (21 미만이면 jdtls 실행에는 21 이상 JDK 를 따로 씀 — plugins/java.lua)
     - java.configuration.runtimes      : 프로젝트 빌드 런타임 목록 및 default 지정 (VS Code 표준)
   - launch.json:
     - configurations[].mainClass       : Java 실행 구성의 메인 클래스 (자동 기동 및 DAP 디버깅 공통)
