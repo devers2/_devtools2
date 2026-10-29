@@ -393,6 +393,7 @@ if (Get-Command git.exe -ErrorAction SilentlyContinue) {
         git config --global gui.encoding utf-8
         git config --global i18n.commitEncoding utf-8
         git config --global i18n.logOutputEncoding utf-8
+        git config --global core.filemode false
 
         # ── WSL2 저장소 safe.directory 등록 ──
         # Sublime Merge(Windows 네이티브)가 WSL2 파일시스템(\\wsl.localhost\...)의
