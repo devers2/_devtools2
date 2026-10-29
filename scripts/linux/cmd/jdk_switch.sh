@@ -2,18 +2,20 @@
 
 # =================================================================
 # 프로그램명: jdk_switch.sh
-# 기능: 상대 경로를 기반으로 JAVA_HOME 버전을 전환 (25, 21, 17, 8)
+# 기능: 상대 경로를 기반으로 JAVA_HOME 버전을 전환 (25, 21, 17, 8 — modules/java/jdk-<버전> 폴더, 8 은 jdk-1.8)
+#       - 버전 목록은 고정이 아니라 설치된 폴더 기준이라, tool-versions.toml 에 새 JDK(jdkNN)를 추가해 설치하면 수정 없이 동작합니다.
 #       - bash: ~/.config/devtools2/local.sh 에 DT2_JAVA_HOME 로 저장 (env.sh 가 JAVA_HOME·PATH 생성)
 #       - zsh: ~/.zshrc 의 JAVA_HOME 를 업데이트합니다.
 #       - 기존 JAVA_HOME 설정이 존재하면 해당 라인을 수정하고, 없으면 추가합니다.
-# 사용법: source jdk_switch.sh 25  (또는 21, 17, 8)
+# 사용법: source jdk_switch.sh 25  (또는 21, 17, 8 — 설치된 버전)
 #         또는 . jdk_switch.sh 25
 # =================================================================
 
 # 1. 필수 인자(자바 버전) 확인
 VERSION=$1
 if [ -z "$VERSION" ]; then
-    echo "[Error] 자바 버전을 입력해주세요 (25, 21, 17, 8)."
+    # 안내할 버전 목록은 설치된 폴더에서 만듭니다 (jdk-1.8 → 8)
+    echo "[Error] 자바 버전을 입력해주세요 (설치됨: $(ls -d "${DEVTOOLS2:-/var/opt/_devtools2}"/modules/java/jdk-* 2>/dev/null | sed -e 's|.*/jdk-||' -e 's|^1\.8$|8|' | grep -E '^[0-9]+$' | sort -rn | xargs))."
     echo "사용법: source jdk_switch.sh 25"
     return 1 2>/dev/null || exit 1
 fi

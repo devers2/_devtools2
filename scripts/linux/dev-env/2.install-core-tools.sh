@@ -439,6 +439,11 @@ _install_python_minor() {
         # 목록 조회 실패 시 마지막 설치 버전으로 폴백
         ver="${pinned%%+*}"; tag="${pinned#*+}"
     fi
+    # 폴백 값도 없거나 "버전+빌드날짜" 형식이 아니면 다운로드 주소를 만들 수 없으므로 이 마이너는 건너뜁니다
+    if [ -z "$ver" ] || [ -z "$tag" ] || [ "$ver" = "$tag" ]; then
+        print_warn "  ${key}: 설치할 버전을 정하지 못했습니다(목록 조회 실패, TOML 폴백 값 없음 또는 형식 오류). Python ${minor} 설치를 건너뜁니다."
+        return 0
+    fi
     [ "$sha" = "-" ] && sha=""
 
     if [ -x "$pdir/bin/python3" ]; then
