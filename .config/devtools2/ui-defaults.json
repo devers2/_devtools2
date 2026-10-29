@@ -1,11 +1,12 @@
 {
   "_comment": [
-    "DevTools2 중앙 UI 기본값 — 모든 도구(Windows Terminal/Neovim, Sublime Merge)가 이 파일을 참조합니다.",
+    "DevTools2 중앙 UI 기본값 — 모든 도구(Windows Terminal/Neovim, Ghostty/Neovim, Sublime Merge)가 이 파일을 참조합니다.",
     "font.terminal_face: 터미널 앱(Windows Terminal, Neovim)용 폰트 (Nerd Font 아이콘 필수)",
     "font.gui_face: GUI 앱(Sublime Merge)용 폰트 (공식 D2Coding ligature 사용)",
     "font.size: 기본 폰트 크기 (pt). Neovim/WT 및 Sublime Merge 공통 표준값 11.5",
     "font.line_height: 줄 높이 비율 (CSS line-height). Neovim/WT 표준값 1.5",
-    "Sublime Merge: Linux/WSL2(WSLg) 설치 스크립트(tool.setup-sublime-merge.sh)가 gui_face/size/line_height 를 Preferences 의 font_face/font_size/line_padding_* 로 환산해 반영"
+    "Sublime Merge: Linux/WSL2(WSLg) 설치 스크립트(tool.setup-sublime-merge.sh)가 gui_face/size/line_height 를 Preferences 의 font_face/font_size/line_padding_* 로 환산해 반영",
+    "Ghostty(Linux 데스크톱 Neovim): 2.install-core-tools.sh 가 size 를 GNOME 텍스트 크기 배율로 역산해 ~/.config/ghostty/font.local.ghostty 에 기록 (화면에서 WT 와 같은 크기)"
   ],
   "font": {
     "terminal_face": "D2KodingLigature Nerd Font Mono",

@@ -133,27 +133,24 @@ else
     print_info "최신 안정 빌드 확인: Build $_latest_build"
 fi
 
-_do_install=false
-if [ -z "$_installed_build" ]; then
-    # 미설치 → 사용자 확인 (기본값 N)
-    if [ "$_smerge_auto_yes" = true ] || prompt_confirm "   👉 Sublime Merge (Git Diff & Merge GUI)를 설치하시겠습니까?" "N"; then
-        _do_install=true
-    else
-        print_skip "Sublime Merge 설치를 건너뜁니다."
-        exit 0
-    fi
-elif [ "$_installed_build" -ge "$_latest_build" ] 2>/dev/null; then
-    # 이미 최신 → 건너뜀
-    print_skip "Sublime Merge Build $_installed_build 이 이미 최신 버전입니다."
-else
-    # 구버전 → 업데이트 안내 후 진행 (기본값 N)
-    print_info "현재 설치: Build $_installed_build → 최신: Build $_latest_build"
-    if [ "$_smerge_auto_yes" = true ] || prompt_confirm "   ⚠️  최신 빌드로 업데이트하시겠습니까?" "N"; then
-        _do_install=true
-    else
-        print_skip "Sublime Merge 업데이트를 건너뜁니다. (현재: Build $_installed_build)"
-    fi
+# 미설치 → 사용자 확인 (기본값 N) / 이미 최신 → 건너뜀 / 구버전 → 업데이트 안내 후 진행 (기본값 Y)
+# → 판단은 공용 함수 decide_app_action(_install-utils.sh, 앱 규칙: Zed·Orca·VS Code·Ghostty 와 동일)에 맡깁니다.
+#   ● 빌드 번호는 크기로 비교합니다: 설치된 빌드가 최신 이상이면 최신으로 간주(함수는 같음/다름만 비교하므로 미리 정규화)
+#   ● DT2_SMERGE_CHOICE=y 는 설치와 업데이트를 모두 자동 승인합니다 → DT2_SMERGE_UPDATE 기본값을 y 로 연결
+_smerge_installed=false
+[ -n "$_installed_build" ] && _smerge_installed=true
+_cmp_latest="$_latest_build"
+if [ -n "$_installed_build" ] && [ "$_installed_build" -ge "$_latest_build" ] 2>/dev/null; then
+    _cmp_latest="$_installed_build"
 fi
+[ "$_smerge_auto_yes" = true ] && DT2_SMERGE_UPDATE="${DT2_SMERGE_UPDATE:-y}"
+decide_app_action "Sublime Merge (Git Diff & Merge GUI)" "$_smerge_installed" \
+    "${_installed_build:+Build $_installed_build}" "Build $_cmp_latest" "N" "DT2_SMERGE"
+_do_install=false
+case "$DT2_APP_ACTION" in
+    install|update) _do_install=true ;;
+    *) if [ "$_smerge_installed" = false ]; then exit 0; fi ;;   # 미설치 + 설치 거절 → 연동 단계도 건너뜀
+esac
 
 if [ "$_do_install" = true ]; then
     _smerge_arch="x64"

@@ -52,6 +52,57 @@ _ensure_pkg() {
     fi
 }
 
+# ── 앱 설치·업데이트 여부 결정 공용 함수 (앱 규칙) ─────────────────────────────
+# Zed · Orca · VS Code · Sublime Merge · Ghostty 처럼 "버전 고정(TOML)"이 아닌 사용자 앱이 모두 같은 규칙으로
+# 동작하도록 판단을 한 곳에 모았습니다. 새 앱을 추가할 때도 이 함수를 쓰면 동일하게 동작합니다.
+# (Java·Node.js·Python·Neovim·CLI 도구 같은 개발 런타임/도구는 재현성을 위해 TOML 버전 고정 방식을 그대로 씁니다)
+#
+#   ● 미설치: 설치 여부 확인 (기본값은 앱별 지정, 보통 N / 기본 터미널처럼 꼭 필요한 앱은 Y)
+#   ● 설치됨: 최신 버전 조회 → 새 버전이 있으면 업데이트 여부 확인 (기본값 Y)
+#             최신 버전 조회 실패 또는 이미 최신이면 건너뜀. 설치는 됐지만 현재 버전을 모르면 업데이트를 제안
+#   ● 무인 실행(DT2_NONINTERACTIVE=1 또는 tty 없음): 업데이트하지 않고 기존 설치 유지 (기존 Orca 규칙을 공통화)
+#   ● 환경변수 강제: <접두사>_CHOICE=y|n (설치 여부), <접두사>_UPDATE=y|n (업데이트 여부)
+#
+# 사용법: decide_app_action <표시 이름> <설치여부 true|false> <현재 버전> <최신 버전> <설치 기본값 Y|N> <환경변수 접두사> [업데이트 안내문]
+# 결과: 전역 변수 DT2_APP_ACTION = install | update | skip  (함수 반환값은 항상 0)
+decide_app_action() {
+    local _name="$1" _installed="$2" _cur="$3" _latest="$4" _install_def="${5:-N}" _prefix="$6" _update_note="${7:-}"
+    local _choice_var="${_prefix}_CHOICE" _update_var="${_prefix}_UPDATE"
+    local _choice="${!_choice_var:-}" _update="${!_update_var:-}"
+    DT2_APP_ACTION="skip"
+
+    if [ "$_installed" != true ]; then
+        if [ -n "$_choice" ]; then
+            [ "${_choice,,}" = "y" ] && DT2_APP_ACTION="install"
+        elif prompt_confirm "   👉 ${_name}을(를) 설치하시겠습니까?" "$_install_def"; then
+            DT2_APP_ACTION="install"
+        fi
+        [ "$DT2_APP_ACTION" = "skip" ] && print_skip "${_name} 설치를 건너뜁니다."
+        return 0
+    fi
+
+    if [ -z "$_latest" ]; then
+        print_info "${_name} 이(가) 설치되어 있습니다(${_cur:-버전 기록 없음}). 최신 버전 확인에 실패해 업데이트 확인은 건너뜁니다."
+        return 0
+    fi
+    if [ "$_cur" = "$_latest" ]; then
+        print_skip "${_name} ${_cur} 이(가) 이미 최신 버전입니다."
+        return 0
+    fi
+
+    print_info "${_name} 새 버전이 있습니다: ${_cur:-알 수 없음(버전 기록 없음)} → ${_latest}"
+    if [ -n "$_update" ]; then
+        [ "${_update,,}" = "y" ] && DT2_APP_ACTION="update"
+    elif dt2_is_noninteractive; then
+        print_skip "비대화형 실행이라 ${_name} 업데이트를 건너뜁니다 (${_update_var}=y 로 강제 가능)."
+        return 0
+    elif prompt_confirm "   👉 ${_name}을(를) ${_latest} 로 업데이트하시겠습니까?${_update_note:+ $_update_note}" "Y"; then
+        DT2_APP_ACTION="update"
+    fi
+    [ "$DT2_APP_ACTION" = "skip" ] && print_skip "${_name} 업데이트를 건너뜁니다. (현재: ${_cur:-알 수 없음} 유지)"
+    return 0
+}
+
 # ── 한글 입력기(IME) 확인 및 설치 (WSL2 WSLg · Linux 데스크톱 공용) ──────────
 # GUI 앱(Sublime Merge 등)에서 한글을 입력하려면 디스플레이 서버에 등록되는 입력기가 필요합니다.
 # ⚠️ 포터블 원칙의 예외: 입력기는 시스템 서비스라 apt 로 직접 설치해야 합니다(0.init-devtools2.sh 상단 메모 참고).
@@ -295,6 +346,58 @@ EOF
         command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1 || true
     fi
     return $_rc
+}
+
+# ── Ghostty 글꼴 크기를 중앙 UI 기본값(ui-defaults.json)과 동기화 (Linux 데스크톱) ──────
+# Neovim 을 띄우는 터미널(Windows: Windows Terminal, Linux: Ghostty)의 글꼴 크기를 한 곳에서 관리합니다.
+#   ● Linux(GTK) 판 Ghostty 는 font-size 에 데스크톱의 "텍스트 크기 배율"(GNOME text-scaling-factor)을
+#     추가로 곱해 그립니다(Ghostty src/config/Config.zig font-size 주석). 그래서 json 값을 그대로 쓰면
+#     배율만큼 커지므로, 화면에서 json 의 크기(예: 11.5pt)로 보이도록 "json 크기 ÷ 텍스트 배율"로 역산합니다.
+#     (예: 배율 1.125 → 11.5 ÷ 1.125 ≈ 10.2 — 예전 config.ghostty 에 직접 적어 두었던 값과 같음)
+#   ● 화면 배율(200% 등 정수 배율)은 Windows 의 DPI 배율과 같은 개념이라 보정하지 않습니다.
+#   ● 결과는 ~/.config/ghostty(= $DEVTOOLS2/.config/ghostty 심볼릭 링크)의 font.local.ghostty 에 기록하고,
+#     config.ghostty 가 config-file = ?font.local.ghostty 로 불러와 덮어씁니다(PC 별 값이라 git 추적 제외).
+#   ● 텍스트 배율은 설치 시점 값으로 계산합니다. GNOME 텍스트 크기를 바꾼 뒤에는 이 함수를 다시 실행하세요
+#     (2.install-core-tools.sh 재실행 시 자동 호출). gsettings 를 읽을 수 없으면 배율 1.0 으로 계산합니다.
+# 사용법: sync_ghostty_font_size [ghostty 설정 디렉터리, 기본: $DEVTOOLS2/.config/ghostty]
+sync_ghostty_font_size() {
+    local _gdir="${1:-$DEVTOOLS2/.config/ghostty}"
+    local _ui="$DEVTOOLS2/.config/devtools2/ui-defaults.json"
+    [ -d "$_gdir" ] && [ -f "$_ui" ] || return 0
+
+    local _scale="1.0"
+    if command -v gsettings >/dev/null 2>&1; then
+        _scale=$(gsettings get org.gnome.desktop.interface text-scaling-factor 2>/dev/null || echo "1.0")
+    fi
+
+    python3 - "$_ui" "$_gdir/font.local.ghostty" "$_scale" <<'PYEOF' || print_warn "Ghostty 글꼴 크기 동기화에 실패했습니다."
+import json, sys
+ui_path, out_path, scale_raw = sys.argv[1], sys.argv[2], sys.argv[3]
+size = float(json.load(open(ui_path, encoding="utf-8")).get("font", {}).get("size", 11.5))
+try:
+    scale = float(scale_raw)
+    if scale <= 0:
+        scale = 1.0
+except ValueError:
+    scale = 1.0
+ghostty_size = round(size / scale, 1)
+content = (
+    "# DevTools2 자동 생성 파일 — 직접 수정하지 마세요 (git 추적 제외)\n"
+    "# 원본: .config/devtools2/ui-defaults.json (font.size)\n"
+    "# 생성: _install-utils.sh 의 sync_ghostty_font_size (2.install-core-tools.sh 가 호출)\n"
+    f"# 계산: {size:g}pt ÷ GNOME 텍스트 크기 배율 {scale:g} = {ghostty_size:g}\n"
+    "#       (Linux GTK 판 Ghostty 는 텍스트 배율을 곱해 그리므로, 화면에서 json 크기로 보이도록 역산)\n"
+    f"font-size = {ghostty_size:g}\n"
+)
+try:
+    old = open(out_path, encoding="utf-8").read()
+except FileNotFoundError:
+    old = None
+if old != content:
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(content)
+print(f"[완료] Ghostty 글꼴 크기: {size:g}pt ÷ 텍스트 배율 {scale:g} → font-size = {ghostty_size:g}")
+PYEOF
 }
 
 # ── 아키텍처별 tar.gz 아카이브 다운로드 및 폴더 정리 설치 공용 함수 ─────────
