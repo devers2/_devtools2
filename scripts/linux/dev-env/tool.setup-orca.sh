@@ -274,6 +274,7 @@ if [ "$_orca_proceed" = true ]; then
     done
     echo ""
     echo "   🤖 에이전트 CLI 점검 (Orca 가 실제로 실행할 대상)"
+    _orca_agent_added=false
     _orca_agent_names=("claude" "codex" "agy")
     _orca_agent_labels=("Claude Code" "Codex" "Antigravity CLI (Google, Gemini CLI 후속)")
     _orca_agent_defaults=("N" "N" "N")
@@ -323,6 +324,7 @@ if [ "$_orca_proceed" = true ]; then
         hash -r
         if command -v "$_cmd" >/dev/null 2>&1; then
             echo "      ✅ $_label 설치 완료 ($(command -v "$_cmd"))"
+            _orca_agent_added=true   # 새 에이전트에도 스킬을 설치해야 하므로 아래 스킬 단계에서 install 실행
         else
             print_warn "$_label 설치에 실패했습니다. 나중에 직접 설치하세요(아래 안내 참고)."
         fi
@@ -339,8 +341,38 @@ if [ "$_orca_proceed" = true ]; then
         command -v "$_c" >/dev/null 2>&1 && _detected_agents=$((_detected_agents + 1))
     done
 
-    echo ""
+    # ── 이미 설치되어 있으면 건너뜀 (예전에는 실행할 때마다 설치를 시도했음) ──
+    #   ● 설치 여부는 Orca 의 "skills installed --json"(전역 설치 목록)으로 확인합니다.
+    #   ● 다시 실행하는 경우: 둘 중 하나라도 없음 / 이번에 에이전트 CLI 를 새로 설치함(그 에이전트에도 설치 필요)
+    #     → skills install,  Orca 가 이번에 업데이트됨 → skills update(이미 설치된 위치만 새 Orca 버전에 맞게 갱신)
+    _orca_skills_have=""
     if [ "$_detected_agents" -gt 0 ]; then
+        _orca_skills_have=$(timeout -k 5 30 "$ORCA_APPIMAGE" skills installed --json < /dev/null 2>/dev/null \
+            | python3 -c 'import json,sys
+try:
+    d = json.load(sys.stdin)
+    print(" ".join(s.get("name", "") for s in d.get("result", {}).get("skills", [])))
+except Exception:
+    pass' 2>/dev/null || true)
+    fi
+    _orca_skills_missing=false
+    for _sk in orca-cli orchestration; do
+        [[ " $_orca_skills_have " == *" $_sk "* ]] || _orca_skills_missing=true
+    done
+
+    echo ""
+    if [ "$_detected_agents" -gt 0 ] && [ "$_orca_skills_missing" = false ] && [ "$_orca_agent_added" = false ]; then
+        if [ "$_orca_updated" = true ]; then
+            echo "   🧩 Orca 가 업데이트되어 권장 스킬(orca-cli, orchestration)을 새 버전에 맞게 갱신 중..."
+            if timeout -k 5 30 "$ORCA_APPIMAGE" skills update --skill orca-cli --skill orchestration < /dev/null >/dev/null 2>&1; then
+                echo "   ✅ 스킬 갱신 완료"
+            else
+                echo "   ⚠️  스킬 갱신을 건너뜁니다 (직접 실행: orca skills update --skill orca-cli --skill orchestration)."
+            fi
+        else
+            echo "   ✅ 권장 스킬(orca-cli, orchestration) 이미 설치됨 — 건너뜀"
+        fi
+    elif [ "$_detected_agents" -gt 0 ]; then
         echo "   🧩 권장 스킬(orca-cli, orchestration) 설치 시도 중..."
         _skills_log=$(mktemp)
         if timeout -k 5 30 "$ORCA_APPIMAGE" skills install --skill orca-cli --skill orchestration < /dev/null >"$_skills_log" 2>&1; then
