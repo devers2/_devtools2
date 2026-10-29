@@ -143,33 +143,18 @@ if [ "$IS_WSL2" = true ]; then
 fi
 echo ""
 
-# ── 중복 처리 방식 선택 ──────────────────────────────────────────
-# 환경변수 DT2_DUPLICATE_MODE(remove|reinstall|keep|skip|individual)가 있으면 질문 없이 그 값을 씁니다.
+# ── 중복 처리 방식 (같은 버전 재설치) ─────────────────────────────
+# 예전에는 이미 설치된 도구가 있으면 "삭제 후 재설치 / 유지 / 도구별 개별 확인"을 매번 물었습니다.
+# 이제 새 버전 확인과 업데이트 여부는 도구마다 decide_app_action 이 따로 묻기 때문에, 이 질문에 남은 역할은
+# "같은 버전 다시 설치(깨진 설치 복구)"뿐이라 묻지 않고 기본값 keep(유지)으로 둡니다.
+#   ● 복구가 필요할 때: DT2_DUPLICATE_MODE=reinstall (전체 재설치) 또는 individual (도구마다 재설치 여부 질문)
+#   ● 환경변수 DT2_DUPLICATE_MODE(remove|reinstall|keep|skip|individual)는 CI·무인 실행용으로 그대로 지원합니다.
 DUPLICATE_MODE="${DT2_DUPLICATE_MODE:-keep}"
-_HAS_INSTALLED=false
-for _b in "$FZF_INSTALLED" "$LAZYGIT_INSTALLED" "$RIPGREP_INSTALLED" \
-           "$FD_INSTALLED" "$ASTGREP_INSTALLED" "$BITWARDEN_INSTALLED" "$RCLONE_INSTALLED" "$WIN32YANK_INSTALLED" "$GH_INSTALLED" \
-           "$DELTA_INSTALLED" "$DIFFT_INSTALLED"; do
-    [ "$_b" = true ] && _HAS_INSTALLED=true && break
-done
-
 if [ -n "${DT2_DUPLICATE_MODE:-}" ]; then
     print_info "환경변수(DT2_DUPLICATE_MODE) 설정 적용됨: $DUPLICATE_MODE"
-elif [ "$_HAS_INSTALLED" = true ]; then
-    print_question "⚠️  이미 설치된 도구가 감지되었습니다. 중복 처리 방식을 선택하세요:"
-    echo ""
-    print_option "1" "기존 도구 삭제 후 재설치 (덮어쓰기)"
-    print_option "2" "기존 도구 유지 (건너뛰기)" "[기본값]"
-    print_option "3" "도구별 개별 확인 (재설치/건너뛰기 선택)"
-    echo ""
-    prompt_read _dup_choice "   선택 [1/${_C_DEFAULT}2${_C_RESET}/3]: "
-    echo ""
-    case "${_dup_choice:-2}" in
-        1) DUPLICATE_MODE="remove"     ; print_info "중복 처리: 묻지 않고 삭제 후 재설치 선택됨" ;;
-        3) DUPLICATE_MODE="individual" ; print_info "중복 처리: 도구별 개별 확인 선택됨" ;;
-        *) DUPLICATE_MODE="keep"       ; print_info "중복 처리: 기존 도구 유지(건너뛰기) 선택됨" ;;
-    esac
-    echo ""
+else
+    echo "   ℹ️  설치된 도구는 새 버전이 있을 때만 업데이트 여부를 묻습니다."
+    echo "      같은 버전을 다시 설치(복구)하려면 DT2_DUPLICATE_MODE=reinstall 로 실행하세요."
 fi
 
 # (예전 "버전 설치 방식 선택(최신/지정/개별)" 질문과 일괄 최신 조회는 [track] 정책으로 대체되어 제거했습니다)
