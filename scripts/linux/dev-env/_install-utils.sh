@@ -194,7 +194,8 @@ resolve_track_version() {
 }
 
 # ── 설치된 도구의 새 버전 확인 방식 (DT2_UPDATE_CHECK) ───────────────────────────
-# 2.install-core-tools.sh / 3.install-cli-tools.sh 는 시작할 때 이미 설치된 도구가 있으면 한 번만 묻습니다.
+# 3.install-cli-tools.sh 는 시작할 때 이미 설치된 도구가 있으면 한 번만 묻습니다.
+# (2.install-core-tools.sh 는 track 이 대부분 패치·마이너 범위라 묻지 않고 check — 도구별 확인으로 동작)
 #   keep  : 기존 버전 유지 (기본값) — 설치된 도구는 새 버전 조회조차 하지 않습니다(네트워크 호출·질문 없음).
 #           미설치 도구만 track 범위 안의 최신 버전으로 설치합니다.
 #   check : 도구별 새 버전 확인 — 도구마다 track 범위 안의 최신 버전을 조회해, 새 버전이 있으면 업데이트 여부를 묻습니다.
