@@ -19,6 +19,8 @@
     : settings.json에 지정 (예: "nvim.projectRoot": "./"). 미지정 시 워크스페이스 마커 자동 탐색.
   - java.import.gradle.java.home (string)
     : Gradle 데몬 및 JDTLS 구동용 JDK 경로 (예: "/var/opt/_devtools2/modules/java/jdk-21")
+      ※ jdtls 자체는 Java 21 이상에서만 실행되므로, 이 값이 21 미만(예: Gradle 8 + JDK 17)이면
+        Gradle 데몬에만 이 JDK 를 쓰고 jdtls 는 jdk-21(없으면 설치된 21 이상 중 가장 높은 JDK)로 실행합니다.
   - java.configuration.runtimes (array)
     : 컴파일 대상 런타임 목록 및 default 지정 (예: JavaSE-1.8 default -> Java 8 자동 인식)
   - launch.json 의 java configuration (mainClass)
@@ -231,6 +233,7 @@ return {
         local custom_runtimes = nil
 
         -- 1. Gradle 데몬 및 JDTLS 실행용 JDK (java.import.gradle.java.home)
+        --    (21 미만이면 jdtls 실행에는 아래 jdtls_java_home 으로 따로 21 이상 JDK 를 씀)
         local gradle_jdk = p_settings['java.import.gradle.java.home']
         if gradle_jdk and type(gradle_jdk) == 'string' and vim.fn.isdirectory(gradle_jdk) == 1 then
           effective_jdk_home = gradle_jdk
@@ -267,11 +270,63 @@ return {
         effective_jdk_home = effective_jdk_home
           or ((java_version >= 21) and target_java_home or (_G.DEVTOOLS2_DIR .. '/modules/java/jdk-21'))
 
+        -- [jdtls 실행 JDK 와 Gradle 데몬 JDK 분리]
+        -- jdtls(1.5x+)는 Java 21 이상에서만 실행됩니다(jdtls.py: "jdtls requires at least Java 21").
+        -- 예전에는 java.import.gradle.java.home 값을 jdtls 실행 JAVA_HOME 으로도 그대로 써서, 프로젝트가 Gradle 용으로
+        -- 21 미만 JDK(예: Goono-ELN 의 Gradle 8.13 + JDK 17)를 지정하면 jdtls 가 exit code 1 로 바로 종료됐습니다.
+        --   ● effective_jdk_home : Gradle 데몬용 (settings 의 java.import.gradle.java.home 으로 그대로 전달)
+        --   ● jdtls_java_home    : jdtls 프로세스 실행용 — effective_jdk_home 이 21 이상이면 같은 값,
+        --                          미만이면 jdk-21, jdk-21 도 없으면 설치된 21 이상 JDK 중 가장 높은 버전
+        --   (VS Code 도 java.jdt.ls.java.home 과 java.import.gradle.java.home 을 따로 둡니다.
+        --    소스 분석 기준은 java.configuration.runtimes 라 jdtls 실행 JDK 가 달라도 Java 8 프로젝트는 Java 8 기준 그대로)
+        local JDTLS_MIN_JAVA = 21
+        local function jdk_major(home)
+          local f = home and io.open(home .. '/release', 'r')
+          if not f then
+            return nil
+          end
+          local content = f:read('*a') or ''
+          f:close()
+          local v = content:match('JAVA_VERSION="([^"]+)"')
+          if not v then
+            return nil
+          end
+          local a, b = v:match('^(%d+)%.?(%d*)')
+          a = tonumber(a)
+          if a == 1 then
+            return tonumber(b) -- "1.8.0_504" → 8
+          end
+          return a
+        end
+        local jdtls_java_home = effective_jdk_home
+        if (jdk_major(jdtls_java_home) or 0) < JDTLS_MIN_JAVA then
+          local cand = _G.DEVTOOLS2_DIR .. '/modules/java/jdk-21'
+          if (jdk_major(cand) or 0) < JDTLS_MIN_JAVA then
+            cand = nil
+            local best = 0
+            for _, d in ipairs(vim.fn.glob(_G.DEVTOOLS2_DIR .. '/modules/java/jdk-*', false, true)) do
+              local m = jdk_major(d) or 0
+              if m >= JDTLS_MIN_JAVA and m > best then
+                best, cand = m, d
+              end
+            end
+          end
+          if cand then
+            _G.log_jdtls(string.format('JDTLS Home   : %s (Gradle 용 JDK %s 는 jdtls 최소 요구 Java %d 미만이라 jdtls 실행에만 따로 사용)',
+              cand, tostring(effective_jdk_home), JDTLS_MIN_JAVA))
+            jdtls_java_home = cand
+          else
+            _G.log_jdtls(string.format('[WARN] Java %d 이상 JDK 가 없어 jdtls 를 실행할 수 없습니다 (설치 스크립트로 JDK 21 이상을 설치하세요).', JDTLS_MIN_JAVA))
+            vim.notify(string.format('jdtls 는 Java %d 이상이 필요한데 설치된 JDK 가 없습니다. 설치 스크립트로 JDK 21 이상을 설치하세요.', JDTLS_MIN_JAVA), vim.log.levels.WARN)
+          end
+        end
+
         -- [실행 정보 기록]
         _G.log_jdtls(string.format('Project Root : %s', root or 'N/A'))
         _G.log_jdtls(string.format('Java Version : %s (auto-detected from %s)', java_version, detect_source or 'default'))
         _G.log_jdtls(string.format('Java Home    : %s', target_java_home or 'N/A'))
         _G.log_jdtls(string.format('Daemon Home  : %s', effective_jdk_home or 'N/A'))
+        _G.log_jdtls(string.format('JDTLS Home   : %s', jdtls_java_home or 'N/A'))
 
         local jdtls_executable = vim.fn.exepath('jdtls')
         local mason_bin_jdtls = _G.NVIM_SHARED_DIR .. '/mason/bin/jdtls'
@@ -339,7 +394,7 @@ return {
 
         local cmd = {
           'env',
-          'JAVA_HOME=' .. effective_jdk_home,
+          'JAVA_HOME=' .. jdtls_java_home, -- jdtls 실행 JDK (21 이상, Gradle 데몬 JDK 와 분리 — 위 설명 참고)
           jdtls_executable,
           '--jvm-arg=-Xms' .. heap_xms .. 'm',
           '--jvm-arg=-Xmx' .. heap_xmx .. 'm',
@@ -359,6 +414,16 @@ return {
             o.settings.java.configuration.runtimes = custom_runtimes or get_runtimes(target_java_name)
           end
         end
+        -- [초기화 옵션에도 settings 전달]
+        -- jdtls 는 시작 직후 첫 프로젝트 가져오기(Gradle import)를 initializationOptions.settings 기준으로 합니다.
+        -- settings 를 LSP settings(workspace/didChangeConfiguration)로만 보내면 첫 가져오기에는 위의 Gradle 데몬 JDK 가
+        -- 반영되지 않아, jdtls 가 기본 런타임(java.configuration.runtimes 의 default — Goono-ELN 은 JavaSE-1.8)으로
+        -- Gradle 데몬을 띄우고, Gradle 8.x 가 Java 8 위에서 툴체인을 찾지 못해 "Cannot find a Java installation ...
+        -- matching languageVersion=8" 로 동기화에 실패했습니다(VS Code Java 확장도 settings 를 초기화 옵션으로 보냄).
+        -- (이 함수는 LazyVim 이 config 를 만들 때 opts.jdtls 를 병합하기 전에 호출되므로 여기서 넣으면 반영됩니다)
+        o.jdtls = o.jdtls or {}
+        o.jdtls.init_options = o.jdtls.init_options or {}
+        o.jdtls.init_options.settings = o.settings
 
         return cmd
       end
