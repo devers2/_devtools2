@@ -323,7 +323,6 @@ if command -v git >/dev/null 2>&1; then
     git config --global diff.tool smerge
     git config --global difftool.smerge.cmd 'smerge "$LOCAL" "$REMOTE"'
     git config --global difftool.prompt false
-    git config core.filemode false 2>/dev/null || true
     print_done "Git 글로벌 smerge 연동 완료 (git diff / git mergetool)"
 
     # ── WSL2: Windows Git 의 safe.directory 및 filemode 자동 등록 ──
@@ -331,10 +330,13 @@ if command -v git >/dev/null 2>&1; then
     # 저장소를 열 때 Git 의 "dubious ownership" 보안 검사에 걸리지 않도록
     # Windows 쪽 git config 에 safe.directory 를 등록합니다.
     # 또한 Windows ↔ WSL2 간 실행 비트(100755 vs 100644) 불일치로 인한
-    # 스크립트 대량 Unstaged 오탐을 방지하기 위해 core.filemode false 를 등록합니다.
-    if [ "${IS_WSL2:-false}" = true ] && command -v git.exe >/dev/null 2>&1; then
-        git.exe config --global core.filemode false 2>/dev/null || true
-        _wsl_distro_name=""
+    # 스크립트 대량 Unstaged 오탐을 방지하기 위해 WSL2 환경에서만 core.filemode false 를 등록합니다.
+    # (순수 Linux 네이티브 환경에서는 ext4 POSIX 권한이 완벽히 유지되므로 이 설정을 건드리지 않습니다.)
+    if [ "${IS_WSL2:-false}" = true ]; then
+        git config core.filemode false 2>/dev/null || true
+        if command -v git.exe >/dev/null 2>&1; then
+            git.exe config --global core.filemode false 2>/dev/null || true
+            _wsl_distro_name=""
         if [ -n "${WSL_DISTRO_NAME:-}" ]; then
             _wsl_distro_name="$WSL_DISTRO_NAME"
         elif [ -f /etc/wsl-distribution-name ]; then
@@ -350,6 +352,7 @@ if command -v git >/dev/null 2>&1; then
             fi
         fi
     fi
+fi
 fi
 
 # ==============================================================================
