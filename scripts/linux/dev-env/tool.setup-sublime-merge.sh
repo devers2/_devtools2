@@ -235,6 +235,7 @@ ensure_korean_gui_font || true
 #     ● fcitx5 입력기 환경변수(GTK_IM_MODULE 등) 지정
 #     ● 세션 DBus 주소 보정 (fcitx GTK 입력 모듈은 DBus 로 fcitx5 와 통신; wsl.exe -e 실행 시 비어 있을 수 있음)
 #     ● fcitx5 데몬이 없으면 기동 (WSLg 컴포지터는 Wayland 입력기 프로토콜을 지원하지 않아 wayland 애드온은 끔)
+#     (이 코드는 Orca 래퍼와 공유하는 _install-utils.sh 의 wslg_ime_env_snippet 이 생성)
 #   - 공통: 날짜 형식만 LC_TIME=C.UTF-8 로 고정 (ko_KR 로캘의 오전/오후가 잘려 날짜가 깨지는 문제 방지)
 #   - 공통: 제목 표시줄·메뉴 바만 GTK 다크(GTK_THEME=Adwaita:dark) 적용 (눈부심 감소, 나머지 UI 는 라이트)
 #   - mergetool 은 종료 대기가 필요하므로 백그라운드(&)가 아닌 exec 로 직접 실행합니다.
@@ -255,15 +256,7 @@ if [ ! -x "\$SMERGE_BIN" ]; then
     exit 1
 fi
 
-if grep -qi microsoft /proc/version 2>/dev/null && command -v fcitx5 >/dev/null 2>&1; then
-    export GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx
-    if [ -z "\${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "/run/user/\$(id -u)/bus" ]; then
-        export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$(id -u)/bus"
-    fi
-    if ! pgrep -u "\$(id -u)" -x fcitx5 >/dev/null 2>&1; then
-        fcitx5 -d --replace --disable=wayland,waylandim >/dev/null 2>&1 || true
-    fi
-fi
+$(wslg_ime_env_snippet)
 
 # 날짜 표시는 시스템 로캘(glib)을 따르는데, ko_KR 로캘의 '오전/오후' 를 Sublime Merge 가 중간에서 잘라
 # "수 28 10월 2026, 12:25 오" / "화 5:33 오" 처럼 깨져 보이므로 날짜 형식만 영어로 고정합니다.
