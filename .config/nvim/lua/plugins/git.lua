@@ -20,6 +20,25 @@ return {
       { '<leader>gQ', '<cmd>DiffviewClose<cr>', desc = 'Git Diffview 닫기' },
       { '<leader>gH', '<cmd>DiffviewFileHistory %<cr>', desc = 'Git 현재 파일 이력 (Diffview)' },
     },
+    -- 키맵 설명 한글화: setup 전에 기본 키맵 표의 desc 를 util/diffview_ko.lua 사전으로 바꿉니다
+    -- (g? 도움말·which-key 에 한글 표시, 사전에 없는 문구는 영어 유지 — lazygit 의 한국어 UI 와 맞춤)
+    config = function(_, opts)
+      local ok_ko, ko = pcall(require, 'util.diffview_ko')
+      local ok_cfg, cfg = pcall(require, 'diffview.config')
+      if ok_ko and ok_cfg and type(cfg.defaults) == 'table' and type(cfg.defaults.keymaps) == 'table' then
+        for _, maps in pairs(cfg.defaults.keymaps) do
+          if type(maps) == 'table' then
+            for _, m in ipairs(maps) do
+              local o = type(m) == 'table' and m[4] or nil
+              if type(o) == 'table' and type(o.desc) == 'string' and ko[o.desc] then
+                o.desc = ko[o.desc]
+              end
+            end
+          end
+        end
+      end
+      require('diffview').setup(opts or {})
+    end,
   },
 
   -- VSCode 와 같은 diff 알고리즘으로 줄 + 글자 단위 두 겹 강조를 보여 주는 변경 리뷰 화면 (diff 읽기 주력)
