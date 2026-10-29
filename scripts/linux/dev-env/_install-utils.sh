@@ -103,6 +103,28 @@ decide_app_action() {
     return 0
 }
 
+# ── WSLg GUI 앱 실행 래퍼용 한글 입력기 환경 코드 조각 (Sublime Merge · Orca 등 공용) ──────
+# WSLg 에는 데스크톱 세션(im-config/autostart)이 없으므로, GUI 앱을 띄우는 래퍼가 실행 시점에 직접
+#   ● fcitx5 입력기 환경변수(GTK_IM_MODULE 등) 지정
+#   ● 세션 DBus 주소 보정 (fcitx GTK 입력 모듈은 DBus 로 fcitx5 와 통신; wsl.exe -e 실행 시 비어 있을 수 있음)
+#   ● fcitx5 데몬이 없으면 기동 (WSLg 컴포지터는 Wayland 입력기 프로토콜을 지원하지 않아 wayland 애드온은 끔)
+# 을 해야 합니다. 앱마다 같은 코드를 복사하지 않도록 이 함수가 래퍼에 넣을 셸 코드를 출력합니다.
+# Linux 데스크톱(WSL 아님)이나 fcitx5 가 없으면 아무 것도 하지 않는 코드라 공통으로 넣어도 안전합니다.
+# 사용법: cat <<EOF > 래퍼 ... $(wslg_ime_env_snippet) ... EOF
+wslg_ime_env_snippet() {
+    cat <<'SNIPPET'
+if grep -qi microsoft /proc/version 2>/dev/null && command -v fcitx5 >/dev/null 2>&1; then
+    export GTK_IM_MODULE=fcitx QT_IM_MODULE=fcitx XMODIFIERS=@im=fcitx SDL_IM_MODULE=fcitx
+    if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -S "/run/user/$(id -u)/bus" ]; then
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+    fi
+    if ! pgrep -u "$(id -u)" -x fcitx5 >/dev/null 2>&1; then
+        fcitx5 -d --replace --disable=wayland,waylandim >/dev/null 2>&1 || true
+    fi
+fi
+SNIPPET
+}
+
 # ── 한글 입력기(IME) 확인 및 설치 (WSL2 WSLg · Linux 데스크톱 공용) ──────────
 # GUI 앱(Sublime Merge 등)에서 한글을 입력하려면 디스플레이 서버에 등록되는 입력기가 필요합니다.
 # ⚠️ 포터블 원칙의 예외: 입력기는 시스템 서비스라 apt 로 직접 설치해야 합니다(0.init-devtools2.sh 상단 메모 참고).
