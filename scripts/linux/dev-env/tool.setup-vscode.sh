@@ -143,10 +143,39 @@ fi
         VSCODE_EXT_LIST="$DEVTOOLS2/.config/vscode/extensions.txt"
         if command -v code >/dev/null 2>&1 && [ -f "$VSCODE_EXT_LIST" ]; then
             echo ""
-            echo -n "   📋 VSCode 기존 확장 목록 조회 중..."
+            # [VS Code 서버 다운로드 진행률 표시 — WSL2]
+            #   WSL 의 code 는 Windows VS Code 를 부르는 래퍼라, Windows VS Code 가 업데이트된 뒤 처음 실행하면
+            #   VS Code WSL 확장(wslCode.sh → wslDownload.sh)이 그 버전의 VS Code 서버(약 220MB)를
+            #   ~/.vscode-server/bin 에 먼저 내려받습니다. 몇 분 걸리는데 스피너만 돌면 멈춘 것처럼 보입니다
+            #   (실측: 약 0.8MB/s 에서 5분 가까이 "확장 목록 조회 중..." 에 머묾).
+            #   ● wslDownload.sh 가 표준출력으로 내보내는 진행률("97% 98% ...")이 아래 임시 파일에 쌓이므로
+            #     마지막 퍼센트 값과, 받는 중인 *.tar.gz 크기를 스피너 옆에 함께 보여 줍니다.
+            #   ● 받는 중인 파일은 최근 1분 안에 바뀐 것만 봅니다(예전에 끊긴 다운로드의 잔여 파일 제외).
+            #   ● 진행률이 오래 그대로면 네트워크 문제이므로 Ctrl+C 후 다시 실행하면 됩니다(서버는 처음부터 다시 받음).
+            #   ● 받은 서버는 남아 있어 VS Code 가 다시 업데이트되기 전까지는 이 대기가 없습니다.
+            _vscode_wait_ext_list() {
+                local _pid="$1" _label="$2" _out="$3" _i=0 _extra _f _pct _mb
+                local _spin=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+                while kill -0 "$_pid" 2>/dev/null; do
+                    _extra=""
+                    if [ "${IS_WSL2:-false}" = true ]; then
+                        _f=$(find "$HOME/.vscode-server/bin" -maxdepth 1 -name '*.tar.gz' -mmin -1 2>/dev/null | head -n 1)
+                        if [ -n "$_f" ]; then
+                            _mb=$(( $(stat -c %s "$_f" 2>/dev/null || echo 0) / 1048576 ))
+                            _pct=$(tail -c 32 "$_out" 2>/dev/null | grep -oE '[0-9]+%' | tail -n 1 || true)
+                            # (한 줄이 터미널 폭을 넘으면 \r 덮어쓰기가 깨져 줄이 쌓이므로 짧게 유지)
+                            _extra=" VS Code 서버 다운로드 중 ${_pct:+${_pct} }(${_mb}MB)"
+                        fi
+                    fi
+                    printf "\r%s [%s]%s\033[K" "$_label" "${_spin[_i]}" "$_extra"
+                    _i=$(( (_i + 1) % ${#_spin[@]} ))
+                    sleep 0.15
+                done
+                printf "\r%s\033[K" "$_label"
+            }
             (code --list-extensions 2>/dev/null </dev/null > $DT2_TMP/_vscode_installed.tmp) &
             _ext_list_pid=$!
-            show_spinner "$_ext_list_pid"
+            _vscode_wait_ext_list "$_ext_list_pid" "   📋 VSCode 기존 확장 목록 조회 중..." "$DT2_TMP/_vscode_installed.tmp"
             wait "$_ext_list_pid" 2>/dev/null || true
             echo " 완료"
             _INSTALLED_EXTS=$(tr '[:upper:]' '[:lower:]' < $DT2_TMP/_vscode_installed.tmp 2>/dev/null || echo "")
