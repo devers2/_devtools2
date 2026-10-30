@@ -119,10 +119,23 @@ cat <<'EOF' >>"$_DEVTOOLS2_ENV_TMP"
 
 # PATH 앞에 디렉터리를 추가하되 이미 있으면 건너뜁니다(.profile 과 .bashrc 가 모두 이 파일을
 # 읽거나, 셸 안에서 셸을 다시 띄워도 PATH 가 계속 길어지지 않도록).
+# [보충] 이미 있으면 "건너뛰기" 대신 맨 앞으로 옮깁니다(중복 없이). 예전에는 부모 셸이 물려준 PATH 나
+#   ensure_path_in_bashrc(local.sh, PATH 맨 뒤에 추가)로 이미 들어간 항목이 그 자리에 남아, WSL 에서
+#   win32yank·Sublime Merge 폴더가 Windows 폴더(/mnt/c/...) 13개 뒤로 밀렸습니다. 그러면 명령을 찾을 때마다
+#   9P 로 Windows 폴더를 먼저 뒤져 검색 한 번에 약 30ms 가 걸렸습니다(Neovim 시작 시 executable() 등, 실측).
+# ⚠️ .profile 을 통해 /bin/sh(dash)로도 읽히므로 bash 전용 문법 없이 POSIX 문법만 씁니다.
+#   (반복문 없이 POSIX 문자열 치환만 써서 셸을 열 때마다 드는 비용을 줄임 — 항목을 하나씩 도는 방식은 env.sh 한 번에 약 60ms)
 _dt2_path_prepend() {
     case ":$PATH:" in
-        *":$1:"*) ;;
-        *) PATH="$1${PATH:+:$PATH}" ;;
+        ":$1:"*) ;;                       # 이미 맨 앞
+        *":$1:"*)                         # 중간·뒤에 있으면 그 항목을 빼고 맨 앞에 붙임
+            _dt2_p=":$PATH:"
+            _dt2_p="${_dt2_p%%:"$1":*}:${_dt2_p#*:"$1":}"
+            _dt2_p="${_dt2_p#:}"
+            _dt2_p="${_dt2_p%:}"
+            PATH="$1${_dt2_p:+:$_dt2_p}"
+            unset _dt2_p ;;
+        *) PATH="$1${PATH:+:$PATH}" ;;    # 없으면 맨 앞에 추가
     esac
 }
 
@@ -175,7 +188,6 @@ EOF
         echo "_dt2_path_prepend \"${_DT2_PATH_DIRS[$_i]}\""
     done
     echo "export PATH"
-    echo "unset -f _dt2_path_prepend"
     echo ""
 } >>"$_DEVTOOLS2_ENV_TMP"
 
@@ -198,15 +210,22 @@ fi
 # 환경별 추가 도구(Ghostty, Zed, win32yank) 경로를 env.sh에 직접 통합
 if [ "$IS_WSL2" = false ]; then
     cat << 'EOF' >> "$_DEVTOOLS2_ENV_TMP"
-case ":$PATH:" in *":$DEVTOOLS2/modules/ghostty:"*) ;; *) [ -d "$DEVTOOLS2/modules/ghostty" ] && export PATH="$DEVTOOLS2/modules/ghostty:$PATH" ;; esac
-case ":$PATH:" in *":$DEVTOOLS2/modules/zed/bin:"*) ;; *) [ -d "$DEVTOOLS2/modules/zed/bin" ] && export PATH="$DEVTOOLS2/modules/zed/bin:$PATH" ;; esac
+[ -d "$DEVTOOLS2/modules/ghostty" ] && _dt2_path_prepend "$DEVTOOLS2/modules/ghostty"
+[ -d "$DEVTOOLS2/modules/zed/bin" ] && _dt2_path_prepend "$DEVTOOLS2/modules/zed/bin"
 EOF
 else
     cat << 'EOF' >> "$_DEVTOOLS2_ENV_TMP"
-case ":$PATH:" in *":$DEVTOOLS2/modules/win32yank:"*) ;; *) [ -d "$DEVTOOLS2/modules/win32yank" ] && export PATH="$DEVTOOLS2/modules/win32yank:$PATH" ;; esac
+# (이미 PATH 뒤쪽에 있어도 맨 앞으로 옮김 — Windows 폴더보다 먼저 찾도록, 위 _dt2_path_prepend 설명 참고)
+[ -d "$DEVTOOLS2/modules/win32yank" ] && _dt2_path_prepend "$DEVTOOLS2/modules/win32yank"
 EOF
 fi
 
+# _dt2_path_prepend 는 위의 환경별 추가 도구(win32yank 등)에서도 쓰므로 맨 끝에서 지웁니다
+# (예전에는 PATH 목록 바로 뒤에서 지워, 뒤에 붙는 줄에서 "명령어를 찾을 수 없음"이 났음)
+{
+    echo "export PATH"
+    echo "unset -f _dt2_path_prepend"
+} >>"$_DEVTOOLS2_ENV_TMP"
 echo "# === DEVTOOLS2 환경 변수 끝 ===" >>"$_DEVTOOLS2_ENV_TMP"
 echo "" >>"$_DEVTOOLS2_ENV_TMP"
 
@@ -298,7 +317,7 @@ fi
 #   도구를 지워도 git 은 그대로 동작합니다. 설정 자체를 빼려면 git config --global --unset <키>.
 #   ● core.pager / interactive.diffFilter: delta (없으면 less -FRX / cat)
 #   ● delta.*: 줄 번호, n/N 으로 파일 단위 이동 — 좌우 비교는 lazygit 의 '|' 전환 또는 git -c delta.side-by-side=true
-#   ● merge.conflictStyle=zdiff3: 충돌 블록에 공통 조상(base)도 표시 (git-conflict.nvim·diffview 병합 화면에도 보임)
+#   ● merge.conflictStyle=zdiff3: 충돌 블록에 공통 조상(base)도 표시 (codediff·diffview 병합 화면에도 보임)
 #   ● diff.algorithm=histogram: 기본(myers)보다 사람이 읽기 좋은 diff
 #   ● diff.colorMoved=default: 옮겨진 줄을 추가/삭제와 다른 색으로 표시
 #   ● alias dft / dlog: difftastic 구조 비교 (git dft, git dlog)
