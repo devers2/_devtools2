@@ -299,6 +299,39 @@ function Wait-WithSpinner {
     }
 }
 
+# 시간이 걸리는 작업(scriptblock)을 같은 프로세스의 별도 실행 공간(runspace)에서 돌리고, 끝날 때까지 스피너 표시
+# - 예: WSL 을 깨우는 wsl.exe 호출, \\wsl$ 경로 확인·복사처럼 화면에 아무것도 안 나오고 몇 초씩 멈춘 것처럼 보이는 작업
+# - Start-Job 은 새 PowerShell 프로세스를 띄워 1~2초가 더 걸리므로 runspace 를 씁니다(PS 5.1 / PS 7 공통).
+# - scriptblock 안에서는 이 파일의 함수(Write-Info 등)를 쓸 수 없으니 필요한 값은 -ArgumentList 로 넘기세요.
+# - scriptblock 의 오류는 호출부로 전달되지 않으므로, 성공 여부는 반환값이나 결과물(파일 존재 등)로 확인하세요.
+# 반환: scriptblock 출력 (시간 초과 시 작업을 멈추고 $null)
+function Invoke-WithSpinner {
+    param(
+        [string]$Message,
+        [scriptblock]$ScriptBlock,
+        [object[]]$ArgumentList = @(),
+        [int]$MaxTimeoutSeconds = 600
+    )
+    $ps = [powershell]::Create()
+    [void]$ps.AddScript($ScriptBlock.ToString())
+    foreach ($arg in $ArgumentList) { [void]$ps.AddArgument($arg) }
+    $handle = $ps.BeginInvoke()
+    $cond = { $handle.IsCompleted }.GetNewClosure()
+    $null = Wait-WithSpinner -Message $Message -Condition $cond -MaxTimeoutSeconds $MaxTimeoutSeconds
+    $result = $null
+    try {
+        if ($handle.IsCompleted) {
+            $result = $ps.EndInvoke($handle)
+        } else {
+            $ps.Stop()
+        }
+    } catch {
+        Write-Warn "$Message 중 오류: $($_.Exception.Message)"
+    }
+    $ps.Dispose()
+    return $result
+}
+
 # ==============================================================================
 # WSL 디스트로 상태 확인 / 안전 종료 대기 공용 헬퍼
 # ==============================================================================

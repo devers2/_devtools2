@@ -36,13 +36,18 @@ fi
 _ensure_pkg() {
     local cmd="$1" pkg="${2:-$1}"
     if ! command -v "$cmd" >/dev/null 2>&1; then
+        # 설치는 백그라운드로 돌리고 스피너로 진행 중임을 표시합니다.
+        # (sudo 비밀번호 질문이 스피너에 가려지지 않도록 인증을 먼저 받아 둠)
+        dt2_sudo_auth || true
         echo -n "   📦 필수 패키지 ($pkg) 자동 설치 중..."
         if command -v sudo >/dev/null 2>&1; then
-            sudo apt-get update -qq >/dev/null 2>&1 || true
-            sudo apt-get install -y "$pkg" >/dev/null 2>&1 || true
+            ( sudo apt-get update -qq >/dev/null 2>&1 || true
+              sudo apt-get install -y "$pkg" >/dev/null 2>&1 || true ) &
+            show_spinner $!; wait $! 2>/dev/null || true
         elif [ "$(id -u)" -eq 0 ]; then
-            apt-get update -qq >/dev/null 2>&1 || true
-            apt-get install -y "$pkg" >/dev/null 2>&1 || true
+            ( apt-get update -qq >/dev/null 2>&1 || true
+              apt-get install -y "$pkg" >/dev/null 2>&1 || true ) &
+            show_spinner $!; wait $! 2>/dev/null || true
         fi
         if command -v "$cmd" >/dev/null 2>&1; then
             echo " 완료"
@@ -376,7 +381,11 @@ ensure_korean_ime() {
         fi
         # ⚠️ 종료코드를 확인하지 않으면 설치가 실패해도 아래에서 "설치 완료"가
         # 그대로 출력됩니다(3.install-cli-tools.sh의 apt install 오류 처리 관례와 동일하게 맞춤).
-        if ! { "${_sudo[@]}" apt-get update -qq && "${_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${_pkgs[@]}"; } >"$DT2_TMP/_ime_apt.log" 2>&1; then
+        # 설치는 백그라운드로 돌리고 스피너로 진행 중임을 표시합니다(위에서 sudo 인증을 이미 받아 둠).
+        _dt2_ime_apt() {
+            { "${_sudo[@]}" apt-get update -qq && "${_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${_pkgs[@]}"; } >"$DT2_TMP/_ime_apt.log" 2>&1
+        }
+        if ! run_with_spinner_cmd "한글 입력기 설치 중... (${_pkgs[*]})" _dt2_ime_apt; then
             print_error "한글 입력기 설치에 실패했습니다. (로그: $DT2_TMP/_ime_apt.log)"
             return 1
         fi
@@ -529,8 +538,12 @@ ensure_korean_gui_font() {
             fi
         fi
         # 패키지 목록이 오래되어 실패하면 목록을 갱신한 뒤 한 번 더 시도합니다.
-        if { "${_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fonts-noto-cjk \
-            || { "${_sudo[@]}" apt-get update -qq && "${_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fonts-noto-cjk; }; } >"$DT2_TMP/_font_apt.log" 2>&1; then
+        # 설치는 백그라운드로 돌리고 스피너로 진행 중임을 표시합니다(위에서 sudo 인증을 이미 받아 둠).
+        _dt2_font_apt() {
+            { "${_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fonts-noto-cjk \
+                || { "${_sudo[@]}" apt-get update -qq && "${_sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq fonts-noto-cjk; }; } >"$DT2_TMP/_font_apt.log" 2>&1
+        }
+        if run_with_spinner_cmd "한글 UI 글꼴 설치 중... (fonts-noto-cjk)" _dt2_font_apt; then
             print_done "한글 UI 글꼴 설치 완료: Noto Sans CJK KR"
         else
             print_warn "한글 UI 글꼴 설치에 실패했습니다. (로그: $DT2_TMP/_font_apt.log) — D2Coding 으로 대체합니다."
