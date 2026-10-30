@@ -16,6 +16,33 @@ if not vim.uv.fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
+-- [LazyVim 도 lazy-lock.json 의 고정 커밋으로 먼저 받기 — 새 PC 에서 플러그인 버전이 고정 커밋과 달라지는 문제 방지]
+-- 새 PC 에서 처음 켜면 lazy.nvim 은 설치를 두 번에 나눠 합니다.
+--   1차: 이 설정(plugins/)에 적힌 플러그인 + LazyVim 본체 설치 (고정 커밋대로)
+--        → 끝나면 lazy-lock.json 을 다시 쓰는데, 이때 아직 설치하지 않은 플러그인의 고정 커밋을 목록에서 지움
+--   2차: LazyVim 본체가 생긴 뒤에야 보이는 "LazyVim 이 정의한 플러그인"(gitsigns, mini.*, mason-lspconfig 등)을
+--        설치하는데, 고정 커밋이 이미 지워져 최신 버전으로 설치됨 (실측: 58개 중 8개가 고정 커밋과 다름,
+--        reflog 에 clone 만 있고 checkout 없음)
+-- LazyVim 을 lazy.nvim 처럼 미리 받아 두면 1차에서 LazyVim 의 플러그인 목록까지 모두 보여 한 번에 고정 커밋대로
+-- 설치됩니다. LazyVim 폴더가 없을 때(새 PC)만 동작하므로 이미 설치된 PC 에는 영향이 없습니다.
+-- 받기에 실패해도 중단하지 않습니다(lazy.nvim 이 평소처럼 LazyVim 을 받음 — 이 경우 예전처럼 일부가 최신으로 설치될 뿐).
+local lazyvim_path = lazy_root .. '/LazyVim'
+if not vim.uv.fs_stat(lazyvim_path) then
+  local lock_commit
+  local lf = io.open(vim.fn.stdpath('config') .. '/lazy-lock.json', 'r')
+  if lf then
+    local ok, lock = pcall(vim.json.decode, lf:read('*a') or '')
+    lf:close()
+    if ok and type(lock) == 'table' and type(lock.LazyVim) == 'table' then
+      lock_commit = lock.LazyVim.commit
+    end
+  end
+  vim.fn.system({ 'git', 'clone', '--filter=blob:none', 'https://github.com/LazyVim/LazyVim.git', lazyvim_path })
+  if vim.v.shell_error == 0 and lock_commit then
+    vim.fn.system({ 'git', '-C', lazyvim_path, 'checkout', '--quiet', lock_commit })
+  end
+end
+
 -- [그룹 공유 플러그인의 git "소유자 불일치" 허용]
 -- 공유 플러그인 폴더는 처음 설치한 사람 소유라서, 같은 그룹의 다른 사용자가 :Lazy update 등으로
 -- git 을 실행하면 "detected dubious ownership" 으로 거부됩니다. Neovim 이 띄우는 git 프로세스에만
