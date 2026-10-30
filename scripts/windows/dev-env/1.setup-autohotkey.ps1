@@ -449,6 +449,15 @@ if ($installAhk) {
     Write-Host "  CapsLock + 다른 키  : Ctrl 조합" -ForegroundColor White
     Write-Host "  Shift + CapsLock    : 대문자 고정 ON" -ForegroundColor White
     Write-Host "  (고정ON) CapsLock/ESC: 대문자 고정 OFF" -ForegroundColor White
+    # Esc·CapsLock(탭)·Ctrl+[ 의 한글 → 영문 자동 전환은 항상 동작하는 기능이라 함께 안내 (AHK Part 4)
+    Write-Host "  Esc / Ctrl+[        : 한글 입력 중이면 영문으로 자동 전환" -ForegroundColor White
+    # Sublime Merge(WSL 의 Linux 판, Step 3 에서 설치)가 있을 때만 그 단축키를 안내합니다 (AHK Part 4·5).
+    # 이 단계(Step 4)에서는 WSL 이 이미 실행 중이라 \\wsl$ 경로 확인이 빠릅니다.
+    $_smergeBin = Join-Path (Get-WslDevtools2Path $WslDistro) "modules\sublime-merge\sublime_merge"
+    if (Test-Path $_smergeBin) {
+        Write-Host "  Ctrl+Alt+G          : Sublime Merge(WSL) 열기 / 열려 있으면 앞으로 가져오기" -ForegroundColor White
+        Write-Host "  한/영 (WSL 앱 창)   : WSL 한글 입력기(fcitx5) 전환 — Sublime Merge·Orca 등 WSLg 창" -ForegroundColor White
+    }
 } else {
     Write-Host "  [안내] AutoHotkey 설치를 건너뛰어 devtools2 관련 AHK 기능이 비활성화되었습니다." -ForegroundColor Yellow
 }
