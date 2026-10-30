@@ -75,13 +75,14 @@
     // Python: 탭 크기 4 설정 (PEP 8 표준)
     // - 코드 분석: Zed 기본값 basedpyright(+ ruff 진단) — Neovim 과 같은 조합. 가상환경은 프로젝트 설정 스크립트가 만드는
     //   pyrightconfig.json(venvPath/venv)으로 인식
-    // - 포맷: Neovim(ruff_fix + ruff_format)과 같게 — 저장 시 ruff 로 자동 수정(fixAll)·import 정리 후 ruff 포맷
+    // - 포맷: Neovim(ruff_fix + ruff_format)과 같게 — 저장 시 ruff 로 자동 수정(fixAll) 후 ruff 포맷
+    //   (import 정리(source.organizeImports.ruff)는 넣지 않음: ruff.toml 의 규칙과 상관없이 import 를 정렬해서, import 정렬
+    //    규칙(I)이 꺼져 있는 공통 ruff.toml 기준 Neovim 과 결과가 달라짐. 프로젝트 ruff 설정에 "I" 를 켜면 fixAll 이 정렬함)
     //   (ruff 설정 파일 선택은 아래 lsp.ruff — 프로젝트 설정 우선, 없으면 DevTools2 공통 ruff.toml)
     "Python": {
       "tab_size": 4,
       "code_actions_on_format": {
-        "source.fixAll.ruff": true,
-        "source.organizeImports.ruff": true
+        "source.fixAll.ruff": true
       },
       "formatter": { "language_server": { "name": "ruff" } }
     },
