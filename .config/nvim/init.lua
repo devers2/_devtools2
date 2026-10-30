@@ -82,7 +82,13 @@ end)
 --   jdtls 가 끝내 설치되지 못하고 "최초 실행 감지" 메시지가 매번 반복됐습니다(실측: 6번 연속 중단).
 --   또 jdtls 만 끝나면 다른 도구가 남아 있어도 메시지가 사라지는 문제도 있었습니다.
 -- ● 그래서 메시지에 "끝날 때까지 닫지 마세요"를 명시하고, 남은 도구가 모두 설치되면 완료 알림을 한 번 띄웁니다.
+-- ● 진행 표시: 도구 하나의 설치가 끝날 때마다(성공·실패 모두) 같은 알림을 그 자리에서 갱신합니다
+--   (snacks.notifier 는 같은 id 로 다시 보내면 떠 있는 알림을 교체). 설치 중에는 사라지지 않게 띄워 두고
+--   (timeout = false, 직접 닫을 수는 있음), 모두 끝나면 같은 알림을 완료 안내로 바꿉니다.
+--   실패한 도구는 이름을 알려 주고 다음 실행 때 Mason 이 다시 시도합니다(:Mason 에서 직접 설치도 가능).
 do
+  local NOTIFY_ID = 'dt2_mason_install_progress'
+
   vim.api.nvim_create_autocmd('User', {
     pattern = 'VeryLazy',
     once = true,
@@ -96,56 +102,99 @@ do
         if not (ok and ok_opts) then
           return
         end
-        local missing = {}
+        local pending = {}
         for _, name in ipairs((mason_opts or {}).ensure_installed or {}) do
           if registry.has_package(name) and not registry.is_installed(name) then
-            missing[name] = true
+            pending[name] = true
           end
         end
-        local remaining = vim.tbl_count(missing)
-        if remaining == 0 then
+        local total = vim.tbl_count(pending)
+        if total == 0 then
           return
         end
+        local done, failed = 0, {}
 
-        vim.notify(
-          table.concat({
-            ('🚀 언어 도구 설치 중 (%d개 남음)'):format(remaining),
-            '',
-            '플러그인 및 언어 도구를 설치하고 있습니다.',
-            '설치 중에는 일부 기능이 동작하지 않거나 오류가 표시될 수 있습니다.',
-            '',
-            '⛔ 설치가 끝날 때까지 Neovim 을 닫지 마세요.',
-            '   닫으면 설치가 중단되고, 다음 실행 때 처음부터 다시 받습니다.',
-            '⚡ 완료 알림이 뜨면 Neovim 을 재시작하세요. 모든 기능이 정상 동작합니다.',
-          }, '\n'),
-          vim.log.levels.WARN,
-          {
-            title = '⚙️  언어 도구 설치 진행 중 — 완료 후 재시작 필요',
-            timeout = 15000, -- 15초간 표시
-          }
-        )
+        local function render()
+          local left = vim.tbl_count(pending)
+          if left > 0 then
+            local lines = {
+              ('🚀 언어 도구 설치 중 — 완료 %d / 전체 %d (남음 %d)'):format(
+                done + #failed,
+                total,
+                left
+              ),
+            }
+            if #failed > 0 then
+              table.insert(
+                lines,
+                ('   ⚠️  실패 %d개: %s'):format(#failed, table.concat(failed, ', '))
+              )
+            end
+            vim.list_extend(lines, {
+              '',
+              '플러그인 및 언어 도구를 설치하고 있습니다.',
+              '설치 중에는 일부 기능이 동작하지 않거나 오류가 표시될 수 있습니다.',
+              '',
+              '⛔ 설치가 끝날 때까지 Neovim 을 닫지 마세요.',
+              '   닫으면 설치가 중단되고, 다음 실행 때 처음부터 다시 받습니다.',
+              '⚡ 완료 알림이 뜨면 Neovim 을 재시작하세요. 모든 기능이 정상 동작합니다.',
+            })
+            vim.notify(table.concat(lines, '\n'), vim.log.levels.WARN, {
+              id = NOTIFY_ID,
+              title = '⚙️  언어 도구 설치 진행 중 — 완료 후 재시작 필요',
+              timeout = false,
+            })
+          elseif #failed == 0 then
+            vim.notify(
+              ('✅ 언어 도구 %d개 설치가 모두 끝났습니다. Neovim 을 재시작하면 모든 기능이 정상 동작합니다.'):format(
+                total
+              ),
+              vim.log.levels.INFO,
+              {
+                id = NOTIFY_ID,
+                title = '⚙️  언어 도구 설치 완료',
+                timeout = _G.NOTIFY_CRITICAL_TIMEOUT,
+              }
+            )
+          else
+            vim.notify(
+              table.concat({
+                ('언어 도구 %d개 중 %d개를 설치하지 못했습니다: %s'):format(
+                  total,
+                  #failed,
+                  table.concat(failed, ', ')
+                ),
+                '네트워크를 확인한 뒤 Neovim 을 재시작하면 다시 시도합니다. (:Mason 에서 직접 설치할 수도 있음)',
+              }, '\n'),
+              vim.log.levels.WARN,
+              {
+                id = NOTIFY_ID,
+                title = '⚙️  언어 도구 설치 일부 실패',
+                timeout = _G.NOTIFY_CRITICAL_TIMEOUT,
+              }
+            )
+          end
+        end
 
-        -- 남은 도구가 모두 설치되면 완료 알림 (실패한 도구는 남은 개수에서 빼지 않음 — 다음 실행 때 다시 시도)
+        local function on_finish(success)
+          return vim.schedule_wrap(function(pkg)
+            if not (pkg and pending[pkg.name]) then
+              return
+            end
+            pending[pkg.name] = nil
+            if success then
+              done = done + 1
+            else
+              table.insert(failed, pkg.name)
+            end
+            render()
+          end)
+        end
+
+        render()
         pcall(function()
-          registry:on(
-            'package:install:success',
-            vim.schedule_wrap(function(pkg)
-              if not missing[pkg.name] then
-                return
-              end
-              missing[pkg.name] = nil
-              if next(missing) == nil then
-                vim.notify(
-                  '✅ 언어 도구 설치가 모두 끝났습니다. Neovim 을 재시작하면 모든 기능이 정상 동작합니다.',
-                  vim.log.levels.INFO,
-                  {
-                    title = '⚙️  언어 도구 설치 완료',
-                    timeout = _G.NOTIFY_CRITICAL_TIMEOUT,
-                  }
-                )
-              end
-            end)
-          )
+          registry:on('package:install:success', on_finish(true))
+          registry:on('package:install:failed', on_finish(false))
         end)
       end, 1000)
     end,
