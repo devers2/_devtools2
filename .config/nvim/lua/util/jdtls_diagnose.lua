@@ -19,6 +19,8 @@ jdtls 가 Java 설정 때문에 실패했을 때, 로그 파일(lsp.log)을 뒤�
   3. jdtls 가 비정상 종료될 때 (on_exit)
   4. 같은 프로젝트를 다른 jdtls 가 이미 열고 있을 때 (check_concurrent — jdtls 를 띄우기 직전)
      - 다른 Neovim 창의 jdtls 가 같은 작업 폴더(-data)를 씀 → 경고 (Gradle 동기화·오류 표시가 꼬임)
+       → 이 창은 비어 있는 별도 작업 폴더(<프로젝트>-2, -3 …)로 시작하도록 그 경로를 돌려줌
+         (같은 프로젝트를 Neovim 여러 창에서 열어 작업해도 되도록 — 창마다 jdtls 가 따로 떠 메모리를 더 씀)
      - VS Code·Zed·IntelliJ 의 jdtls 가 같은 프로젝트를 엶 → 안내 (작업 폴더는 따로지만 .project·.classpath·bin/ 을 함께 씀)
   5. jdtls 가 프로젝트 파일 충돌을 보고할 때 (on_log_message — "out of sync" / "Failed to configure project")
      - 여러 편집기가 동시에 .project 를 고쳐 쓴 경우가 대부분 → 다른 편집기 닫고 :JdtWipeDataAndRestart
@@ -26,6 +28,8 @@ jdtls 가 Java 설정 때문에 실패했을 때, 로그 파일(lsp.log)을 뒤�
       의존성(jsoup 등)을 못 찾는 오류만 보여 원인을 알기 어려웠음)
 
 같은 내용의 알림은 Neovim 세션당 한 번만 보냅니다(jdtls 재시작·여러 버퍼에서 반복되지 않도록).
+경고 알림은 init.lua 의 _G.NOTIFY_WARN_TIMEOUT 동안 떠 있습니다(다른 중요 경고와 같은 시간 — 기본 시간으로는 지나가 버려
+알림 기록에서만 보이는 경우가 있었음).
 ===========================================================================================
 --]]
 
@@ -43,7 +47,7 @@ local TITLE = 'Java 설정 확인'
 -- 그래서 VimEnter 전이면 VimEnter 를 기다리고, 그 뒤 잠깐(1.5초) 늦춰 알림 창이 준비된 다음 보냅니다.
 local function deliver(msg, level)
   local send = function()
-    vim.notify(msg, level or vim.log.levels.WARN, { title = TITLE })
+    vim.notify(msg, level or vim.log.levels.WARN, { title = TITLE, timeout = _G.NOTIFY_WARN_TIMEOUT or 15000 })
   end
   if vim.v.vim_did_enter == 1 and (vim.uv.hrtime() - (M._entered_at or 0)) > 3e9 then
     vim.schedule(send)
@@ -212,14 +216,27 @@ local function started_ago(starttime)
   return string.format('약 %.1f시간 전 시작', sec / 3600)
 end
 
--- 마지막 검사에서 찾은 다른 편집기 목록 (on_log_message 의 충돌 안내에서도 사용)
+-- 마지막 검사에서 찾은 다른 jdtls 목록 (on_log_message 의 충돌 안내에서도 사용)
+--   same_ws: 이 창이 원래 쓰려던 작업 폴더를 쓰는 다른 Neovim 창 / others: 같은 프로젝트를 연 그 밖의 jdtls
+M.same_ws = {}
 M.others = {}
+
+-- 안내 문구용 편집기 이름
+local function editor_label(i)
+  if i.editor == 'nvim' then
+    return '다른 Neovim 창'
+  elseif i.editor == 'unknown' then
+    return '다른 프로그램'
+  end
+  return i.editor
+end
 
 --- 같은 프로젝트를 이미 열고 있는 다른 jdtls 가 있는지 확인해 알림
 --- (plugins/java.lua 의 full_cmd 에서 jdtls 를 띄우기 직전에 호출 — 이 시점엔 내 jdtls 가 아직 없음.
 ---  :JdtRestart 등으로 내 jdtls 가 남아 있어도 부모가 이 Neovim 이면 제외)
 --- @param workspace_dir string 이 Neovim 이 쓸 jdtls 작업 폴더(-data)
 --- @param root string|nil 프로젝트 루트
+--- @return string|nil 다른 Neovim 창이 workspace_dir 을 쓰고 있으면 대신 쓸 비어 있는 작업 폴더 경로
 function M.check_concurrent(workspace_dir, root)
   if not root or root == '' or vim.fn.isdirectory('/proc') == 0 then
     return
@@ -228,6 +245,7 @@ function M.check_concurrent(workspace_dir, root)
   local real_ws = vim.uv.fs_realpath(workspace_dir) or workspace_dir
   local real_root = vim.uv.fs_realpath(root) or root
   local same_ws, others = {}, {}
+  local used_ws = {} -- 실행 중인 다른 jdtls 들이 쓰는 작업 폴더 (별도 폴더 고를 때 겹치지 않게)
   for _, name in ipairs(vim.fn.readdir('/proc', function(n)
     return n:match('^%d+$') and 1 or 0
   end)) do
@@ -245,6 +263,9 @@ function M.check_concurrent(workspace_dir, root)
       if editor ~= 'self' then
         local _, starttime = proc_stat(name)
         local info = { pid = tonumber(name), editor = editor, editor_pid = editor_pid, ago = started_ago(starttime) }
+        if data then
+          used_ws[vim.uv.fs_realpath(data) or data] = true
+        end
         if data and (vim.uv.fs_realpath(data) or data) == real_ws then
           table.insert(same_ws, info)
         elseif cwd == real_root or vim.startswith(cwd, real_root .. '/') then
@@ -253,28 +274,47 @@ function M.check_concurrent(workspace_dir, root)
       end
     end
   end
+  M.same_ws = same_ws
   M.others = others
 
+  -- 다른 Neovim 창이 같은 작업 폴더를 쓰면: 비어 있는 별도 폴더(-2, -3 …)를 골라 돌려줌
+  local alt_ws
   if #same_ws > 0 then
+    for n = 2, 20 do
+      local cand = workspace_dir .. '-' .. n
+      if not used_ws[vim.uv.fs_realpath(cand) or cand] then
+        alt_ws = cand
+        break
+      end
+    end
     local lines = {
-      '같은 프로젝트의 jdtls 가 이미 실행 중입니다 (같은 작업 폴더를 함께 사용).',
+      '같은 프로젝트를 다른 Neovim 창에서도 열고 있습니다.',
     }
     for _, i in ipairs(same_ws) do
-      table.insert(lines, string.format('  - %s (jdtls PID %d%s, %s)', i.editor == 'nvim' and '다른 Neovim 창' or i.editor,
+      table.insert(lines, string.format('  - %s (jdtls PID %d%s, %s)', editor_label(i),
         i.pid, i.editor_pid and (', nvim PID ' .. i.editor_pid) or '', i.ago))
     end
-    vim.list_extend(lines, {
-      '  작업 폴더: ' .. vim.fn.fnamemodify(workspace_dir, ':~'),
-      '  두 jdtls 가 같은 폴더를 쓰면 Gradle 동기화가 실패하거나 의존성을 못 찾는 오류가 남을 수 있습니다.',
-      '  해결: 다른 Neovim 창을 닫고, 오류가 남아 있으면 :JdtWipeDataAndRestart',
-    })
+    if alt_ws then
+      vim.list_extend(lines, {
+        '  여러 jdtls 가 한 작업 폴더를 함께 쓰면 색인·Gradle 동기화가 꼬이므로, 이 창은 별도 작업 폴더로 시작합니다.',
+        '    ' .. vim.fn.fnamemodify(workspace_dir, ':~') .. ' → ' .. vim.fn.fnamemodify(alt_ws, ':~'),
+        '  (창마다 jdtls 가 따로 떠 메모리를 더 쓰고, 이 폴더로 처음 열 때는 프로젝트를 새로 불러옵니다)',
+        '  프로젝트의 .project · .classpath · bin/ 은 함께 쓰므로, 여러 창에서 동시에 Gradle 동기화가 돌면 충돌할 수 있습니다.',
+      })
+    else
+      vim.list_extend(lines, {
+        '  작업 폴더: ' .. vim.fn.fnamemodify(workspace_dir, ':~') .. ' (비어 있는 별도 폴더를 찾지 못해 함께 사용)',
+        '  여러 jdtls 가 같은 폴더를 쓰면 Gradle 동기화가 실패하거나 의존성을 못 찾는 오류가 남을 수 있습니다.',
+        '  해결: 다른 Neovim 창을 닫고, 오류가 남아 있으면 :JdtWipeDataAndRestart',
+      })
+    end
     notify_once('concurrent_ws:' .. real_ws, table.concat(lines, '\n'), vim.log.levels.WARN)
   end
 
   if #others > 0 then
     local names, seen = {}, {}
     for _, i in ipairs(others) do
-      local n = i.editor == 'nvim' and '다른 Neovim 창' or (i.editor == 'unknown' and '다른 프로그램' or i.editor)
+      local n = editor_label(i)
       if not seen[n] then
         seen[n] = true
         table.insert(names, n)
@@ -285,8 +325,9 @@ function M.check_concurrent(workspace_dir, root)
       '  작업 폴더는 따로지만 프로젝트의 .project · .classpath · bin/ 을 함께 고쳐 씁니다.',
       '  동시에 열면 Gradle 동기화가 실패할 수 있습니다("Failed to configure project", "out of sync").',
       '  그런 오류가 나면 다른 편집기를 닫고 :JdtWipeDataAndRestart',
-    }, '\n'), vim.log.levels.INFO)
+    }, '\n'), vim.log.levels.WARN)
   end
+  return alt_ws
 end
 
 --- jdtls 의 window/logMessage 내용을 보고 Java 설정 관련 실패면 알림
@@ -297,9 +338,18 @@ function M.on_log_message(message)
   end
   -- 프로젝트 파일 충돌: 여러 편집기(또는 Neovim 창)가 같은 프로젝트의 .project 를 동시에 고쳐 씀
   if message:find('out of sync with the file system', 1, true) or message:find('Failed to configure project', 1, true) then
-    local names = {}
-    for _, i in ipairs(M.others or {}) do
-      table.insert(names, i.editor == 'nvim' and '다른 Neovim 창' or i.editor)
+    -- 함께 연 곳: 다른 Neovim 창(같은 작업 폴더·별도 작업 폴더 모두)을 먼저, 그 다음 VS Code·Zed 등
+    local names, seen = {}, {}
+    local list = vim.list_extend(vim.list_extend({}, M.same_ws or {}), M.others or {})
+    table.sort(list, function(a, b)
+      return (a.editor == 'nvim' and 0 or 1) < (b.editor == 'nvim' and 0 or 1)
+    end)
+    for _, i in ipairs(list) do
+      local n = editor_label(i)
+      if not seen[n] then
+        seen[n] = true
+        table.insert(names, n)
+      end
     end
     notify_once('project_out_of_sync', table.concat({
       'Gradle 프로젝트 구성 실패: 프로젝트 파일(.project)이 다른 프로그램과 충돌했습니다.',

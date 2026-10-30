@@ -926,7 +926,7 @@ return {
               .. '  • 대형 프로젝트이거나 JDTLS 초기 인덱싱 중일 수 있습니다.\n'
               .. '  • .vscode/settings.json의 "java.build.timeout"으로 기본 대기 초를 변경할 수 있습니다.', elapsed_sec),
             vim.log.levels.WARN,
-            { title = 'Java Launch: 빌드 대기 지연', id = notif_id, timeout = 15000 }
+            { title = 'Java Launch: 빌드 대기 지연', id = notif_id, timeout = _G.NOTIFY_WARN_TIMEOUT or 15000 }
           )
 
           vim.ui.select({
@@ -1030,7 +1030,7 @@ return {
               vim.notify(
                 string.format('❌ Java 빌드 에러 감지 (총 %d건):%s\n(:copen 에서 전체 목록 확인 가능)', #errors, err_detail),
                 vim.log.levels.ERROR,
-                { title = 'Java Build Error', timeout = 15000 }
+                { title = 'Java Build Error', timeout = _G.NOTIFY_WARN_TIMEOUT or 15000 }
               )
 
               -- quickfix에 진단 목록을 채우고 계속 진행할지 확인
@@ -1095,7 +1095,7 @@ return {
               .. '  • .vscode/launch.json의 "projectName" 확인\n'
               .. '  • settings.gradle의 rootProject.name과 대소문자까지 일치하는지 확인',
             vim.log.levels.WARN,
-            { title = 'Java Launch: 어댑터 초기화 지연', id = notif_id, timeout = 15000 }
+            { title = 'Java Launch: 어댑터 초기화 지연', id = notif_id, timeout = _G.NOTIFY_WARN_TIMEOUT or 15000 }
           )
           -- vim.ui.select prompt는 단일 행 사용 (목록은 창 너비에 따라 자연스럽게 말줄임 처리)
           vim.ui.select({

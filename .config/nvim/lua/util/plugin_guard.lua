@@ -47,7 +47,7 @@ function M.safe_setup(plugin_name, category, setup_fn)
 
       vim.notify(msg, vim.log.levels.WARN, {
         title = string.format('%s 호환성 가드', category or '플러그인'),
-        timeout = 10000,
+        timeout = _G.NOTIFY_WARN_TIMEOUT or 15000,
       })
     end)
     return false

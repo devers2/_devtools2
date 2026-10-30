@@ -317,7 +317,7 @@ return {
         else
           jdtls_java_home = effective_jdk_home
           _G.log_jdtls(string.format('[WARN] Java %d 이상 JDK 가 없어 jdtls 를 실행할 수 없습니다 (설치 스크립트로 JDK 21 이상을 설치하세요).', JDTLS_MIN_JAVA))
-          vim.notify(string.format('jdtls 는 Java %d 이상이 필요한데 설치된 JDK 가 없습니다. 설치 스크립트로 JDK 21 이상을 설치하세요.', JDTLS_MIN_JAVA), vim.log.levels.WARN)
+          vim.notify(string.format('jdtls 는 Java %d 이상이 필요한데 설치된 JDK 가 없습니다. 설치 스크립트로 JDK 21 이상을 설치하세요.', JDTLS_MIN_JAVA), vim.log.levels.WARN, { timeout = _G.NOTIFY_WARN_TIMEOUT })
         end
 
         -- [실행 정보 기록]
@@ -382,7 +382,13 @@ return {
         local workspace_dir = _G.NVIM_CACHE_DIR .. '/jdtls/' .. p_name
         -- [동시 실행 확인] 같은 작업 폴더를 쓰는 다른 Neovim 창의 jdtls, 같은 프로젝트를 연 VS Code·Zed 등을 알림
         -- (util.jdtls_diagnose 의 check_concurrent 설명 참고 — /proc 만 읽어 시작 지연은 수 ms)
-        pcall(diag.check_concurrent, workspace_dir, root)
+        -- 다른 Neovim 창이 이미 이 작업 폴더를 쓰고 있으면 비어 있는 별도 폴더(<프로젝트>-2, -3 …)를 돌려받아 그 폴더로 시작합니다.
+        -- 두 jdtls 가 한 작업 폴더(색인·프로젝트 상태)를 함께 고쳐 쓰면 꼬이고, 나중에 연 창이 꼬인 상태를 그대로 이어받기 때문입니다.
+        local ok_cc, alt_ws = pcall(diag.check_concurrent, workspace_dir, root)
+        if ok_cc and type(alt_ws) == 'string' then
+          _G.log_jdtls('다른 Neovim 창이 작업 폴더 사용 중 → 별도 작업 폴더로 시작: ' .. alt_ws)
+          workspace_dir = alt_ws
+        end
         local mason_lombok_path = _G.NVIM_SHARED_DIR .. '/mason/packages/jdtls/lombok.jar'
 
         -- [jdtls 힙 크기: 이 PC 의 전체 메모리에 맞춰 결정]
