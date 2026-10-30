@@ -112,8 +112,6 @@ return {
 
         -- ── 프로파일러 그룹 (<leader>dp) ──
         { '<leader>dp', group = '[p] 프로파일러 (Profiler)' },
-        { '<leader>dph', desc = '프로파일러 하이라이트 토글 (Toggle Profiler Highlights)' },
-        { '<leader>dpp', desc = '프로파일러 토글 (Toggle Profiler)' },
         { '<leader>dps', desc = '프로파일러 스크래치 버퍼 (Profiler Scratch Buffer)' },
 
         -- ── 파일/검색 그룹 (<leader>f) ──
@@ -151,7 +149,6 @@ return {
         { '<leader>gQ', desc = 'Git Diffview 닫기 (Close Git Diffview)' },
         { '<leader>gs', desc = 'Git 상태 (Git Status)' },
         { '<leader>gS', desc = 'Git Stash' },
-        { '<leader>gx', '<cmd>GitConflictListQf<cr>', desc = 'Git 충돌 목록 보기 (List Conflicts)' },
         { '<leader>gY', desc = 'Git 브라우저 - 링크 복사 (Git Browse copy)' },
 
         -- ── Git 변경 조각 그룹 (<leader>gh / Hunks) ──
@@ -375,7 +372,6 @@ return {
 
         -- ── 창 관리 그룹 (<leader>w) ──
         { '<leader>wd', desc = '현재 창 닫기 (Close Window)' },
-        { '<leader>wm', desc = '줌 모드 활성화 (Enable Zoom Mode)' },
         { '<leader>ws', desc = '창 아래로 분할 (Split Below)' },
         { '<leader>wv', desc = '창 오른쪽 분할 (Split Right)' },
         { '<leader>ww', desc = '다른 창으로 이동 (Other Window)' },
@@ -391,31 +387,16 @@ return {
         { '<leader>xX', desc = '버퍼 진단 창 (Buffer Diagnostics)' },
 
         -- ── UI 설정/토글 그룹 (<leader>u) ──
-        { '<leader>ua', desc = '애니메이션 비활성화 (Disable Animations)' },
-        { '<leader>uA', desc = '탭라인 활성화 (Enable Tabline)' },
-        { '<leader>ub', desc = '어두운 배경 비활성화 (Disable Dark Background)' },
-        { '<leader>uc', desc = '테마 변경 (Colorscheme)' },
+        -- <leader>u 의 켜기/끄기 토글(줄 바꿈·맞춤법·진단 등 20여 개)은 여기 적지 않습니다: Snacks 토글이 상태에 따라
+        -- "켜기: 줄 바꿈" / "끄기: 줄 바꿈" 처럼 설명을 바꾸므로, 이름만 util/snacks_toggle_ko.lua 사전으로 한글화합니다
+        -- (예전처럼 고정 설명을 적으면 같은 키가 두 번 등록되어 :checkhealth 중복 경고가 나고, 상태와 맞지 않거나
+        --  <leader>uc 를 "테마 변경"으로 표시하는 등 — 실제는 Conceal 토글 — 틀린 설명이 남았음)
         { '<leader>uC', desc = '컬러 스킴 목록 (Colorschemes)' },
-        { '<leader>ud', desc = '진단 비활성화 (Disable Diagnostics)' },
-        { '<leader>uD', desc = '딤 모드 활성화 (Enable Dimming)' },
-        { '<leader>uf', desc = '자동 포맷팅 토글 (Auto Format)' },
-        { '<leader>uF', desc = '버퍼 자동 포맷 비활성화 (Disable Auto Format - Buffer)' },
-        { '<leader>ug', desc = '들여쓰기 가이드 활성화 (Enable Indent Guides)' },
-        { '<leader>uh', desc = '인레이 힌트 활성화 (Enable Inlay Hints)' },
         { '<leader>ui', desc = '현재 위치 정보 (Inspect Pos)' },
         { '<leader>uI', desc = '트리 정보 (Inspect Tree)' },
-        { '<leader>ul', desc = '줄 번호 활성화 (Enable Line Numbers)' },
-        { '<leader>uL', desc = '상대 줄 번호 활성화 (Enable Relative Number)' },
-        { '<leader>um', desc = '마크다운 렌더링 토글 (Disable Render Markdown)' },
-        { '<leader>un', desc = '줄 번호 토글 (Line Numbers)' },
-        { '<leader>up', desc = '미니 쌍 비활성화 (Disable Mini Pairs)' },
+        -- (예전 설명 "줄 번호 토글"은 틀렸음 — LazyVim 의 <leader>un 은 Snacks.notifier.hide())
+        { '<leader>un', desc = '알림 모두 닫기 (Dismiss All Notifications)' },
         { '<leader>ur', desc = '화면 새로고침 (Redraw / Clear hlsearch / Diff Update)' },
-        { '<leader>us', desc = '철자 검사 토글 (Spelling)' },
-        { '<leader>uS', desc = '부드러운 스크롤 비활성화 (Disable Smooth Scroll)' },
-        { '<leader>uT', desc = 'Treesitter 하이라이트 활성화 (Enable Treesitter Highlight)' },
-        { '<leader>uw', desc = '줄 바꿈 활성화 (Enable Wrap)' },
-        { '<leader>uz', desc = '젠 모드 활성화 (Enable Zen Mode)' },
-        { '<leader>uZ', desc = '줌 모드 활성화 (Enable Zoom Mode)' },
 
         -- ── 테스트 그룹 (<leader>t / Neotest) ──
         { '<leader>ta', desc = '테스트 러너 연결 (Attach to Test)' },
@@ -468,5 +449,87 @@ return {
         { '<leader><tab><tab>', desc = '새 탭 열기 (New Tab)' },
       },
     },
+  },
+
+  -- [LazyVim 기본 그룹과의 중복 정리]
+  -- which-key 의 spec 은 여러 곳의 목록을 이어 붙이는 방식(opts_extend)이라, LazyVim 이 등록한 영어 그룹
+  -- ("git", "code" …)과 위에서 한글로 다시 등록한 그룹이 둘 다 남아 :checkhealth 에 중복 경고가 났습니다.
+  -- 같은 키가 여러 번 있으면 나중 것(이 파일의 한글)만 남기고, 앞의 항목에서는 겹치는 모드만 뺍니다
+  -- (LazyVim 그룹은 n·x 모드에 함께 등록되어 있어 통째로 지우면 비주얼 모드 그룹 이름이 사라지기 때문).
+  -- ※ ' ` g z 는 which-key 자체 프리셋(마크 목록 등)과 이름표만 겹치는 것이라 spec 밖이며 그대로 둡니다.
+  {
+    'folke/which-key.nvim',
+    opts = function(_, opts)
+      if type(opts.spec) ~= 'table' then
+        return
+      end
+      local function modes_of(m)
+        local set = {}
+        if type(m) == 'string' then
+          for c in m:gmatch('.') do
+            set[c] = true
+          end
+        elseif type(m) == 'table' then
+          for _, c in ipairs(m) do
+            set[c] = true
+          end
+        else
+          set.n = true
+        end
+        return set
+      end
+      local items = {} -- 등장 순서대로 { item, lhs, modes }
+      local function walk(list, inherited)
+        for _, item in ipairs(list) do
+          if type(item) == 'table' then
+            local mode = item.mode or inherited
+            if type(item[1]) == 'string' then
+              table.insert(items, { item = item, lhs = item[1], modes = modes_of(mode) })
+            end
+            walk(item, mode)
+          end
+        end
+      end
+      walk(opts.spec, nil)
+      -- 뒤에서부터 보며, 이미 나중 항목이 차지한 (키, 모드)는 앞 항목에서 뺌
+      local taken = {}
+      for i = #items, 1, -1 do
+        local e = items[i]
+        taken[e.lhs] = taken[e.lhs] or {}
+        local keep, removed = {}, false
+        for m in pairs(e.modes) do
+          if taken[e.lhs][m] then
+            removed = true
+          else
+            table.insert(keep, m)
+            taken[e.lhs][m] = true
+          end
+        end
+        if removed then
+          if #keep == 0 then
+            e.item.hidden = true
+            e.item.group, e.item.desc = nil, nil
+            e.item._dt2_dup = true
+          else
+            table.sort(keep)
+            e.item.mode = keep
+          end
+        end
+      end
+      -- 완전히 겹친 항목은 목록에서 제거
+      local function prune(list)
+        for i = #list, 1, -1 do
+          local item = list[i]
+          if type(item) == 'table' then
+            if item._dt2_dup then
+              table.remove(list, i)
+            else
+              prune(item)
+            end
+          end
+        end
+      end
+      prune(opts.spec)
+    end,
   },
 }

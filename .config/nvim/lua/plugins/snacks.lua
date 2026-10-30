@@ -1,7 +1,48 @@
 return {
   {
     'folke/snacks.nvim',
+    -- [Snacks 토글 한글화] 토글을 만드는 함수(Snacks.toggle.new) 뒤에서 이름을 util/snacks_toggle_ko.lua 사전으로
+    -- 바꿉니다. which-key 설명("켜기: 줄 바꿈" / "끄기: 줄 바꿈")과 켜고 끌 때 알림이 상태에 맞게 한글로 나옵니다.
+    -- (LazyVim 은 VeryLazy 에서 토글을 만들므로, 시작 시 실행되는 init 에서 미리 감싸 둡니다)
+    init = function()
+      local ok_t, T = pcall(require, 'snacks.toggle')
+      local ok_ko, ko = pcall(require, 'util.snacks_toggle_ko')
+      if not (ok_t and ok_ko) or T._dt2_ko then
+        return
+      end
+      T._dt2_ko = true
+      local orig_new = T.new
+      T.new = function(...)
+        local t = orig_new(...)
+        -- id 는 영어 이름으로 이미 정해졌으므로(Snacks.toggle.get 조회 유지) 표시 이름만 바꿈
+        if t and t.opts and ko[t.opts.name] then
+          t.opts.name = ko[t.opts.name]
+        end
+        -- 단축키 자체의 설명(단축키 검색 화면 등)도 "Toggle 이름" 대신 "이름 켜기/끄기"로 (Toggle:map 의 기본값)
+        local cls = t and getmetatable(t) and getmetatable(t).__index
+        if cls and not cls._dt2_map_ko then
+          cls._dt2_map_ko = true
+          local orig_map = cls.map
+          cls.map = function(self, keys, mopts)
+            mopts = mopts or {}
+            mopts.desc = mopts.desc or (self.opts.name .. ' 켜기/끄기')
+            return orig_map(self, keys, mopts)
+          end
+        end
+        return t
+      end
+    end,
     opts = {
+      -- which-key 설명 접두어와 켜고 끌 때 알림을 한글로 (기본값은 "Disable "/"Enable ", "Enabled **이름**")
+      toggle = {
+        wk_desc = { enabled = '끄기: ', disabled = '켜기: ' },
+        notify = function(state, opts)
+          Snacks.notify((state and '켜짐: ' or '꺼짐: ') .. '**' .. opts.name .. '**', {
+            title = opts.name,
+            level = state and vim.log.levels.INFO or vim.log.levels.WARN,
+          })
+        end,
+      },
       dashboard = {
         enabled = true,
         preset = {
