@@ -152,6 +152,7 @@ if [ "$_orca_proceed" = true ]; then
     _ensure_pkg file file
     _ensure_pkg jq jq
     if ! dpkg -s libfuse2 >/dev/null 2>&1 && ! dpkg -s libfuse2t64 >/dev/null 2>&1; then
+        dt2_sudo_auth || true   # 비밀번호 질문이 스피너에 가려지지 않도록 먼저 인증
         echo -n "   📦 필수 패키지 (libfuse2) 자동 설치 중..."
         (sudo apt-get update -qq >/dev/null 2>&1 || true; sudo apt-get install -y libfuse2t64 >/dev/null 2>&1 || sudo apt-get install -y libfuse2 >/dev/null 2>&1 || true) &
         _fuse_pid=$!
@@ -160,6 +161,7 @@ if [ "$_orca_proceed" = true ]; then
         echo " 완료"
     fi
     if ! dpkg -s zlib1g-dev >/dev/null 2>&1; then
+        dt2_sudo_auth || true
         echo -n "   📦 필수 패키지 (zlib1g-dev) 자동 설치 중..."
         (sudo apt-get update -qq >/dev/null 2>&1 || true; sudo apt-get install -y zlib1g-dev >/dev/null 2>&1 || true) &
         _zlib_pid=$!
@@ -187,6 +189,7 @@ if [ "$_orca_proceed" = true ]; then
         [ "$_have" = false ] && _orca_missing_pkgs+=("$_spec")
     done
     if [ "${#_orca_missing_pkgs[@]}" -gt 0 ]; then
+        dt2_sudo_auth || true
         echo -n "   📦 Orca 실행 라이브러리 (${#_orca_missing_pkgs[@]}개) 자동 설치 중..."
         (
             sudo apt-get update -qq >/dev/null 2>&1 || true

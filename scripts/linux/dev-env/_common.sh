@@ -234,6 +234,20 @@ prompt_password() {
     done
 }
 
+# ── sudo 인증을 스피너보다 먼저 받기 ─────────────────────────────────────────
+# sudo 명령을 백그라운드로 돌리고 스피너를 띄우면, 비밀번호 질문("[sudo: authenticate] 비밀번호:")이 스피너에
+# 가려지거나 엉켜서 설치가 멈춘 것처럼 보입니다. 설치 초반에는 임시 passwordless sudo 가 있어 묻지 않지만,
+# 그 권한이 회수된 뒤(Sublime Merge·Orca·VS Code 단계 등)에는 비밀번호를 묻습니다.
+# 그래서 백그라운드 sudo 앞에서 이 함수로 인증을 먼저 받아 둡니다(이미 인증됐거나 root 면 아무것도 묻지 않음).
+# 반환: 0 = sudo 를 쓸 수 있음 / 1 = sudo 없음·인증 실패
+dt2_sudo_auth() {
+    [ "$(id -u)" -eq 0 ] && return 0
+    command -v sudo >/dev/null 2>&1 || return 1
+    sudo -n true 2>/dev/null && return 0   # 이미 인증됨 또는 passwordless
+    normalize_tty
+    sudo -v
+}
+
 # ── 스피너 ─────────────────────────────────────────────────────────────────
 # 사용법: run_with_spinner <label> <pid>
 #         run_with_spinner_cmd <label> <command...>

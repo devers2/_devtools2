@@ -155,7 +155,11 @@ print_done "필수 패키지 및 로케일 설치 완료!"
 
 # AppImage(Ghostty, Orca 등) 실행 지원을 위한 FUSE 라이브러리 자동 설치
 if ! dpkg -s libfuse2 >/dev/null 2>&1 && ! dpkg -s libfuse2t64 >/dev/null 2>&1; then
-    apt-get install -y libfuse2t64 >/dev/null 2>&1 || apt-get install -y libfuse2 >/dev/null 2>&1 || true
+    # 백그라운드로 설치하고 스피너로 진행 중임을 표시합니다
+    echo -n "   📦 AppImage 실행 지원 라이브러리(libfuse2) 설치 중..."
+    (apt-get install -y libfuse2t64 >/dev/null 2>&1 || apt-get install -y libfuse2 >/dev/null 2>&1 || true) &
+    show_spinner $!; wait $! 2>/dev/null || true
+    echo " 완료"
 fi
 
 # FUSE 마운트(rclone SFTP 등)를 위한 user_allow_other 자동 활성화 (프로젝트 셋업 시 sudo 회피)

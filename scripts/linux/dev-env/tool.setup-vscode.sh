@@ -62,6 +62,7 @@ _vscode_install_deb() {
         _deb_os="linux-deb-arm64"
     fi
     if download_with_progress "https://code.visualstudio.com/sha/download?build=stable&os=${_deb_os}" "$_vscode_tmp" "VSCode .deb 패키지"; then
+        dt2_sudo_auth || true   # 비밀번호 질문이 스피너에 가려지지 않도록 먼저 인증
         echo -n "   📦 VSCode 패키지 설치 중..."
         (sudo dpkg -i "$_vscode_tmp" >/dev/null 2>&1 || sudo apt-get install -f -y >/dev/null 2>&1 || true) &
         show_spinner $!

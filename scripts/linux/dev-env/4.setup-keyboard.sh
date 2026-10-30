@@ -107,8 +107,12 @@ else
     done
     dpkg --configure -a 2>/dev/null || true
 
-    apt-get update -qq >$DT2_TMP/_keyd_apt_update.log 2>&1 || true
-    if apt-get install -y keyd >$DT2_TMP/_keyd_apt.log 2>&1; then
+    # apt 목록 갱신·설치는 백그라운드로 돌리고 스피너로 진행 중임을 표시합니다
+    _dt2_keyd_apt() {
+        apt-get update -qq >$DT2_TMP/_keyd_apt_update.log 2>&1 || true
+        apt-get install -y keyd >$DT2_TMP/_keyd_apt.log 2>&1
+    }
+    if run_with_spinner_cmd "keyd 설치 중 (apt)..." _dt2_keyd_apt; then
         print_success "apt 로 keyd 설치 완료."
     else
         # ── (1-B) 소스 빌드 설치 ──────────────────────────────────────────────
@@ -116,7 +120,8 @@ else
 
         # 빌드 의존성 설치
         print_info "빌드 의존성 설치 중 (make, gcc)..."
-        apt-get install -y make gcc git >$DT2_TMP/_keyd_deps.log 2>&1 || {
+        _dt2_keyd_deps() { apt-get install -y make gcc git >$DT2_TMP/_keyd_deps.log 2>&1; }
+        run_with_spinner_cmd "빌드 의존성 설치 중 (make, gcc, git)..." _dt2_keyd_deps || {
             print_error "빌드 의존성 설치 실패. 로그: $DT2_TMP/_keyd_deps.log"
             exit 1
         }

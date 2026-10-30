@@ -532,6 +532,7 @@ wait "$_apt_upd_pid" 2>/dev/null || true
 rm -f $DT2_TMP/_apt_update.log 2>/dev/null
 echo " 완료"
 
+dt2_sudo_auth || true   # 비밀번호 질문이 스피너에 가려지지 않도록 먼저 인증
 echo -n "   - apt 패키지(build-essential, libreadline-dev, git, trash-cli, xclip, wl-clipboard, sqlite3) 설치 중..."
 # ⚠️ 이 줄은 포터블 원칙의 예외입니다(전체 목록/이유는 0.init-devtools2.sh 상단 메모 참고).
 # - build-essential/libreadline-dev: hererocks(아래 7번) 및 nvim-treesitter :TSInstall이

@@ -115,18 +115,32 @@ if (-not (Prompt-Confirm "👉 D2KodingLigature로 설치할까요?" "Y")) {
 Write-Host "  선택된 폰트: $fontFace" -ForegroundColor White
 
 # WSL2 배포판 자동 감지 (폰트 원본을 WSL2 저장소에서 우선 복사하기 위함)
-$WslDistroDetected = $WslDistro
-if ($WslDistroDetected -eq "") {
-    $distroList = @(wsl --list --quiet 2>$null | Where-Object { $_ -match "\S" })
-    if ($distroList.Count -gt 0) {
-        $WslDistroDetected = ($distroList[0] -replace "`0", "").Trim()
+# wsl.exe 호출과 \\wsl$ 경로 확인은 WSL 을 깨우느라 몇 초씩 걸려 화면이 멈춘 것처럼 보이므로,
+# 공용 Invoke-WithSpinner 로 백그라운드에서 돌리고 스피너를 표시합니다.
+# (runspace 안에서는 Get-WslDevtools2Path 를 쓸 수 없어 같은 탐색 규칙 — $env:DEVTOOLS2 → \\wsl$ → \\wsl.localhost — 을 그대로 씀)
+$_fontSrc = Invoke-WithSpinner -Message "폰트 원본 위치 확인 중 (WSL2 저장소)" -ArgumentList @($WslDistro, $env:DEVTOOLS2) -ScriptBlock {
+    param($distro, $dt2Env)
+    if ([string]::IsNullOrEmpty($distro)) {
+        $distroList = @(wsl.exe --list --quiet 2>$null | Where-Object { $_ -match "\S" })
+        if ($distroList.Count -gt 0) {
+            $distro = ([string]$distroList[0] -replace "`0", "").Trim()
+        }
     }
+    $dt2 = ""
+    if ($dt2Env -and (Test-Path $dt2Env)) {
+        $dt2 = $dt2Env
+    } elseif (-not [string]::IsNullOrEmpty($distro)) {
+        $dt2 = "\\wsl$\$distro\var\opt\_devtools2"
+        foreach ($cand in @("\\wsl$\$distro\var\opt\_devtools2", "\\wsl.localhost\$distro\var\opt\_devtools2")) {
+            if (Test-Path $cand) { $dt2 = $cand; break }
+        }
+    }
+    $hasFonts = ($dt2 -ne "") -and (Test-Path "$dt2\assets\fonts")
+    [pscustomobject]@{ Distro = $distro; Dt2 = $dt2; HasFonts = $hasFonts }
 }
-$DevTools2Wsl = if ($env:DEVTOOLS2 -and (Test-Path $env:DEVTOOLS2)) {
-    $env:DEVTOOLS2
-} elseif ($WslDistroDetected -ne "") {
-    Get-WslDevtools2Path $WslDistroDetected
-} else { "" }
+$_fontSrc = @($_fontSrc) | Select-Object -Last 1
+$WslDistroDetected = if ($_fontSrc -and $_fontSrc.Distro) { [string]$_fontSrc.Distro } else { $WslDistro }
+$DevTools2Wsl = if ($_fontSrc -and $_fontSrc.Dt2) { [string]$_fontSrc.Dt2 } else { "" }
 
 # 폰트 레지스트리 등록 이름 매핑 (파일명 -> "표시 폰트명 (TrueType)")
 # TTF 내부 실제 family name과 파일명이 다를 수 있어 레지스트리 이름은 family name 기준으로 고정합니다.
@@ -149,7 +163,12 @@ function Install-DevtoolsFont {
         return
     }
     try {
-        Copy-Item -Path $SourcePath -Destination $destPath -Force
+        # \\wsl$ 에서 복사하면 몇 초 걸릴 수 있어 스피너를 표시합니다(복사 결과는 파일 존재로 확인)
+        $null = Invoke-WithSpinner -Message "폰트 복사 중: $FontFileName" -ArgumentList @($SourcePath, $destPath) -ScriptBlock {
+            param($src, $dst)
+            Copy-Item -Path $src -Destination $dst -Force -ErrorAction Stop
+        }
+        if (-not (Test-Path $destPath)) { throw "복사되지 않았습니다 ($SourcePath)" }
         $regName = $fontDisplayNames[$FontFileName]
         if (-not $regName) { $regName = [System.IO.Path]::GetFileNameWithoutExtension($FontFileName) + ' (TrueType)' } else { $regName = "$regName (TrueType)" }
         Set-ItemProperty -Path $FontRegPath -Name $regName -Value $destPath -Force
@@ -159,7 +178,7 @@ function Install-DevtoolsFont {
     }
 }
 
-$hasWslFonts = ($DevTools2Wsl -ne "") -and (Test-Path "$DevTools2Wsl\assets\fonts")
+$hasWslFonts = [bool]($_fontSrc -and $_fontSrc.HasFonts)
 
 if ($hasWslFonts) {
     Write-Host "  WSL2 저장소에서 폰트를 복사합니다: $DevTools2Wsl\assets\fonts" -ForegroundColor White
