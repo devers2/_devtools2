@@ -589,6 +589,7 @@ vim.api.nvim_create_autocmd('FileType', {
 --      `.vscode/launch.json`의 소문자 설정을 직접 인식하지 못하는 제약이 있습니다.
 --    - 따라서 사용자가 두 설정 파일을 수동으로 이중 관리하는 부담을 완전히 없애기 위해,
 --      Neovim에서 `.vscode/launch.json`을 저장(:w)하는 즉시 `.zed/debug.json`을 자동 갱신합니다.
+--      (프로젝트 파일을 처음 열 때도 프로젝트마다 한 번 확인 — 아래 BufReadPost)
 --
 -- 3. 안전 원칙 (Zero Side-Effects / Fail-safe):
 --    - 완전 격리(pcall): JSON 파싱 실패, 문법 오류, 쓰기 권한 부족 등 어떤 예외가 발생하더라도
@@ -643,20 +644,14 @@ local function strip_jsonc(text)
   return table.concat(out)
 end
 
-vim.api.nvim_create_autocmd('BufWritePost', {
-  group = vim.api.nvim_create_augroup('sync_launch_json_to_zed', { clear = true }),
-  pattern = '*launch.json',
-  callback = function(event)
-    pcall(function()
-      local buf = event.buf
-      if not buf or not vim.api.nvim_buf_is_valid(buf) then
-        return
-      end
-      local fname = vim.api.nvim_buf_get_name(buf)
-      if not fname or fname == '' then
-        return
-      end
+-- launch.json 에서 Zed 용 debug.json 을 만들 때 쓰는 자동 생성 표시 (헤더 주석에 포함 — 직접 작성한 파일과 구분)
+local ZED_DEBUG_MARKER = '자동 생성 파일 - 직접 수정 금지'
 
+--- launch.json(.nvim/ 또는 .vscode/) → <프로젝트>/.zed/debug.json 변환
+--- (BufWritePost: launch.json 저장 시 / BufReadPost: 프로젝트 파일을 처음 열 때 프로젝트마다 한 번)
+--- @param fname string launch.json 경로
+local function sync_zed_debug_from_launch(fname)
+  pcall(function()
       -- 절대 경로 정규화 (상대경로, ~경로 대응: .nvim/ 및 .vscode/ 지원)
       local normalized_path = vim.fn.fnamemodify(fname, ':p')
       local folder = normalized_path:match('/(%.nvim)/launch%.json$') or normalized_path:match('/(%.vscode)/launch%.json$')
@@ -722,15 +717,24 @@ vim.api.nvim_create_autocmd('BufWritePost', {
         local zed_dir = project_root .. '/.zed'
         local zed_debug_file = zed_dir .. '/debug.json'
 
+        -- [덮어쓰기 기준] 기존 사용자 설정은 덮어쓰지 않음 (AGENTS.md 5. 멱등성 — 사용자 설정 보존)
+        --   ● 파일이 없음 / Zed 가 만든 빈 기본 파일([] — F4 → 설정 편집 시 생성됨) / 이전에 자동 생성한 파일(헤더 있음) → 씀
+        --   ● 설정이 들어 있는데 자동 생성 헤더가 없음 → 사용자가 Zed 용으로 직접 작성한 것으로 보고 건드리지 않음
+        --     (예전에는 이 경우도 덮어썼음)
         -- 기존 파일 내용과 비교하여 동일하면 쓰지 않음 (불필요한 디스크 쓰기 방지)
         local ef = io.open(zed_debug_file, 'r')
         if ef then
-          local e_content = ef:read('*a')
+          local e_content = ef:read('*a') or ''
           ef:close()
           -- 주석 제거 후 내용 비교
           local clean_e = strip_jsonc(e_content)
           local e_ok, e_data = pcall(vim.json.decode, clean_e)
           if e_ok and vim.deep_equal(e_data, zed_configs) then
+            return
+          end
+          local generated = e_content:find(ZED_DEBUG_MARKER, 1, true) ~= nil
+          local has_configs = e_ok and type(e_data) == 'table' and #e_data > 0
+          if has_configs and not generated then
             return
           end
         end
@@ -758,7 +762,7 @@ vim.api.nvim_create_autocmd('BufWritePost', {
           '//',
           '// [설정 수정 방법]',
           '// 디버그 설정을 변경하려면 프로젝트 루트의 .vscode/launch.json 을 수정해 주세요.',
-          '// Neovim에서 저장(:w)하거나 setup 스크립트 실행 시 이 파일로 자동 동기화됩니다.',
+          '// Neovim에서 저장(:w)하거나 프로젝트 파일을 열 때, setup 스크립트 실행 시 이 파일로 자동 동기화됩니다.',
           '// ==============================================================================',
           '',
         }, '\n')
@@ -769,5 +773,66 @@ vim.api.nvim_create_autocmd('BufWritePost', {
           wf:close()
         end
       end)
+end
+
+vim.api.nvim_create_autocmd('BufWritePost', {
+  group = vim.api.nvim_create_augroup('sync_launch_json_to_zed', { clear = true }),
+  pattern = '*launch.json',
+  callback = function(event)
+    local buf = event.buf
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then
+      return
+    end
+    local fname = vim.api.nvim_buf_get_name(buf)
+    if not fname or fname == '' then
+      return
+    end
+    sync_zed_debug_from_launch(fname)
   end,
 })
+
+-- [프로젝트를 처음 열 때도 동기화]
+-- launch.json 을 Neovim 에서 저장한 적이 없으면(VS Code·설치 스크립트로만 만든 경우) .zed/debug.json 이
+-- 만들어지지 않거나, Zed 가 만든 빈 기본 파일([])로 남아 Zed 의 F4 디버그 목록이 비어 있었습니다 (Goono-ELN 실측).
+-- → 파일을 처음 열 때 그 프로젝트의 launch.json 을 찾아 한 번 동기화합니다 (프로젝트마다 세션당 한 번, 덮어쓰기 기준은 위와 같음).
+-- 비용: 파일을 열 때 위쪽 폴더에서 .nvim / .vscode 를 찾는 정도 (이미 확인한 프로젝트는 바로 건너뜀)
+local zed_synced_roots = {}
+local function sync_zed_debug_for_buf(buf)
+  if not vim.api.nvim_buf_is_valid(buf) or vim.bo[buf].buftype ~= '' then
+    return
+  end
+  local fname = vim.api.nvim_buf_get_name(buf)
+  if fname == '' then
+    return
+  end
+  vim.schedule(function()
+    pcall(function()
+      local root = vim.fs.root(fname, function(name, path)
+        return (name == '.nvim' or name == '.vscode') and vim.uv.fs_stat(path .. '/' .. name .. '/launch.json') ~= nil
+      end)
+      if not root or zed_synced_roots[root] then
+        return
+      end
+      zed_synced_roots[root] = true
+      -- launch.json 우선순위는 디버그 실행과 같음: .nvim/ 이 있으면 .nvim/, 없으면 .vscode/
+      local launch = root .. '/.nvim/launch.json'
+      if not vim.uv.fs_stat(launch) then
+        launch = root .. '/.vscode/launch.json'
+      end
+      sync_zed_debug_from_launch(launch)
+    end)
+  end)
+end
+vim.api.nvim_create_autocmd('BufReadPost', {
+  group = vim.api.nvim_create_augroup('sync_launch_json_to_zed_on_open', { clear = true }),
+  callback = function(event)
+    sync_zed_debug_for_buf(event.buf)
+  end,
+})
+-- ⚠️ LazyVim 은 이 파일(autocmds.lua)을 첫 파일을 연 뒤(VeryLazy)에 불러오므로 "nvim 파일명" 으로 연 첫 파일의
+--    BufReadPost 는 이미 지나갔습니다(실측: 첫 파일 프로젝트가 동기화되지 않았음) → 지금 열려 있는 버퍼도 확인
+for _, b in ipairs(vim.api.nvim_list_bufs()) do
+  if vim.api.nvim_buf_is_loaded(b) then
+    sync_zed_debug_for_buf(b)
+  end
+end
