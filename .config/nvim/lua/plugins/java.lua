@@ -380,6 +380,9 @@ return {
         end
 
         local workspace_dir = _G.NVIM_CACHE_DIR .. '/jdtls/' .. p_name
+        -- [동시 실행 확인] 같은 작업 폴더를 쓰는 다른 Neovim 창의 jdtls, 같은 프로젝트를 연 VS Code·Zed 등을 알림
+        -- (util.jdtls_diagnose 의 check_concurrent 설명 참고 — /proc 만 읽어 시작 지연은 수 ms)
+        pcall(diag.check_concurrent, workspace_dir, root)
         local mason_lombok_path = _G.NVIM_SHARED_DIR .. '/mason/packages/jdtls/lombok.jar'
 
         -- [jdtls 힙 크기: 이 PC 의 전체 메모리에 맞춰 결정]
