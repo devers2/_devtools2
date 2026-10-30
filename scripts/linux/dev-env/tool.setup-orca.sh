@@ -152,36 +152,6 @@ _orca_download() {
     return 1
 }
 
-# ── 예전 실행에서 정지(T)된 채 남은 Orca CLI 정리 ─────────────────────────────────
-# _orca_run(setsid) 도입 전 버전의 이 스크립트는 "권장 스킬 설치 시도 중..." 등에서 timeout 까지 정지되어
-# 영원히 남았습니다(상세: _orca_run 주석). 그 상태로 다시 실행하면 정지된 orca-ide 가 같은 프로필을 잡고 있어
-# 새 실행이 꼬일 수 있으므로, 시작할 때 동적으로 찾아 정리합니다.
-# 사용자가 일부러 멈춰 둔 Orca 창 등을 건드리지 않도록 아래 조건을 "모두" 만족하는 프로세스 그룹만 종료합니다.
-#   ● 현재 사용자 소유
-#   ● 프로세스 그룹 리더가 이 스크립트의 CLI 호출 형태: "timeout ... $ORCA_DIR/... skills ..." 또는 "... --help"
-#     (GUI 래퍼 orca-app 은 timeout 없이 exec 하므로 해당하지 않음)
-#   ● 리더 상태가 T(정지) — 실행 중인 정상 호출은 건드리지 않음 (지금 버전의 호출은 정지되지 않음)
-# 그룹 전체(timeout·orca-ide·내부 bash)를 KILL 합니다. 정지된 프로세스는 TERM 을 처리하지 못하기 때문입니다.
-# 예전 설치 창이 아직 열려 있으면 그 창의 스크립트는 스킬 설치를 "건너뜀"으로 처리하고 남은 단계를 마칩니다.
-_orca_reap_stuck() {
-    local _pid _pgid _stat _args _n=0
-    while read -r _pid _pgid _stat _args; do
-        [ "$_pid" = "$_pgid" ] || continue
-        case "$_stat" in T*) ;; *) continue ;; esac
-        case "$_args" in
-            "timeout "*"$ORCA_DIR/"*" skills "*|"timeout "*"$ORCA_DIR/"*" --help"*) ;;
-            *) continue ;;
-        esac
-        if kill -KILL -- "-$_pgid" 2>/dev/null; then
-            _n=$((_n + 1))
-            echo "   🧹 예전 실행에서 멈춘 Orca 명령을 정리했습니다: ${_args}"
-        fi
-    done < <(ps -u "$(id -u)" -o pid=,pgid=,stat=,args= 2>/dev/null || true)
-    [ "$_n" -gt 0 ] && sleep 1   # 정리된 프로세스의 AppImage 마운트가 풀릴 시간
-    return 0
-}
-_orca_reap_stuck
-
 _orca_latest=$(fetch_latest_github "stablyai/orca")
 
 if [ -f "$ORCA_APPIMAGE" ]; then
