@@ -367,13 +367,16 @@ fi
 if command -v git >/dev/null 2>&1; then
     print_info "Git difftool 및 mergetool 설정 중..."
     # 화면(GUI)이 없는 순수 CLI 환경(SSH 접속, 서버, WSLg 미사용)에서는 smerge 를 띄울 수 없어 git mergetool /
-    # difftool 이 실패하므로, DISPLAY·WAYLAND_DISPLAY 가 없거나 smerge 가 없으면 Neovim diff 모드로 대신 엽니다.
-    #   ● mergetool 폴백 화면: 위쪽에 LOCAL(ours) │ BASE │ REMOTE(theirs), 아래쪽 전체 폭에 MERGED(결과)
-    #     — 결과 창에서 :diffget LOCAL / :diffget REMOTE (또는 git-conflict.nvim 의 co / ct / cb) 후 :wqa
-    #     (취소는 :cq — trustExitCode 라 git 이 병합 실패로 처리)
+    # difftool 이 실패하므로, DISPLAY·WAYLAND_DISPLAY 가 없거나 smerge 가 없으면 Neovim 으로 대신 엽니다.
+    #   ● mergetool 폴백 화면: codediff.nvim 의 병합 화면 — 위쪽 Theirs(들어온 변경) │ Ours(현재), 아래 Result
+    #     — <leader>co / ct / cb 로 충돌 선택(]x / [x 이동) 후 :w 로 저장하고 창을 닫으면 Neovim 도 종료
+    #     (예전 nvim -d 4분할 + git-conflict.nvim 방식에서 변경 — git-conflict.nvim 은 업데이트가 멈춰 제거)
+    #   ● trustExitCode=false: codediff 는 닫을 때 항상 정상 코드로 끝나므로, 종료 코드 대신 git 이 결과 파일이
+    #     실제로 바뀌었는지로 판단합니다(바뀌지 않았으면 "병합이 성공했나요?"를 물음 — 충돌을 풀지 않고 닫아도
+    #     해결된 것으로 처리되지 않도록). Sublime Merge 로 열 때도 같은 기준이라 더 안전합니다.
     git config --global merge.tool smerge
-    git config --global mergetool.smerge.cmd 'if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v smerge >/dev/null 2>&1; then smerge mergetool "$BASE" "$LOCAL" "$REMOTE" -o "$MERGED"; else nvim -d "$LOCAL" "$BASE" "$REMOTE" "$MERGED" -c "wincmd J"; fi'
-    git config --global mergetool.smerge.trustExitCode true
+    git config --global mergetool.smerge.cmd 'if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v smerge >/dev/null 2>&1; then smerge mergetool "$BASE" "$LOCAL" "$REMOTE" -o "$MERGED"; else nvim "$MERGED" -c "CodeDiff --exit-on-close merge \"$MERGED\""; fi'
+    git config --global mergetool.smerge.trustExitCode false
     git config --global diff.tool smerge
     git config --global difftool.smerge.cmd 'if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v smerge >/dev/null 2>&1; then smerge "$LOCAL" "$REMOTE"; else nvim -d "$LOCAL" "$REMOTE"; fi'
     git config --global difftool.prompt false
