@@ -373,6 +373,21 @@ for _jdk_v in $(get_supported_jdk_versions); do
     install_adoptium_jdk "$_jdk_v" "$_dest_name"
 done
 
+# ── 새 LTS 안내 (설치는 하지 않음) ─────────────────────────────────────────
+# tool-versions.toml 의 jdkNN 중 가장 높은 버전보다 새 LTS 가 나오면 안내만 합니다.
+#   ● 다른 도구의 track 정책("범위 밖 새 버전은 안내만")과 같은 규칙 — 새 JDK 추가는 Gradle·Spring 등의 지원 시점을
+#     보고 사람이 정하는 일이라(예: Gradle 8 + JDK 25 크래시) 자동 설치하지 않습니다.
+#   ● jdtls 는 설치된 가장 높은 JDK 로 실행되므로(plugins/java.lua), jdtls 가 새 LTS 를 요구하게 되면 이 안내대로
+#     jdkNN 을 추가하면 됩니다(놓쳐도 Neovim 이 "Java NN 이상 필요" 알림 — util/jdtls_diagnose.lua).
+#   ● 기존 버전 유지 모드(DT2_UPDATE_CHECK=keep)면 조회하지 않습니다.
+if [ "${DT2_UPDATE_CHECK:-check}" = "check" ]; then
+    _jdk_top=$(get_supported_jdk_versions | tr ' ' '\n' | sort -n | tail -n 1)
+    _jdk_lts=$(fetch_adoptium_latest_lts)
+    if [ -n "$_jdk_lts" ] && [ -n "$_jdk_top" ] && [ "$_jdk_lts" -gt "$_jdk_top" ]; then
+        print_info "새 LTS Java ${_jdk_lts} 가 나왔습니다. 필요하면 tool-versions.toml 에 jdk${_jdk_lts} 를 추가하세요 (사용법: 파일 상단 'JDK 추가' 안내)."
+    fi
+fi
+
 echo "✅ JAVA 설치 완료 ($ARCH)"
 echo ""
 
