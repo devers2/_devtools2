@@ -11,6 +11,20 @@
 #          source "$DEVTOOLS2/scripts/linux/setup-projects/_common/common-setup.sh"
 #      fi
 #
+#      ※ bw-lib(Bitwarden 인증)는 따로 불러올 필요 없음 — 저장소 클론 등 필요한 시점에 이 모듈이 불러옴
+#        (ensure_project_repo, setup_s2_library_project). 명령 팔레트처럼 이 모듈만 쓰는 곳은 bw-lib 를 읽지 않음.
+#
+#   ★ 새 프로젝트 설정 스크립트의 최소 형태 (setup-projects/<이름>.sh — 명령 팔레트 [Project] 메뉴에 자동으로 나타남)
+#      #!/usr/bin/env bash
+#      set -e
+#      DEVTOOLS2="${DEVTOOLS2:-$(readlink -f "$(dirname "${BASH_SOURCE[0]}")/../../..")}"   # s2/ 처럼 한 단계 아래면 ../../../..
+#      source "$DEVTOOLS2/scripts/linux/setup-projects/_common/common-setup.sh" || exit 1
+#      setup_gradle_spring_project --target-dir "$HOME/workspaces/my-app" --repo-url "https://github.com/org/my-app.git" \
+#          --jdk-version 21 --main-class "com.example.DemoApplication"          # Gradle Spring Boot (옵션: java-setup.sh)
+#      # 또는 setup_python_fastapi_project --target-dir … --repo-url … --python-version 312   (옵션: python-setup.sh)
+#      → 클론, 런타임(JDK/Python·가상환경), .vscode/settings.json·launch.json, .zed/debug.json, VS Code 확장,
+#        (선택) SFTP 마운트까지 처리. 예시: setup-goono-eln.sh(Java), setup-aiplus.sh(Python), s2/(라이브러리)
+#
 #   2. GitHub Packages 의존성 설정 함수 호출:
 #      setup_gpr_gradle_properties "$TARGET_DIR" [BW_ITEM_NAME]
 #      - $1: 대상 프로젝트 루트 경로 (필수, 기본값: $PWD)
