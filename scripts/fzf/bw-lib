@@ -781,46 +781,48 @@ bw_setup_gh_auth() {
     return 0
 }
 
-# ── Bitwarden 로그인 (이메일 · 마스터 비밀번호 · 2단계 인증/새 기기 확인 코드를 각각 3번까지) ─────────
+# ── Bitwarden 로그인 (이메일·마스터 비밀번호 3번까지 → 2단계 인증/새 기기 확인 코드 3번까지) ─────────
 # 예전에는 bw login --raw 가 세 가지를 한 번에 묻고, 하나라도 틀리면(예: 이메일 대신 아이디 입력) 바로 실패해
-# GitHub 로그인 연결 전체를 건너뛰었습니다. 이제 단계별로 따로 묻고 틀린 단계만 다시 입력받습니다.
+# GitHub 로그인 연결 전체를 건너뛰었습니다. 이제 단계별로 따로 묻고 틀리면 다시 입력받습니다.
 #   ● 이메일: 형식을 먼저 확인 (bw 의 "Email address is invalid." 와 같은 조건)
-#   ● 비밀번호: bw login --nointeraction 으로 확인 → "Invalid master password" 면 비밀번호만 다시 입력
+#   ● 비밀번호: bw login --nointeraction 으로 확인 → 틀리면 이메일·비밀번호를 순서대로 다시 입력 (합쳐서 3번까지)
 #     (비밀번호는 --passwordenv 로만 전달 — 프로세스 인자 노출 금지)
 #   ● 코드: 이메일·비밀번호가 맞고 "Code is required." 이면(2단계 인증 또는 새 PC 의 새 기기 확인 메일 코드)
 #     bw 가 직접 방법 선택·코드 입력을 묻게 합니다(코드를 프로세스 인자로 넘기지 않기 위함). 틀리면 다시 시도.
 #     메일 코드는 시도할 때마다 새로 발송되므로 가장 최근 메일의 코드를 입력합니다.
+#     2단계 인증이 없는 계정은 비밀번호 확인 단계에서 바로 로그인이 끝납니다.
 # 성공하면 BW_SESSION 을 설정하고 세션 파일(소유자 전용 600)에 저장합니다. 반환: 0 = 성공, 1 = 실패
 bw_interactive_login() {
     local _email="" _pw="" _out="" _err="" _try _status="" _errf
     normalize_tty
     _errf=$(mktemp) || return 1
 
-    # 1) 이메일 (비밀번호가 틀렸을 때 e 로 다시 고칠 수 있도록 함수로 둠 — _email 에 결과 저장)
+    # 1) 이메일 (매 시도마다 다시 묻기 때문에 함수로 둠 — _email 에 결과 저장)
+    #    직전에 입력한 이메일을 기본값으로 보여 주어, 이메일이 맞았다면 Enter 만 누르면 됩니다.
+    #    형식 오류는 로그인 시도 횟수와 별개로 그 자리에서 3번까지 다시 묻습니다(서버에 보내기 전 확인이라).
     _bw_login_ask_email() {
-        local _t
+        local _t _prev="$_email"
         for _t in 1 2 3; do
-            prompt_text _email "📧 Bitwarden 이메일 주소"
+            _email=""
+            prompt_text _email "📧 Bitwarden 이메일 주소" "$_prev"
             _email="${_email//[[:space:]]/}"
             if [[ "$_email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
                 return 0
             fi
             echo "❌ 이메일 주소 형식이 아닙니다 (예: name@example.com). (${_t}/3)" >&2
-            _email=""
         done
+        _email=""
         return 1
     }
-    _bw_login_ask_email || { rm -f "$_errf"; unset -f _bw_login_ask_email; return 1; }
 
-    # 2) 마스터 비밀번호 (비대화형으로 확인해 틀린 경우만 다시 입력)
-    #    Bitwarden 은 이메일이 틀려도(없는 계정) "Invalid master password" 로만 답하므로, 비밀번호가 틀리면
-    #    비밀번호(p, 기본값) / 이메일(e) 중 다시 입력할 것을 고르게 합니다(공용 prompt_key — [P/e] 표시).
-    #    틀린 횟수는 이메일을 바꿔도 이어서 세며, 합쳐서 3번 틀리면 이메일·비밀번호를 확인하고
-    #    다시 진행하라고 안내한 뒤 넘어갑니다(마지막 기회에도 같은 질문 — 비밀번호·이메일 모두 고칠 수 있음).
-    local _ans=""
+    # 2) 이메일 → 마스터 비밀번호 순서로 입력받아 비대화형으로 확인 (합쳐서 3번까지)
+    #    Bitwarden 은 이메일이 틀려도(없는 계정) "Invalid master password" 로만 답해 어느 쪽이 틀렸는지
+    #    알 수 없으므로, 틀리면 이메일·비밀번호를 순서대로 다시 입력받습니다(무엇을 고칠지 따로 묻지 않음).
+    #    3번 모두 틀리면 이메일·비밀번호를 확인하고 다시 진행하라고 안내한 뒤 넘어갑니다.
     _try=0
     while [ "$_try" -lt 3 ]; do
         _try=$((_try + 1))
+        _bw_login_ask_email || { _status="fail"; break; }
         _pw=""
         if command -v prompt_password &>/dev/null; then
             prompt_password _pw "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒"
@@ -839,22 +841,17 @@ bw_interactive_login() {
         case "$_err" in
             *"Code is required"*|*"No provider selected"*) _status="code"; break ;;
             *"Invalid master password"*|*"incorrect"*)
-                echo "❌ 마스터 비밀번호가 맞지 않습니다. (${_try}/3)" >&2
-                if [ "$_try" -lt 3 ]; then
-                    _ans=""
-                    prompt_key _ans "   👉 무엇을 다시 입력할까요? 비밀번호(p) / 이메일(e) — 현재 이메일: ${_email}" p p e
-                    if [ "$_ans" = "e" ]; then
-                        _bw_login_ask_email || { _status="fail"; break; }
-                    fi
-                else
-                    echo "   ℹ️  3번 모두 맞지 않았습니다. Bitwarden 이메일(${_email})과 마스터 비밀번호를 확인한 뒤 다시 진행하세요." >&2
-                fi
-                ;;
+                echo "❌ 이메일 또는 마스터 비밀번호가 맞지 않습니다. (${_try}/3)" >&2 ;;
             *"Email address is invalid"*)
-                echo "❌ 이메일 주소가 올바르지 않습니다: ${_email}" >&2; _status="fail"; break ;;
+                echo "❌ 이메일 주소가 올바르지 않습니다: ${_email} (${_try}/3)" >&2 ;;
             *)
                 echo "❌ Bitwarden 로그인 실패: ${_err:-알 수 없는 오류} (${_try}/3)" >&2 ;;
         esac
+        if [ "$_try" -lt 3 ]; then
+            echo "   👉 이메일과 마스터 비밀번호를 다시 입력해 주세요. (이메일이 맞으면 Enter)" >&2
+        else
+            echo "   ℹ️  3번 모두 맞지 않았습니다. Bitwarden 이메일(${_email})과 마스터 비밀번호를 확인한 뒤 다시 진행하세요." >&2
+        fi
     done
     unset -f _bw_login_ask_email
 
