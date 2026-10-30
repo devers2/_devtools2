@@ -153,29 +153,19 @@ fi
             #   ● 받는 중인 파일은 최근 1분 안에 바뀐 것만 봅니다(예전에 끊긴 다운로드의 잔여 파일 제외).
             #   ● 진행률이 오래 그대로면 네트워크 문제이므로 Ctrl+C 후 다시 실행하면 됩니다(서버는 처음부터 다시 받음).
             #   ● 받은 서버는 남아 있어 VS Code 가 다시 업데이트되기 전까지는 이 대기가 없습니다.
-            _vscode_wait_ext_list() {
-                local _pid="$1" _label="$2" _out="$3" _i=0 _extra _f _pct _mb
-                local _spin=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-                while kill -0 "$_pid" 2>/dev/null; do
-                    _extra=""
-                    if [ "${IS_WSL2:-false}" = true ]; then
-                        _f=$(find "$HOME/.vscode-server/bin" -maxdepth 1 -name '*.tar.gz' -mmin -1 2>/dev/null | head -n 1)
-                        if [ -n "$_f" ]; then
-                            _mb=$(( $(stat -c %s "$_f" 2>/dev/null || echo 0) / 1048576 ))
-                            _pct=$(tail -c 32 "$_out" 2>/dev/null | grep -oE '[0-9]+%' | tail -n 1 || true)
-                            # (한 줄이 터미널 폭을 넘으면 \r 덮어쓰기가 깨져 줄이 쌓이므로 짧게 유지)
-                            _extra=" VS Code 서버 다운로드 중 ${_pct:+${_pct} }(${_mb}MB)"
-                        fi
-                    fi
-                    printf "\r%s [%s]%s\033[K" "$_label" "${_spin[_i]}" "$_extra"
-                    _i=$(( (_i + 1) % ${#_spin[@]} ))
-                    sleep 0.15
-                done
-                printf "\r%s\033[K" "$_label"
+            #   ● 스피너·줄 덮어쓰기는 공용 show_spinner_status(_common.sh)가 하고, 여기서는 상태 문구만 만듭니다.
+            _vscode_server_dl_status() {
+                [ "${IS_WSL2:-false}" = true ] || return 0
+                local _f _pct _mb
+                _f=$(find "$HOME/.vscode-server/bin" -maxdepth 1 -name '*.tar.gz' -mmin -1 2>/dev/null | head -n 1)
+                [ -n "$_f" ] || return 0
+                _mb=$(( $(stat -c %s "$_f" 2>/dev/null || echo 0) / 1048576 ))
+                _pct=$(tail -c 32 "$DT2_TMP/_vscode_installed.tmp" 2>/dev/null | grep -oE '[0-9]+%' | tail -n 1 || true)
+                printf ' VS Code 서버 다운로드 중 %s(%sMB)' "${_pct:+${_pct} }" "$_mb"
             }
             (code --list-extensions 2>/dev/null </dev/null > $DT2_TMP/_vscode_installed.tmp) &
             _ext_list_pid=$!
-            _vscode_wait_ext_list "$_ext_list_pid" "   📋 VSCode 기존 확장 목록 조회 중..." "$DT2_TMP/_vscode_installed.tmp"
+            show_spinner_status "$_ext_list_pid" "   📋 VSCode 기존 확장 목록 조회 중..." _vscode_server_dl_status
             wait "$_ext_list_pid" 2>/dev/null || true
             echo " 완료"
             _INSTALLED_EXTS=$(tr '[:upper:]' '[:lower:]' < $DT2_TMP/_vscode_installed.tmp 2>/dev/null || echo "")
