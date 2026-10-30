@@ -328,6 +328,8 @@ SNIPPET
 
 # ── 한글 입력기(IME) 확인 및 설치 (WSL2 WSLg · Linux 데스크톱 공용) ──────────
 # GUI 앱(Sublime Merge 등)에서 한글을 입력하려면 디스플레이 서버에 등록되는 입력기가 필요합니다.
+# GUI 앱 설치 스크립트는 이 함수를 직접 부르지 않고 ensure_gui_app_env(WSLg·입력기·글꼴 일괄)를 통해 호출합니다
+# (단독 실행: install_hangle.sh).
 # ⚠️ 포터블 원칙의 예외: 입력기는 시스템 서비스라 apt 로 직접 설치해야 합니다(0.init-devtools2.sh 상단 메모 참고).
 #   ● 이미 한글 엔진(fcitx5-hangul / ibus-hangul / kime / nimf / fcitx-hangul)이 있으면 설치를 건너뜁니다.
 #   ● Linux GNOME + ibus 환경: GNOME 은 ibus 와 통합되어 있으므로 fcitx5 를 새로 넣지 않고
@@ -577,6 +579,46 @@ EOF
         command -v fc-cache >/dev/null 2>&1 && fc-cache -f >/dev/null 2>&1 || true
     fi
     return $_rc
+}
+
+# ── GUI 데스크톱 환경 여부 (Linux 데스크톱 / 헤드리스 서버 구분) ──────────────────
+# 현재 GUI 세션(DISPLAY/WAYLAND_DISPLAY)이 있거나, SSH 로 접속했더라도 데스크톱 세션
+# (xsessions/wayland-sessions)이 설치된 머신이면 데스크톱 환경으로 판단합니다.
+# 둘 다 아니면 헤드리스 서버입니다. WSL2 는 WSLg 여부를 ensure_wslg 로 따로 확인하므로 여기서는 보지 않습니다.
+# 반환: 0 = GUI 데스크톱, 1 = 헤드리스
+has_gui_desktop() {
+    [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && return 0
+    ls /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop >/dev/null 2>&1
+}
+
+# ── GUI 앱 실행 환경 준비 (WSLg 활성화 확인 · 한글 입력기 · 한글 UI 글꼴) — GUI 앱 설치 공용 ──────
+# GUI 앱(Sublime Merge · Orca 등)을 설치할 때마다 호출합니다. 예전에는 Sublime Merge 설치 스크립트만
+# 한글 입력기·글꼴을 준비해서, Sublime Merge 를 건너뛰고 Orca 만 설치하면 WSLg 창에서 한글을 입력할 수
+# 없었습니다(래퍼의 wslg_ime_env_snippet 은 fcitx5 가 있을 때만 동작). 앱마다 따로 챙기지 않도록 한곳에 모읍니다.
+#   ● WSL2: WSLg 가 꺼져 있으면 ensure_wslg 가 .wslconfig 에 활성화 설정을 기록합니다(WSL 재시작 후 적용).
+#           꺼져 있어도 입력기·글꼴은 미리 준비해 WSL 재시작 후 바로 쓸 수 있게 합니다.
+#           WSL2 는 기본적으로 입력기가 없고, WSLg 창에는 Windows IME 가 적용되지 않으므로
+#           fcitx5-hangul 이 있어야 한글을 입력할 수 있습니다.
+#   ● Linux 데스크톱: 대부분 ibus/fcitx5 가 이미 있어 그대로 건너뜁니다(ensure_korean_ime 규칙).
+#   ● 헤드리스 서버: 화면이 없으니 아무것도 설치하지 않습니다.
+#   ● 각 단계는 이미 준비되어 있으면 건너뛰므로(멱등) 여러 앱 설치 스크립트가 차례로 호출해도 안전합니다.
+#   ● 선택 단계라 실패해도 앱 설치를 막지 않습니다(경고만 표시).
+# 인수: $1 = 앱 이름 (안내 문구용, 선택)
+# 반환: 항상 0
+ensure_gui_app_env() {
+    local _app="${1:-GUI 앱}"
+    if [ "${IS_WSL2:-false}" = true ]; then
+        if ensure_wslg; then
+            print_info "[WSL2] WSLg 활성화 확인 완료 → Linux 판 ${_app} 을(를) Windows 창으로 실행합니다."
+        fi
+    elif ! has_gui_desktop; then
+        print_skip "GUI 데스크톱 환경이 없어 한글 입력기·한글 UI 글꼴 준비를 건너뜁니다."
+        return 0
+    fi
+    ensure_korean_ime || print_warn "한글 입력기 준비에 실패했습니다. 나중에 install_hangle.sh 로 다시 시도할 수 있습니다."
+    # 한글 UI 글꼴 (없을 때만) — 한글 겹침, 과도하게 큰 제목/메뉴 글꼴 방지 (상세: ensure_korean_gui_font 주석)
+    ensure_korean_gui_font || true
+    return 0
 }
 
 # ── Ghostty 글꼴 크기를 중앙 UI 기본값(ui-defaults.json)과 동기화 (Linux 데스크톱) ──────

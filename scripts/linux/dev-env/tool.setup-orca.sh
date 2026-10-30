@@ -423,6 +423,12 @@ except Exception:
         echo "   ℹ️  감지된 에이전트 CLI가 없어 스킬 설치를 건너뜁니다 (에이전트 로그인/설치 후: orca skills install --skill orca-cli --skill orchestration)."
     fi
 
+    # ── GUI 앱 실행 환경 준비: WSLg 활성화 확인 · 한글 입력기 · 한글 UI 글꼴 (없을 때만) ──
+    # Sublime Merge 설치와 같은 공용 함수(_install-utils.sh 의 ensure_gui_app_env)를 씁니다.
+    # 예전에는 Sublime Merge 만 이 준비를 해서, Orca 만 설치하면 아래 래퍼의 wslg_ime_env_snippet 이
+    # 기동할 fcitx5 가 없어 WSLg 창에서 한글을 입력할 수 없었습니다. 헤드리스 서버에서는 건너뜁니다.
+    ensure_gui_app_env "Orca"
+
     # ── GUI 실행 래퍼 + 앱 바로가기 (Linux 데스크톱 / WSL2 WSLg 공통) ──
     # [WSL2 도 Linux 데스크톱과 같은 방식(GUI 직접 실행)으로 쓰는 이유]
     #   예전에는 WSL2 에 orca serve(헤드리스, systemd 상시 실행)를 두고 Windows Orca 앱이 WSL2 IP 로 페어링하는

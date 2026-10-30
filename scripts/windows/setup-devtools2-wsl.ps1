@@ -589,6 +589,9 @@ if ($smergeExit -ne 0) { Write-Warn "Sublime Merge 설치 중 오류가 발생�
 
 # Orca 도 WSL2 안의 Linux 판을 WSLg 창으로 실행합니다(예전 Windows 앱 + WSL2 orca serve 페어링 방식 대체).
 # 에이전트 CLI(Claude Code/Codex/Antigravity) 설치 여부도 이 단계에서 묻습니다. 선택 도구라 실패해도 계속 진행합니다.
+# - Sublime Merge 와 같은 GUI 앱 공용 준비(WSLg 활성화 확인, 한글 입력기·한글 UI 글꼴 — 없을 때만)를 함께 진행합니다
+#   (_install-utils.sh 의 ensure_gui_app_env). Sublime Merge 를 건너뛰어도 Orca 에서 한글을 입력할 수 있습니다.
+# - Revoke-WslTempSudo 보다 앞(Step 3 안)에서 실행되므로 apt 설치 시 비밀번호를 묻지 않습니다.
 Write-SubStep "▶ (5/5) WSL2 Orca (WSLg) 및 에이전트 CLI 설치"
 wsl -d $wslDistro -u $wslUser -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$RAW_LINUX/tool.setup-orca.sh' -o /tmp/_dt2_orca.sh && DEVTOOLS2=/var/opt/_devtools2 DT2_REF='$DT2_REF' bash -l /tmp/_dt2_orca.sh"
 $orcaExit = $LASTEXITCODE

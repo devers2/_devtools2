@@ -6,7 +6,8 @@
 #   1. Linux 데스크톱 / WSL2(WSLg) 공통: 공식 최신 tar.xz 다운로드 및 $DEVTOOLS2/modules/sublime-merge
 #      스마트 설치 ([y/N], 기본값 N). GUI 가 없는 서버(헤드리스) 환경에서는 설치를 건너뜁니다.
 #   2. WSL2 환경: WSLg(WSL GUI 앱 지원) 활성화 확인 — Linux 앱을 Windows 창으로 실행
-#   3. 한글 입력기 확인 및 설치 (없을 때만, _install-utils.sh 의 ensure_korean_ime 공용 함수)
+#   3. 한글 입력기·한글 UI 글꼴 확인 및 설치 (없을 때만)
+#      (2·3 은 _install-utils.sh 의 GUI 앱 공용 함수 ensure_gui_app_env — Orca 설치와 공유)
 #   4. smerge 실행 래퍼 생성 (WSL2 에서는 fcitx5 입력기 환경변수·데몬을 실행 시점에 준비)
 #   5. $DEVTOOLS2/.config/sublime-merge 설정 파일 자동 링크/동기화 (다크 Monokai, 11.5pt)
 #   6. Git 글로벌 difftool 및 mergetool 로 smerge 자동 등록
@@ -77,22 +78,16 @@ fi
 
 # ==============================================================================
 # [Step 0] GUI 환경 확인 (Sublime Merge 는 GUI 전용 앱)
-#   - WSL2: WSLg 가 꺼져 있으면 .wslconfig 에 활성화 설정을 기록하고 계속 설치합니다
-#           (WSL 재시작 후 바로 실행 가능하도록 바이너리·설정을 미리 준비).
+#   - WSL2: WSLg 가 꺼져 있어도 계속 설치합니다 (WSL 재시작 후 바로 실행 가능하도록 바이너리·설정을 미리 준비).
+#           WSLg 활성화 확인·기록은 [Step 2] 의 공용 함수 ensure_gui_app_env 가 합니다.
 #   - Linux: 현재 GUI 세션(DISPLAY/WAYLAND_DISPLAY)이 있거나, SSH 로 접속했더라도
 #            데스크톱 세션(xsessions/wayland-sessions)이 설치된 머신이면 데스크톱 환경으로 판단합니다.
 #            둘 다 아니면 헤드리스 서버이므로 설치를 건너뜁니다 (터미널에서는 lazygit 사용).
+#            (판단 규칙은 _install-utils.sh 의 공용 함수 has_gui_desktop)
 # ==============================================================================
-if [ "${IS_WSL2:-false}" = true ]; then
-    if ensure_wslg; then
-        print_info "[WSL2] WSLg 활성화 확인 완료 → Linux 판 Sublime Merge 를 Windows 창으로 실행합니다."
-    fi
-else
-    if [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] \
-        && ! ls /usr/share/xsessions/*.desktop /usr/share/wayland-sessions/*.desktop >/dev/null 2>&1; then
-        print_skip "GUI 데스크톱 환경이 없는 서버로 감지되어 Sublime Merge 설치를 건너뜁니다. (터미널에서는 lazygit 을 사용하세요)"
-        exit 0
-    fi
+if [ "${IS_WSL2:-false}" != true ] && ! has_gui_desktop; then
+    print_skip "GUI 데스크톱 환경이 없는 서버로 감지되어 Sublime Merge 설치를 건너뜁니다. (터미널에서는 lazygit 을 사용하세요)"
+    exit 0
 fi
 
 # ==============================================================================
@@ -216,16 +211,15 @@ if [ -d "$SMERGE_MODULE_DIR/Data" ]; then
 fi
 
 # ==============================================================================
-# [Step 2] 한글 입력기 및 한글 UI 글꼴 확인·설치 (없을 때만)
+# [Step 2] GUI 앱 실행 환경 준비: WSLg 활성화 확인 · 한글 입력기 · 한글 UI 글꼴 (없을 때만)
 #   - WSL2 는 기본적으로 입력기가 없고, WSLg 창에는 Windows IME 가 적용되지 않으므로
 #     fcitx5-hangul 이 있어야 커밋 메시지에 한글을 입력할 수 있습니다.
 #   - Linux 데스크톱은 대부분 ibus/fcitx5 가 이미 있어 그대로 건너뜁니다.
 #   - 가변폭 한글 UI 글꼴(Noto Sans CJK KR)도 없을 때만 함께 설치합니다 (WSL2 는 기본 UI 글꼴·GTK 글꼴 크기 보정 포함).
+#     커밋 목록 한글 겹침, 과도하게 큰 제목/메뉴 글꼴을 막습니다.
+#   - Orca 등 다른 GUI 앱 설치 스크립트와 같은 공용 함수(_install-utils.sh 의 ensure_gui_app_env)를 씁니다.
 # ==============================================================================
-ensure_korean_ime || print_warn "한글 입력기 준비에 실패했습니다. 나중에 install_hangle.sh 로 다시 시도할 수 있습니다."
-
-# 한글 UI 글꼴 (없을 때만) — 커밋 목록 한글 겹침, 과도하게 큰 제목/메뉴 글꼴 방지 (상세: ensure_korean_gui_font 주석)
-ensure_korean_gui_font || true
+ensure_gui_app_env "Sublime Merge"
 
 # ==============================================================================
 # [Step 3] smerge 실행 래퍼 생성 ($SMERGE_MODULE_DIR/bin/smerge)
