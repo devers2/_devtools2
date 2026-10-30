@@ -71,7 +71,9 @@
     // Java: 탭 크기 4 설정
     "Java": {
       "language_servers": ["jdtls"],
-      "tab_size": 4
+      "tab_size": 4,
+      // 저장 시 Import 정리 (Neovim 의 jdtls organize_imports · VS Code 의 [java] source.organizeImports 와 같음)
+      "code_actions_on_format": { "source.organizeImports": true }
     },
     // Python: 탭 크기 4 설정 (PEP 8 표준)
     // - 코드 분석: Zed 기본값 basedpyright(+ ruff 진단) — Neovim 과 같은 조합. 가상환경은 프로젝트 설정 스크립트가 만드는
