@@ -21,6 +21,8 @@ jdtls 가 Java 설정 때문에 실패했을 때, 로그 파일(lsp.log)을 뒤�
      - 다른 Neovim 창의 jdtls 가 같은 작업 폴더(-data)를 씀 (함께 쓰면 Gradle 동기화·오류 표시가 꼬임)
        → 이 창은 비어 있는 별도 작업 폴더(<프로젝트>-2, -3 …)로 시작하도록 그 경로를 돌려주고 안내(INFO)
          (별도 폴더를 찾지 못해 함께 쓰게 되면 경고(WARN))
+       → 별도 폴더에는 표시 파일(.dt2-alt-workspace)을 두고, 8일 넘게 쓰지 않은 별도 폴더는 jdtls 시작 때 자동 삭제
+         (cleanup_stale_alt_workspaces — 기본 폴더는 지우지 않음, 실행 중인 jdtls 가 쓰는 폴더도 건너뜀)
          (같은 프로젝트를 Neovim 여러 창에서 열어 작업해도 되도록 — 창마다 jdtls 가 따로 떠 메모리를 더 씀)
      - VS Code·Zed·IntelliJ 의 jdtls 가 같은 프로젝트를 엶 → 안내 (작업 폴더는 따로지만 .project·.classpath·bin/ 을 함께 씀)
   5. jdtls 가 프로젝트 파일 충돌을 보고할 때 (on_log_message — "out of sync" / "Failed to configure project")
@@ -284,6 +286,7 @@ function M.check_concurrent(workspace_dir, root)
   end
   M.same_ws = same_ws
   M.others = others
+  M.used_ws = used_ws
 
   -- 다른 Neovim 창이 같은 작업 폴더를 쓰면: 비어 있는 별도 폴더(-2, -3 …)를 골라 돌려줌
   local alt_ws
@@ -306,7 +309,8 @@ function M.check_concurrent(workspace_dir, root)
       vim.list_extend(lines, {
         '  여러 jdtls 가 한 작업 폴더를 함께 쓰면 색인·Gradle 동기화가 꼬이므로, 이 창은 별도 작업 폴더로 시작합니다.',
         '    ' .. vim.fn.fnamemodify(workspace_dir, ':~') .. ' → ' .. vim.fn.fnamemodify(alt_ws, ':~'),
-        '  (창마다 jdtls 가 따로 떠 메모리를 더 쓰고, 이 폴더로 처음 열 때는 프로젝트를 새로 불러옵니다)',
+        '  (창마다 jdtls 가 따로 떠 메모리를 더 쓰고, 이 폴더로 처음 열 때는 프로젝트를 새로 불러옵니다.',
+        '   ' .. M.ALT_WORKSPACE_KEEP_DAYS .. '일 넘게 쓰지 않으면 자동으로 지워집니다)',
         '  프로젝트의 .project · .classpath · bin/ 은 함께 쓰므로, 여러 창에서 동시에 Gradle 동기화가 돌면 충돌할 수 있습니다.',
       })
     else
@@ -337,6 +341,60 @@ function M.check_concurrent(workspace_dir, root)
     }, '\n'), vim.log.levels.INFO) -- 주의 안내 (함께 써도 대부분 문제없음, 꼬이면 out of sync 경고가 따로 뜸)
   end
   return alt_ws
+end
+
+-- ── 별도 작업 폴더 표시·정리 ─────────────────────────────────────────────────────────
+-- 다른 Neovim 창 때문에 만든 별도 폴더(<프로젝트>-2 …)는 혼자 열 때는 쓰이지 않아(기본 폴더 사용) 계속 쌓입니다
+-- (폴더 하나가 프로젝트 색인 크기만큼, 예: Goono-ELN 약 183MB). 그래서 오래 쓰지 않은 별도 폴더는 지웁니다.
+-- ● 지울 폴더는 이름(-숫자)이 아니라 표시 파일로 구분합니다. 이름만 보면 원래 이름이 "project-1" 인 프로젝트의
+--   기본 폴더까지 지울 수 있기 때문입니다.
+-- ● 기간 8일: 한동안 여러 창을 띄워 작업하다 끝난 경우 일주일이 지나도 안 쓰면 더 쓰지 않는다고 보고 정함.
+--   지운 뒤 다시 여러 창을 열면 별도 폴더가 새로 생기고, 그때 한 번만 프로젝트를 새로 불러옵니다.
+M.ALT_MARKER = '.dt2-alt-workspace'
+M.ALT_WORKSPACE_KEEP_DAYS = 8
+
+--- 별도 작업 폴더에 표시 파일을 남김 (jdtls 가 폴더를 만들기 전이라 폴더도 함께 만듦)
+--- @param dir string
+function M.mark_alt_workspace(dir)
+  vim.fn.mkdir(dir, 'p')
+  local f = io.open(dir .. '/' .. M.ALT_MARKER, 'w')
+  if f then
+    f:write('DevTools2: 다른 Neovim 창이 기본 작업 폴더를 쓰는 동안 만든 jdtls 별도 작업 폴더입니다.\n'
+      .. M.ALT_WORKSPACE_KEEP_DAYS .. '일 넘게 쓰지 않으면 jdtls 시작 때 자동으로 지웁니다 (util/jdtls_diagnose.lua).\n')
+    f:close()
+  end
+end
+
+--- 오래 쓰지 않은 별도 작업 폴더 삭제 (check_concurrent 직후에 호출 — 그 검사에서 찾은 실행 중 폴더는 건너뜀)
+--- @param base_dir string jdtls 작업 폴더들의 상위 폴더 (~/.cache/nvim/jdtls)
+--- @param current string|nil 이 창이 이번에 쓸 작업 폴더 (지우지 않음)
+function M.cleanup_stale_alt_workspaces(base_dir, current)
+  -- 실행 중인 jdtls 목록을 모르면(검사 실패) 지우지 않음 — 쓰는 중인 폴더를 지우는 것보다 남겨 두는 편이 안전
+  if type(M.used_ws) ~= 'table' or vim.fn.isdirectory(base_dir) == 0 then
+    return
+  end
+  local limit = os.time() - M.ALT_WORKSPACE_KEEP_DAYS * 86400
+  local cur = current and (vim.uv.fs_realpath(current) or current)
+  for _, name in ipairs(vim.fn.readdir(base_dir)) do
+    local dir = base_dir .. '/' .. name
+    local real = vim.uv.fs_realpath(dir) or dir
+    if vim.fn.filereadable(dir .. '/' .. M.ALT_MARKER) == 1 and real ~= cur and not M.used_ws[real] then
+      -- 마지막 사용 시각: jdtls 가 시작할 때마다 이어 쓰는 .metadata/.log, 없으면 폴더 자체의 수정 시각
+      local last = math.max(vim.fn.getftime(dir .. '/.metadata/.log'), vim.fn.getftime(dir .. '/.metadata'),
+        vim.fn.getftime(dir))
+      if last > 0 and last < limit then
+        -- 파일이 많아(수만 개) 동기 삭제는 화면을 멈출 수 있어 백그라운드로 지움
+        vim.system({ 'rm', '-rf', dir }, {}, function(r)
+          if _G.log_jdtls then
+            vim.schedule(function()
+              _G.log_jdtls(string.format('%d일 넘게 쓰지 않은 별도 작업 폴더 삭제%s: %s', M.ALT_WORKSPACE_KEEP_DAYS,
+                r.code == 0 and '' or (' 실패(code ' .. r.code .. ')'), dir))
+            end)
+          end
+        end)
+      end
+    end
+  end
 end
 
 --- jdtls 의 window/logMessage 내용을 보고 Java 설정 관련 실패면 알림

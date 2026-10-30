@@ -388,7 +388,13 @@ return {
         if ok_cc and type(alt_ws) == 'string' then
           _G.log_jdtls('다른 Neovim 창이 작업 폴더 사용 중 → 별도 작업 폴더로 시작: ' .. alt_ws)
           workspace_dir = alt_ws
+          pcall(diag.mark_alt_workspace, alt_ws) -- 나중에 오래 안 쓰면 자동 정리할 대상으로 표시
         end
+        -- [별도 작업 폴더 정리] 8일 넘게 쓰지 않은 별도 폴더(<프로젝트>-2 …) 삭제 — 시작을 늦추지 않게 잠시 뒤 실행
+        local cleanup_current = workspace_dir
+        vim.defer_fn(function()
+          pcall(diag.cleanup_stale_alt_workspaces, _G.NVIM_CACHE_DIR .. '/jdtls', cleanup_current)
+        end, 5000)
         local mason_lombok_path = _G.NVIM_SHARED_DIR .. '/mason/packages/jdtls/lombok.jar'
 
         -- [jdtls 힙 크기: 이 PC 의 전체 메모리에 맞춰 결정]
