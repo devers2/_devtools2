@@ -43,22 +43,52 @@ local function with_injected(base_formatter)
 end
 
 -- 헬퍼 함수: 프로젝트 로컬 Prettier 설정 파일 존재 여부 검사
+-- ● 설정 파일(.prettierrc* / prettier.config.*) 또는 package.json 최상위의 "prettier" 설정을 프로젝트 설정으로 봅니다.
+--   (예전에는 설정 파일만 봐서, package.json 에 Prettier 설정을 둔 프로젝트도 공통 설정으로 포맷되어 팀 규칙이 무시됐음)
+-- ● package.json 은 JSON 으로 읽어 최상위 키를 확인합니다. "devDependencies": { "prettier": "^3" } 처럼 설치만 한
+--   경우를 설정으로 오인하지 않기 위해서입니다.
+-- ⚠️ Zed 포맷 래퍼(scripts/zed/format 의 prettier)도 같은 기준이므로 바꾸면 함께 맞춰 주세요.
+local PRETTIER_CONFIG_FILES = {
+  '.prettierrc',
+  '.prettierrc.json',
+  '.prettierrc.json5',
+  '.prettierrc.js',
+  '.prettierrc.cjs',
+  '.prettierrc.mjs',
+  '.prettierrc.ts',
+  '.prettierrc.cts',
+  '.prettierrc.mts',
+  '.prettierrc.yaml',
+  '.prettierrc.yml',
+  '.prettierrc.toml',
+  'prettier.config.js',
+  'prettier.config.cjs',
+  'prettier.config.mjs',
+  'prettier.config.ts',
+  'prettier.config.cts',
+  'prettier.config.mts',
+}
+
+local function package_json_has_prettier(dir)
+  local f = io.open(dir .. '/package.json', 'r')
+  if not f then
+    return false
+  end
+  local ok, data = pcall(vim.json.decode, f:read('*a') or '')
+  f:close()
+  return ok and type(data) == 'table' and data.prettier ~= nil
+end
+
 local function find_local_prettier_config(filename)
   if not filename or filename == '' then
     return nil
   end
-  return vim.fs.root(filename, {
-    '.prettierrc',
-    '.prettierrc.json',
-    '.prettierrc.js',
-    '.prettierrc.cjs',
-    '.prettierrc.mjs',
-    '.prettierrc.yaml',
-    '.prettierrc.yml',
-    'prettier.config.js',
-    'prettier.config.cjs',
-    'prettier.config.mjs',
-  })
+  return vim.fs.root(filename, function(name, path)
+    if vim.tbl_contains(PRETTIER_CONFIG_FILES, name) then
+      return true
+    end
+    return name == 'package.json' and package_json_has_prettier(path)
+  end)
 end
 
 -- 헬퍼 함수: 스마트 Prettier 인자 빌더
