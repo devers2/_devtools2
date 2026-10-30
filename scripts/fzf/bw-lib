@@ -73,6 +73,24 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
     IS_WSL=true
 fi
 
+# ── 공용 질문 함수 로드 (prompt_confirm · prompt_text · prompt_key · prompt_password) ──────────────
+# 질문 색(노란색)과 기본값 색(초록색)을 설치 스크립트의 다른 질문과 같게 맞추기 위해, 직접 read -rp 로 묻지 않고
+# _common.sh 의 공용 함수를 씁니다. 설치 스크립트에서는 이미 로드되어 있고, 명령 팔레트·bw-server-manager 처럼
+# 단독으로 실행될 때만 DevTools2 저장소의 _common.sh 를 불러옵니다.
+# (DT2_TMP 를 미리 정해 두어 _common.sh 가 실행할 때마다 /tmp 에 임시 폴더를 새로 만들지 않게 합니다)
+if ! command -v prompt_confirm &>/dev/null; then
+    _bw_common="${DEVTOOLS2:-/var/opt/_devtools2}/scripts/linux/dev-env/_common.sh"
+    if [ -f "$_bw_common" ]; then
+        if [ -z "${DT2_TMP:-}" ]; then
+            DT2_TMP="${HOME:-/tmp}/.devtools2/tmp"
+            (umask 077; mkdir -p "$DT2_TMP") 2>/dev/null || DT2_TMP=""
+        fi
+        # shellcheck disable=SC1090
+        source "$_bw_common"
+    fi
+    unset _bw_common
+fi
+
 # ── 터미널 모드 정규화 헬퍼 ──────────────────────────────────────────────────
 # bind -x (Readline 단축키) 환경에서 터미널을 canonical 모드로 복원합니다.
 # Readline이 설정한 raw 모드(-icanon -icrnl)에서는 Enter(\r)가 Newline(\n)으로 변환되지 않아
@@ -603,8 +621,9 @@ bw_setup_git_config() {
     echo "⚙️  git 전역 기본 설정(user.name / user.email)을 입력해주세요."
     echo "   [엔터]를 누르면 Bitwarden 기본값이 적용됩니다."
     echo ""
-    read -rp "👤 user.name  [기본값: $_bw_default_name]: " _input_git_name
-    read -rp "📧 user.email [기본값: $_bw_default_email]: " _input_git_email
+    local _input_git_name _input_git_email
+    prompt_text _input_git_name "👤 user.name " "$_bw_default_name"
+    prompt_text _input_git_email "📧 user.email" "$_bw_default_email"
 
     local _final_git_name _final_git_email
     _final_git_name="${_input_git_name:-$_bw_default_name}"
@@ -669,14 +688,11 @@ bw_save_git_credentials() {
         fi
 
         echo "⚠️  ~/.git-credentials 에 ${_cred_host} 의 기존 PAT 가 있으나 Bitwarden PAT 와 다릅니다."
-        read -rp "🔄 기존 PAT 를 Bitwarden PAT 로 교체하시겠습니까? (y/N): " _save_ans
-        _save_ans="${_save_ans:-n}"
+        prompt_confirm "🔄 기존 PAT 를 Bitwarden PAT 로 교체하시겠습니까?" "N" && _save_ans="y" || _save_ans="n"
     else
-        read -rp "🔑 이후 git push/pull 시에도 자동 인증되도록 PAT 를 저장하시겠습니까? [Y/n]: " _save_ans
-        _save_ans="${_save_ans:-y}"
+        prompt_confirm "🔑 이후 git push/pull 시에도 자동 인증되도록 PAT 를 저장하시겠습니까?" "Y" && _save_ans="y" || _save_ans="n"
     fi
 
-    _save_ans=$(echo "$_save_ans" | tr '[:upper:]' '[:lower:]')
     if [[ "$_save_ans" != "y" ]]; then
         echo "ℹ️  인증 정보를 변경하지 않았습니다."
         return 0
@@ -784,8 +800,7 @@ bw_interactive_login() {
     _bw_login_ask_email() {
         local _t
         for _t in 1 2 3; do
-            printf "📧 Bitwarden 이메일 주소: " >/dev/tty
-            IFS= read -r _email </dev/tty || true
+            prompt_text _email "📧 Bitwarden 이메일 주소"
             _email="${_email//[[:space:]]/}"
             if [[ "$_email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
                 return 0
@@ -799,7 +814,8 @@ bw_interactive_login() {
 
     # 2) 마스터 비밀번호 (비대화형으로 확인해 틀린 경우만 다시 입력)
     #    Bitwarden 은 이메일이 틀려도(없는 계정) "Invalid master password" 로만 답하므로, 비밀번호가 틀리면
-    #    Enter(비밀번호 다시 입력) / e(이메일 수정)를 고르게 합니다. 이메일을 고치면 비밀번호 기회는 다시 3번
+    #    비밀번호(p, 기본값) / 이메일(e) 중 다시 입력할 것을 고르게 합니다(공용 prompt_key — [P/e] 표시).
+    #    이메일을 고치면 비밀번호 기회는 다시 3번
     #    (틀린 이메일로 한 시도는 의미가 없으므로), 이메일 수정은 무한 반복을 막기 위해 2번까지입니다.
     local _email_changes=0 _ans=""
     _try=0
@@ -825,14 +841,13 @@ bw_interactive_login() {
             *"Invalid master password"*|*"incorrect"*)
                 echo "❌ 마스터 비밀번호가 맞지 않습니다. (${_try}/3)" >&2
                 if [ "$_email_changes" -lt 2 ]; then
-                    if [ "$_try" -lt 3 ]; then
-                        printf "   👉 Enter: 비밀번호 다시 입력 / e: 이메일(%s) 수정: " "$_email" >/dev/tty
-                    else
-                        printf "   👉 Enter: 끝내기 / e: 이메일(%s) 수정 후 다시 시도: " "$_email" >/dev/tty
-                    fi
                     _ans=""
-                    IFS= read -r _ans </dev/tty || true
-                    if [[ "$_ans" == [eE]* ]]; then
+                    if [ "$_try" -lt 3 ]; then
+                        prompt_key _ans "   👉 무엇을 다시 입력할까요? 비밀번호(p) / 이메일(e) — 현재 이메일: ${_email}" p p e
+                    else
+                        prompt_key _ans "   👉 이메일을 고쳐서 다시 시도할까요? 이메일 수정(e) / 끝내기(q) — 현재 이메일: ${_email}" q e q
+                    fi
+                    if [ "$_ans" = "e" ]; then
                         _email_changes=$((_email_changes + 1))
                         _bw_login_ask_email || { _status="fail"; break; }
                         _try=0   # 이메일이 바뀌었으니 비밀번호 기회는 다시 3번
@@ -1025,7 +1040,7 @@ bw_git_clone_interactive() {
     local _BW_DEFAULT_ITEM="${BW_DEFAULT_PAT_ITEM:-github.com-main}"
     local _BW_ITEM_NAME
 
-    read -rp "🔑 Bitwarden 'GitHub' 항목 이름 [기본값: ${_BW_DEFAULT_ITEM}]: " _BW_ITEM_NAME
+    prompt_text _BW_ITEM_NAME "🔑 Bitwarden 'GitHub' 항목 이름" "$_BW_DEFAULT_ITEM"
     _BW_ITEM_NAME="${_BW_ITEM_NAME:-$_BW_DEFAULT_ITEM}"
 
     bw_git_clone "$_REPO_URL" "$_TARGET_DIR" "$_BW_ITEM_NAME"

@@ -138,6 +138,58 @@ prompt_confirm() {
     [ "$_ans" = "y" ]
 }
 
+# ── 문자 입력 프롬프트 헬퍼 (기본값 초록색 표시) ───────────────────────────
+# prompt_text <varname> <prompt_message> [default]
+# 기본값이 있으면 "메시지 [기본값: X]:" 처럼 기본값을 초록색으로 보여 주고, Enter 만 누르면 기본값을 씁니다.
+# (질문 색·기본값 색을 prompt_confirm 과 같게 맞추기 위한 공용 함수 — 직접 read -rp 로 묻지 마세요)
+# 사용법: prompt_text _name "👤 user.name" "$_default_name"
+prompt_text() {
+    local _pt_var="$1" _pt_msg="$2" _pt_def="${3:-}" _pt_in=""
+    if [ -n "$_pt_def" ]; then
+        prompt_read _pt_in "${_pt_msg} [기본값: ${_C_DEFAULT}${_pt_def}${_C_RESET}${_C_YELLOW}${_C_BOLD}]:"
+    else
+        prompt_read _pt_in "${_pt_msg}:"
+    fi
+    printf -v "$_pt_var" '%s' "${_pt_in:-$_pt_def}"
+}
+
+# ── 글자 선택 프롬프트 헬퍼 ([P/e] 처럼 기본값을 초록색 대문자로 표시) ─────────────
+# prompt_key <varname> <prompt_message> <기본 키> <키> [<키>...]
+# 결과: 고른 키(소문자). Enter 는 기본값, 목록에 없는 입력이면 다시 묻습니다(무인 실행은 기본값).
+# 기본 키를 "" 로 주면 기본값 없이 반드시 고르게 합니다(예: 덮어쓰기 위험이 있는 업로드/다운로드 선택).
+# 사용법: prompt_key _ans "무엇을 다시 입력할까요? 비밀번호(p) / 이메일(e)" p p e   → "... [P/e]:"
+prompt_key() {
+    local _pk_var="$1" _pk_msg="$2" _pk_def="${3,,}"
+    shift 3
+    local _pk_keys=("$@") _pk_k _pk_disp="" _pk_in=""
+    for _pk_k in "${_pk_keys[@]}"; do
+        _pk_k="${_pk_k,,}"
+        [ -n "$_pk_disp" ] && _pk_disp+="/"
+        if [ "$_pk_k" = "$_pk_def" ]; then
+            _pk_disp+="${_C_DEFAULT}${_pk_k^^}${_C_RESET}${_C_YELLOW}${_C_BOLD}"
+        else
+            _pk_disp+="${_pk_k}"
+        fi
+    done
+    while true; do
+        prompt_read _pk_in "${_pk_msg} [${_pk_disp}]:"
+        _pk_in="${_pk_in,,}"
+        _pk_in="${_pk_in:-$_pk_def}"
+        for _pk_k in "${_pk_keys[@]}"; do
+            [ -n "$_pk_in" ] || break
+            if [ "$_pk_in" = "${_pk_k,,}" ]; then
+                printf -v "$_pk_var" '%s' "$_pk_in"
+                return 0
+            fi
+        done
+        if dt2_is_noninteractive; then
+            printf -v "$_pk_var" '%s' "$_pk_def"
+            return 0
+        fi
+        print_warn "$(printf '%s ' "${_pk_keys[@]}")중 하나를 입력해 주세요."
+    done
+}
+
 # ── 비밀번호 입력 프롬프트 헬퍼 (비영문/다국어 입력 방지 및 재입력 유도) ──
 # prompt_password <varname> [prompt_message]
 # - 비밀번호 입력 시 터미널 에코를 끄고(-s) 안전하게 입력받습니다.

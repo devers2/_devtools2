@@ -145,8 +145,7 @@ setup_maven_central_publishing() {
     # 2. Maven Central 배포용 설정 진행 여부 사전 확인 (기본값 N: 대소문자 무관 n이면 건너뜀)
     if [ "$_FORCE_SETUP" = "false" ]; then
         echo ""
-        read -rp "❓ Maven 중앙 저장소(Central Portal) 배포용 설정을 진행하시겠습니까? [y/N]: " _MC_WANT_SETUP
-        _MC_WANT_SETUP=$(echo "${_MC_WANT_SETUP:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
+        prompt_confirm "❓ Maven 중앙 저장소(Central Portal) 배포용 설정을 진행하시겠습니까?" "N" && _MC_WANT_SETUP="y" || _MC_WANT_SETUP="n"
         if [ "$_MC_WANT_SETUP" != "y" ]; then
             return 0
         fi
@@ -162,10 +161,10 @@ setup_maven_central_publishing() {
     local _DEFAULT_GPG_ITEM="GPG Signing"
     local _MC_ITEM_NAME _GPG_ITEM_NAME
 
-    read -rp "🔑 Bitwarden 'Maven Central Portal' 항목 이름 [기본값: ${_DEFAULT_MC_ITEM}]: " _MC_ITEM_NAME
+    prompt_text _MC_ITEM_NAME "🔑 Bitwarden 'Maven Central Portal' 항목 이름" "$_DEFAULT_MC_ITEM"
     _MC_ITEM_NAME="${_MC_ITEM_NAME:-$_DEFAULT_MC_ITEM}"
 
-    read -rp "🔑 Bitwarden 'GPG Signing' 항목 이름 [기본값: ${_DEFAULT_GPG_ITEM}]: " _GPG_ITEM_NAME
+    prompt_text _GPG_ITEM_NAME "🔑 Bitwarden 'GPG Signing' 항목 이름" "$_DEFAULT_GPG_ITEM"
     _GPG_ITEM_NAME="${_GPG_ITEM_NAME:-$_DEFAULT_GPG_ITEM}"
 
     # Maven Central Portal 계정과 GPG 서명 정보 둘 다 있어야 실제로 배포가 되므로
@@ -311,8 +310,7 @@ setup_maven_central_publishing() {
     if [ "$_HAS_EXISTING" = "true" ]; then
         echo ""
         echo "⚠️  Maven 중앙 저장소(Central Portal) 배포용 기존 설정 또는 GPG 키 파일이 존재합니다."
-        read -rp "❓ Maven 중앙 저장소(Central Portal) 배포용 설정이 다른데 선택한 항목의 내용으로 바꾸시겠습니까? [y/N]: " _MC_CHOICE
-        _MC_CHOICE=$(echo "${_MC_CHOICE:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
+        prompt_confirm "❓ Maven 중앙 저장소(Central Portal) 배포용 설정이 다른데 선택한 항목의 내용으로 바꾸시겠습니까?" "N" && _MC_CHOICE="y" || _MC_CHOICE="n"
         if [ "$_MC_CHOICE" != "y" ]; then
             echo "ℹ️  Maven 중앙 저장소 배포용 설정을 건너뜁니다."
             return 0
