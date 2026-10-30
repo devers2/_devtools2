@@ -416,6 +416,12 @@ vim.api.nvim_create_autocmd('BufEnter', {
   end,
 })
 
+-- [임시 우회] Groovy 파서의 문서 주석(/** */) 버그 자동 수정 — 문제가 있을 때만 고친 파서로 교체
+-- (자세한 설명·제거 방법: lua/util/ts_groovy_doc_fix.lua 상단. 원본에서 고쳐지면 이 줄과 그 파일만 지우면 됨)
+pcall(function()
+  require('util.ts_groovy_doc_fix').setup()
+end)
+
 return {
   -- [Treesitter 파서 설정]
   -- Neovim에서 구문 강조 및 코드 분석을 위해 필요한 언어 파서들을 자동으로 설치합니다.
