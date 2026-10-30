@@ -47,7 +47,7 @@ end
 --   (예전에는 설정 파일만 봐서, package.json 에 Prettier 설정을 둔 프로젝트도 공통 설정으로 포맷되어 팀 규칙이 무시됐음)
 -- ● package.json 은 JSON 으로 읽어 최상위 키를 확인합니다. "devDependencies": { "prettier": "^3" } 처럼 설치만 한
 --   경우를 설정으로 오인하지 않기 위해서입니다.
--- ⚠️ Zed 포맷 래퍼(scripts/zed/format 의 prettier)도 같은 기준이므로 바꾸면 함께 맞춰 주세요.
+-- ⚠️ Zed 포맷 래퍼(scripts/format/format 의 prettier)도 같은 기준이므로 바꾸면 함께 맞춰 주세요.
 local PRETTIER_CONFIG_FILES = {
   '.prettierrc',
   '.prettierrc.json',
@@ -115,23 +115,30 @@ end
 -- 프로젝트에 ruff 설정(ruff.toml / .ruff.toml / pyproject.toml 의 [tool.ruff])이 있으면 그 설정을 따르고,
 -- 없을 때만 글로벌 _devtools2 ruff.toml 을 지정합니다.
 -- (항상 --config 로 전역 설정을 강제하면 프로젝트의 line-length 등이 무시되어 CI 와 다르게 포맷됨)
+-- ● ruff 자체의 설정 탐색과 같게 위쪽 폴더로 올라가며 확인합니다: ruff.toml / .ruff.toml, 또는 [tool.ruff] 가 있는
+--   pyproject.toml. [tool.ruff] 가 없는 pyproject.toml 은 건너뛰고 계속 올라갑니다.
+--   (예전에는 가장 가까운 pyproject.toml 하나만 봐서, 하위 패키지의 pyproject.toml 에 [tool.ruff] 가 없으면
+--    상위 폴더의 ruff 설정이 있어도 공통 설정으로 포맷됐음 — 여러 패키지를 모은 저장소)
+-- ⚠️ Zed 는 ruff 언어 서버의 configurationPreference = filesystemFirst 로 같은 기준을 씀 (.config/zed/settings.json)
 local function has_project_ruff_config(filename)
   if not filename or filename == '' then
     return false
   end
-  if vim.fs.root(filename, { 'ruff.toml', '.ruff.toml' }) then
-    return true
-  end
-  local root = vim.fs.root(filename, { 'pyproject.toml' })
-  if root then
-    local f = io.open(root .. '/pyproject.toml', 'r')
-    if f then
-      local content = f:read('*a') or ''
-      f:close()
-      return content:find('%[tool%.ruff') ~= nil
+  local found = vim.fs.root(filename, function(name, path)
+    if name == 'ruff.toml' or name == '.ruff.toml' then
+      return true
     end
-  end
-  return false
+    if name == 'pyproject.toml' then
+      local f = io.open(path .. '/pyproject.toml', 'r')
+      if f then
+        local content = f:read('*a') or ''
+        f:close()
+        return content:find('%[tool%.ruff') ~= nil
+      end
+    end
+    return false
+  end)
+  return found ~= nil
 end
 
 local function get_smart_ruff_prepend_args(_, ctx)
@@ -140,6 +147,43 @@ local function get_smart_ruff_prepend_args(_, ctx)
   end
   return { '--config', _G.DEVTOOLS2_DIR .. '/.config/ruff/ruff.toml' }
 end
+
+-- 헬퍼 함수: 스마트 StyLua 인자 빌더 (Prettier·Ruff 와 같은 원칙)
+-- 프로젝트에 stylua.toml / .stylua.toml 이 있으면 그 설정(stylua 의 --search-parent-directories 가 찾음),
+-- 없을 때만 Neovim 설정 폴더의 stylua.toml(공통 설정)을 지정합니다.
+-- (예전에는 항상 --config-path 로 Neovim 설정을 강제해서 프로젝트의 stylua 설정이 무시됐음)
+-- ⚠️ Zed 포맷 래퍼(scripts/format/format 의 lua)도 같은 기준이므로 바꾸면 함께 맞춰 주세요.
+local function get_smart_stylua_prepend_args(_, ctx)
+  if vim.fs.root(ctx.filename, { 'stylua.toml', '.stylua.toml' }) then
+    return {}
+  end
+  return { '--config-path', vim.fs.joinpath(vim.fn.stdpath('config'), 'stylua.toml') }
+end
+
+-- 헬퍼 함수: shfmt 인자 (셸 스크립트)
+-- 프로젝트에 .editorconfig 가 있으면 그 설정(shfmt 가 -filename 기준으로 찾음), 없으면 DevTools2 스크립트 스타일인
+-- 4칸 들여쓰기 + case 안쪽 들여쓰기(-i 4 -ci)를 씁니다.
+-- (LazyVim 기본값은 .editorconfig 가 없으면 Neovim 들여쓰기 칸 수(2칸)를 넘겨서, 4칸으로 작성된 DevTools2 스크립트를
+--  저장만 해도 절반 가까운 줄이 2칸으로 바뀌었음 — doctor.sh 245줄 중 109줄, 실측)
+local function get_shfmt_args(_, ctx)
+  local args = { '-filename', '$FILENAME' }
+  if not vim.fs.find('.editorconfig', { path = ctx.dirname, upward = true })[1] then
+    vim.list_extend(args, { '-i', '4', '-ci' })
+  end
+  return args
+end
+
+-- [셸 스크립트는 저장 시 자동 포맷 끔 — 필요할 때 <leader>cf 로 직접 정리]
+-- DevTools2 스크립트는 shfmt 스타일로 작성되지 않아(예: "( cmd1 \n cmd2 ) &" 묶음, 줄 앞 "| python3" 이어쓰기),
+-- 4칸으로 맞춰도 저장소 스크립트의 약 8%(14,864줄 중 1,182줄)가 바뀝니다. 동작은 같지만 일부러 쓴 스타일이고,
+-- 다른 PC 가 GitHub 에서 바로 받아 실행하는 설치 스크립트라 저장할 때마다 의도하지 않은 변경이 섞이지 않게 합니다.
+vim.api.nvim_create_autocmd('FileType', {
+  group = vim.api.nvim_create_augroup('devtools2_no_autoformat_sh', { clear = true }),
+  pattern = { 'sh', 'bash', 'zsh' },
+  callback = function(ev)
+    vim.b[ev.buf].autoformat = false
+  end,
+})
 
 return {
   {
@@ -258,6 +302,9 @@ return {
         css = { 'prettier' },
         scss = { 'prettier' },
         lua = { 'stylua' },
+        -- 셸: shfmt (인자는 아래 formatters.shfmt, 저장 시 자동 포맷은 위 FileType 오토커맨드로 끔)
+        sh = { 'shfmt' },
+        bash = { 'shfmt' },
       },
 
       -- =========================================================================
@@ -285,6 +332,9 @@ return {
             --   아래 lang_to_formatters 블록을 제거하여 원복하세요.
             lang_to_formatters = {
               kotlin = {}, -- ktlint 파싱 실패 exit code 0 버그 → injected 대상 제외
+              -- Python 코드 블록은 포맷(ruff_format)만: 자동 수정(ruff_fix)까지 하면 "쓰지 않는 import" 로 보고
+              -- 문서 예제의 import 를 지웠음 (```python import os ...``` → import 삭제, 실측)
+              python = { 'ruff_format' },
             },
           },
         },
@@ -301,7 +351,24 @@ return {
         },
 
         stylua = {
-          prepend_args = { '--config-path', vim.fs.joinpath(vim.fn.stdpath('config'), 'stylua.toml') },
+          prepend_args = get_smart_stylua_prepend_args,
+        },
+
+        -- 셸 스크립트 (위 get_shfmt_args 설명)
+        shfmt = {
+          args = get_shfmt_args,
+        },
+
+        -- Kotlin: 편집기 공통 포맷 래퍼(scripts/format/format kotlin)로 실행
+        -- ● ktlint 는 포맷 결과를 출력한 뒤에도 자동으로 고칠 수 없는 규칙 위반(파일 이름 PascalCase, import foo.* 등)이
+        --   남으면 종료 코드 1 을 내서, conform 이 실패로 보고 포맷 결과 전체를 버렸음 (Kotlin 파일이 정리되지 않음, 실측)
+        -- ● 그렇다고 exit_codes = { 0, 1 } 로만 받으면, 파싱 실패 때 ktlint 가 내는 빈 출력이 그대로 적용되어 파일이 비워짐
+        --   → 래퍼가 "종료 코드 0·1 이면서 출력이 비어 있지 않을 때만" 결과를 돌려주고, 그 밖에는 실패로 처리
+        -- ● --stdin-path 로 파일 위치를 알려 그 파일이 속한 프로젝트의 .editorconfig 를 적용 (래퍼 안에서 지정)
+        ktlint = {
+          command = _G.DEVTOOLS2_DIR .. '/scripts/format/format',
+          args = { 'kotlin', '$FILENAME' },
+          stdin = true,
         },
 
         -- XML (Spring & MyBatis 매퍼):
