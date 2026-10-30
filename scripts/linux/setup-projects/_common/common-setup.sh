@@ -772,6 +772,7 @@ PYEOF
 #     (예전에는 "<name> (Launch)" 를 붙였으나 이름에 이미 설명이 있는 경우 "▶ FastAPI (uvicorn, debug) (Launch)" 처럼 어색해 제거)
 #   - ${workspaceFolder} → $ZED_WORKTREE_ROOT (Zed 의 프로젝트 루트 변수)
 #   - Java: cwd 가 없으면 $ZED_WORKTREE_ROOT, stopOnEntry 가 없으면 false (Zed 내부에서 직접 Spring Boot 앱 구동)
+#           console 이 없으면 internalConsole (디버거가 앱을 직접 실행 — WSL 원격 Zed 는 터미널 실행 요청이 실패)
 #
 # [덮어쓰기 기준 — 기존 사용자 설정 보존 (멱등성)]
 #   - 파일이 없음 / Zed 가 만든 빈 기본 파일([] — F4 → 설정 편집 시 생성) / 이전에 자동 생성한 파일(헤더 표시) → 씀
@@ -842,6 +843,9 @@ for cfg in (launch or {}).get('configurations', []):
     if adapter == 'Java':
         zed.setdefault('cwd', '$ZED_WORKTREE_ROOT')
         zed.setdefault('stopOnEntry', False)
+        # 앱을 디버거가 직접 띄움 (출력은 Zed 디버그 콘솔). 기본값(integratedTerminal)은 Zed 에 터미널 실행을
+        # 요청하는데, WSL 원격 Zed 에서는 "Failed to launch debuggee in terminal. Reason: null" 로 실패함 (Goono-ELN 실측)
+        zed.setdefault('console', 'internalConsole')
     configs.append(zed)
 
 if not configs:
