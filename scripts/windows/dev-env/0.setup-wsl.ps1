@@ -203,6 +203,10 @@ $versionProc = Start-Process wsl.exe -ArgumentList "--version" -PassThru -NoNewW
     -RedirectStandardOutput "$env:TEMP\wsl_version_check.txt" `
     -RedirectStandardError "$env:TEMP\wsl_version_error.txt" `
     -ErrorAction SilentlyContinue
+# 설계 원칙 7번(ExitCode $null 트랩): Handle 을 미리 열지 않으면 PS 5.1 에서 아래 ExitCode 가 항상 $null 이 되어
+# 설치된 WSL 도 "미설치"로 판정됩니다(실측: PS 5.1.26100 에서 wsl --version 정상 종료 후 ExitCode = $null).
+# 그러면 매번 wsl --install 을 다시 실행하고, 5-1번(최신 버전 유지)도 건너뛰게 됩니다.
+if ($versionProc) { $null = $versionProc.Handle }
 
 Wait-WithSpinner -Message "WSL 엔진 버전 확인 중" -Condition {
     return (-not $versionProc) -or $versionProc.HasExited
@@ -231,6 +235,8 @@ if (-not $isWslEngineInstalled) {
     $installErrPath = "$env:TEMP\wsl_install_error.txt"
     $installProc = Start-Process wsl.exe -ArgumentList "--install --no-distribution" -PassThru -NoNewWindow `
         -RedirectStandardError $installErrPath -ErrorAction SilentlyContinue
+    # 설계 원칙 7번: Handle 을 미리 열어 아래 3010(재부팅 필요)·실패 종료 코드를 PS 5.1 에서도 읽을 수 있게 합니다.
+    if ($installProc) { $null = $installProc.Handle }
 
     if ($null -eq $installProc) {
         Write-Fail "WSL 설치 프로세스를 시작할 수 없습니다."
@@ -275,6 +281,7 @@ if (-not $isWslEngineInstalled) {
     # 이 상태를 걸러내지 않으면 "종료 코드를 못 읽음"까지 전부 "설치 실패"로 오판됩니다.
     # 이런 애매한 경우는 여기서 바로 실패 처리하지 않고, 뒤이은 "wsl --list" 등
     # 실제 설치 상태 확인 단계로 넘겨 판단합니다.
+    # (원인은 Handle 미선점이었습니다 — 위에서 Handle 을 미리 열어 대부분 막지만, 방어용으로 이 처리는 유지합니다)
     elseif ($null -ne $installProc.ExitCode -and $installProc.ExitCode -ne 0) {
         Write-Fail "WSL2 설치가 실패했습니다. (종료 코드: $($installProc.ExitCode))"
         if (-not [string]::IsNullOrWhiteSpace($installErrContent)) {
