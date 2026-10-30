@@ -35,6 +35,7 @@
     "make": true, // Makefile
     "log": true, // 로그 파일 강조
     "git-firefly": true, // .gitignore · 커밋 메시지 등 Git 파일
+    "lua": true, // Neovim 설정(.lua) 편집용
     "powershell": true // PowerShell 쉘 스크립트 지원
   },
 
@@ -87,25 +88,33 @@
       "formatter": { "language_server": { "name": "ruff" } }
     },
 
-    // ── [Prettier 포맷 — Neovim 과 같은 설정 선택] ─────────────────────────────────
-    // Zed 내장 Prettier 는 프로젝트에 Prettier 설정이 없으면 Prettier 기본값(큰따옴표 등)으로 포맷해서, Neovim
-    // (DevTools2 공통 .config/prettier/.prettierrc.cjs 사용)과 결과가 달랐습니다. 래퍼가 "프로젝트 설정 우선, 없으면
-    // DevTools2 공통 설정"으로 고르고, 프로젝트에 설치된 Prettier 가 있으면 그것을 씁니다 (scripts/zed/prettier-format 설명).
-    // (Neovim 의 formatters_by_ft 에서 prettier 를 쓰는 언어와 같은 목록)
-    "JavaScript": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
-    "TypeScript": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
-    "TSX": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
-    "JSON": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
-    "JSONC": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
-    "CSS": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
-    "HTML": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
-    "Vue.js": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
-    "YAML": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
+    // ── [포맷 — Neovim 과 같은 결과: scripts/zed/format 래퍼] ─────────────────────────
+    // Zed 내장/확장 포매터는 Neovim 과 도구·옵션이 달라 같은 파일이 편집기마다 다르게 정리됐습니다
+    // (Prettier 는 프로젝트 설정이 없으면 Prettier 기본값(큰따옴표), SQL 은 포맷 없음, XML·Kotlin 은 확장 자체 포매터).
+    // 래퍼가 Neovim(plugins/formatting.lua)과 같은 도구·인자·예외 처리로 포맷합니다 (래퍼 상단 설명 참고):
+    //   prettier — 프로젝트 Prettier 설정 파일 우선, 없으면 DevTools2 공통 .prettierrc.cjs
+    //   xml      — MyBatis 매퍼는 건드리지 않음, 그 밖은 xmlformat --preserve <MyBatis 태그>
+    //   sql / kotlin / lua — sql-formatter / ktlint / stylua(Neovim stylua.toml)
+    // 확인: 같은 파일 10종(TS·JSON·HTML·SQL·XML·매퍼 XML·Kotlin·Lua·Markdown·YAML)을 Neovim(conform)과 래퍼로 각각 포맷 → 모두 동일
+    // 남는 차이: Neovim 은 Markdown 코드 블록·JS 템플릿 문자열 안의 다른 언어도 함께 포맷(injected)하지만 Zed 는 본문만
+    "JavaScript": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["prettier", "{buffer_path}"] } } },
+    "TypeScript": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["prettier", "{buffer_path}"] } } },
+    "TSX": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["prettier", "{buffer_path}"] } } },
+    "JSON": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["prettier", "{buffer_path}"] } } },
+    "JSONC": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["prettier", "{buffer_path}"] } } },
+    "CSS": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["prettier", "{buffer_path}"] } } },
+    "HTML": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["prettier", "{buffer_path}"] } } },
+    "Vue.js": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["prettier", "{buffer_path}"] } } },
+    "YAML": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["prettier", "{buffer_path}"] } } },
     "Markdown": {
       "preferred_line_length": 120, // 마크다운은 가독성을 위해 예외적으로 120
       "soft_wrap": "preferred_line_length",
-      "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } }
-    }
+      "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["prettier", "{buffer_path}"] } }
+    },
+    "SQL": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["sql", "{buffer_path}"] } } },
+    "XML": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["xml", "{buffer_path}"] } } },
+    "Kotlin": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["kotlin", "{buffer_path}"] } } },
+    "Lua": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/format", "arguments": ["lua", "{buffer_path}"] } } }
   },
 
   "lsp": {
