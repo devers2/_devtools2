@@ -396,8 +396,7 @@ check_and_resolve_port_conflict() {
     echo ""
 
     # 대소문자 구분 없는 y/n 입력 판별
-    read -p "❓ 기존 프로세스를 중지하고 bootRun을 시작하시겠습니까? (y/N): " CONFLICT_ANS
-    CONFLICT_ANS=$(echo "$CONFLICT_ANS" | tr '[:upper:]' '[:lower:]')
+    prompt_confirm "❓ 기존 프로세스를 중지하고 bootRun을 시작하시겠습니까?" "N" && CONFLICT_ANS="y" || CONFLICT_ANS="n"
 
     if [[ "$CONFLICT_ANS" != "y" ]]; then
         echo "❌ bootRun을 중지합니다."
@@ -717,19 +716,19 @@ except Exception:
     echo ""
     echo "📌 1. 메인 클래스 (Spring Boot 진입 클래스 FQCN)"
     echo "   • 자동 분석 결과: ${default_main:-(감지 실패 - 직접 입력 필요)}"
-    read -p "   👉 메인 클래스 [$default_main]: " IN_MAIN
+    prompt_text IN_MAIN "   👉 메인 클래스" "$default_main"
     IN_MAIN=${IN_MAIN:-$default_main}
 
     echo ""
     echo "📌 2. 모듈 / 프로젝트명 (Gradle 실행 대상 모듈)"
     echo "   • 싱글 프로젝트: 기본값 그대로 Enter / 멀티모듈: 서브모듈명(예: api, core) 입력"
-    read -p "   👉 모듈/프로젝트명 [$default_proj]: " IN_PROJ
+    prompt_text IN_PROJ "   👉 모듈/프로젝트명" "$default_proj"
     IN_PROJ=${IN_PROJ:-$default_proj}
 
     echo ""
     echo "📌 3. 실행 프로필 (Spring Boot Active Profiles / 쉼표 구분)"
     echo "   • 자동 분석 결과: ${default_prof:-(없음)}"
-    read -p "   👉 실행 프로필 [$default_prof]: " IN_PROF
+    prompt_text IN_PROF "   👉 실행 프로필" "$default_prof"
     IN_PROF=${IN_PROF:-$default_prof}
     echo "──────────────────────────────────────────────────────────────────────────────"
 
@@ -809,14 +808,13 @@ if [[ "$CHOICE" == *"실행"* ]]; then
     echo "   실행 프로필 : ${TARGET_PROF:-(없음)}"
     [[ -n "$TARGET_VM_EXTRA" ]] && echo "   추가 VM 인자: ${TARGET_VM_EXTRA}"
     echo ""
-    read -p "▶️  이 설정으로 바로 실행하시겠습니까? (Y/n): " REUSE
-    REUSE=${REUSE:-"y"}
+    prompt_confirm "▶️  이 설정으로 바로 실행하시겠습니까?" "Y" && REUSE="y" || REUSE="n"
 
     if [[ "${REUSE,,}" != "y" ]]; then
-        read -p "📦 모듈명 (루트면 엔터) [$TARGET_MOD]: " IN_MOD
+        prompt_text IN_MOD "📦 모듈명 (루트면 엔터)" "$TARGET_MOD"
         TARGET_MOD=${IN_MOD:-$TARGET_MOD}
 
-        read -p "🔑 프로필 [$TARGET_PROF]: " IN_PROF
+        prompt_text IN_PROF "🔑 프로필" "$TARGET_PROF"
         TARGET_PROF=${IN_PROF:-$TARGET_PROF}
     fi
 
@@ -860,8 +858,7 @@ GRADLE_INIT
     CMD_ARGS+=("-t" "--parallel" "--build-cache")
 
     echo ""
-    read -p "📁 로그를 파일로 저장하시겠습니까? (y/N): " SAVE_LOG
-    SAVE_LOG=${SAVE_LOG:-"n"}
+    prompt_confirm "📁 로그를 파일로 저장하시겠습니까?" "N" && SAVE_LOG="y" || SAVE_LOG="n"
 
     # bootRun 실행 전 포트 충돌 사전 확인
     check_and_resolve_port_conflict "$TARGET_MOD"
@@ -904,29 +901,25 @@ elif [[ "$CHOICE" == *"빌드"* ]]; then
     echo "   디버그 옵션: ${PREV_DEBUG:-(없음)}"
     echo "   Java Home  : ${PREV_JAVA_HOME:-(기본값)}"
     echo ""
-    read -p "▶️  이 설정으로 바로 빌드하시겠습니까? (Y/n): " REUSE
-    REUSE=${REUSE:-"y"}
+    prompt_confirm "▶️  이 설정으로 바로 빌드하시겠습니까?" "Y" && REUSE="y" || REUSE="n"
 
     if [[ "${REUSE,,}" != "y" ]]; then
-        read -p "🧹 클린 여부 (Y/N) [$PREV_CLEAN]: " CLEAN
-        CLEAN=${CLEAN:-$PREV_CLEAN}
+        # Y/N 옵션은 지난번 값을 기본값으로 묻습니다(공용 prompt_confirm — 기본값 초록색 표시)
+        prompt_confirm "🧹 클린 여부" "${PREV_CLEAN^^}" && CLEAN="Y" || CLEAN="N"
 
-        read -p "🚫 태스크 제외 (test 등 제외할 태스크 명, 공백/콤마 구분) [$PREV_EX]: " EXCLUDE
+        prompt_text EXCLUDE "🚫 태스크 제외 (test 등 제외할 태스크 명, 공백/콤마 구분)" "$PREV_EX"
         EXCLUDE=${EXCLUDE:-$PREV_EX}
 
-        read -p "🚀 병렬 빌드 (Y/N) [$PREV_PARALLEL]: " PARALLEL
-        PARALLEL=${PARALLEL:-$PREV_PARALLEL}
+        prompt_confirm "🚀 병렬 빌드" "${PREV_PARALLEL^^}" && PARALLEL="Y" || PARALLEL="N"
 
-        read -p "📦 빌드 캐시 (Y/N) [$PREV_CACHE]: " CACHE
-        CACHE=${CACHE:-$PREV_CACHE}
+        prompt_confirm "📦 빌드 캐시" "${PREV_CACHE^^}" && CACHE="Y" || CACHE="N"
 
-        read -p "🔄 의존성 갱신 (Y/N) [$PREV_REFRESH]: " REFRESH
-        REFRESH=${REFRESH:-$PREV_REFRESH}
+        prompt_confirm "🔄 의존성 갱신" "${PREV_REFRESH^^}" && REFRESH="Y" || REFRESH="N"
 
-        read -p "🐛 디버깅 옵션 (공백/info/debug) [$PREV_DEBUG]: " DEBUG_OPT
+        prompt_text DEBUG_OPT "🐛 디버깅 옵션 (공백/info/debug)" "$PREV_DEBUG"
         DEBUG_OPT=${DEBUG_OPT:-$PREV_DEBUG}
 
-        read -p "☕ Java Home 경로 (공백이면 기본값) [$PREV_JAVA_HOME]: " JAVA_HOME_PATH
+        prompt_text JAVA_HOME_PATH "☕ Java Home 경로 (공백이면 기본값)" "$PREV_JAVA_HOME"
         JAVA_HOME_PATH=${JAVA_HOME_PATH:-$PREV_JAVA_HOME}
 
         save_state "gradle_build" "clean" "$CLEAN"
@@ -1007,8 +1000,7 @@ elif [[ "$CHOICE" == *"중앙 저장소 배포"* ]]; then
         [ "$_CP_HAS_SIGNING" = "false" ] && echo "   ❌ GPG 서명 키 (signing.keyId / signing.password / signing.secretKeyRingFile)"
         [ "$_CP_HAS_CENTRAL" = "false" ] && echo "   ❌ Central Portal 인증 정보 (centralUsername / centralPassword)"
         echo ""
-        read -rp "❓ Bitwarden 에서 자동으로 설정하시겠습니까? (y/N): " _CP_AUTO_SETUP
-        _CP_AUTO_SETUP=$(echo "${_CP_AUTO_SETUP:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
+        prompt_confirm "❓ Bitwarden 에서 자동으로 설정하시겠습니까?" "N" && _CP_AUTO_SETUP="y" || _CP_AUTO_SETUP="n"
 
         if [ "$_CP_AUTO_SETUP" = "y" ]; then
             # common-setup.sh + maven-central-setup.sh 로드
@@ -1147,7 +1139,7 @@ except Exception:
         echo "ℹ️  프로젝트에 설정된 현재 버전: $_CP_DETECTED_VERSION (gradle.properties/build.gradle에서 감지)"
     fi
 
-    read -rp "🏷️  배포할 버전 입력 (예: 1.2.3) [$_CP_VERSION_DEFAULT]: " CP_VERSION
+    prompt_text CP_VERSION "🏷️  배포할 버전 입력 (예: 1.2.3)" "$_CP_VERSION_DEFAULT"
     CP_VERSION=${CP_VERSION:-$_CP_VERSION_DEFAULT}
     if [ -z "$CP_VERSION" ]; then
         echo "❌ 버전이 입력되지 않았습니다. 취소합니다."
@@ -1172,8 +1164,7 @@ except Exception:
     fi
     echo ""
     echo "⚠️  Maven Central은 한 번 배포하면 취소·수정·삭제가 불가능합니다(불변 저장소)."
-    read -rp "🚀 정말 이 설정으로 배포하시겠습니까? (y/N): " CP_CONFIRM
-    CP_CONFIRM=$(echo "${CP_CONFIRM:-n}" | tr '[:upper:]' '[:lower:]' | xargs)
+    prompt_confirm "🚀 정말 이 설정으로 배포하시겠습니까?" "N" && CP_CONFIRM="y" || CP_CONFIRM="n"
     if [ "$CP_CONFIRM" != "y" ]; then
         echo "❌ 배포를 취소했습니다."
         exit 0
@@ -1215,8 +1206,7 @@ elif [[ "$CHOICE" == *"JDTLS"* ]]; then
     JDTLS_CACHE="$XDG_CACHE_HOME/nvim/jdtls/$PROJ_NAME"
 
     if [ -d "$JDTLS_CACHE" ]; then
-        read -p "🗑️ JDTLS 캐시를 삭제하시겠습니까? (경로: $JDTLS_CACHE) (y/N): " CONFIRM
-        if [[ "${CONFIRM,,}" == "y" ]]; then
+        if prompt_confirm "🗑️ JDTLS 캐시를 삭제하시겠습니까? (경로: $JDTLS_CACHE)" "N"; then
             rm -rf "$JDTLS_CACHE"
             echo "✅ JDTLS 캐시 제거 완료: $PROJ_NAME"
         else
@@ -1228,7 +1218,7 @@ elif [[ "$CHOICE" == *"JDTLS"* ]]; then
 
 # ── 포트 확인 (Port Check) ───────────────────────────────────────────────────
 elif [[ "$CHOICE" == *"포트 확인"* ]]; then
-    read -p "🔍 조회할 포트 번호 입력: " PORT
+    prompt_text PORT "🔍 조회할 포트 번호 입력"
     if [[ -n "$PORT" ]]; then
         echo "📋 포트 $PORT 상태 및 프로세스 정보:"
         echo "─────────────────────────────────────────"
@@ -1251,7 +1241,7 @@ elif [[ "$CHOICE" == *"포트 확인"* ]]; then
 
 # ── 프로세스 확인 (Process Check) ────────────────────────────────────────────
 elif [[ "$CHOICE" == *"프로세스 확인"* ]]; then
-    read -p "🎯 검색할 프로세스 이름 키워드: " KWD
+    prompt_text KWD "🎯 검색할 프로세스 이름 키워드"
     if [[ -n "$KWD" ]]; then
         echo "📋 '$KWD' 관련 프로세스 목록:"
         echo "─────────────────────────────────────────"
@@ -1263,7 +1253,7 @@ elif [[ "$CHOICE" == *"프로세스 확인"* ]]; then
 # ── 프로세스 종료 (Process Kill) ─────────────────────────────────────────────
 elif [[ "$CHOICE" == *"프로세스 종료"* && "$CHOICE" != *"포트로"* ]]; then
     # 다중 PID를 공백으로 구분하여 한 번에 종료 가능
-    read -p "💀 종료할 프로세스 PID 입력 (여러 개면 공백으로 구분, 예: 1234 5678): " PID_INPUT
+    prompt_text PID_INPUT "💀 종료할 프로세스 PID 입력 (여러 개면 공백으로 구분, 예: 1234 5678)"
     if [[ -n "$PID_INPUT" ]]; then
         read -r -a PID_ARRAY <<<"$PID_INPUT"
         echo ""
@@ -1272,7 +1262,7 @@ elif [[ "$CHOICE" == *"프로세스 종료"* && "$CHOICE" != *"포트로"* ]]; t
 
 # ── 포트로 프로세스 종료 (Port Kill) ─────────────────────────────────────────
 elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
-    read -p "🔌 종료할 포트 번호 입력: " PORT
+    prompt_text PORT "🔌 종료할 포트 번호 입력"
     if [[ -z "$PORT" ]]; then
         echo "❌ 포트 번호를 입력하세요."
         exit 1
@@ -1293,8 +1283,7 @@ elif [[ "$CHOICE" == *"포트로 프로세스 종료"* ]]; then
     fi
     echo "─────────────────────────────────────────"
     echo ""
-    read -p "⚠️  위 포트 $PORT 점유 프로세스를 종료하시겠습니까? (y/N): " CONFIRM
-    if [[ "${CONFIRM,,}" != "y" ]]; then
+    if ! prompt_confirm "⚠️  위 포트 $PORT 점유 프로세스를 종료하시겠습니까?" "N"; then
         echo "❌ 취소되었습니다."
         exit 0
     fi
@@ -1523,7 +1512,7 @@ elif [[ "$CHOICE" == *"Git"* && "$CHOICE" == *"Clone"* ]]; then
     bw_ensure_session || exit 1
 
     # ── 3. clone 할 URL 입력 ──────────────────────────────────────────────────
-    read -rp "📋 Clone 할 저장소 URL 입력 (예: https://github.com/user/repo.git): " _CLONE_URL
+    prompt_text _CLONE_URL "📋 Clone 할 저장소 URL 입력 (예: https://github.com/user/repo.git)"
     if [ -z "$_CLONE_URL" ]; then
         echo "❌ URL이 입력되지 않았습니다. 취소합니다."
         exit 0
@@ -1531,7 +1520,7 @@ elif [[ "$CHOICE" == *"Git"* && "$CHOICE" == *"Clone"* ]]; then
 
     # ── 4. clone 대상 디렉토리 입력 ──────────────────────────────────────────
     _DEFAULT_DIR=$(basename "$_CLONE_URL" .git)
-    read -rp "📁 Clone 경로 (기본: 현재폴더/${_DEFAULT_DIR}) [엔터=기본값]: " _CLONE_DIR
+    prompt_text _CLONE_DIR "📁 Clone 경로" "./$_DEFAULT_DIR"
     _CLONE_DIR=${_CLONE_DIR:-"./$_DEFAULT_DIR"}
 
     echo ""
@@ -1551,7 +1540,7 @@ elif [[ "$CHOICE" == *"Git"* && "$CHOICE" == *"Clone"* ]]; then
 # 바꿔 텍스트로 보관하기 위한 범용 유틸리티입니다.
 # 복원은 아래 "텍스트 → 파일 복원" 메뉴가 담당합니다.
 elif [[ "$CHOICE" == *"Base64"* && "$CHOICE" == *"인코딩"* ]]; then
-    read -rp "📄 인코딩할 파일 경로 입력 (상대/절대 경로): " _B64_SRC
+    prompt_text _B64_SRC "📄 인코딩할 파일 경로 입력 (상대/절대 경로)"
     if [ -z "$_B64_SRC" ]; then
         echo "❌ 경로가 입력되지 않았습니다."
         exit 1
@@ -1591,7 +1580,7 @@ elif [[ "$CHOICE" == *"Base64"* && "$CHOICE" == *"인코딩"* ]]; then
 
 # ── [Base64] 텍스트 → 파일 복원 ──────────────────────────────────────────────
 elif [[ "$CHOICE" == *"Base64"* && "$CHOICE" == *"복원"* ]]; then
-    read -rp "📁 복원할 파일 경로 입력 (상대/절대 경로, 필수): " _B64_DST
+    prompt_text _B64_DST "📁 복원할 파일 경로 입력 (상대/절대 경로, 필수)"
     if [ -z "$_B64_DST" ]; then
         echo "❌ 경로가 입력되지 않았습니다."
         exit 1
@@ -1603,8 +1592,7 @@ elif [[ "$CHOICE" == *"Base64"* && "$CHOICE" == *"복원"* ]]; then
     fi
 
     if [ -f "$_B64_DST" ]; then
-        read -rp "⚠️  이미 파일이 존재합니다. 덮어쓰시겠습니까? ($_B64_DST) (y/N): " _B64_OVERWRITE
-        if [[ "${_B64_OVERWRITE,,}" != "y" ]]; then
+        if ! prompt_confirm "⚠️  이미 파일이 존재합니다. 덮어쓰시겠습니까? ($_B64_DST)" "N"; then
             echo "❌ 취소되었습니다."
             exit 0
         fi
@@ -1613,7 +1601,7 @@ elif [[ "$CHOICE" == *"Base64"* && "$CHOICE" == *"복원"* ]]; then
     _B64_IN=$(paste_from_clipboard)
     if [ $? -ne 0 ]; then
         echo "⚠️  사용 가능한 클립보드 도구를 찾지 못했습니다 (clip.exe/pbpaste/wl-paste/xclip/xsel)."
-        read -rp "📋 Base64 문자열을 직접 붙여넣어주세요: " _B64_IN
+        prompt_text _B64_IN "📋 Base64 문자열을 직접 붙여넣어주세요"
         if [ -z "$_B64_IN" ]; then
             echo "❌ Base64 문자열이 입력되지 않았습니다."
             exit 1

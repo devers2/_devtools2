@@ -220,23 +220,21 @@ elif [[ "$ACTION" == *"파일 동기화"* ]]; then
     echo "  ※ '-n' 옵션 추가 시 실제 전송 없이 미리보기 가능"
     echo ""
 
-    read -rp "📂 방향 선택 (u=업로드 / d=다운로드): " DIRECTION
+    prompt_key DIRECTION "📂 방향 선택: 업로드(u) / 다운로드(d)" "" u d   # 기본값 없음: 엔터만으로 덮어쓰기 방지
     if [[ "${DIRECTION,,}" == "u" ]]; then
-        read -rp "📂 로컬 소스 경로: " L_SRC
-        read -rp "📂 원격 대상 경로: " R_DEST
-        read -rp "🔍 미리보기만? (y/N): " DRY
+        prompt_text L_SRC "📂 로컬 소스 경로"
+        prompt_text R_DEST "📂 원격 대상 경로"
         DRY_OPT=""
-        [[ "${DRY,,}" == "y" ]] && DRY_OPT="-n"
+        prompt_confirm "🔍 미리보기만 할까요? (실제로 복사하지 않음)" "N" && DRY_OPT="-n"
         echo ""
         echo "🚀 실행: rsync -avzP $DRY_OPT -e \"$RSYNC_SSH\" \"$L_SRC\" \"$USERNAME@$ACTUAL_HOST:$R_DEST\""
         # shellcheck disable=SC2086
         rsync -avzP $DRY_OPT -e "$RSYNC_SSH" "$L_SRC" "$USERNAME@$ACTUAL_HOST:$R_DEST"
     elif [[ "${DIRECTION,,}" == "d" ]]; then
-        read -rp "📂 원격 소스 경로: " R_SRC
-        read -rp "📂 로컬 대상 경로: " L_DEST
-        read -rp "🔍 미리보기만? (y/N): " DRY
+        prompt_text R_SRC "📂 원격 소스 경로"
+        prompt_text L_DEST "📂 로컬 대상 경로"
         DRY_OPT=""
-        [[ "${DRY,,}" == "y" ]] && DRY_OPT="-n"
+        prompt_confirm "🔍 미리보기만 할까요? (실제로 복사하지 않음)" "N" && DRY_OPT="-n"
         echo ""
         echo "🚀 실행: rsync -avzP $DRY_OPT -e \"$RSYNC_SSH\" \"$USERNAME@$ACTUAL_HOST:$R_SRC\" \"$L_DEST\""
         # shellcheck disable=SC2086
@@ -361,10 +359,9 @@ open(f, "w", encoding="utf-8").writelines(new_lines)
             elif [[ "$MGMT_CHOICE" == *"상세 상태"* ]]; then
                 echo ""
                 systemctl --user status "$SERVICE_NAME.service" --no-pager
-                read -rp "엔터를 누르면 메뉴로 돌아갑니다..."
+                prompt_read _bsm_enter "엔터를 누르면 메뉴로 돌아갑니다..."
             elif [[ "$MGMT_CHOICE" == *"서비스 삭제"* ]]; then
-                read -rp "⚠️ 정말로 서비스 ($SERVICE_NAME)를 삭제하시겠습니까? (y/N): " CONFIRM_DEL
-                if [[ "${CONFIRM_DEL,,}" == "y" ]]; then
+                if prompt_confirm "⚠️ 정말로 서비스 ($SERVICE_NAME)를 삭제하시겠습니까?" "N"; then
                     echo "🗑️ 서비스 중지 및 비활성화 중..."
                     systemctl --user stop "$SERVICE_NAME.service" 2>/dev/null
                     systemctl --user disable "$SERVICE_NAME.service" 2>/dev/null
@@ -390,11 +387,11 @@ open(f, "w", encoding="utf-8").writelines(new_lines)
         # 마운트할 원격 경로와 로컬 경로 입력 (기본값 ~/mount, ~ 확장 지원)
         # ※ 원격 경로의 ~ 는 서버 접속 계정(/home/$USERNAME)으로 치환
         # ※ 로컬 경로의 ~ 는 현재 로컬 사용자($HOME)으로 치환
-        read -rp "📂 마운트할 원격 경로 입력 [기본값: ~/mount]: " INPUT_REMOTE_PATH
+        prompt_text INPUT_REMOTE_PATH "📂 마운트할 원격 경로 입력" "~/mount"
         INPUT_REMOTE_PATH="${INPUT_REMOTE_PATH:-~/mount}"
         REMOTE_PATH="${INPUT_REMOTE_PATH/#\~//home/$USERNAME}"
 
-        read -rp "📂 마운트할 로컬 경로 입력 [기본값: ~/mount]: " INPUT_LOCAL_PATH
+        prompt_text INPUT_LOCAL_PATH "📂 마운트할 로컬 경로 입력" "~/mount"
         INPUT_LOCAL_PATH="${INPUT_LOCAL_PATH:-~/mount}"
         LOCAL_PATH="${INPUT_LOCAL_PATH/#\~/$HOME}"
 

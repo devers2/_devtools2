@@ -217,14 +217,8 @@ sys.exit(0 if sig.search(content) else 1)
     echo ""
 
     local USER_CHOICE=""
-    while true; do
-        read -rp "❓ GitHub Packages 의존성 관리를 위해 ~/.gradle/gradle.properties 에 gpr.user 및 gpr.key 를 설정하시겠습니까? (y/n): " USER_CHOICE
-        USER_CHOICE=$(echo "$USER_CHOICE" | tr '[:upper:]' '[:lower:]' | xargs)
-        if [ "$USER_CHOICE" = "y" ] || [ "$USER_CHOICE" = "n" ]; then
-            break
-        fi
-        echo "❌ 잘못된 입력입니다. 'y' 또는 'n' (대소문자 구분 없음)을 반드시 입력해주세요."
-    done
+    # 기본값 없이 y 또는 n 을 반드시 고르게 합니다(잘못된 입력이면 다시 물음 — 공용 prompt_key, 질문 색 통일)
+    prompt_key USER_CHOICE "❓ GitHub Packages 의존성 관리를 위해 ~/.gradle/gradle.properties 에 gpr.user 및 gpr.key 를 설정하시겠습니까? 예(y) / 아니오(n)" "" y n
 
     if [ "$USER_CHOICE" = "n" ]; then
         echo "ℹ️  gpr.user 및 gpr.key 설정을 추가/수정하지 않고 다음 단계로 진행합니다."
@@ -241,12 +235,11 @@ sys.exit(0 if sig.search(content) else 1)
     if [ -z "$EXPECTED_USER" ]; then
         # 기본값 후보: 이미 저장된 gpr.user → git 표시 이름 (엔터로 채택)
         local _DEFAULT_USER="${CURRENT_USER:-$(git config --global user.name 2>/dev/null || true)}"
-        read -rp "🔑 gpr.user 에 설정할 GitHub 로그인 아이디를 입력하세요 [기본값: ${_DEFAULT_USER}]: " EXPECTED_USER
+        prompt_text EXPECTED_USER "🔑 gpr.user 에 설정할 GitHub 로그인 아이디를 입력하세요" "$_DEFAULT_USER"
         EXPECTED_USER="${EXPECTED_USER:-$_DEFAULT_USER}"
     fi
     if [ -z "$EXPECTED_PAT" ]; then
-        read -rsp "🔑 gpr.key 에 설정할 GitHub PAT(Personal Access Token)을 입력하세요 (보안 마스킹): " EXPECTED_PAT
-        echo ""
+        prompt_password EXPECTED_PAT "🔑 gpr.key 에 설정할 GitHub PAT(Personal Access Token)을 입력하세요 (보안 마스킹):"
     fi
 
     _update_gradle_properties_section "$GRADLE_PROPS_FILE" "" \
