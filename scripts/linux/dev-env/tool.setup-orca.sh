@@ -72,6 +72,62 @@ _orca_proceed=false
 _orca_updated=false
 ORCA_VERSION_FILE="$ORCA_DIR/.version"
 
+# ── 외부 명령 실행 (제어 터미널에서 분리 + 시간 제한) — Orca CLI · 에이전트 CLI 설치/업데이트 공용 ──────
+# ⚠️ Orca(Electron/Node)는 PATH 를 알아내려고 내부에서 /bin/bash -ilc 를 실행합니다. 대화형 bash 는 시작할 때
+#   터미널 제어권을 얻으려 하는데, timeout 은 명령을 백그라운드 프로세스 그룹에서 실행하므로 제어권을 못 얻은
+#   bash 가 자기 프로세스 그룹 전체에 SIGTTIN 을 보냅니다. 그 그룹에는 timeout 자신도 들어 있어 함께 정지(T)되고,
+#   정지된 timeout 은 시간 제한을 실행하지 못해 설치가 영원히 멈춥니다(실측: "권장 스킬 설치 시도 중..." 에서
+#   timeout·orca-ide·bash -ilc 가 모두 T 상태로 1시간 넘게 정지). 표준입력을 /dev/null 로 분리하는 것만으로는
+#   막을 수 없습니다(bash 는 표준입력이 아니라 /dev/tty 로 터미널을 잡음).
+#   → setsid 로 제어 터미널이 없는 새 세션에서 실행합니다. 터미널이 없으면 bash 가 작업 제어를 하지 않아
+#     정지 신호가 생기지 않고, timeout(-k 5: TERM 무시 시 5초 뒤 KILL)도 정상 동작합니다.
+#   (새 세션이라 Ctrl+C 가 직접 전달되지 않지만, 남은 timeout 이 제한 시간에 정리합니다)
+# ● 에이전트 CLI 설치·업데이트(claude update, agy update, npm install, 공식 설치 스크립트)도 같은 방식으로 실행합니다.
+#   그 프로그램들이 내부에서 대화형 셸을 띄우는지는 확인되지 않았지만 timeout 을 쓰는 구조가 같아 같은 정지가
+#   생길 수 있고, 시간 제한이 없던 새 설치는 네트워크가 걸리면 스피너만 끝없이 돌 수 있었기 때문입니다.
+# 사용법: _orca_run <제한 초> <명령...>   반환: 명령 종료 코드 (시간 초과 124, TERM 무시로 KILL 137)
+_orca_run() {
+    local _secs="$1"; shift
+    if command -v setsid >/dev/null 2>&1; then
+        setsid -w timeout -k 5 "$_secs" "$@" < /dev/null
+    else
+        timeout -k 5 "$_secs" "$@" < /dev/null
+    fi
+}
+# Orca CLI 호출용 (사용법: _orca_cli <제한 초> <orca 인수...>)
+_orca_cli() {
+    local _secs="$1"; shift
+    _orca_run "$_secs" "$ORCA_APPIMAGE" "$@"
+}
+
+# ── 오래 걸리는 단계 진행 표시 ─────────────────────────────────────────────────
+# 에이전트 CLI 설치·업데이트, 스킬 설치처럼 수십 초 걸릴 수 있는 단계가 아무 표시 없이 조용히 진행되면
+# 설치가 멈춘 것인지 알 수 없습니다. 명령은 백그라운드로 돌려 출력을 로그 파일로 보내고, 그동안 공용 스피너
+# (_common.sh 의 run_with_spinner)로 진행 중임을 표시합니다. 실패하면 로그 마지막 몇 줄을 보여 줍니다.
+# 시간 제한(_orca_run)으로 중단된 경우(종료 코드 124/137)는 일반 실패와 구분해 따로 안내합니다
+# (라벨에 "(최대 N초)" 로 제한 시간을 함께 적어 둡니다).
+# ⚠️ 표준입력은 /dev/null 입니다 — 입력을 묻는 명령에는 쓰지 마세요
+#   (Claude Code·Antigravity 공식 설치 스크립트와 npm install 은 묻지 않음을 확인함).
+# 사용법: _orca_step "<라벨>" <명령...>   반환: 명령의 종료 코드
+_orca_step() {
+    local _label="$1"; shift
+    local _log _pid _rc=0
+    _log=$(mktemp "${DT2_TMP:-/tmp}/orca_step.XXXXXX")
+    "$@" >"$_log" 2>&1 < /dev/null &
+    _pid=$!
+    # 스피너 접두어 "  [⠋] " 가 6칸이라 결과 줄("      ✅ ...")과 들여쓰기가 맞습니다
+    run_with_spinner "$_label" "$_pid"
+    wait "$_pid" || _rc=$?
+    if [ "$_rc" -ne 0 ] && [ -s "$_log" ]; then
+        tail -n 3 "$_log" 2>/dev/null | sed 's/^/      │ /' || true
+    fi
+    if [ "$_rc" -eq 124 ] || [ "$_rc" -eq 137 ]; then
+        echo "      ⏱️  제한 시간을 넘겨 중단했습니다: ${_label} — 네트워크 상태를 확인한 뒤 다시 실행하거나 직접 설치하세요." >&2
+    fi
+    rm -f "$_log"
+    return "$_rc"
+}
+
 # 최신 릴리스 태그(예: v1.4.218)를 받아 SHA256 검증 후 원자적으로 설치하고 버전을 기록합니다.
 # ⚠️ 임시 파일로 받아 검증한 뒤 옮기는 safe_download_binary 를 씁니다. 대상 경로에 바로 받으면
 #   다운로드가 중간에 끊겼을 때 깨진 AppImage 가 남고, 다음 실행부터는 "이미 존재"로 판정되어
@@ -221,7 +277,7 @@ if [ "$_orca_proceed" = true ]; then
     fi
 
     # 실제로 실행되는지 확인 (라이브러리 누락·FUSE 문제를 설치 단계에서 바로 드러냄)
-    if timeout 60 "$ORCA_APPIMAGE" --help >/dev/null 2>&1; then
+    if _orca_step "Orca 실행 확인 중..." _orca_cli 60 --help; then
         echo "   ✅ Orca 실행 확인 완료"
     else
         print_warn "Orca 실행 확인에 실패했습니다. 원인 확인: $ORCA_APPIMAGE --help"
@@ -294,12 +350,13 @@ if [ "$_orca_proceed" = true ]; then
         local cmd="$1" label="$2" before after latest
         before=$(_orca_agent_ver "$cmd")
         case "$cmd" in
-            claude) timeout -k 5 180 claude update < /dev/null >/dev/null 2>&1 || true ;;
-            agy)    timeout -k 5 180 agy update < /dev/null >/dev/null 2>&1 || true ;;
+            claude) _orca_step "$label 최신 버전 확인·업데이트 중... (최대 180초)" _orca_run 180 claude update || true ;;
+            agy)    _orca_step "$label 최신 버전 확인·업데이트 중... (최대 180초)" _orca_run 180 agy update || true ;;
             codex)
-                latest=$(timeout 30 npm view @openai/codex version 2>/dev/null || true)
+                latest=$(_orca_run 30 npm view @openai/codex version 2>/dev/null || true)
                 if [ -n "$latest" ] && [ "$latest" != "$before" ]; then
-                    timeout -k 5 180 npm install -g --no-audit --no-fund "@openai/codex@latest" < /dev/null >/dev/null 2>&1 || true
+                    _orca_step "$label 업데이트 중... (${before:-?} → $latest, 최대 180초)" \
+                        _orca_run 180 npm install -g --no-audit --no-fund "@openai/codex@latest" || true
                 fi
                 ;;
         esac
@@ -335,18 +392,28 @@ if [ "$_orca_proceed" = true ]; then
         fi
         [ "$_want" = true ] || { echo "      ⬜ $_label: 미설치 (건너뜀)"; continue; }
 
+        # 설치는 _orca_step 으로 백그라운드 실행 + 스피너 표시 (설치 프로그램 출력은 로그로, 실패 시 마지막 줄 표시)
+        # 실제 설치는 _orca_run 으로 터미널 분리 + 제한 시간 600초 (느린 네트워크 대비, 정상이면 보통 1분 안에 끝남).
+        # 시간 초과로 끊겨도 아래 command -v 확인에서 "설치 실패"로 안내되고, 다시 실행하면 처음부터 다시 설치합니다.
+        # (다운로드는 curl --max-time 60 이 이미 시간 제한)
         case "$_cmd" in
             claude)
                 _claude_installer=$(mktemp)
-                if curl -fsSL --max-time 60 https://claude.ai/install.sh -o "$_claude_installer" && bash "$_claude_installer"; then
+                if _orca_step "$_label 설치 프로그램 다운로드 중..." curl -fsSL --max-time 60 https://claude.ai/install.sh -o "$_claude_installer" \
+                    && _orca_step "$_label 설치 중... (최대 600초)" _orca_run 600 bash "$_claude_installer"; then
                     hash -r
                 fi
                 rm -f "$_claude_installer"
                 ;;
-            codex) { command -v npm >/dev/null 2>&1 && npm install -g --no-audit --no-fund @openai/codex; } || true ;;
+            codex)
+                if command -v npm >/dev/null 2>&1; then
+                    _orca_step "$_label 설치 중... (npm, 최대 600초)" _orca_run 600 npm install -g --no-audit --no-fund @openai/codex || true
+                fi
+                ;;
             agy)
                 _agy_installer=$(mktemp)
-                if curl -fsSL --max-time 60 https://antigravity.google/cli/install.sh -o "$_agy_installer" && bash "$_agy_installer"; then
+                if _orca_step "$_label 설치 프로그램 다운로드 중..." curl -fsSL --max-time 60 https://antigravity.google/cli/install.sh -o "$_agy_installer" \
+                    && _orca_step "$_label 설치 중... (최대 600초)" _orca_run 600 bash "$_agy_installer"; then
                     hash -r
                 fi
                 rm -f "$_agy_installer"
@@ -372,7 +439,9 @@ if [ "$_orca_proceed" = true ]; then
     # ⚠️ 에이전트 CLI 를 먼저 설치한 뒤 실행해야 합니다: Orca 가 감지한 에이전트가 하나도 없으면
     #   "--agent 지정 필요"로 실패합니다(orca skills install --help).
     # ⚠️ Electron/Node 내부의 /bin/bash -ilc 환경변수 스캔 시 tty 경합(SIGTTIN/SIGTSTP)으로 일시정지(프리징)되는
-    #   문제를 방지하기 위해 표준입력을 /dev/null 로 분리하고, -k 5 타임아웃을 둡니다.
+    #   문제가 있습니다. 예전에는 표준입력을 /dev/null 로 분리하고 -k 5 타임아웃만 두었지만, 정지 신호가
+    #   timeout 자신까지 멈춰 효과가 없었습니다. 이제 _orca_cli 가 제어 터미널에서 분리(setsid)해 실행합니다(상세: _orca_cli 주석).
+    #   진행 중 표시는 _orca_step(스피너)이 맡습니다. 설치·갱신은 스킬을 내려받으므로 제한 시간을 120초로 둡니다.
     _detected_agents=0
     for _c in "${_orca_agent_names[@]}"; do
         command -v "$_c" >/dev/null 2>&1 && _detected_agents=$((_detected_agents + 1))
@@ -384,7 +453,7 @@ if [ "$_orca_proceed" = true ]; then
     #     → skills install,  Orca 가 이번에 업데이트됨 → skills update(이미 설치된 위치만 새 Orca 버전에 맞게 갱신)
     _orca_skills_have=""
     if [ "$_detected_agents" -gt 0 ]; then
-        _orca_skills_have=$(timeout -k 5 30 "$ORCA_APPIMAGE" skills installed --json < /dev/null 2>/dev/null \
+        _orca_skills_have=$(_orca_cli 30 skills installed --json 2>/dev/null \
             | python3 -c 'import json,sys
 try:
     d = json.load(sys.stdin)
@@ -400,8 +469,8 @@ except Exception:
     echo ""
     if [ "$_detected_agents" -gt 0 ] && [ "$_orca_skills_missing" = false ] && [ "$_orca_agent_added" = false ]; then
         if [ "$_orca_updated" = true ]; then
-            echo "   🧩 Orca 가 업데이트되어 권장 스킬(orca-cli, orchestration)을 새 버전에 맞게 갱신 중..."
-            if timeout -k 5 30 "$ORCA_APPIMAGE" skills update --skill orca-cli --skill orchestration < /dev/null >/dev/null 2>&1; then
+            echo "   🧩 Orca 가 업데이트되어 권장 스킬(orca-cli, orchestration)을 새 버전에 맞게 갱신합니다."
+            if _orca_step "권장 스킬 갱신 중... (최대 120초)" _orca_cli 120 skills update --skill orca-cli --skill orchestration; then
                 echo "   ✅ 스킬 갱신 완료"
             else
                 echo "   ⚠️  스킬 갱신을 건너뜁니다 (직접 실행: orca skills update --skill orca-cli --skill orchestration)."
@@ -410,15 +479,13 @@ except Exception:
             echo "   ✅ 권장 스킬(orca-cli, orchestration) 이미 설치됨 — 건너뜀"
         fi
     elif [ "$_detected_agents" -gt 0 ]; then
-        echo "   🧩 권장 스킬(orca-cli, orchestration) 설치 시도 중..."
-        _skills_log=$(mktemp)
-        if timeout -k 5 30 "$ORCA_APPIMAGE" skills install --skill orca-cli --skill orchestration < /dev/null >"$_skills_log" 2>&1; then
+        echo "   🧩 권장 스킬(orca-cli, orchestration)을 설치합니다."
+        # (실패 시 로그 마지막 3줄 표시는 _orca_step 이 담당)
+        if _orca_step "권장 스킬 설치 중... (최대 120초)" _orca_cli 120 skills install --skill orca-cli --skill orchestration; then
             echo "   ✅ 스킬 설치 완료"
         else
             echo "   ⚠️  스킬 설치를 건너뜁니다 (에이전트 연동 후 직접 실행 가능: orca skills install --skill orca-cli --skill orchestration)."
-            tail -n 3 "$_skills_log" 2>/dev/null | sed 's/^/      │ /' || true
         fi
-        rm -f "$_skills_log"
     else
         echo "   ℹ️  감지된 에이전트 CLI가 없어 스킬 설치를 건너뜁니다 (에이전트 로그인/설치 후: orca skills install --skill orca-cli --skill orchestration)."
     fi
