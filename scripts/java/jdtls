@@ -5,19 +5,22 @@
 #
 # ■ 개요 및 호출 경로:
 #   - 이 스크립트는 Zed 에디터가 Java 프로젝트를 열 때 구동하는 전용 런처입니다.
-#   - 연동 위치: .config/zed/settings.json -> lsp.jdtls.binary.path
+#   - 연동 위치: .config/zed/settings.json -> lsp.jdtls.settings.jdtls_launcher
+#     (예전 lsp.jdtls.binary.path 는 Zed Java 확장을 건너뛰어 디버거 플러그인이 준비되지 않았음 — settings.json 설명 참고)
 #
 # ■ 커스텀 런처 도입 이유 (Zed 순정 기본 방식 대비 장점):
 #   1. [Lombok 지원 보장]
 #      - Zed 순정 Java 확장은 Lombok 어노테이션(@Getter, @Setter, @Slf4j 등) 인식에
 #        자주 실패합니다. 이 스크립트는 JDTLS 실행 시 -javaagent:lombok.jar 를
 #        100% 강제 주입하여 컴파일 및 문법 오류를 완벽하게 차단합니다.
-#   2. [Java 디버깅 (DAP) 자동 연동]
-#      - Microsoft Java Debug Adapter(com.microsoft.java.debug.plugin)를 동적으로
-#        탐색하여 고정 심볼릭 링크로 유지함으로써 Zed 내 F4/디버깅 기능을 활성화합니다.
+#   2. [Java 디버깅 (DAP)]
+#      - 디버거 플러그인은 Zed Java 확장이 직접 준비·등록합니다(zed-industries/java-debug 포크).
+#        예전에는 이 런처가 Microsoft Java Debug Adapter(Mason) 를 고정 심볼릭 링크로 유지하고
+#        settings.json 의 bundles 로 등록했으나, 확장의 디버거 준비와 겹치고(binary.path 방식에서는 아예 빠짐)
+#        F4 실행이 실패해 제거했습니다.
 #   3. [자원 재사용 (SSOT) & 초고속 구동 & 오프라인 완벽 지원]
-#      - DevTools2 기본 필수 도구인 Neovim(Mason)에 사전 설치된 최신 JDTLS, Lombok,
-#        Debugger 자원을 1순위로 즉시 재사용합니다. (Zed 확장 폴더는 2순위 폴백)
+#      - DevTools2 기본 필수 도구인 Neovim(Mason)에 사전 설치된 최신 JDTLS, Lombok
+#        자원을 1순위로 즉시 재사용합니다. (Zed 확장 폴더는 2순위 폴백)
 #      - 수백 MB의 중복 다운로드를 방지하고, 최초 설치 직후 100% 오프라인에서도 즉시 작동합니다.
 #   4. [동적 최신 버전 자동 감지]
 #      - 특정 버전 번호를 코드에 하드코딩하지 않고 sort -V 정렬을 통해
@@ -70,24 +73,26 @@ if [ -z "$LOMBOK_JAR" ]; then
     LOMBOK_JAR=$(find "$DEVTOOLS2/data/.gradle/caches" -name "lombok-*.jar" ! -name "*-sources.jar" -type f 2>/dev/null | head -n 1)
 fi
 
-# ── 3. Java Debugger 플러그인 JAR 동적 탐색 및 고정 심볼릭 링크 갱신 ─────────
-# (1순위: DevTools2 Mason 디버거 패키지 / 2순위: Zed 확장 경로)
-# (Zed settings.json 은 고정 링크 경로인 .../com.microsoft.java.debug.plugin.jar 를 참조함)
-DEBUGGER_JAR=$(find "$DEVTOOLS2/data/nvim/mason/packages/java-debug-adapter" -name "com.microsoft.java.debug.plugin-*.jar" -type f 2>/dev/null | sort -V | tail -n 1)
-if [ -z "$DEBUGGER_JAR" ]; then
-    # 2순위: Zed 확장 경로
-    DEBUGGER_JAR=$(find "$HOME/.local/share/zed/remote_extensions/work/java/debugger" -name "com.microsoft.java.debug.plugin-*.jar" -type f 2>/dev/null | sort -V | tail -n 1)
-fi
+# ── 3. JDTLS 최종 실행 (Lombok 주입 및 JDTLS 실행 JDK 바인딩) ─────────────────
+# [jdtls 실행 JDK = 설치된 JDK 중 가장 높은 버전 (21 이상)]
+#   예전에는 JDK 21 로 고정했으나, Mason 이 jdtls 를 올리면 더 높은 Java 를 요구할 수 있습니다
+#   (예: jdtls 1.63 은 Java 25 필요 — 낮은 JDK 로 실행하면 exit code 13 으로 시작 실패).
+#   Neovim(plugins/java.lua)과 같은 기준으로 가장 높은 JDK 를 고릅니다. 프로젝트 빌드 JDK 와는 별개입니다
+#   (Gradle 데몬 JDK 는 settings.json 의 java.import.gradle.java.home, 프로젝트 JDK 는 runtimes 가 결정).
+JDTLS_JAVA_HOME=""
+_best=0
+for _d in "$DEVTOOLS2"/modules/java/jdk-*; do
+    [ -x "$_d/bin/java" ] || continue
+    _v="${_d##*/jdk-}"; _v="${_v#1.}"; _v="${_v%%[^0-9]*}"   # jdk-25 → 25, jdk-1.8 → 8
+    if [ -n "$_v" ] && [ "$_v" -ge 21 ] && [ "$_v" -gt "$_best" ]; then
+        _best="$_v"; JDTLS_JAVA_HOME="$_d"
+    fi
+done
+[ -n "$JDTLS_JAVA_HOME" ] || JDTLS_JAVA_HOME="$DEVTOOLS2/modules/java/jdk-21"
 
-DEBUGGER_LINK="$DEVTOOLS2/scripts/java/com.microsoft.java.debug.plugin.jar"
-if [ -n "$DEBUGGER_JAR" ] && [ -f "$DEBUGGER_JAR" ]; then
-    mkdir -p "$(dirname "$DEBUGGER_LINK")" 2>/dev/null || true
-    ln -sf "$DEBUGGER_JAR" "$DEBUGGER_LINK" 2>/dev/null || true
-fi
-
-# ── 4. JDTLS 최종 실행 (Lombok 주입 및 안정적인 JDK 21 런타임 바인딩) ─────────
 if [ -n "$JDTLS_BIN" ] && [ -x "$JDTLS_BIN" ]; then
-    export JAVA_HOME="$DEVTOOLS2/modules/java/jdk-21"
+    export JAVA_HOME="$JDTLS_JAVA_HOME"
+    # PATH 의 java 는 Gradle 등 하위 도구용으로 기존처럼 JDK 21 유지 (jdtls 자체는 위 JAVA_HOME 으로 실행)
     export PATH="$DEVTOOLS2/modules/java/jdk-21/bin:$DEVTOOLS2/modules/gradle/current/bin:$PATH"
 
     if [ -n "$LOMBOK_JAR" ]; then
