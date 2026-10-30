@@ -73,41 +73,83 @@ pcall(function()
   require('util.translator').setup()
 end)
 
--- [최초 실행 감지 및 안내 메시지]
+-- [언어 도구 설치 진행 안내 메시지]
 -- 최초 실행 시 Mason/Treesitter 설치 중 발생하는 경합 오류는 LazyVim 내부 한계로 완전히 막을 수 없습니다.
--- 따라서 최초 실행임을 감지하여, 오류 대신 명확한 재시작 안내를 사용자에게 표시합니다.
+-- 따라서 설치가 아직 끝나지 않았음을 감지하여, 오류 대신 명확한 재시작 안내를 사용자에게 표시합니다.
+-- ● 판정: Mason 자동 설치 목록(ensure_installed, LazyVim·plugins/mason.lua 병합 결과) 중 아직 설치되지 않은 도구가 있으면 표시.
+--   예전에는 jdtls 폴더 하나로 "최초 실행"을 판단했는데, jdtls(약 50MB) 설치가 끝나기 전에 Neovim 을 닫으면
+--   Mason 이 설치를 중단("Installation was aborted")하고 다음 실행 때 처음부터 다시 받아, 느린 네트워크에서는
+--   jdtls 가 끝내 설치되지 못하고 "최초 실행 감지" 메시지가 매번 반복됐습니다(실측: 6번 연속 중단).
+--   또 jdtls 만 끝나면 다른 도구가 남아 있어도 메시지가 사라지는 문제도 있었습니다.
+-- ● 그래서 메시지에 "끝날 때까지 닫지 마세요"를 명시하고, 남은 도구가 모두 설치되면 완료 알림을 한 번 띄웁니다.
 do
-  -- jdtls가 설치되어 있으면 이미 한 번 이상 실행된 것으로 판단
-  local jdtls_marker = _G.NVIM_SHARED_DIR .. '/mason/packages/jdtls'
-  local is_first_run = vim.fn.isdirectory(jdtls_marker) == 0
+  vim.api.nvim_create_autocmd('User', {
+    pattern = 'VeryLazy',
+    once = true,
+    callback = function()
+      -- 약간의 지연으로 lazy.nvim 의 설치 메시지 뒤에 표시되도록 함
+      vim.defer_fn(function()
+        local ok, registry = pcall(require, 'mason-registry')
+        local ok_opts, mason_opts = pcall(function()
+          return LazyVim.opts('mason.nvim')
+        end)
+        if not (ok and ok_opts) then
+          return
+        end
+        local missing = {}
+        for _, name in ipairs((mason_opts or {}).ensure_installed or {}) do
+          if registry.has_package(name) and not registry.is_installed(name) then
+            missing[name] = true
+          end
+        end
+        local remaining = vim.tbl_count(missing)
+        if remaining == 0 then
+          return
+        end
 
-  if is_first_run then
-    vim.api.nvim_create_autocmd('User', {
-      pattern = 'VeryLazy',
-      once = true,
-      callback = function()
-        -- 약간의 지연으로 lazy.nvim 의 설치 메시지 뒤에 표시되도록 함
-        vim.defer_fn(function()
-          vim.notify(
-            table.concat({
-              '🚀 Neovim 최초 실행 감지!',
-              '',
-              '플러그인 및 언어 도구를 설치하고 있습니다.',
-              '설치 중에는 일부 기능이 동작하지 않거나 오류가 표시될 수 있습니다.',
-              '',
-              '⚡ 설치 완료 후 Neovim을 재시작하면 모든 기능이 정상 동작합니다.',
-              '   (우측 하단의 설치 진행 표시가 사라지면 완료)',
-            }, '\n'),
-            vim.log.levels.WARN,
-            {
-              title = '⚙️  최초 설치 진행 중 — 완료 후 재시작 필요',
-              timeout = 15000, -- 15초간 표시
-            }
+        vim.notify(
+          table.concat({
+            ('🚀 언어 도구 설치 중 (%d개 남음)'):format(remaining),
+            '',
+            '플러그인 및 언어 도구를 설치하고 있습니다.',
+            '설치 중에는 일부 기능이 동작하지 않거나 오류가 표시될 수 있습니다.',
+            '',
+            '⛔ 설치가 끝날 때까지 Neovim 을 닫지 마세요.',
+            '   닫으면 설치가 중단되고, 다음 실행 때 처음부터 다시 받습니다.',
+            '⚡ 완료 알림이 뜨면 Neovim 을 재시작하세요. 모든 기능이 정상 동작합니다.',
+          }, '\n'),
+          vim.log.levels.WARN,
+          {
+            title = '⚙️  언어 도구 설치 진행 중 — 완료 후 재시작 필요',
+            timeout = 15000, -- 15초간 표시
+          }
+        )
+
+        -- 남은 도구가 모두 설치되면 완료 알림 (실패한 도구는 남은 개수에서 빼지 않음 — 다음 실행 때 다시 시도)
+        pcall(function()
+          registry:on(
+            'package:install:success',
+            vim.schedule_wrap(function(pkg)
+              if not missing[pkg.name] then
+                return
+              end
+              missing[pkg.name] = nil
+              if next(missing) == nil then
+                vim.notify(
+                  '✅ 언어 도구 설치가 모두 끝났습니다. Neovim 을 재시작하면 모든 기능이 정상 동작합니다.',
+                  vim.log.levels.INFO,
+                  {
+                    title = '⚙️  언어 도구 설치 완료',
+                    timeout = _G.NOTIFY_CRITICAL_TIMEOUT,
+                  }
+                )
+              end
+            end)
           )
-        end, 1000)
-      end,
-    })
-  end
+        end)
+      end, 1000)
+    end,
+  })
 end
 
 -- 프로젝트별 로컬 설정 파일(.nvim.lua) 허용
