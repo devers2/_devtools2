@@ -204,42 +204,51 @@ _bw_do_unlock() {
     # ⚠️ 주의: RETURN 시 raw 모드로 원복하면 후속 프로세스(git, sudo 등)의 입력이 망가지므로 원복하지 않습니다.
     normalize_tty
 
-    # 공용 prompt_password 함수가 로드되어 있으면 사용, 없으면 자체 비영문 감지 입력 루프 실행
-    if command -v prompt_password &>/dev/null; then
-        prompt_password _MASTER_PASS "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒"
-    else
-        while true; do
-            echo ""
-            read -rsp "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒 " _MASTER_PASS </dev/tty
-            echo ""
+    # 마스터 비밀번호를 틀려도 바로 실패하지 않고 3번까지 다시 입력할 기회를 줍니다
+    # (예전에는 한 번 틀리면 잠금 해제·GitHub 로그인 연결 전체가 실패로 끝났음)
+    local _bw_try
+    for _bw_try in 1 2 3; do
+        # 공용 prompt_password 함수가 로드되어 있으면 사용, 없으면 자체 비영문 감지 입력 루프 실행
+        if command -v prompt_password &>/dev/null; then
+            prompt_password _MASTER_PASS "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒"
+        else
+            while true; do
+                echo ""
+                read -rsp "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒 " _MASTER_PASS </dev/tty
+                echo ""
 
-            if [ -z "$_MASTER_PASS" ]; then
-                echo "❌ 비밀번호가 입력되지 않았습니다."
-                return 1
-            fi
+                if [ -z "$_MASTER_PASS" ]; then
+                    echo "❌ 비밀번호가 입력되지 않았습니다."
+                    return 1
+                fi
 
-            # 비영문/비ASCII 문자(한글, 일어, 중문, 전각문자 등: ASCII 32~126 범위를 벗어나는 모든 문자) 검사
-            # ⚠️ 프로세스 인자 노출 방지를 위해 순수 bash 서브셸 인메모리 검사 수행
-            if has_non_ascii "$_MASTER_PASS"; then
-                echo "❌ [오류] 입력된 마스터 비밀번호에 '비영문(한글/다국어/전각)' 문자가 포함되어 있습니다!"
-                echo "   키보드를 영문 입력 상태로 전환한 뒤 다시 입력해 주세요."
-                continue
-            fi
-            break
-        done
-    fi
+                # 비영문/비ASCII 문자(한글, 일어, 중문, 전각문자 등: ASCII 32~126 범위를 벗어나는 모든 문자) 검사
+                # ⚠️ 프로세스 인자 노출 방지를 위해 순수 bash 서브셸 인메모리 검사 수행
+                if has_non_ascii "$_MASTER_PASS"; then
+                    echo "❌ [오류] 입력된 마스터 비밀번호에 '비영문(한글/다국어/전각)' 문자가 포함되어 있습니다!"
+                    echo "   키보드를 영문 입력 상태로 전환한 뒤 다시 입력해 주세요."
+                    continue
+                fi
+                break
+            done
+        fi
 
-    echo "🔓 Bitwarden vault 잠금 해제 중..."
-    local _UNLOCK_OUTPUT
-    # ⚠️ 비밀번호를 `bw unlock "$_MASTER_PASS"`처럼 커맨드라인 인자로 넘기면 실행되는
-    # 짧은 순간 동안 ps/proc/cmdline을 통해 같은 시스템의 다른 사용자에게 노출될 수 있습니다.
-    # Bitwarden 공식 문서가 권장하는 --passwordenv로 환경변수를 통해서만 전달합니다.
-    export BW_PASSWORD="$_MASTER_PASS"
-    unset _MASTER_PASS
-    _UNLOCK_OUTPUT=$(bw unlock --passwordenv BW_PASSWORD 2>&1)
-    unset BW_PASSWORD
+        echo "🔓 Bitwarden vault 잠금 해제 중..."
+        local _UNLOCK_OUTPUT
+        # ⚠️ 비밀번호를 `bw unlock "$_MASTER_PASS"`처럼 커맨드라인 인자로 넘기면 실행되는
+        # 짧은 순간 동안 ps/proc/cmdline을 통해 같은 시스템의 다른 사용자에게 노출될 수 있습니다.
+        # Bitwarden 공식 문서가 권장하는 --passwordenv로 환경변수를 통해서만 전달합니다.
+        export BW_PASSWORD="$_MASTER_PASS"
+        unset _MASTER_PASS
+        _UNLOCK_OUTPUT=$(bw unlock --passwordenv BW_PASSWORD 2>&1)
+        unset BW_PASSWORD
 
-    BW_SESSION=$(echo "$_UNLOCK_OUTPUT" | grep -oP '(?<=export BW_SESSION=")[^"]+' | head -1)
+        BW_SESSION=$(echo "$_UNLOCK_OUTPUT" | grep -oP '(?<=export BW_SESSION=")[^"]+' | head -1)
+        [ -n "$BW_SESSION" ] && break
+        if [ "$_bw_try" -lt 3 ]; then
+            echo "❌ 마스터 비밀번호가 맞지 않습니다. 다시 입력해 주세요. (${_bw_try}/3)"
+        fi
+    done
 
     if [ -z "$BW_SESSION" ]; then
         echo "❌ 잠금 해제에 실패했습니다. 마스터 비밀번호를 확인해주세요."
@@ -756,6 +765,88 @@ bw_setup_gh_auth() {
     return 0
 }
 
+# ── Bitwarden 로그인 (이메일 · 마스터 비밀번호 · 2단계 인증/새 기기 확인 코드를 각각 3번까지) ─────────
+# 예전에는 bw login --raw 가 세 가지를 한 번에 묻고, 하나라도 틀리면(예: 이메일 대신 아이디 입력) 바로 실패해
+# GitHub 로그인 연결 전체를 건너뛰었습니다. 이제 단계별로 따로 묻고 틀린 단계만 다시 입력받습니다.
+#   ● 이메일: 형식을 먼저 확인 (bw 의 "Email address is invalid." 와 같은 조건)
+#   ● 비밀번호: bw login --nointeraction 으로 확인 → "Invalid master password" 면 비밀번호만 다시 입력
+#     (비밀번호는 --passwordenv 로만 전달 — 프로세스 인자 노출 금지)
+#   ● 코드: 이메일·비밀번호가 맞고 "Code is required." 이면(2단계 인증 또는 새 PC 의 새 기기 확인 메일 코드)
+#     bw 가 직접 방법 선택·코드 입력을 묻게 합니다(코드를 프로세스 인자로 넘기지 않기 위함). 틀리면 다시 시도.
+#     메일 코드는 시도할 때마다 새로 발송되므로 가장 최근 메일의 코드를 입력합니다.
+# 성공하면 BW_SESSION 을 설정하고 세션 파일(소유자 전용 600)에 저장합니다. 반환: 0 = 성공, 1 = 실패
+bw_interactive_login() {
+    local _email="" _pw="" _out="" _err="" _try _status="" _errf
+    normalize_tty
+    _errf=$(mktemp) || return 1
+
+    # 1) 이메일
+    for _try in 1 2 3; do
+        printf "📧 Bitwarden 이메일 주소: " >/dev/tty
+        IFS= read -r _email </dev/tty || true
+        _email="${_email//[[:space:]]/}"
+        if [[ "$_email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+            break
+        fi
+        echo "❌ 이메일 주소 형식이 아닙니다 (예: name@example.com). (${_try}/3)" >&2
+        _email=""
+    done
+    [ -n "$_email" ] || { rm -f "$_errf"; return 1; }
+
+    # 2) 마스터 비밀번호 (비대화형으로 확인해 틀린 경우만 다시 입력)
+    for _try in 1 2 3; do
+        _pw=""
+        if command -v prompt_password &>/dev/null; then
+            prompt_password _pw "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒"
+        else
+            read -rsp "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒 " _pw </dev/tty
+            echo ""
+            if has_non_ascii "$_pw"; then
+                echo "❌ 비밀번호에 '비영문(한글/다국어/전각)' 문자가 있습니다. 영문 입력 상태로 다시 입력해 주세요. (${_try}/3)" >&2
+                continue
+            fi
+        fi
+        [ -n "$_pw" ] || { echo "❌ 비밀번호가 입력되지 않았습니다. (${_try}/3)" >&2; continue; }
+        echo "🔑 Bitwarden 로그인 확인 중..."
+        _out=$(BW_PASSWORD="$_pw" bw login "$_email" --passwordenv BW_PASSWORD --raw --nointeraction 2>"$_errf") && { _status="ok"; break; }
+        _err=$(cat "$_errf" 2>/dev/null)
+        case "$_err" in
+            *"Code is required"*|*"No provider selected"*) _status="code"; break ;;
+            *"Invalid master password"*|*"incorrect"*)
+                echo "❌ 마스터 비밀번호가 맞지 않습니다 (이메일 ${_email} 도 확인하세요). (${_try}/3)" >&2 ;;
+            *"Email address is invalid"*)
+                echo "❌ 이메일 주소가 올바르지 않습니다: ${_email}" >&2; _status="fail"; break ;;
+            *)
+                echo "❌ Bitwarden 로그인 실패: ${_err:-알 수 없는 오류} (${_try}/3)" >&2 ;;
+        esac
+    done
+
+    # 3) 2단계 인증 / 새 기기 확인 코드 (bw 가 직접 묻도록 대화형 실행)
+    if [ "$_status" = "code" ]; then
+        echo "🔢 2단계 인증 또는 새 기기 확인 코드가 필요합니다."
+        echo "   (메일로 받는 코드는 시도할 때마다 새로 발송되니 가장 최근 메일의 코드를 입력하세요)"
+        for _try in 1 2 3; do
+            _out=$(BW_PASSWORD="$_pw" bw login "$_email" --passwordenv BW_PASSWORD --raw </dev/tty) && { _status="ok"; break; }
+            _status="code_fail"
+            [ "$_try" -lt 3 ] && echo "❌ 코드가 맞지 않거나 취소되었습니다. 다시 시도합니다. (${_try}/3)" >&2
+        done
+    fi
+    _pw=""
+    unset _pw
+    rm -f "$_errf"
+
+    if [ "$_status" != "ok" ] || [ -z "$_out" ]; then
+        echo "❌ Bitwarden 로그인에 실패했습니다." >&2
+        return 1
+    fi
+    BW_SESSION="$_out"
+    export BW_SESSION
+    (umask 077; echo "$BW_SESSION" > "$_BW_SESSION_FILE")
+    chmod 600 "$_BW_SESSION_FILE" 2>/dev/null || true
+    echo "✅ Bitwarden 로그인 완료 (${_email})"
+    return 0
+}
+
 # Bitwarden PAT 로 GitHub 로그인 일괄 설정: git user.name/email + ~/.git-credentials + gh CLI
 # 인수: $1 = Bitwarden 아이템 이름 (선택, 기본값: $BW_DEFAULT_PAT_ITEM)
 # 반환: 0 = 설정 완료 또는 이미 로그인됨, 1 = 실패(Bitwarden 미설치·로그인 실패·항목 없음 등)
@@ -774,19 +865,13 @@ bw_setup_github_auth() {
     fi
 
     # Bitwarden 에 아직 로그인하지 않은 PC(첫 설치)라면 그 자리에서 로그인합니다.
-    # bw login --raw 는 이메일·마스터 비밀번호(·2단계 인증)를 터미널에서 묻고 세션 키만 출력하므로,
-    # 잠금 해제(_bw_do_unlock)와 같은 방식으로 세션 파일(소유자 전용)에 저장해 비밀번호를 두 번 묻지 않습니다.
+    # 로그인은 세션 키만 받아 잠금 해제(_bw_do_unlock)와 같은 방식으로 세션 파일(소유자 전용)에 저장해
+    # 비밀번호를 두 번 묻지 않습니다.
+    # (예전에는 bw login --raw 한 번으로 이메일·비밀번호·2단계 인증을 함께 물어 하나라도 틀리면 바로 실패했지만,
+    #  이제 bw_interactive_login 이 단계별로 3번까지 다시 입력받습니다)
     if bw status 2>/dev/null | grep -qE '"status": *"unauthenticated"'; then
         echo "🔑 Bitwarden 에 로그인되어 있지 않습니다. 이메일·마스터 비밀번호로 로그인합니다."
-        normalize_tty
-        local _new_session
-        _new_session=$(bw login --raw </dev/tty) || { echo "❌ Bitwarden 로그인에 실패했습니다." >&2; return 1; }
-        if [ -n "$_new_session" ]; then
-            BW_SESSION="$_new_session"
-            export BW_SESSION
-            (umask 077; echo "$BW_SESSION" > "$_BW_SESSION_FILE")
-            chmod 600 "$_BW_SESSION_FILE" 2>/dev/null || true
-        fi
+        bw_interactive_login || return 1
     fi
     bw_ensure_session || return 1
 
