@@ -18,8 +18,9 @@ jdtls 가 Java 설정 때문에 실패했을 때, 로그 파일(lsp.log)을 뒤�
      - 그 밖의 실패              → 첫 원인(Caused by) 줄 + 확인할 설정 키
   3. jdtls 가 비정상 종료될 때 (on_exit)
   4. 같은 프로젝트를 다른 jdtls 가 이미 열고 있을 때 (check_concurrent — jdtls 를 띄우기 직전)
-     - 다른 Neovim 창의 jdtls 가 같은 작업 폴더(-data)를 씀 → 경고 (Gradle 동기화·오류 표시가 꼬임)
-       → 이 창은 비어 있는 별도 작업 폴더(<프로젝트>-2, -3 …)로 시작하도록 그 경로를 돌려줌
+     - 다른 Neovim 창의 jdtls 가 같은 작업 폴더(-data)를 씀 (함께 쓰면 Gradle 동기화·오류 표시가 꼬임)
+       → 이 창은 비어 있는 별도 작업 폴더(<프로젝트>-2, -3 …)로 시작하도록 그 경로를 돌려주고 안내(INFO)
+         (별도 폴더를 찾지 못해 함께 쓰게 되면 경고(WARN))
          (같은 프로젝트를 Neovim 여러 창에서 열어 작업해도 되도록 — 창마다 jdtls 가 따로 떠 메모리를 더 씀)
      - VS Code·Zed·IntelliJ 의 jdtls 가 같은 프로젝트를 엶 → 안내 (작업 폴더는 따로지만 .project·.classpath·bin/ 을 함께 씀)
   5. jdtls 가 프로젝트 파일 충돌을 보고할 때 (on_log_message — "out of sync" / "Failed to configure project")
@@ -28,8 +29,9 @@ jdtls 가 Java 설정 때문에 실패했을 때, 로그 파일(lsp.log)을 뒤�
       의존성(jsoup 등)을 못 찾는 오류만 보여 원인을 알기 어려웠음)
 
 같은 내용의 알림은 Neovim 세션당 한 번만 보냅니다(jdtls 재시작·여러 버퍼에서 반복되지 않도록).
-경고 알림은 init.lua 의 _G.NOTIFY_WARN_TIMEOUT 동안 떠 있습니다(다른 중요 경고와 같은 시간 — 기본 시간으로는 지나가 버려
-알림 기록에서만 보이는 경우가 있었음).
+경고(WARN)·오류(ERROR) 알림은 init.lua 의 _G.NOTIFY_CRITICAL_TIMEOUT 동안 떠 있습니다(다른 심각한 알림과 같은 시간 —
+기본 시간으로는 지나가 버려 알림 기록에서만 보이는 경우가 있었음). 이미 자동으로 처리한 일이나 주의 안내는 INFO 로 보내
+기본 시간만 표시합니다(알림 기록(<leader>n)에는 남음).
 ===========================================================================================
 --]]
 
@@ -47,7 +49,13 @@ local TITLE = 'Java 설정 확인'
 -- 그래서 VimEnter 전이면 VimEnter 를 기다리고, 그 뒤 잠깐(1.5초) 늦춰 알림 창이 준비된 다음 보냅니다.
 local function deliver(msg, level)
   local send = function()
-    vim.notify(msg, level or vim.log.levels.WARN, { title = TITLE, timeout = _G.NOTIFY_WARN_TIMEOUT or 15000 })
+    level = level or vim.log.levels.WARN
+    -- 심각한 알림(WARN 이상)만 오래 띄우고, INFO(자동 처리 안내·주의 안내)는 기본 시간
+    local opts = { title = TITLE }
+    if level >= vim.log.levels.WARN then
+      opts.timeout = _G.NOTIFY_CRITICAL_TIMEOUT or 15000
+    end
+    vim.notify(msg, level, opts)
   end
   if vim.v.vim_did_enter == 1 and (vim.uv.hrtime() - (M._entered_at or 0)) > 3e9 then
     vim.schedule(send)
@@ -308,7 +316,8 @@ function M.check_concurrent(workspace_dir, root)
         '  해결: 다른 Neovim 창을 닫고, 오류가 남아 있으면 :JdtWipeDataAndRestart',
       })
     end
-    notify_once('concurrent_ws:' .. real_ws, table.concat(lines, '\n'), vim.log.levels.WARN)
+    -- 별도 폴더로 자동 시작하면 이미 처리된 일이라 INFO, 별도 폴더를 못 찾아 함께 쓰게 되면 WARN(심각)
+    notify_once('concurrent_ws:' .. real_ws, table.concat(lines, '\n'), alt_ws and vim.log.levels.INFO or vim.log.levels.WARN)
   end
 
   if #others > 0 then
@@ -325,7 +334,7 @@ function M.check_concurrent(workspace_dir, root)
       '  작업 폴더는 따로지만 프로젝트의 .project · .classpath · bin/ 을 함께 고쳐 씁니다.',
       '  동시에 열면 Gradle 동기화가 실패할 수 있습니다("Failed to configure project", "out of sync").',
       '  그런 오류가 나면 다른 편집기를 닫고 :JdtWipeDataAndRestart',
-    }, '\n'), vim.log.levels.WARN)
+    }, '\n'), vim.log.levels.INFO) -- 주의 안내 (함께 써도 대부분 문제없음, 꼬이면 out of sync 경고가 따로 뜸)
   end
   return alt_ws
 end

@@ -53,12 +53,17 @@ _G.NVIM_DATA_DIR = vim.fn.stdpath('data')
 _G.NVIM_CACHE_DIR = vim.fn.stdpath('cache')
 _G.NVIM_STATE_DIR = vim.fn.stdpath('state')
 
--- [중요 경고 알림 표시 시간 (ms)]
--- 사용자가 직접 조치해야 하는 경고·오류 알림(Java 설정 오류, 빌드 실패, 플러그인 호환성 등)은 기본 알림보다 오래 띄웁니다.
+-- [심각한 알림 표시 시간 (ms)]
+-- 심각한 경고·오류 알림은 기본 알림보다 오래 띄웁니다.
 -- 기본 시간(약 3초)으로는 다른 작업 중에 지나가 버려 알림 기록(<leader>n)에서만 보이는 경우가 있었습니다.
--- 경고 알림마다 숫자를 따로 적지 말고 이 값을 쓰면 모두 같은 시간으로 맞춰집니다.
---   vim.notify(msg, vim.log.levels.WARN, { title = '...', timeout = _G.NOTIFY_WARN_TIMEOUT })
-_G.NOTIFY_WARN_TIMEOUT = 15000
+-- 알림마다 숫자를 따로 적지 말고 이 값을 쓰면 모두 같은 시간으로 맞춰집니다.
+--   vim.notify(msg, vim.log.levels.WARN, { title = '...', timeout = _G.NOTIFY_CRITICAL_TIMEOUT })
+-- ⚠️ 심각한 알림에만 사용합니다. 기준: "그대로 두면 기능이 동작하지 않아 사용자가 직접 조치해야 하는가"
+--   ● 사용: jdtls 실행 불가·비정상 종료, Gradle 동기화 실패·프로젝트 파일 충돌, JDK 경로 설정 오류, Java 빌드 오류,
+--          ESLint 엔진 오류, 플러그인 호환성 가드(플러그인 꺼짐)
+--   ● 사용 안 함: 이미 자동으로 처리된 일의 안내(예: jdtls 작업 폴더 자동 분리), 주의 안내(예: VS Code·Zed 동시 열기),
+--          진행 상황 안내(예: Java 빌드·디버그 어댑터 지연 — 같은 알림이 결과로 바뀌므로 각자 정한 시간 사용)
+_G.NOTIFY_CRITICAL_TIMEOUT = 15000
 
 -- bootstrap lazy.nvim, LazyVim and your plugins
 require('config.lazy')

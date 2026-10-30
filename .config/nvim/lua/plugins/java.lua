@@ -317,7 +317,7 @@ return {
         else
           jdtls_java_home = effective_jdk_home
           _G.log_jdtls(string.format('[WARN] Java %d 이상 JDK 가 없어 jdtls 를 실행할 수 없습니다 (설치 스크립트로 JDK 21 이상을 설치하세요).', JDTLS_MIN_JAVA))
-          vim.notify(string.format('jdtls 는 Java %d 이상이 필요한데 설치된 JDK 가 없습니다. 설치 스크립트로 JDK 21 이상을 설치하세요.', JDTLS_MIN_JAVA), vim.log.levels.WARN, { timeout = _G.NOTIFY_WARN_TIMEOUT })
+          vim.notify(string.format('jdtls 는 Java %d 이상이 필요한데 설치된 JDK 가 없습니다. 설치 스크립트로 JDK 21 이상을 설치하세요.', JDTLS_MIN_JAVA), vim.log.levels.WARN, { timeout = _G.NOTIFY_CRITICAL_TIMEOUT })
         end
 
         -- [실행 정보 기록]
