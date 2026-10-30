@@ -886,9 +886,11 @@ bw_interactive_login() {
 
 # Bitwarden PAT 로 GitHub 로그인 일괄 설정: git user.name/email + ~/.git-credentials + gh CLI
 # 인수: $1 = Bitwarden 아이템 이름 (선택, 기본값: $BW_DEFAULT_PAT_ITEM)
+#        생략하면 항목 이름을 물어봅니다(엔터 = 기본값 — 예전 프로젝트 clone 흐름 bw_git_clone_interactive 와 같은 질문).
+#        항목을 못 찾거나 PAT 필드가 없으면 3번까지 다시 입력받습니다.
 # 반환: 0 = 설정 완료 또는 이미 로그인됨, 1 = 실패(Bitwarden 미설치·로그인 실패·항목 없음 등)
 bw_setup_github_auth() {
-    local _item="${1:-$BW_DEFAULT_PAT_ITEM}" _host="github.com"
+    local _item_arg="${1:-}" _item="${1:-$BW_DEFAULT_PAT_ITEM}" _host="github.com"
 
     # 이미 로그인되어 있으면 Bitwarden 잠금 해제(마스터 비밀번호 입력) 없이 끝냅니다.
     if bw_git_credentials_exist "$_host" && bw_gh_auth_ok "$_host"; then
@@ -912,16 +914,29 @@ bw_setup_github_auth() {
     fi
     bw_ensure_session || return 1
 
-    echo "⏳ Bitwarden에서 '${_item}' 계정 정보 조회 중..."
-    local _parsed _user _email _pat
-    _parsed=$(bw_find_item_live "$_item") || return 1
+    local _parsed="" _user _email _pat="" _item_try
+    for _item_try in 1 2 3; do
+        # 항목 이름을 인수로 받지 않았으면 물어봄 (엔터 = 기본값 / 무인 실행은 기본값)
+        if [ -z "$_item_arg" ]; then
+            prompt_text _item "🔑 GitHub 계정 정보가 있는 Bitwarden 항목 이름" "$BW_DEFAULT_PAT_ITEM"
+            _item="${_item:-$BW_DEFAULT_PAT_ITEM}"
+        fi
+        echo "⏳ Bitwarden에서 '${_item}' 계정 정보 조회 중..."
+        _pat=""
+        if _parsed=$(bw_find_item_live "$_item"); then
+            _pat=$(printf "%s" "$_parsed" | cut -f4)   # 사용자 지정 필드 "PAT" 값
+            [ -n "$_pat" ] && break
+            echo "❌ '${_item}' 항목에 라벨이 \"PAT\"인 사용자 지정 필드를 찾을 수 없습니다." >&2
+        fi
+        # 인수로 받은 이름이거나 무인 실행이면 다시 물어도 같으므로 바로 실패
+        if [ -n "$_item_arg" ] || dt2_is_noninteractive 2>/dev/null; then
+            return 1
+        fi
+        [ "$_item_try" -lt 3 ] && echo "   항목 이름을 확인해 다시 입력해 주세요. (${_item_try}/3)" >&2
+    done
+    [ -n "$_pat" ] || return 1
     _user=$(printf "%s" "$_parsed" | cut -f1 | tr -d '@')
     _email=$(printf "%s" "$_parsed" | cut -f2)
-    _pat=$(printf "%s" "$_parsed" | cut -f4)   # 사용자 지정 필드 "PAT" 값
-    if [ -z "$_pat" ]; then
-        echo "❌ '${_item}' 항목에 라벨이 \"PAT\"인 사용자 지정 필드를 찾을 수 없습니다." >&2
-        return 1
-    fi
     echo "✅ GitHub 계정 확인: $_user ($_email)"
 
     bw_setup_git_config "$_user" "$_email"
