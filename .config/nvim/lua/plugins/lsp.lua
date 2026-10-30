@@ -31,6 +31,43 @@ return {
         -- [Kotlin LSP] 코틀린 파일(.kt, .kts, build.gradle.kts) 자동완성/진단
         kotlin_language_server = {},
 
+        -- [Web: HTML / CSS] VS Code 와 같은 엔진(vscode-langservers-extracted)
+        -- 태그·속성·CSS 속성/값 자동완성과 오류 표시. 포맷팅은 conform.nvim + Prettier 가 전담하므로 LSP 포맷팅은 끔.
+        html = {
+          init_options = { provideFormatter = false },
+        },
+        cssls = {
+          init_options = { provideFormatter = false },
+        },
+        -- [Web: Emmet] div.box>ul>li*3 같은 축약 입력을 자동완성 목록에서 HTML 로 펼침
+        -- (HTML·CSS·JSX/TSX·Vue 등에서 동작, Tailwind·Vue 는 lazyvim.json 의 lang.tailwind / lang.vue 익스트라)
+        emmet_language_server = {},
+
+        -- [Web: Tailwind] 실제로 Tailwind 를 쓰는 프로젝트에서만 시작 (lang.tailwind 익스트라의 서버 설정에 덧붙임)
+        -- nvim-lspconfig 기본 설정은 Tailwind v4 용 예비 조건으로 '.git' 을 넣어 두어, Tailwind 를 쓰지 않는 git 저장소에서도
+        -- HTML·CSS·Vue 파일을 열 때마다 Tailwind LSP(Node 프로세스, 메모리 약 100MB)가 떴습니다(실측: 일반 웹 프로젝트에서도 attach).
+        -- → tailwind.config.* 가 있거나, package.json 에 tailwindcss(v4 의 @tailwindcss/vite·postcss·cli 포함)가 있을 때만 시작.
+        --   (postcss.config.* 는 Tailwind 없이도 흔히 쓰여 조건에서 제외)
+        tailwindcss = {
+          root_dir = function(bufnr, on_dir)
+            local fname = vim.api.nvim_buf_get_name(bufnr)
+            local config = vim.fs.find(
+              { 'tailwind.config.js', 'tailwind.config.cjs', 'tailwind.config.mjs', 'tailwind.config.ts' },
+              { path = fname, upward = true }
+            )[1]
+            if config then
+              return on_dir(vim.fs.dirname(config))
+            end
+            for _, pkg in ipairs(vim.fs.find('package.json', { path = fname, upward = true, limit = math.huge })) do
+              local ok, lines = pcall(vim.fn.readfile, pkg)
+              if ok and table.concat(lines, '\n'):find('tailwindcss', 1, true) then
+                return on_dir(vim.fs.dirname(pkg))
+              end
+            end
+            -- 찾지 못하면 on_dir 를 부르지 않아 서버를 시작하지 않음
+          end,
+        },
+
         -- [YAML / Spring Boot application.yml 최적화]
         -- SchemaStore.nvim과 연동하여 Spring Boot 설정 키/값 자동완성 및 검증 지원
         yamlls = {
