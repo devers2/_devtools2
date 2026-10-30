@@ -185,7 +185,7 @@ print(json.dumps([conf]))
 # [단일 원본(SSOT) 관리 원칙]
 #   1. 디버그 설정의 유일한 원본(Single Source of Truth)은 `.vscode/launch.json` 입니다.
 #   2. 개발자는 `.vscode/launch.json`만 수정하며, 이 파일(.zed/debug.json)은
-#      프로젝트 셋업 시점 또는 Neovim 저장(:w) 시점에 자동 파생/동기화됩니다.
+#      프로젝트 셋업 시점 또는 Neovim 저장(:w)·프로젝트 파일을 열 때 자동 파생/동기화됩니다.
 #
 # [배경 및 목적]
 #   Zed의 Java 확장은 디버그 어댑터를 "Java" (대문자 J)로 등록합니다.
@@ -215,9 +215,22 @@ setup_zed_java_debug() {
     local ZED_DIR="$TARGET_DIR/.zed"
     local DEBUG_FILE="$ZED_DIR/debug.json"
 
+    # 이미 있으면 덮어쓰지 않음 (사용자 설정 보존). 단, 설정이 하나도 없는 파일은 새로 만듦:
+    #   Zed 는 F4 → 설정 편집을 누르면 빈 기본 파일([] 와 안내 주석)을 만드는데, 예전에는 이것도 "이미 존재"로 보고
+    #   건너뛰어 Zed 의 디버그 목록이 계속 비어 있었습니다 (Goono-ELN 실측).
+    #   (Neovim 쪽 동기화(config/autocmds.lua)도 같은 기준: 없음·빈 파일·자동 생성 파일만 씀)
     if [ -f "$DEBUG_FILE" ]; then
-        echo "ℹ️  .zed/debug.json 이 이미 존재합니다. 덮어쓰지 않습니다."
-        return 0
+        if python3 - "$DEBUG_FILE" <<'PYEOF' 2>/dev/null; then
+import json, re, sys
+text = open(sys.argv[1], encoding='utf-8').read()
+text = re.sub(r'^\s*//.*$', '', text, flags=re.M)  # 줄 주석 제거 (Zed 기본 파일은 줄 주석 + [] 형태)
+data = json.loads(text) if text.strip() else []
+sys.exit(0 if isinstance(data, list) and len(data) > 0 else 1)
+PYEOF
+            echo "ℹ️  .zed/debug.json 이 이미 존재합니다. 덮어쓰지 않습니다."
+            return 0
+        fi
+        echo "ℹ️  .zed/debug.json 에 디버그 설정이 없어(Zed 기본 빈 파일) 새로 만듭니다."
     fi
 
     mkdir -p "$ZED_DIR"
@@ -251,7 +264,7 @@ header = '''// =================================================================
 //
 // [설정 수정 방법]
 // 디버그 설정을 변경하려면 프로젝트 루트의 .vscode/launch.json 을 수정해 주세요.
-// Neovim에서 저장(:w)하거나 setup 스크립트 실행 시 이 파일로 자동 동기화됩니다.
+// Neovim에서 저장(:w)하거나 프로젝트 파일을 열 때, setup 스크립트 실행 시 이 파일로 자동 동기화됩니다.
 // ==============================================================================
 
 '''
