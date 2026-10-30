@@ -255,8 +255,44 @@ if vim.fn.has('wsl') == 1 then
 end
 vim.opt.clipboard = 'unnamedplus'
 
+-- [Neovim provider] Python·Node 로 작성된 Neovim 플러그인(remote plugin)을 실행하는 연결 고리
+-- (Python·Node 개발 자체 — LSP·디버거·포매터 — 와는 별개. 지금은 쓰는 플러그인이 없지만 쓸 수 있도록 준비)
+--   ● Python: 설치 스크립트(3.install-cli-tools.sh 7-1)가 만든 pynvim 전용 가상환경
+--   ● Node  : npm 전역 패키지(data/.npm-packages)의 neovim 패키지
+--   ● 설치되어 있지 않으면 provider 를 꺼서 시작·:checkhealth 때 실행 파일을 찾느라 시간을 쓰지 않게 함
+--   ● Perl·Ruby provider 는 쓰지 않아 끔 (:checkhealth vim.provider 경고 제거)
+local py_provider = _G.NVIM_SHARED_DIR .. '/python-provider/bin/python'
+if vim.uv.fs_stat(py_provider) then
+  vim.g.python3_host_prog = py_provider
+else
+  vim.g.loaded_python3_provider = 0
+end
+local node_provider = _G.DEVTOOLS2_DIR .. '/data/.npm-packages/bin/neovim-node-host'
+if vim.uv.fs_stat(node_provider) then
+  vim.g.node_host_prog = node_provider
+else
+  vim.g.loaded_node_provider = 0
+end
+vim.g.loaded_perl_provider = 0
+vim.g.loaded_ruby_provider = 0
+
 -- [Python LSP] LazyVim Python extra에서 pyright 대신 basedpyright를 사용하도록 지정
 vim.g.lazyvim_python_lsp = 'basedpyright'
+
+-- [자동 저장 예외: codediff 화면의 버퍼]
+-- codediff 의 병합(충돌 해결) 화면은 결과 창을 base 내용(충돌 표시 없음)으로 채워 두고 사용자가 고르게 하는데,
+-- 화면을 열며 창을 옮기는 순간(BufLeave) 아래 자동 저장이 그 상태를 디스크에 써 버렸습니다. 그러면 충돌을 풀지
+-- 않고 닫아도 파일에는 충돌 표시가 사라진 base 내용이 남고, git mergetool 도 "해결됨"으로 처리했습니다(실측).
+-- codediff 화면 안의 버퍼는 자동 저장하지 않고, 사용자가 :w 로 직접 저장할 때만 반영합니다.
+-- (codediff 를 아직 쓰지 않았으면 모듈을 불러오지 않고 바로 false)
+function _G._dt2_in_codediff(buf)
+  local accessors = package.loaded['codediff.ui.lifecycle.accessors']
+  if not accessors or type(accessors.find_tabpage_by_buffer) ~= 'function' then
+    return false
+  end
+  local ok, tab = pcall(accessors.find_tabpage_by_buffer, buf)
+  return ok and tab ~= nil
+end
 
 -- 포커스를 잃거나(FocusLost), 버퍼를 떠날 때(BufLeave), 입력 모드를 벗어날 때(InsertLeave) 자동 저장
 vim.api.nvim_create_autocmd({ 'FocusLost', 'BufLeave', 'InsertLeave' }, {
@@ -271,6 +307,7 @@ vim.api.nvim_create_autocmd({ 'FocusLost', 'BufLeave', 'InsertLeave' }, {
       and not vim.bo[buf].readonly
       and vim.bo[buf].buftype == ''
       and vim.api.nvim_buf_get_name(buf) ~= ''
+      and not _dt2_in_codediff(buf)
     then
       -- 인서트 모드 도중이 아닐 때만 안전하게 저장 (타이핑 끊김 방지)
       local mode = vim.api.nvim_get_mode().mode

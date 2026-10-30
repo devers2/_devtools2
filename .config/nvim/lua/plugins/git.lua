@@ -52,28 +52,19 @@ return {
   {
     'esmuellert/codediff.nvim',
     cmd = 'CodeDiff',
+    -- [병합 충돌 해결] 예전 git-conflict.nvim(2024-12 이후 업데이트 없음)을 대신합니다.
+    --   <leader>gx : 충돌·변경 파일 목록(탐색기의 "Merge Changes" 그룹에서 충돌 파일 선택)
+    --   <leader>gm : 현재 파일의 충돌을 3-way 화면(Theirs │ Ours, 아래 Result)으로 열기
+    --   충돌 화면 안에서만 동작하는 단축키(다른 곳의 <leader>c… 와 겹치지 않음):
+    --     <leader>co 현재(Ours) · <leader>ct 들어온 변경(Theirs) · <leader>cb 둘 다 · <leader>cx 둘 다 버림(base)
+    --     대문자(<leader>cO/cT/cB/cX)는 파일 전체 · ]x / [x 다음/이전 충돌 · 결과 창에서 2do / 3do (vimdiff 식)
+    --   해결 후 :w 로 저장 → git add (또는 lazygit) 로 마무리
     keys = {
       { '<leader>gv', '<cmd>CodeDiff<cr>', desc = 'Git 변경 리뷰 (CodeDiff)' },
       { '<leader>gV', '<cmd>CodeDiff file HEAD<cr>', desc = 'Git 현재 파일 vs HEAD (CodeDiff)' },
+      { '<leader>gx', '<cmd>CodeDiff<cr>', desc = 'Git 충돌·변경 목록 (CodeDiff)' },
+      { '<leader>gm', '<cmd>CodeDiff merge %<cr>', desc = 'Git 현재 파일 충돌 해결 (CodeDiff)' },
     },
     opts = {},
-  },
-
-  -- Git 3-Way 병합 충돌 시각화 및 원클릭 해결 플러그인 (VSCode/IntelliJ 스타일)
-  -- co: 현재(Ours) 선택 | ct: 들어오는 변경(Theirs) 선택 | cb: 양쪽(Both) 유지 | c0: 모두 삭제
-  -- [x: 이전 충돌로 이동 | ]x: 다음 충돌로 이동
-  {
-    'akinsho/git-conflict.nvim',
-    event = { 'BufReadPre', 'BufNewFile' },
-    opts = {
-      default_mappings = true,
-      default_commands = true,
-      disable_diagnostics = false,
-      list_opener = 'copen',
-      highlights = {
-        incoming = 'DiffAdd',
-        current = 'DiffText',
-      },
-    },
   },
 }
