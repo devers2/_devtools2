@@ -274,7 +274,7 @@ local function run_manual_eslint()
           vim.notify(
             stderr_str,
             vim.log.levels.ERROR,
-            { title = 'ESLint 엔진 오류', timeout = 10000 }
+            { title = 'ESLint 엔진 오류', timeout = _G.NOTIFY_WARN_TIMEOUT or 15000 }
           )
         else
           vim.notify(
