@@ -730,6 +730,141 @@ elif overwrite:
 else:
     print(f'✅ .vscode/launch.json 갱신 완료 ({added_count}개 신규 디버그 설정 추가)')
 PYEOF
+
+    # Zed 에디터용 디버그 설정(.zed/debug.json)도 완성된 launch.json 으로부터 함께 생성 (아래 setup_zed_debug_json)
+    setup_zed_debug_json "$TARGET_DIR"
+}
+
+# ── .zed/debug.json 생성 공통 모듈 (launch.json → Zed 형식 변환) ────────────────
+# [단일 원본(SSOT) 관리 원칙]
+#   1. 디버그 설정의 유일한 원본(Single Source of Truth)은 `.vscode/launch.json` 입니다.
+#   2. 개발자는 `.vscode/launch.json`만 수정하며, 이 파일(.zed/debug.json)은 프로젝트 설정 스크립트가
+#      launch.json 을 만들 때(setup_vscode_launch_json) 함께 파생 생성합니다. Java·Python 등 모든 프로젝트 공통.
+#   3. launch.json 을 고친 뒤 Zed 에 반영하려면 프로젝트 설정 스크립트를 다시 실행합니다
+#      (Alt + C → [Project] 프로젝트 설정 — 이미 설정된 프로젝트는 바뀐 부분만 다시 적용).
+#
+# [배경 및 목적]
+#   Zed 도 .vscode/launch.json 을 읽지만(.zed/debug.json 에 설정이 없을 때), "type" 을 Zed 디버그 어댑터 이름과
+#   그대로 맞춰 봅니다. Zed 의 Java 확장은 디버그 어댑터를 "Java" (대문자 J)로 등록하고, launch.json 은 DAP 표준인
+#   "type": "java" (소문자)를 사용하므로 Zed 에서 .vscode/launch.json 의 Java 설정을 직접 인식하지 못합니다.
+#   (Python 은 "debugpy" → Zed "Debugpy", Node 는 "node"/"pwa-node" → Zed "JavaScript" 로 같은 문제)
+#   따라서 사용자가 두 파일을 수동으로 이중 관리하지 않도록 launch.json 에서 자동 변환합니다.
+#   ※ 예전에는 Neovim 이 launch.json 저장(:w) 때 이 파일을 갱신했으나, 편집기마다 자기 설정만 다루도록
+#     Neovim 쪽 동기화는 제거하고 이 공통 모듈로 옮겼습니다.
+#
+# [변환 규칙]
+#   - type → adapter: java → "Java", debugpy/python → "Debugpy", node/pwa-node → "JavaScript" (그 밖의 type 은 건너뜀)
+#   - name → label ("<name> (Launch)" / "<name> (Attach)"), 나머지 필드는 그대로 전달
+#   - ${workspaceFolder} → $ZED_WORKTREE_ROOT (Zed 의 프로젝트 루트 변수)
+#   - Java: cwd 가 없으면 $ZED_WORKTREE_ROOT, stopOnEntry 가 없으면 false (Zed 내부에서 직접 Spring Boot 앱 구동)
+#
+# [덮어쓰기 기준 — 기존 사용자 설정 보존 (멱등성)]
+#   - 파일이 없음 / Zed 가 만든 빈 기본 파일([] — F4 → 설정 편집 시 생성) / 이전에 자동 생성한 파일(헤더 표시) → 씀
+#     (예전에는 Zed 의 빈 기본 파일도 "이미 존재"로 보고 건너뛰어 Zed 의 디버그 목록이 계속 비어 있었음 — Goono-ELN 실측)
+#   - 설정이 있는데 자동 생성 표시가 없음 → 사용자가 Zed 용으로 직접 작성한 것으로 보고 건드리지 않음
+#   - 내용이 같으면 다시 쓰지 않음
+#
+# [사용 방법]
+#   Zed에서 F4 (debugger: start) → 원하는 설정 선택
+#
+# 인수:
+#   $1 = TARGET_DIR (필수, 대상 프로젝트 루트 디렉토리 — .vscode/launch.json 이 있어야 함)
+setup_zed_debug_json() {
+    local TARGET_DIR="$1"
+    [ -f "$TARGET_DIR/.vscode/launch.json" ] || return 0
+
+    python3 - "$TARGET_DIR" << 'PYEOF'
+import json
+import os
+import re
+import sys
+
+target_dir = sys.argv[1]
+launch_file = os.path.join(target_dir, '.vscode', 'launch.json')
+zed_dir = os.path.join(target_dir, '.zed')
+debug_file = os.path.join(zed_dir, 'debug.json')
+
+# 자동 생성 표시 (헤더 주석에 포함 — 직접 작성한 파일과 구분)
+MARKER = '자동 생성 파일 - 직접 수정 금지'
+ADAPTERS = {'java': 'Java', 'debugpy': 'Debugpy', 'python': 'Debugpy', 'node': 'JavaScript', 'pwa-node': 'JavaScript'}
+
+COMMENT_RE = re.compile(r'(/\*.*?\*/|//[^\r\n]*)|("(?:\\.|[^"\\])*")', re.DOTALL)
+
+def parse_jsonc(raw_text):
+    # 문자열 리터럴을 보존하면서 주석 제거 후, 후행 콤마 제거
+    no_comments = COMMENT_RE.sub(lambda m: '' if m.group(1) else m.group(2), raw_text)
+    return json.loads(re.sub(r',\s*([\]}])', r'\1', no_comments) or 'null')
+
+def zed_vars(value):
+    # ${workspaceFolder} → $ZED_WORKTREE_ROOT (문자열·배열·객체 안의 문자열 모두)
+    if isinstance(value, str):
+        return value.replace('${workspaceFolder}', '$ZED_WORKTREE_ROOT')
+    if isinstance(value, list):
+        return [zed_vars(v) for v in value]
+    if isinstance(value, dict):
+        return {k: zed_vars(v) for k, v in value.items()}
+    return value
+
+try:
+    with open(launch_file, encoding='utf-8') as f:
+        launch = parse_jsonc(f.read())
+except Exception as e:
+    print(f'⚠️  .zed/debug.json 생성 건너뜀: .vscode/launch.json 을 읽지 못했습니다 ({e})', file=sys.stderr)
+    sys.exit(0)
+
+configs = []
+for cfg in (launch or {}).get('configurations', []):
+    if not isinstance(cfg, dict):
+        continue
+    adapter = ADAPTERS.get(str(cfg.get('type', '')).lower())
+    if not adapter:
+        continue
+    name = cfg.get('name') or cfg.get('mainClass', '').split('.')[-1] or adapter
+    request = cfg.get('request', 'launch')
+    zed = {'adapter': adapter, 'label': f"{name} ({'Attach' if request == 'attach' else 'Launch'})"}
+    for k, v in cfg.items():
+        if k not in ('type', 'name'):
+            zed[k] = zed_vars(v)
+    if adapter == 'Java':
+        zed.setdefault('cwd', '$ZED_WORKTREE_ROOT')
+        zed.setdefault('stopOnEntry', False)
+    configs.append(zed)
+
+if not configs:
+    sys.exit(0)
+
+if os.path.isfile(debug_file):
+    try:
+        with open(debug_file, encoding='utf-8') as f:
+            existing_raw = f.read()
+        existing = parse_jsonc(existing_raw)
+    except Exception:
+        print('ℹ️  .zed/debug.json 을 읽지 못해(직접 작성한 파일로 보고) 덮어쓰지 않습니다.')
+        sys.exit(0)
+    if isinstance(existing, list) and existing and MARKER not in existing_raw:
+        print('ℹ️  .zed/debug.json 에 직접 작성한 디버그 설정이 있어 덮어쓰지 않습니다.')
+        sys.exit(0)
+
+header = """// ==============================================================================
+// ⚠️ [자동 생성 파일 - 직접 수정 금지 / DO NOT EDIT DIRECTLY]
+// 이 파일은 .vscode/launch.json 으로부터 자동 생성되는 파생 파일입니다.
+//
+// [설정 수정 방법]
+// 디버그 설정을 변경하려면 프로젝트 루트의 .vscode/launch.json 을 수정한 뒤
+// 프로젝트 설정 스크립트를 다시 실행해 주세요 (Alt + C → [Project] 프로젝트 설정).
+// ==============================================================================
+
+"""
+new_text = header + json.dumps(configs, indent=2, ensure_ascii=False) + '\n'
+# 파일 전체(안내 헤더 포함)가 같을 때만 건너뜀 — 설정은 같아도 헤더 안내가 예전 것이면 갱신
+if os.path.isfile(debug_file) and existing_raw == new_text:
+    print('ℹ️  .zed/debug.json 이 launch.json 과 같습니다. (파일 변경 없음)')
+    sys.exit(0)
+os.makedirs(zed_dir, exist_ok=True)
+with open(debug_file, 'w', encoding='utf-8') as f:
+    f.write(new_text)
+print(f'✅ .zed/debug.json 생성 완료 (Zed 디버그 설정 {len(configs)}개, launch.json 에서 변환)')
+PYEOF
 }
 
 # ── SFTP 마운트 옵션 통합 처리 헬퍼 ──────────────────────────────────────────
