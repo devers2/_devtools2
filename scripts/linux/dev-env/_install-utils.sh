@@ -1138,6 +1138,17 @@ safe_download_binary() {
     return 0
 }
 
+# Adoptium 이 제공하는 가장 최근 LTS Java 메이저 번호 (예: 25) — 조회 실패 시 빈 출력
+# 사용처: 2.install-core-tools.sh 의 "새 LTS 안내" (tool-versions.toml 에 없는 새 LTS 가 나오면 안내만 함)
+fetch_adoptium_latest_lts() {
+    curl -sf --max-time 10 "https://api.adoptium.net/v3/info/available_releases" 2>/dev/null \
+        | python3 -c 'import json, sys
+try:
+    print(int(json.load(sys.stdin).get("most_recent_lts")))
+except Exception:
+    pass' 2>/dev/null || true
+}
+
 # ─────────────────────────────────────────────────────────────────
 # ☕ Adoptium Eclipse Temurin JDK 릴리즈 메타데이터 조회 헬퍼
 # 인수: $1 = 메이저 버전 (8, 17, 21, 25), $2 = 아키텍처 ("x64" 또는 "aarch64")
