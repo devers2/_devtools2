@@ -48,6 +48,13 @@ return {
         -- HTML·CSS·Vue 파일을 열 때마다 Tailwind LSP(Node 프로세스, 메모리 약 100MB)가 떴습니다(실측: 일반 웹 프로젝트에서도 attach).
         -- → tailwind.config.* 가 있거나, package.json 에 tailwindcss(v4 의 @tailwindcss/vite·postcss·cli 포함)가 있을 때만 시작.
         --   (postcss.config.* 는 Tailwind 없이도 흔히 쓰여 조건에서 제외)
+        -- ● 판정 순서: ① 열린 파일의 폴더부터 위로 올라가며 tailwind.config.* 를 찾고, 있으면 그 폴더를 서버 루트로 사용
+        --              ② 없으면 위로 올라가며 만나는 package.json 을 가까운 것부터 차례로 읽어, 처음 'tailwindcss' 가 나온
+        --                 package.json 의 폴더를 루트로 사용 (모노레포에서 하위 패키지에 없고 최상위에만 있어도 인식)
+        -- ● 'tailwindcss' 는 package.json 전체에서 글자로 찾으므로 tailwindcss · @tailwindcss/* 의존성 외에
+        --   prettier-plugin-tailwindcss 처럼 이름에 포함된 패키지만 있어도 켜집니다(드물고, 켜져도 해만 없는 쪽이라 허용).
+        -- ● package.json 없이 Tailwind 를 쓰는 경우(CDN 스크립트, standalone CLI 등)는 켜지지 않습니다.
+        --   필요하면 프로젝트 최상위에 빈 tailwind.config.js 를 두면 ① 조건으로 켜집니다(v4 는 설정 파일이 비어 있어도 무방).
         tailwindcss = {
           root_dir = function(bufnr, on_dir)
             local fname = vim.api.nvim_buf_get_name(bufnr)
@@ -59,6 +66,7 @@ return {
               return on_dir(vim.fs.dirname(config))
             end
             for _, pkg in ipairs(vim.fs.find('package.json', { path = fname, upward = true, limit = math.huge })) do
+              -- 읽기 실패(권한 등)는 건너뛰고 다음(상위) package.json 으로
               local ok, lines = pcall(vim.fn.readfile, pkg)
               if ok and table.concat(lines, '\n'):find('tailwindcss', 1, true) then
                 return on_dir(vim.fs.dirname(pkg))
