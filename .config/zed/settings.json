@@ -13,15 +13,28 @@
     "kanagawa-themes": true,
 
     // [Spring Boot / Gradle 개발 필수]
-    "java": true, // Java 언어 지원
+    "java": true, // Java 언어 지원 (Gradle·properties 파일, Java 디버거 포함)
+    "kotlin": true, // Kotlin / build.gradle.kts
     "html": true,
     "xml": true, // Spring XML/pom.xml 설정 지원
+    "sql": true, // MyBatis·DB 스크립트(.sql) 구문 강조
 
-    // [기타 언어 지원]
-    "python": true, // Python 언어 지원
+    // [Python] — Python 은 Zed 내장 지원(basedpyright + ruff)이라 확장이 필요 없음
+    //   (예전 "python": true 는 Zed 확장 목록에 없는 이름이라 아무것도 설치되지 않았음)
+
+    // [Node / Web] — JS·TS·JSON·CSS·Tailwind 는 Zed 내장 지원
+    "vue": true, // Vue 단일 파일 컴포넌트(.vue)
+    "emmet": true, // div.box>ul>li*3 같은 축약 입력 (Neovim 의 emmet_language_server 와 같은 기능)
 
     // [기타 프로젝트 지원]
     "toml": true, // tool-versions.toml 등 설정용
+    "dockerfile": true, // Dockerfile
+    "docker-compose": true, // docker-compose.yml
+    "env": true, // .env 파일
+    "ini": true, // .ini / .editorconfig 등
+    "make": true, // Makefile
+    "log": true, // 로그 파일 강조
+    "git-firefly": true, // .gitignore · 커밋 메시지 등 Git 파일
     "powershell": true // PowerShell 쉘 스크립트 지원
   },
 
@@ -54,22 +67,57 @@
   "soft_wrap": "preferred_line_length",
 
   "languages": {
-    "Markdown": {
-      "preferred_line_length": 120, // 마크다운은 가독성을 위해 예외적으로 120
-      "soft_wrap": "preferred_line_length"
-    },
     // Java: 탭 크기 4 설정
     "Java": {
       "language_servers": ["jdtls"],
       "tab_size": 4
     },
     // Python: 탭 크기 4 설정 (PEP 8 표준)
+    // - 코드 분석: Zed 기본값 basedpyright(+ ruff 진단) — Neovim 과 같은 조합. 가상환경은 프로젝트 설정 스크립트가 만드는
+    //   pyrightconfig.json(venvPath/venv)으로 인식
+    // - 포맷: Neovim(ruff_fix + ruff_format)과 같게 — 저장 시 ruff 로 자동 수정(fixAll)·import 정리 후 ruff 포맷
+    //   (ruff 설정 파일 선택은 아래 lsp.ruff — 프로젝트 설정 우선, 없으면 DevTools2 공통 ruff.toml)
     "Python": {
-      "tab_size": 4
+      "tab_size": 4,
+      "code_actions_on_format": {
+        "source.fixAll.ruff": true,
+        "source.organizeImports.ruff": true
+      },
+      "formatter": { "language_server": { "name": "ruff" } }
+    },
+
+    // ── [Prettier 포맷 — Neovim 과 같은 설정 선택] ─────────────────────────────────
+    // Zed 내장 Prettier 는 프로젝트에 Prettier 설정이 없으면 Prettier 기본값(큰따옴표 등)으로 포맷해서, Neovim
+    // (DevTools2 공통 .config/prettier/.prettierrc.cjs 사용)과 결과가 달랐습니다. 래퍼가 "프로젝트 설정 우선, 없으면
+    // DevTools2 공통 설정"으로 고르고, 프로젝트에 설치된 Prettier 가 있으면 그것을 씁니다 (scripts/zed/prettier-format 설명).
+    // (Neovim 의 formatters_by_ft 에서 prettier 를 쓰는 언어와 같은 목록)
+    "JavaScript": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
+    "TypeScript": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
+    "TSX": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
+    "JSON": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
+    "JSONC": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
+    "CSS": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
+    "HTML": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
+    "Vue.js": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
+    "YAML": { "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } } },
+    "Markdown": {
+      "preferred_line_length": 120, // 마크다운은 가독성을 위해 예외적으로 120
+      "soft_wrap": "preferred_line_length",
+      "formatter": { "external": { "command": "/var/opt/_devtools2/scripts/zed/prettier-format", "arguments": ["{buffer_path}"] } }
     }
   },
 
   "lsp": {
+    // [ruff — Python 린트·포맷] 설정 파일 선택을 Neovim 과 같게: 프로젝트의 ruff.toml / .ruff.toml / pyproject.toml([tool.ruff])
+    // 이 있으면 그것(filesystemFirst), 없으면 DevTools2 공통 ruff.toml
+    "ruff": {
+      "initialization_options": {
+        "settings": {
+          "configuration": "/var/opt/_devtools2/.config/ruff/ruff.toml",
+          "configurationPreference": "filesystemFirst"
+        }
+      }
+    },
     "jdtls": {
       // ==============================================================================
       // 🌟 [Zed 전용 JDTLS 커스텀 런처 연동]
