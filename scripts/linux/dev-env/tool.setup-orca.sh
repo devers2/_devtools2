@@ -447,6 +447,10 @@ if [ "$_orca_proceed" = true ]; then
 
     # ── 이미 설치되어 있으면 건너뜀 (예전에는 실행할 때마다 설치를 시도했음) ──
     #   ● 설치 여부는 Orca 의 "skills installed --json"(전역 설치 목록)으로 확인합니다.
+    #     단, 이 명령은 Orca 앱이 실행 중일 때만 동작합니다. 앱이 꺼져 있으면 "runtime_unavailable"
+    #     (orca-runtime.json 없음, "Start the Orca app first.")로 실패해 목록이 비고, 그러면 매번 "설치 안 됨"으로
+    #     보고 다시 설치했습니다(실측). 설치 스크립트 실행 중에는 보통 앱이 꺼져 있으므로, 목록을 못 읽으면
+    #     전역 설치 위치(~/.agents/skills/<이름>, 에이전트별 폴더는 여기로 링크됨)에 SKILL.md 가 있는지로 판단합니다.
     #   ● 다시 실행하는 경우: 둘 중 하나라도 없음 / 이번에 에이전트 CLI 를 새로 설치함(그 에이전트에도 설치 필요)
     #     → skills install,  Orca 가 이번에 업데이트됨 → skills update(이미 설치된 위치만 새 Orca 버전에 맞게 갱신)
     _orca_skills_have=""
@@ -461,7 +465,9 @@ except Exception:
     fi
     _orca_skills_missing=false
     for _sk in orca-cli orchestration; do
-        [[ " $_orca_skills_have " == *" $_sk "* ]] || _orca_skills_missing=true
+        [[ " $_orca_skills_have " == *" $_sk "* ]] && continue
+        [ -z "$_orca_skills_have" ] && [ -f "$HOME/.agents/skills/$_sk/SKILL.md" ] && continue
+        _orca_skills_missing=true
     done
 
     echo ""
