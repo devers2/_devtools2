@@ -754,7 +754,8 @@ PYEOF
 #
 # [변환 규칙]
 #   - type → adapter: java → "Java", debugpy/python → "Debugpy", node/pwa-node → "JavaScript" (그 밖의 type 은 건너뜀)
-#   - name → label ("<name> (Launch)" / "<name> (Attach)"), 나머지 필드는 그대로 전달
+#   - name → label (launch.json 이름 그대로 — VS Code·Neovim 디버그 목록과 같은 이름), 나머지 필드는 그대로 전달
+#     (예전에는 "<name> (Launch)" 를 붙였으나 이름에 이미 설명이 있는 경우 "▶ FastAPI (uvicorn, debug) (Launch)" 처럼 어색해 제거)
 #   - ${workspaceFolder} → $ZED_WORKTREE_ROOT (Zed 의 프로젝트 루트 변수)
 #   - Java: cwd 가 없으면 $ZED_WORKTREE_ROOT, stopOnEntry 가 없으면 false (Zed 내부에서 직접 Spring Boot 앱 구동)
 #
@@ -820,8 +821,7 @@ for cfg in (launch or {}).get('configurations', []):
     if not adapter:
         continue
     name = cfg.get('name') or cfg.get('mainClass', '').split('.')[-1] or adapter
-    request = cfg.get('request', 'launch')
-    zed = {'adapter': adapter, 'label': f"{name} ({'Attach' if request == 'attach' else 'Launch'})"}
+    zed = {'adapter': adapter, 'label': name}
     for k, v in cfg.items():
         if k not in ('type', 'name'):
             zed[k] = zed_vars(v)
