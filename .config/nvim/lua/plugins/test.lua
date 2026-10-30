@@ -3,7 +3,7 @@
 [Neotest: 커서 아래 테스트 즉시 실행/디버그]
 ===========================================================================================
 lazyvim.json 의 lazyvim.plugins.extras.test.core 익스트라가 neotest 코어와
-<leader>t* 키맵을 이미 제공합니다. 이 파일은 실제 언어별 어댑터(Java/Python)만 연결합니다.
+<leader>t* 키맵을 이미 제공합니다. 이 파일은 실제 언어별 어댑터(Java/Python/JS·TS)만 연결합니다.
 
 [의존성 정리 — 이미 다 갖춰져 있어서 추가로 설치할 것은 없습니다]
   1. nvim-nio        : neotest 코어의 필수 의존성. test.core 익스트라 자체가 선언하고 있어
@@ -59,6 +59,10 @@ lazyvim.json 의 lazyvim.plugins.extras.test.core 익스트라가 neotest 코어
     맞아야 인식됩니다. Gradle/Maven, 멀티모듈 프로젝트 자동 감지.
   - Python: pytest 러너 고정. 인터프리터는 neotest-python 기본 탐색을 그대로 사용
     (VIRTUAL_ENV → 프로젝트 .venv/venv → pipenv/poetry → uv → python3).
+  - JS/TS: Vitest(neotest-vitest)와 Jest(neotest-jest)를 함께 등록합니다. 두 어댑터 모두 프로젝트의
+    package.json 의존성(vitest / jest)을 보고 자기 프로젝트인지 판단하므로 한 프로젝트에 겹치지 않습니다.
+    실행 명령은 프로젝트의 node_modules/.bin 을 자동으로 찾으므로(없으면 npx), 프로젝트에서 npm install 만
+    되어 있으면 됩니다. 테스트 파일: *.test.ts / *.spec.ts (js·jsx·tsx 포함), __tests__/ 폴더.
 ===========================================================================================
 --]]
 return {
@@ -75,11 +79,41 @@ return {
   -- [Python] neotest-python (자세한 설명은 상단 doc 참고)
   { 'nvim-neotest/neotest-python', lazy = true },
 
+  -- [JS/TS] Vitest · Jest (자세한 설명은 상단 doc 참고)
+  { 'marilari88/neotest-vitest', lazy = true },
+  { 'nvim-neotest/neotest-jest', lazy = true },
+
   {
     'nvim-neotest/neotest',
     opts = function(_, opts)
       opts.adapters = opts.adapters or {}
-      opts.adapters['neotest-java'] = {}
+      -- [neotest-java 를 Java 프로젝트 파일로 한정]
+      -- neotest-java 는 파일 이름이 테스트 클래스 패턴(…Test/…Tests/…IT/…Spec)에 맞으면 확장자와 무관하게
+      -- 테스트 파일로 보고, node_modules 도 건너뛰지 않습니다. 그래서 JS/TS 프로젝트에서 node_modules 안의
+      -- "LICENSE-MIT.txt"(…IT) 같은 파일까지 열어 보다 오류를 내고(neotest.log), 탐색 시간도 낭비했습니다(실측).
+      -- 원래 어댑터를 복사해 .java 파일만, node_modules·.git 등은 건너뛰도록 감싸 숫자 키로 등록합니다
+      -- (LazyVim test.core 는 숫자 키의 값을 어댑터 객체로 그대로 씁니다).
+      local ok_java, java = pcall(require, 'neotest-java')
+      if ok_java and type(java) == 'table' then
+        local wrapped = {}
+        for k, v in pairs(java) do
+          wrapped[k] = v
+        end
+        local orig_filter, orig_is_test = java.filter_dir, java.is_test_file
+        local skip_dirs = { node_modules = true, ['.git'] = true, dist = true, ['.venv'] = true, venv = true }
+        wrapped.filter_dir = function(name, rel_path, root)
+          if skip_dirs[name] then
+            return false
+          end
+          return orig_filter == nil or orig_filter(name, rel_path, root)
+        end
+        wrapped.is_test_file = function(file_path)
+          return type(file_path) == 'string' and file_path:match('%.java$') ~= nil and orig_is_test(file_path)
+        end
+        table.insert(opts.adapters, wrapped)
+      else
+        opts.adapters['neotest-java'] = {}
+      end
       -- python 인터프리터는 지정하지 않습니다: neotest-python 기본 탐색이
       -- VIRTUAL_ENV → 프로젝트 .venv/venv → pipenv/poetry → uv → python3 순으로 찾아 줍니다.
       -- (VIRTUAL_ENV 만 보고 'python' 으로 폴백하면, venv 를 활성화하지 않고 nvim 을 연 경우
@@ -87,6 +121,9 @@ return {
       opts.adapters['neotest-python'] = {
         runner = 'pytest',
       }
+      -- JS/TS: 기본값 그대로 (실행 명령·설정 파일·테스트 파일 판별을 각 어댑터가 프로젝트에서 자동 탐색)
+      opts.adapters['neotest-vitest'] = {}
+      opts.adapters['neotest-jest'] = {}
       return opts
     end,
   },
