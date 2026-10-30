@@ -220,17 +220,21 @@ vim.o.timeoutlen = 300
 vim.o.ttimeoutlen = 50
 
 -- 시스템 클립보드와 연동 (OS의 클립보드 도구를 자동으로 감지하여 사용)
+-- [시작 속도] win32yank 는 DevTools2 가 설치하는 위치를 직접 확인하고 그 경로로 실행합니다.
+--   vim.fn.executable('win32yank.exe') 로 PATH 를 뒤지면 WSL 에서는 PATH 의 Windows 폴더(/mnt/c/..., 9P)까지
+--   검사해 한 번에 약 30ms 가 걸렸습니다(Neovim 빈 실행 약 110ms 중 상당 부분, 실측).
 if vim.fn.has('wsl') == 1 then
-  if vim.fn.executable('win32yank.exe') == 1 then
+  local win32yank = _G.DEVTOOLS2_DIR .. '/modules/win32yank/win32yank.exe'
+  if vim.uv.fs_stat(win32yank) then
     vim.g.clipboard = {
       name = 'win32yank-wsl',
       copy = {
-        ['+'] = 'win32yank.exe -i --crlf',
-        ['*'] = 'win32yank.exe -i --crlf',
+        ['+'] = { win32yank, '-i', '--crlf' },
+        ['*'] = { win32yank, '-i', '--crlf' },
       },
       paste = {
-        ['+'] = 'win32yank.exe -o --lf',
-        ['*'] = 'win32yank.exe -o --lf',
+        ['+'] = { win32yank, '-o', '--lf' },
+        ['*'] = { win32yank, '-o', '--lf' },
       },
       cache_enabled = 0,
     }

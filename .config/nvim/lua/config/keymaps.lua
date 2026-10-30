@@ -543,10 +543,13 @@ end, { silent = true, desc = '스마트 Home (코드 시작 ↔ 줄 맨 앞 토�
 -- <leader>gu : 현재 작업 디렉토리 기준 Sublime Merge 실행 (Git UI)
 -- <leader>gU : 현재 버퍼 파일 기준 Sublime Merge 실행 (Git UI File)
 -- Sublime Merge 가 설정(설치)되어 있을 때만 조건부 등록
+-- [시작 속도] DevTools2 설치 위치를 직접 확인합니다 — vim.fn.executable('smerge') 로 PATH 를 뒤지면 WSL 에서
+--   Windows 폴더(/mnt/c/...)까지 검사해 약 30ms 가 걸렸습니다(실측). 실행도 그 경로로 합니다.
 -- =========================================================================
-if vim.fn.executable('smerge') == 1 then
+local smerge_bin = _G.DEVTOOLS2_DIR .. '/modules/sublime-merge/bin/smerge'
+if vim.uv.fs_stat(smerge_bin) then
   vim.keymap.set('n', '<leader>gu', function()
-    vim.fn.jobstart({ 'smerge', '.' }, { detach = true })
+    vim.fn.jobstart({ smerge_bin, '.' }, { detach = true })
     vim.notify('Sublime Merge 실행 (프로젝트 루트)', vim.log.levels.INFO)
   end, { desc = 'Sublime Merge (프로젝트)' })
 
@@ -555,7 +558,7 @@ if vim.fn.executable('smerge') == 1 then
     if file == '' then
       file = '.'
     end
-    vim.fn.jobstart({ 'smerge', file }, { detach = true })
+    vim.fn.jobstart({ smerge_bin, file }, { detach = true })
     vim.notify('Sublime Merge 실행: ' .. vim.fn.fnamemodify(file, ':t'), vim.log.levels.INFO)
   end, { desc = 'Sublime Merge (현재 파일)' })
 end
