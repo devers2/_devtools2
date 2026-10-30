@@ -441,6 +441,28 @@ return {
           if o.settings.java.configuration then
             o.settings.java.configuration.runtimes = custom_runtimes or get_runtimes(target_java_name)
           end
+          -- [Java 포맷 프로필: 프로젝트 지정 우선, 없으면 공통 s2-code-style.xml]
+          -- VS Code 처럼 프로젝트 설정(.nvim/ 또는 .vscode/settings.json)의 java.format.settings.url(·profile)이 있으면
+          -- 그 포맷 파일을 씁니다. 예전에는 항상 공통 프로필이라, 프로젝트가 포맷 파일을 지정하면 VS Code 와 결과가 달랐음.
+          -- (o.settings 는 세션 동안 공유되므로 처음 값(공통 프로필)을 보관해 두고 프로젝트마다 다시 정함)
+          -- url: http(s)/file 등 URL 이면 그대로, 경로면 프로젝트 루트 기준 → file URI
+          if o.settings.java.format then
+            if o._dt2_default_format_settings == nil then
+              o._dt2_default_format_settings = vim.deepcopy(o.settings.java.format.settings or false)
+            end
+            local fmt_url = p_settings['java.format.settings.url']
+            if type(fmt_url) == 'string' and fmt_url ~= '' then
+              if not fmt_url:match('^%a[%w+.-]*://') then
+                local abs = fmt_url:sub(1, 1) == '/' and fmt_url or (root .. '/' .. fmt_url)
+                fmt_url = vim.uri_from_fname(vim.fs.normalize(abs))
+              end
+              local fmt_profile = p_settings['java.format.settings.profile']
+              o.settings.java.format.settings = { url = fmt_url, profile = type(fmt_profile) == 'string' and fmt_profile or nil }
+              _G.log_jdtls(string.format('Java Format  : 프로젝트 지정 %s (%s)', fmt_url, p_cfg.source_settings or '?'))
+            else
+              o.settings.java.format.settings = o._dt2_default_format_settings or nil
+            end
+          end
         end
         -- [초기화 옵션에도 settings 전달]
         -- jdtls 는 시작 직후 첫 프로젝트 가져오기(Gradle import)를 initializationOptions.settings 기준으로 합니다.
