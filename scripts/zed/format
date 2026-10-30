@@ -15,7 +15,7 @@
 #   ⚠️ formatting.lua 의 포매터 설정을 바꾸면 이 파일도 같이 맞춰 주세요.
 #
 # ■ 도구별 동작 (Neovim 과 동일):
-#   prettier : 프로젝트에 Prettier 설정 "파일"(.prettierrc*, prettier.config.*)이 있으면 그 설정, 없으면 DevTools2 공통
+#   prettier : 프로젝트에 Prettier 설정(.prettierrc*, prettier.config.*, package.json 의 "prettier")이 있으면 그 설정, 없으면 DevTools2 공통
 #              .config/prettier/.prettierrc.cjs. 무시 목록은 쓰지 않음(--ignore-path "" — _devtools2 .gitignore 의 "*" 때문에
 #              파일이 통째로 건너뛰어지는 문제 방지). 실행 파일은 프로젝트 node_modules/.bin/prettier 우선, 없으면 전역.
 #   xml      : MyBatis 매퍼(*Mapper.xml, 또는 앞 25줄에 mybatis / <mapper)는 그대로 둠(동적 SQL 들여쓰기 보호),
@@ -75,14 +75,21 @@ case "$TOOL" in
         done
         [ -n "$PRETTIER" ] || PRETTIER="$DEVTOOLS2/data/.npm-packages/bin/prettier"
         [ -x "$PRETTIER" ] || passthrough
-        # 프로젝트 Prettier 설정 파일 (Neovim find_local_prettier_config 와 같은 목록, 위쪽 폴더로 탐색)
+        # 프로젝트 Prettier 설정 (Neovim find_local_prettier_config 와 같은 기준, 위쪽 폴더로 탐색):
+        #   설정 파일(.prettierrc* / prettier.config.*) 또는 package.json 최상위의 "prettier" 설정
+        #   (package.json 은 JSON 으로 읽어 최상위 키 확인 — devDependencies 의 "prettier" 는 설정이 아님)
         HAS_LOCAL=false
         d="$(dirname "$FILE")"
         while [ -n "$d" ]; do
-            for c in .prettierrc .prettierrc.json .prettierrc.js .prettierrc.cjs .prettierrc.mjs .prettierrc.yaml \
-                     .prettierrc.yml prettier.config.js prettier.config.cjs prettier.config.mjs; do
+            for c in .prettierrc .prettierrc.json .prettierrc.json5 .prettierrc.js .prettierrc.cjs .prettierrc.mjs \
+                     .prettierrc.ts .prettierrc.cts .prettierrc.mts .prettierrc.yaml .prettierrc.yml .prettierrc.toml \
+                     prettier.config.js prettier.config.cjs prettier.config.mjs \
+                     prettier.config.ts prettier.config.cts prettier.config.mts; do
                 if [ -e "$d/$c" ]; then HAS_LOCAL=true; break 2; fi
             done
+            if [ -f "$d/package.json" ] && python3 -c 'import json,sys; sys.exit(0 if isinstance(json.load(open(sys.argv[1])), dict) and "prettier" in json.load(open(sys.argv[1])) else 1)' "$d/package.json" 2>/dev/null; then
+                HAS_LOCAL=true; break
+            fi
             [ "$d" = "/" ] && break
             d="$(dirname "$d")"
         done
