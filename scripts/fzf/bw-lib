@@ -780,21 +780,31 @@ bw_interactive_login() {
     normalize_tty
     _errf=$(mktemp) || return 1
 
-    # 1) 이메일
-    for _try in 1 2 3; do
-        printf "📧 Bitwarden 이메일 주소: " >/dev/tty
-        IFS= read -r _email </dev/tty || true
-        _email="${_email//[[:space:]]/}"
-        if [[ "$_email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
-            break
-        fi
-        echo "❌ 이메일 주소 형식이 아닙니다 (예: name@example.com). (${_try}/3)" >&2
-        _email=""
-    done
-    [ -n "$_email" ] || { rm -f "$_errf"; return 1; }
+    # 1) 이메일 (비밀번호가 틀렸을 때 e 로 다시 고칠 수 있도록 함수로 둠 — _email 에 결과 저장)
+    _bw_login_ask_email() {
+        local _t
+        for _t in 1 2 3; do
+            printf "📧 Bitwarden 이메일 주소: " >/dev/tty
+            IFS= read -r _email </dev/tty || true
+            _email="${_email//[[:space:]]/}"
+            if [[ "$_email" =~ ^[^@]+@[^@]+\.[^@]+$ ]]; then
+                return 0
+            fi
+            echo "❌ 이메일 주소 형식이 아닙니다 (예: name@example.com). (${_t}/3)" >&2
+            _email=""
+        done
+        return 1
+    }
+    _bw_login_ask_email || { rm -f "$_errf"; unset -f _bw_login_ask_email; return 1; }
 
     # 2) 마스터 비밀번호 (비대화형으로 확인해 틀린 경우만 다시 입력)
-    for _try in 1 2 3; do
+    #    Bitwarden 은 이메일이 틀려도(없는 계정) "Invalid master password" 로만 답하므로, 비밀번호가 틀리면
+    #    Enter(비밀번호 다시 입력) / e(이메일 수정)를 고르게 합니다. 이메일을 고치면 비밀번호 기회는 다시 3번
+    #    (틀린 이메일로 한 시도는 의미가 없으므로), 이메일 수정은 무한 반복을 막기 위해 2번까지입니다.
+    local _email_changes=0 _ans=""
+    _try=0
+    while [ "$_try" -lt 3 ]; do
+        _try=$((_try + 1))
         _pw=""
         if command -v prompt_password &>/dev/null; then
             prompt_password _pw "🔐 Bitwarden 마스터 비밀번호 입력 (보안 마스킹): 🔒"
@@ -813,13 +823,29 @@ bw_interactive_login() {
         case "$_err" in
             *"Code is required"*|*"No provider selected"*) _status="code"; break ;;
             *"Invalid master password"*|*"incorrect"*)
-                echo "❌ 마스터 비밀번호가 맞지 않습니다 (이메일 ${_email} 도 확인하세요). (${_try}/3)" >&2 ;;
+                echo "❌ 마스터 비밀번호가 맞지 않습니다. (${_try}/3)" >&2
+                if [ "$_email_changes" -lt 2 ]; then
+                    if [ "$_try" -lt 3 ]; then
+                        printf "   👉 Enter: 비밀번호 다시 입력 / e: 이메일(%s) 수정: " "$_email" >/dev/tty
+                    else
+                        printf "   👉 Enter: 끝내기 / e: 이메일(%s) 수정 후 다시 시도: " "$_email" >/dev/tty
+                    fi
+                    _ans=""
+                    IFS= read -r _ans </dev/tty || true
+                    if [[ "$_ans" == [eE]* ]]; then
+                        _email_changes=$((_email_changes + 1))
+                        _bw_login_ask_email || { _status="fail"; break; }
+                        _try=0   # 이메일이 바뀌었으니 비밀번호 기회는 다시 3번
+                    fi
+                fi
+                ;;
             *"Email address is invalid"*)
                 echo "❌ 이메일 주소가 올바르지 않습니다: ${_email}" >&2; _status="fail"; break ;;
             *)
                 echo "❌ Bitwarden 로그인 실패: ${_err:-알 수 없는 오류} (${_try}/3)" >&2 ;;
         esac
     done
+    unset -f _bw_login_ask_email
 
     # 3) 2단계 인증 / 새 기기 확인 코드 (bw 가 직접 묻도록 대화형 실행)
     if [ "$_status" = "code" ]; then
