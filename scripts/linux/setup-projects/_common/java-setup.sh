@@ -181,103 +181,12 @@ print(json.dumps([conf]))
     setup_vscode_launch_json "$TARGET_DIR" "$CONFIG_JSON"
 }
 
-# ── 3-1. .zed/debug.json 생성 (Zed 에디터 전용 DAP 디버그 설정) ─────────────
-# [단일 원본(SSOT) 관리 원칙]
-#   1. 디버그 설정의 유일한 원본(Single Source of Truth)은 `.vscode/launch.json` 입니다.
-#   2. 개발자는 `.vscode/launch.json`만 수정하며, 이 파일(.zed/debug.json)은
-#      프로젝트 셋업 시점 또는 Neovim 저장(:w)·프로젝트 파일을 열 때 자동 파생/동기화됩니다.
-#
-# [배경 및 목적]
-#   Zed의 Java 확장은 디버그 어댑터를 "Java" (대문자 J)로 등록합니다.
-#   반면 .vscode/launch.json은 DAP 표준인 "type": "java" (소문자)를 사용하므로,
-#   Zed에서 .vscode/launch.json의 Java 설정을 직접 인식하지 못합니다.
-#   따라서 사용자가 두 파일을 수동으로 이중 관리하지 않도록 최초 셋업 시점에 자동 생성합니다.
-#
-# [생성 내용]
-#   - Launch 모드: Zed 내부에서 직접 Spring Boot 앱을 구동하여 디버깅
-#
-# [사용 방법]
-#   Zed에서 F4 (debugger: start) → 원하는 설정 선택
-#
-# 인수:
-#   $1 = TARGET_DIR   (필수)
-#   $2 = APP_NAME     (필수, 예: GoonoELNApplication)
-#   $3 = MAIN_CLASS   (필수, 예: so.goono.GoonoELNApplication)
-#   $4 = VM_ARGS      (선택, 기본값: -Dfile.encoding=UTF-8)
-#   $5 = PROJECT_NAME (선택, 미지정 시 생략)
-setup_zed_java_debug() {
-    local TARGET_DIR="$1"
-    local APP_NAME="$2"
-    local MAIN_CLASS="$3"
-    local VM_ARGS="${4:--Dfile.encoding=UTF-8}"
-    local PROJECT_NAME="${5:-}"
-
-    local ZED_DIR="$TARGET_DIR/.zed"
-    local DEBUG_FILE="$ZED_DIR/debug.json"
-
-    # 이미 있으면 덮어쓰지 않음 (사용자 설정 보존). 단, 설정이 하나도 없는 파일은 새로 만듦:
-    #   Zed 는 F4 → 설정 편집을 누르면 빈 기본 파일([] 와 안내 주석)을 만드는데, 예전에는 이것도 "이미 존재"로 보고
-    #   건너뛰어 Zed 의 디버그 목록이 계속 비어 있었습니다 (Goono-ELN 실측).
-    #   (Neovim 쪽 동기화(config/autocmds.lua)도 같은 기준: 없음·빈 파일·자동 생성 파일만 씀)
-    if [ -f "$DEBUG_FILE" ]; then
-        if python3 - "$DEBUG_FILE" <<'PYEOF' 2>/dev/null; then
-import json, re, sys
-text = open(sys.argv[1], encoding='utf-8').read()
-text = re.sub(r'^\s*//.*$', '', text, flags=re.M)  # 줄 주석 제거 (Zed 기본 파일은 줄 주석 + [] 형태)
-data = json.loads(text) if text.strip() else []
-sys.exit(0 if isinstance(data, list) and len(data) > 0 else 1)
-PYEOF
-            echo "ℹ️  .zed/debug.json 이 이미 존재합니다. 덮어쓰지 않습니다."
-            return 0
-        fi
-        echo "ℹ️  .zed/debug.json 에 디버그 설정이 없어(Zed 기본 빈 파일) 새로 만듭니다."
-    fi
-
-    mkdir -p "$ZED_DIR"
-
-    python3 -c "
-import json, sys
-app_name = sys.argv[1]
-main_class = sys.argv[2]
-vm_args = sys.argv[3]
-proj_name = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else ''
-
-configs = []
-
-# Launch 모드: Zed 내부에서 직접 구동
-launch_cfg = {
-    'adapter': 'Java',
-    'request': 'launch',
-    'label': app_name + ' (Launch)',
-    'mainClass': main_class,
-    'vmArgs': vm_args,
-    'stopOnEntry': False,
-    'cwd': '\$ZED_WORKTREE_ROOT'
-}
-if proj_name:
-    launch_cfg['projectName'] = proj_name
-configs.append(launch_cfg)
-
-header = '''// ==============================================================================
-// ⚠️ [자동 생성 파일 - 직접 수정 금지 / DO NOT EDIT DIRECTLY]
-// 이 파일은 .vscode/launch.json 으로부터 자동 생성 및 동기화되는 파생 파일입니다.
-//
-// [설정 수정 방법]
-// 디버그 설정을 변경하려면 프로젝트 루트의 .vscode/launch.json 을 수정해 주세요.
-// Neovim에서 저장(:w)하거나 프로젝트 파일을 열 때, setup 스크립트 실행 시 이 파일로 자동 동기화됩니다.
-// ==============================================================================
-
-'''
-print(header + json.dumps(configs, indent=2, ensure_ascii=False))
-" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME" > "$DEBUG_FILE"
-
-    echo "✅ .zed/debug.json 생성 완료 (Launch 디버그 설정 등록)"
-}
-
 # ── 4. IDE 통합 설정 (settings.json + launch.json + .zed/debug.json) ──────────
 # settings.json   : IDE별(VS Code/Cursor 등) Java 런타임 경로 설정
 # launch.json     : DAP 표준 형식, IDE 공통 사용 (Neovim, VS Code, Cursor 등)
 # .zed/debug.json : Zed 에디터 전용 DAP 디버그 설정 (adapter: "Java" 대문자)
+#                   → launch.json 을 만들 때 공통 모듈(common-setup.sh 의 setup_vscode_launch_json →
+#                     setup_zed_debug_json)이 함께 만듭니다 (Java 전용 생성 함수 setup_zed_java_debug 는 공통화로 제거)
 setup_vscode_java() {
     local TARGET_DIR="$1"
     local JDK_VERSION="${2:-21}"
@@ -290,9 +199,8 @@ setup_vscode_java() {
     echo "⚙️  .vscode 설정 파일 생성 중..."
     setup_vscode_java_settings "$TARGET_DIR" "$JDK_VERSION" "$GRADLE_JDK_VERSION"
     if [ -n "$MAIN_CLASS" ]; then
+        # Zed 에디터 전용 디버그 설정(.zed/debug.json)도 이 안에서 launch.json 으로부터 함께 생성됨
         setup_vscode_java_launch "$TARGET_DIR" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME"
-        # Zed 에디터 전용 디버그 설정 (.zed/debug.json)
-        setup_zed_java_debug "$TARGET_DIR" "$APP_NAME" "$MAIN_CLASS" "$VM_ARGS" "$PROJECT_NAME"
     fi
 }
 
