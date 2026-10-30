@@ -815,9 +815,9 @@ bw_interactive_login() {
     # 2) 마스터 비밀번호 (비대화형으로 확인해 틀린 경우만 다시 입력)
     #    Bitwarden 은 이메일이 틀려도(없는 계정) "Invalid master password" 로만 답하므로, 비밀번호가 틀리면
     #    비밀번호(p, 기본값) / 이메일(e) 중 다시 입력할 것을 고르게 합니다(공용 prompt_key — [P/e] 표시).
-    #    이메일을 고치면 비밀번호 기회는 다시 3번
-    #    (틀린 이메일로 한 시도는 의미가 없으므로), 이메일 수정은 무한 반복을 막기 위해 2번까지입니다.
-    local _email_changes=0 _ans=""
+    #    틀린 횟수는 이메일을 바꿔도 이어서 세며, 합쳐서 3번 틀리면 이메일·비밀번호를 확인하고
+    #    다시 진행하라고 안내한 뒤 넘어갑니다(마지막 기회에도 같은 질문 — 비밀번호·이메일 모두 고칠 수 있음).
+    local _ans=""
     _try=0
     while [ "$_try" -lt 3 ]; do
         _try=$((_try + 1))
@@ -840,18 +840,14 @@ bw_interactive_login() {
             *"Code is required"*|*"No provider selected"*) _status="code"; break ;;
             *"Invalid master password"*|*"incorrect"*)
                 echo "❌ 마스터 비밀번호가 맞지 않습니다. (${_try}/3)" >&2
-                if [ "$_email_changes" -lt 2 ]; then
+                if [ "$_try" -lt 3 ]; then
                     _ans=""
-                    if [ "$_try" -lt 3 ]; then
-                        prompt_key _ans "   👉 무엇을 다시 입력할까요? 비밀번호(p) / 이메일(e) — 현재 이메일: ${_email}" p p e
-                    else
-                        prompt_key _ans "   👉 이메일을 고쳐서 다시 시도할까요? 이메일 수정(e) / 끝내기(q) — 현재 이메일: ${_email}" q e q
-                    fi
+                    prompt_key _ans "   👉 무엇을 다시 입력할까요? 비밀번호(p) / 이메일(e) — 현재 이메일: ${_email}" p p e
                     if [ "$_ans" = "e" ]; then
-                        _email_changes=$((_email_changes + 1))
                         _bw_login_ask_email || { _status="fail"; break; }
-                        _try=0   # 이메일이 바뀌었으니 비밀번호 기회는 다시 3번
                     fi
+                else
+                    echo "   ℹ️  3번 모두 맞지 않았습니다. Bitwarden 이메일(${_email})과 마스터 비밀번호를 확인한 뒤 다시 진행하세요." >&2
                 fi
                 ;;
             *"Email address is invalid"*)
