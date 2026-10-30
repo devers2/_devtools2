@@ -88,6 +88,68 @@ function Show-BiosVirtualizationHelp {
     Write-Host ""
 }
 
+# ------------------------------------------------------------------------------
+# wsl --update 실행 헬퍼
+# ------------------------------------------------------------------------------
+# Step 1 의 두 경로가 함께 사용합니다:
+#   ● 5번 "업데이트 필수" 경로 (wsl --list 가 업데이트를 요구하며 동작하지 않는 경우)
+#   ● 5-1번 "최신 버전 유지" 경로 (정상 동작하지만 새 정식 릴리스가 나온 경우)
+# 반환값: 업데이트가 정상 완료되면 $true, 시간 초과/실패로 건너뛰면 $false.
+# 재부팅이 필요(3010)하면 안내 후 스크립트를 종료합니다.
+# 업데이트 실패는 설치 전체를 막지 않습니다 — 기존 WSL 버전 그대로 다음 단계를 계속합니다.
+function Invoke-WslUpdate {
+    $updateProc = Start-Process wsl.exe -ArgumentList "--update" -PassThru -NoNewWindow -ErrorAction SilentlyContinue
+    if (-not $updateProc) {
+        Write-Warn "WSL 업데이트 프로세스를 시작할 수 없습니다. 업데이트를 건너뛰고 계속 진행합니다."
+        return $false
+    }
+    # 설계 원칙 7번(ExitCode $null 트랩): -Wait 없이 대기하면 PS 5.1 에서 ExitCode 가 $null 이 되어
+    # 아래 3010(재부팅 필요) 판정이 조용히 빗나갑니다. Handle 을 미리 열어 두면 종료 코드가 보존됩니다
+    # (_common.ps1 Install-OrUpdateWingetPackage 와 같은 방식).
+    $null = $updateProc.Handle
+
+    $waitSuccess = Wait-WithSpinner -Message "WSL 패키지 업데이트 진행 중" -Condition {
+        return $updateProc.HasExited
+    } -MaxTimeoutSeconds 600
+
+    # ⚠️ 위 설치 단계와 동일한 이유로 타임아웃 여부를 먼저 확인합니다 — 체크하지
+    # 않으면 업데이트가 실제로 끝나지 않았는데도 조용히 다음 단계로 넘어갑니다.
+    if (-not $waitSuccess) {
+        Write-Warn "WSL 업데이트가 제한 시간(600초) 내에 완료되지 않았습니다. 업데이트를 건너뛰고 계속 진행합니다."
+        return $false
+    }
+    if ($updateProc.ExitCode -eq 3010) {
+        Write-Host ""
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Write-Host "  ⚠️  WSL 업데이트 적용을 완료하기 위해 시스템 재부팅이 필요합니다." -ForegroundColor Red
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Write-Host "  컴퓨터를 재부팅한 후 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
+        Write-Host "===========================================================================" -ForegroundColor Red
+        Pause-Script
+        exit 3010
+    }
+    # 종료 코드를 끝내 읽지 못한($null) 경우는 실패로 단정하지 않습니다(설치 단계와 같은 이유).
+    if ($null -ne $updateProc.ExitCode -and $updateProc.ExitCode -ne 0) {
+        Write-Warn "WSL 업데이트가 실패했습니다. (종료 코드: $($updateProc.ExitCode)) 기존 버전으로 계속 진행합니다."
+        return $false
+    }
+    return $true
+}
+
+# 버전 문자열에서 첫 번째 "a.b.c[.d]" 숫자 패턴을 [version] 으로 정규화합니다(빠진 자리는 0).
+#   ● wsl --version 의 항목명은 OS 언어마다 다르므로("WSL 버전:" / "WSL version:") 숫자만 봅니다.
+#     첫 줄이 WSL 본체 버전이라 첫 번째 일치를 사용합니다.
+#   ● 로컬은 "2.6.1.0", GitHub 태그는 "2.6.1" 처럼 자릿수가 달라 문자열 비교로는 틀립니다.
+# 추출 실패 시 $null 을 반환합니다.
+function ConvertTo-WslVersion {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
+    $m = [regex]::Match(($Text -replace "`0", ""), '(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?')
+    if (-not $m.Success) { return $null }
+    $rev = if ($m.Groups[4].Success) { [int]$m.Groups[4].Value } else { 0 }
+    return [version]::new([int]$m.Groups[1].Value, [int]$m.Groups[2].Value, [int]$m.Groups[3].Value, $rev)
+}
+
 # ==============================================================================
 # [Step 0] 관리자 권한 확인
 # ==============================================================================
@@ -151,6 +213,12 @@ if ($versionProc -and -not $versionProc.HasExited) {
 }
 
 $isWslEngineInstalled = ($versionProc -and $versionProc.HasExited -and $versionProc.ExitCode -eq 0)
+
+# 아래 5-1번(최신 버전 유지)에서 비교할 현재 WSL 버전을 임시 파일 삭제 전에 읽어 둡니다.
+$installedWslVersion = $null
+if ($isWslEngineInstalled -and (Test-Path "$env:TEMP\wsl_version_check.txt")) {
+    $installedWslVersion = ConvertTo-WslVersion ([string](Get-Content "$env:TEMP\wsl_version_check.txt" -Raw -ErrorAction SilentlyContinue))
+}
 
 if (Test-Path "$env:TEMP\wsl_version_check.txt") { Remove-Item "$env:TEMP\wsl_version_check.txt" -Force -ErrorAction SilentlyContinue }
 if (Test-Path "$env:TEMP\wsl_version_error.txt") { Remove-Item "$env:TEMP\wsl_version_error.txt" -Force -ErrorAction SilentlyContinue }
@@ -270,29 +338,8 @@ if (Test-Path "$env:TEMP\wsl_list_check.txt") {
 # 5. 업데이트 필요 → wsl --update 실행
 if ($isUpdateRequired) {
     Write-Warn "Linux용 Windows 하위 시스템(WSL)의 최신 버전 업데이트가 필요합니다. 업데이트를 진행합니다..."
-    $updateProc = Start-Process wsl.exe -ArgumentList "--update" -PassThru -NoNewWindow -ErrorAction SilentlyContinue
-    
-    if ($updateProc) {
-        $waitSuccess = Wait-WithSpinner -Message "WSL 패키지 업데이트 진행 중" -Condition {
-            return $updateProc.HasExited
-        } -MaxTimeoutSeconds 600
-
-        # ⚠️ 위 설치 단계와 동일한 이유로 타임아웃 여부를 먼저 확인합니다 — 체크하지
-        # 않으면 업데이트가 실제로 끝나지 않았는데도 조용히 다음 단계로 넘어갑니다.
-        if (-not $waitSuccess) {
-            Write-Warn "WSL 업데이트가 제한 시간(600초) 내에 완료되지 않았습니다. 업데이트를 건너뛰고 계속 진행합니다."
-        }
-        elseif ($updateProc.ExitCode -eq 3010) {
-            Write-Host ""
-            Write-Host "===========================================================================" -ForegroundColor Red
-            Write-Host "  ⚠️  WSL 업데이트 적용을 완료하기 위해 시스템 재부팅이 필요합니다." -ForegroundColor Red
-            Write-Host "===========================================================================" -ForegroundColor Red
-            Write-Host "  컴퓨터를 재부팅한 후 이 스크립트를 다시 실행해 주세요." -ForegroundColor Yellow
-            Write-Host "===========================================================================" -ForegroundColor Red
-            Pause-Script
-            exit 3010
-        }
-    }
+    # 실행/대기/타임아웃/3010 재부팅 처리는 Invoke-WslUpdate 헬퍼(상단)에 있습니다 — 5-1번과 공용.
+    $null = Invoke-WslUpdate
 
     # 업데이트 완료 후 배포판 목록 재확인
     $listProc2 = Start-Process wsl.exe -ArgumentList "--list --quiet" -PassThru -NoNewWindow `
@@ -304,6 +351,91 @@ if ($isUpdateRequired) {
             Where-Object { $_.Trim() -ne "" } |
             ForEach-Object { $_.Trim() }
         Remove-Item "$env:TEMP\wsl_list_check.txt" -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# 5-1. 이미 설치된 WSL 최신 버전 유지 (새 정식 릴리스가 있을 때만 wsl --update)
+# [설계 원칙 / Rationale]
+#   ● Neovim · VS Code 등 winget 앱(Install-OrUpdateWingetPackage)과 같은 "설치돼 있으면 최신으로" 정책입니다.
+#     위 5번은 WSL 이 업데이트 없이는 동작하지 않을 때만 실행되므로, 정상 동작하는 구버전은 계속 묵게 됩니다
+#     (Store 자동 업데이트가 꺼진 PC 등). WSLg · --no-distribution · --list --online 등 최신 WSL 기능에 의존합니다.
+#   ● 건너뛰는 경우: 이번 실행에서 새로 설치한 경우(--install 이 최신을 받음), 5번에서 이미 업데이트한 경우.
+#   ● 최신 판단: GitHub microsoft/WSL 의 releases/latest(정식 릴리스만, pre-release 제외) tag_name 과
+#     wsl --version 의 WSL 버전을 비교합니다. winget(Microsoft.WSL) 은 wsl --install 로 설치된 WSL 을
+#     같은 패키지로 인식한다는 보장이 없어 공용 winget 헬퍼를 쓰지 않습니다.
+#   ● 확인 실패(네트워크/프록시/API 호출 한도/버전 파싱 실패)는 업데이트를 건너뛰고 설치를 계속합니다.
+#     최신 유지는 부가 기능이지 설치의 필수 조건이 아닙니다.
+#   ● 데이터 안전: wsl --update 는 WSL 서비스·커널·WSLg 만 교체하며, 배포판(ext4.vhdx)·계정·/etc/wsl.conf·
+#     %USERPROFILE%\.wslconfig 는 건드리지 않습니다. 이미 최신이면 아무것도 하지 않습니다(멱등).
+#   ● 단, 업데이트 중 실행 중인 모든 WSL 배포판이 종료됩니다(작업 중인 Neovim/빌드/터미널 세션 끊김).
+#     실행 중인 배포판이 있거나 확인할 수 없으면 경고 후 동의를 받습니다. 없으면 바로 진행합니다.
+#     (마지막 프로세스 종료 후 잠시 남아 있는 유휴 VM 도 실행 중으로 보일 수 있습니다)
+if ($isWslEngineInstalled -and -not $isUpdateRequired) {
+    $latestWslVersion = $null
+    try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/microsoft/WSL/releases/latest" `
+            -Headers @{ 'Accept' = 'application/vnd.github+json' } -TimeoutSec 10 -ErrorAction Stop
+        $latestWslVersion = ConvertTo-WslVersion ([string]$release.tag_name)
+    } catch {}
+
+    if ($null -eq $installedWslVersion -or $null -eq $latestWslVersion) {
+        Write-Skip "WSL 최신 버전을 확인할 수 없어 업데이트 확인을 건너뜁니다."
+    }
+    elseif ($installedWslVersion -ge $latestWslVersion) {
+        Write-Skip "WSL 이(가) 이미 최신 버전입니다. ($installedWslVersion)"
+    }
+    else {
+        Write-Info "WSL 최신 버전이 있습니다. ($installedWslVersion → $latestWslVersion)"
+
+        # 실행 중인 배포판 확인 (5초 타임아웃 — 위 목록 확인과 같은 이유)
+        # ExitCode 0 이면 실행 중인 배포판 이름 목록, 0 이 아니면 실행 중인 배포판 없음.
+        # 시간 초과·종료 코드 확인 불가($null)는 "실행 중일 수 있음"으로 보고 동의를 받습니다(안전 측).
+        $runningDistros = @()
+        $runningCheckOk = $false
+        $runProc = Start-Process wsl.exe -ArgumentList "--list --running --quiet" -PassThru -NoNewWindow `
+            -RedirectStandardOutput "$env:TEMP\wsl_running_check.txt" `
+            -RedirectStandardError "$env:TEMP\wsl_running_error.txt" `
+            -ErrorAction SilentlyContinue
+        if ($runProc) { $null = $runProc.Handle }
+
+        Wait-WithSpinner -Message "실행 중인 WSL 배포판 확인 중" -Condition {
+            return (-not $runProc) -or $runProc.HasExited
+        } -MaxTimeoutSeconds 5 | Out-Null
+
+        if ($runProc -and -not $runProc.HasExited) {
+            try { $runProc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+        }
+        elseif ($runProc -and $null -ne $runProc.ExitCode) {
+            $runningCheckOk = $true
+            if ($runProc.ExitCode -eq 0 -and (Test-Path "$env:TEMP\wsl_running_check.txt")) {
+                $runningDistros = @((Get-Content "$env:TEMP\wsl_running_check.txt" -Raw -ErrorAction SilentlyContinue) `
+                    -replace "`0", "" -split "`r`n" |
+                    Where-Object { $_.Trim() -ne "" } |
+                    ForEach-Object { $_.Trim() })
+            }
+        }
+        Remove-Item "$env:TEMP\wsl_running_check.txt", "$env:TEMP\wsl_running_error.txt" -Force -ErrorAction SilentlyContinue
+
+        $doWslUpdate = $true
+        if ($runningDistros.Count -gt 0 -or -not $runningCheckOk) {
+            Write-Warn "WSL 업데이트 중 실행 중인 모든 WSL 배포판이 종료됩니다. (작업 중인 Neovim, 빌드, 터미널 세션 등이 끊깁니다)"
+            if ($runningDistros.Count -gt 0) {
+                Write-Info "  실행 중인 배포판: $($runningDistros -join ', ')"
+            } else {
+                Write-Info "  실행 중인 배포판을 확인하지 못했습니다."
+            }
+            Write-Info "  배포판 데이터와 계정은 그대로 유지됩니다. 작업 중인 내용이 있으면 먼저 저장해 주세요."
+            Write-Info "  WSL 셸 안에서 이 스크립트를 실행했다면 스크립트도 함께 중단될 수 있습니다 — 그 경우 Windows PowerShell 에서 다시 실행해 주세요."
+            $doWslUpdate = Prompt-Confirm "👉 지금 WSL 을 $latestWslVersion 버전으로 업데이트하시겠습니까?" "Y"
+        }
+
+        if ($doWslUpdate) {
+            if (Invoke-WslUpdate) {
+                Write-Success "WSL 업데이트 완료 ($installedWslVersion → $latestWslVersion)"
+            }
+        } else {
+            Write-Skip "WSL 업데이트를 건너뜁니다. 나중에 'wsl --update' 로 직접 업데이트할 수 있습니다."
+        }
     }
 }
 
