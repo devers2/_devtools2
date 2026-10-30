@@ -33,16 +33,17 @@ if [ ! -f "$DEVTOOLS2/scripts/linux/dev-env/4.setup-keyboard.sh" ]; then
 fi
 
 # ── 색상 헬퍼 로드 (온라인 전용) ──────────────────────────────────────────────────
-# 공통 모듈 로드 (로컬 우선 탐색 후 원격 스트리밍)
+# 공통 모듈 로드 (스크립트 옆 파일 → 없으면 같은 커밋(DT2_REF)의 원격 스트리밍)
+#   ● 로컬 저장소에서 직접 실행하면 스크립트 옆 파일을 씁니다(같은 체크아웃이라 버전이 항상 맞음).
+#   ● 스트리밍 실행(마스터가 받은 /tmp/_dt2_*.sh, bash <(curl ...))은 스크립트와 같은 커밋의 원격 파일을 씁니다.
+#     예전에는 그 사이에 $DEVTOOLS2 로컬 저장소를 먼저 봤는데, 로컬이 커밋 동기화를 건너뛴 채(미커밋 변경·갈라짐)
+#     오래되어 있으면 새 스크립트가 옛 공용 파일을 불러와 새 함수가 없어 중단될 수 있어 제외했습니다.
 DT2_REF="${DT2_REF:-main}"
 _GH_RAW="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF}/scripts/linux/dev-env"
 _SCRIPT_DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
 if [ -f "$_SCRIPT_DIR/_common.sh" ]; then
     # shellcheck disable=SC1091
     source "$_SCRIPT_DIR/_common.sh"
-elif [ -f "${DEVTOOLS2:-}/scripts/linux/dev-env/_common.sh" ]; then
-    # shellcheck disable=SC1091
-    source "$DEVTOOLS2/scripts/linux/dev-env/_common.sh"
 else
     # shellcheck disable=SC1090
     source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
