@@ -197,12 +197,54 @@ function M.on_log_message(message)
   }, '\n'))
 end
 
+-- jdtls(Equinox)가 시작하지 못하면(exit code 13) Mason 의 jdtls 패키지 configuration/*.log 에 원인이 남습니다.
+-- 가장 최근 로그에서 OSGi 모듈이 요구하는 Java 버전(osgi.ee JavaSE version=N)을 찾습니다.
+-- (예: jdtls 1.63 은 Java 25 를 요구 — jdtls.py 는 "21 이상"만 검사해 실행 전에 걸러지지 않음)
+local function required_java_from_config_log()
+  local dir = (_G.NVIM_SHARED_DIR or '') .. '/mason/packages/jdtls/configuration'
+  local logs = vim.fn.glob(dir .. '/*.log', false, true)
+  if #logs == 0 then
+    return nil, nil
+  end
+  table.sort(logs, function(a, b)
+    return (vim.fn.getftime(a) or 0) > (vim.fn.getftime(b) or 0)
+  end)
+  local f = io.open(logs[1], 'r')
+  if not f then
+    return nil, logs[1]
+  end
+  local content = f:read('*a') or ''
+  f:close()
+  local best = nil
+  for v in content:gmatch('osgi%.ee=JavaSE%)%(version=(%d+)') do
+    v = tonumber(v)
+    if v and (not best or v > best) then
+      best = v
+    end
+  end
+  return best, logs[1]
+end
+
 --- jdtls 프로세스 종료 시 (비정상 종료면 알림)
 function M.on_exit(code, signal)
   if code == 0 or (signal and signal ~= 0) then
     return -- 정상 종료 또는 Neovim 이 끝낼 때 보낸 신호
   end
   local c = M.ctx
+  -- exit code 13: Equinox 시작 실패 — 대부분 jdtls 가 요구하는 Java 버전보다 낮은 JDK 로 실행한 경우
+  if code == 13 then
+    local need, logf = required_java_from_config_log()
+    if need then
+      notify_once('exit13:' .. need, table.concat({
+        string.format('jdtls 가 시작하지 못했습니다 (exit code 13): 이 jdtls 는 Java %d 이상이 필요합니다.', need),
+        '  jdtls 실행 JDK: ' .. tostring(c.jdtls_home),
+        '  설치된 JDK: ' .. M.installed_jdks(),
+        string.format('  해결: tool-versions.toml 에 jdk%d 추가 후 설치 스크립트 2단계 실행 (jdtls 는 설치된 가장 높은 JDK 로 실행됨)', need),
+        '  jdtls 로그: ' .. vim.fn.fnamemodify(logf, ':~'),
+      }, '\n'))
+      return
+    end
+  end
   notify_once('exit:' .. tostring(code), table.concat({
     string.format('jdtls 가 비정상 종료되었습니다 (exit code %s).', tostring(code)),
     '  jdtls 실행 JDK: ' .. tostring(c.jdtls_home) .. ' (Java 21 이상 필요)',

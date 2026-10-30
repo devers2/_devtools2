@@ -75,4 +75,39 @@ return {
       end
     end,
   },
+
+  -- 🔒 [mason-nvim-dap 자동 설치와 Mason ensure_installed 의 동시 설치 충돌 방지]
+  -- 첫 실행에서 Mason 이 ensure_installed 의 디버그 어댑터(js-debug-adapter, debugpy, java-debug-adapter 등)를
+  -- 백그라운드로 설치하는 동안 Java 파일이 열리면 nvim-dap 이 로드되고, mason-nvim-dap 의 automatic_installation 이
+  -- "아직 설치 안 됨"(설치 중인지는 확인 안 함)으로 보고 같은 패키지 설치를 또 시작해
+  --   "Failed to run `config` for nvim-dap ... Package is already installing."
+  -- 로 중단됐습니다. 이 오류 화면(Press ENTER)이 떠 있는 동안에는 Mason 설치도 멈춰 첫 설치가 끝나지 않았습니다(실측).
+  -- → Mason ensure_installed 로 이미 설치하는 패키지에 해당하는 어댑터는 mason-nvim-dap 자동 설치에서 제외합니다
+  --   (목록을 손으로 적지 않고 실행할 때 계산 — ensure_installed 가 바뀌어도 그대로 맞음).
+  {
+    'jay-babu/mason-nvim-dap.nvim',
+    optional = true,
+    opts = function(_, opts)
+      local ok_map, map = pcall(require, 'mason-nvim-dap.mappings.source')
+      local ok_lv, mason_opts = pcall(function()
+        return LazyVim.opts('mason.nvim')
+      end)
+      if not (ok_map and ok_lv and type(map.nvim_dap_to_package) == 'table') then
+        return
+      end
+      local mason_list = (mason_opts or {}).ensure_installed or {}
+      local exclude = {}
+      for adapter, pkg in pairs(map.nvim_dap_to_package) do
+        if vim.tbl_contains(mason_list, pkg) then
+          table.insert(exclude, adapter)
+        end
+      end
+      local cur = opts.automatic_installation
+      if cur == nil or cur == true then
+        opts.automatic_installation = { exclude = exclude }
+      elseif type(cur) == 'table' then
+        cur.exclude = vim.list_extend(cur.exclude or {}, exclude)
+      end
+    end,
+  },
 }
