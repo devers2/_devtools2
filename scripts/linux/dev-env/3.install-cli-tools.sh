@@ -600,6 +600,36 @@ fi
 echo ""
 
 # ==============================================================================
+# 7-1. Neovim Python provider (pynvim 전용 가상환경)
+# ==============================================================================
+# Neovim 의 Python provider 는 Python 으로 작성된 Neovim 플러그인(remote plugin)을 실행하는 연결 고리입니다.
+# Python 개발 자체(LSP basedpyright·ruff, 디버거 debugpy, 테스트 neotest-python)와는 별개이며, 지금은 쓰는
+# 플러그인이 없지만 나중에 쓸 수 있도록 미리 준비합니다(:checkhealth vim.provider 경고도 사라짐).
+#   ● 시스템·프로젝트 Python 에 pynvim 을 섞지 않도록 전용 가상환경($DEVTOOLS2/data/nvim/python-provider)에 설치
+#   ● 기준 Python 은 DevTools2 Python 3.14 (패치 업데이트는 같은 폴더에서 교체되어 가상환경이 그대로 동작)
+#   ● Neovim 은 config/options.lua 의 vim.g.python3_host_prog 로 이 가상환경을 씁니다
+#   ● Node provider(neovim npm 패키지)는 2.install-core-tools.sh 의 npm 전역 패키지(data/.npm-packages)에 포함
+_NVIM_PYPROV="$DEVTOOLS2/data/nvim/python-provider"
+_NVIM_PYBASE="$DEVTOOLS2/modules/python/python-314/bin/python3"
+echo "🐍 7-1. Neovim Python provider(pynvim) 구성 중..."
+if [ -x "$_NVIM_PYPROV/bin/python" ] && "$_NVIM_PYPROV/bin/python" -c "import pynvim" >/dev/null 2>&1; then
+    echo "   ⏭️  [건너뜀] pynvim 가상환경이 이미 구성되어 있습니다: $_NVIM_PYPROV"
+elif [ -x "$_NVIM_PYBASE" ]; then
+    echo -n "   ⚙️ pynvim 가상환경 만드는 중..."
+    ( "$_NVIM_PYBASE" -m venv "$_NVIM_PYPROV" && "$_NVIM_PYPROV/bin/python" -m pip install -q --upgrade pip pynvim ) \
+        >"$DT2_TMP/_pynvim.log" 2>&1 &
+    show_spinner $!
+    if wait $! && "$_NVIM_PYPROV/bin/python" -c "import pynvim" >/dev/null 2>&1; then
+        echo " 완료"
+    else
+        echo " ⚠️  실패 (로그: $DT2_TMP/_pynvim.log) — Python 플러그인을 쓰지 않으면 영향 없음"
+    fi
+else
+    echo "   ⏭️  [건너뜀] DevTools2 Python 3.14 가 없어 pynvim 가상환경을 만들지 않습니다 (2.install-core-tools.sh 먼저 실행)."
+fi
+echo ""
+
+# ==============================================================================
 # 8. Gradle DAP (디버거 Attach) 전역 설정
 # (구현부: scripts/linux/dev-env/_install-utils.sh configure_gradle_dap)
 # ==============================================================================

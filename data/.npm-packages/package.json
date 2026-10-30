@@ -1,7 +1,7 @@
 {
   "name": "devtools2-node-tools",
   "version": "1.0.0",
-  "description": "Global node tools for Neovim / DevTools2 (Prettier, ESLint, Stylelint)",
+  "description": "Global node tools for Neovim / DevTools2 (Prettier, ESLint, Stylelint, Neovim Node provider)",
   "private": true,
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -14,6 +14,7 @@
     "eslint-plugin-prettier": "^5.5.6",
     "eslint-plugin-vue": "^10.10.0",
     "globals": "^17.12.0",
+    "neovim": "^5.5.0",
     "postcss-scss": "^4.0.9",
     "prettier": "^3.9.6",
     "prettier-plugin-jinja-template": "^2.2.0",
