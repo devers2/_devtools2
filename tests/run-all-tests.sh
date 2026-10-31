@@ -654,6 +654,161 @@ else
 fi
 
 # ==============================================================================
+# [Suite 6] 2026-11 설치 흐름 점검 결함 회귀 방지
+# ==============================================================================
+write_header "[Suite 6] 2026-11 설치 흐름 점검 결함 회귀 방지"
+
+# 6-1. Start-Process -PassThru(-Wait 없음) 프로세스의 ExitCode 를 읽으면 .Handle 을 미리 여는가
+#   Handle 을 미리 열지 않으면 PS 5.1 에서 정상 종료해도 ExitCode 가 $null 이 됩니다(실측). 그래서
+#   0.setup-wsl.ps1 이 설치된 WSL 을 매번 "미설치"로 판정했습니다(4번 suite 는 wsl --import 한 곳만 검사).
+#   대입 문장(백틱 줄 이어짐 포함) 바로 뒤 8줄 안에 $var.Handle 또는 $var.WaitForExit 가 있어야 합니다.
+exitcode_violations=$(
+  python3 - "$REPO_ROOT/scripts/windows" <<'EOF'
+import os, sys, re
+
+folder = sys.argv[1]
+violations = []
+assign = re.compile(r'^\s*\$(\w+)\s*=\s*Start-Process\b', re.I)
+
+for root, dirs, files in os.walk(folder):
+    for f in files:
+        if not f.endswith('.ps1'):
+            continue
+        path = os.path.join(root, f)
+        with open(path, 'r', encoding='utf-8', errors='ignore') as fp:
+            lines = fp.read().split('\n')
+        for i, line in enumerate(lines):
+            m = assign.match(line)
+            if not m:
+                continue
+            var = m.group(1)
+            # 백틱(`)으로 이어진 줄까지 한 문장으로 합침
+            j, stmt = i, line
+            while stmt.rstrip().endswith('`') and j + 1 < len(lines):
+                j += 1
+                stmt += ' ' + lines[j]
+            if not re.search(r'-PassThru\b', stmt, re.I) or re.search(r'-Wait\b', stmt, re.I):
+                continue
+            rest = '\n'.join(lines[j + 1:])
+            if not re.search(r'\$' + var + r'\.ExitCode\b', rest):
+                continue
+            window = '\n'.join(lines[j + 1:j + 9])
+            if not re.search(r'\$' + var + r'\.(Handle|WaitForExit)\b', window):
+                violations.append(f"{f}:{i+1}(${var})")
+
+print(len(violations), ";".join(violations))
+EOF
+)
+exitcode_cnt=$(echo "$exitcode_violations" | cut -d' ' -f1)
+exitcode_files=$(echo "$exitcode_violations" | cut -d' ' -f2-)
+if [ "$exitcode_cnt" -eq 0 ]; then
+  assert_test "Start-Process -PassThru 프로세스의 ExitCode 를 읽을 때 .Handle 을 미리 여는가 (PS 5.1 \$null 트랩)" 0
+else
+  assert_test "Start-Process -PassThru 프로세스의 ExitCode 를 읽을 때 .Handle 을 미리 여는가 (PS 5.1 \$null 트랩)" 1 "위반: $exitcode_files"
+fi
+
+# 6-2. 리눅스 설치 스크립트의 timeout 이 setsid(터미널 분리)와 함께 쓰이는가
+#   timeout 은 명령을 백그라운드 프로세스 그룹에서 실행하므로, 그 안에서 터미널을 잡는 명령(대화형 bash,
+#   sudo 비밀번호 질문 등)이 SIGTTIN 을 보내면 timeout 까지 정지해 시간 제한이 무력화되고 설치가 영원히 멈춥니다
+#   (실측: Orca "권장 스킬 설치 시도 중..." 1시간 넘게 정지). setsid -w timeout ... 형태로 쓰거나,
+#   setsid 가 없는 시스템용 대체 줄에는 "# dt2:setsid-fallback" 표시를 붙입니다.
+timeout_violations=$(
+  python3 - "$REPO_ROOT/scripts/linux/dev-env" "$REPO_ROOT/scripts/linux/setup-devtools2.sh" <<'EOF'
+import os, sys, re
+
+targets = []
+for p in sys.argv[1:]:
+    if os.path.isdir(p):
+        targets += [os.path.join(p, f) for f in sorted(os.listdir(p)) if f.endswith('.sh')]
+    elif os.path.isfile(p):
+        targets.append(p)
+
+violations = []
+pat = re.compile(r'(^|[\s;&|(`$])timeout\s+(-[A-Za-z-]+(\s+\S+)?\s+)*[0-9]')
+for path in targets:
+    with open(path, 'r', encoding='utf-8', errors='ignore') as fp:
+        for idx, line in enumerate(fp):
+            s = line.strip()
+            if s.startswith('#'):
+                continue
+            code = line.split(' #', 1)[0]
+            if not pat.search(code):
+                continue
+            if 'setsid' in code or 'dt2:setsid-fallback' in line:
+                continue
+            violations.append(f"{os.path.basename(path)}:{idx+1}")
+
+print(len(violations), ";".join(violations))
+EOF
+)
+timeout_cnt=$(echo "$timeout_violations" | cut -d' ' -f1)
+timeout_files=$(echo "$timeout_violations" | cut -d' ' -f2-)
+if [ "$timeout_cnt" -eq 0 ]; then
+  assert_test "리눅스 설치 스크립트의 timeout 이 setsid(터미널 분리)와 함께 쓰이는가 (SIGTTIN 정지 방지)" 0
+else
+  assert_test "리눅스 설치 스크립트의 timeout 이 setsid(터미널 분리)와 함께 쓰이는가 (SIGTTIN 정지 방지)" 1 "위반: $timeout_files"
+fi
+
+# 6-3. 설치 스크립트가 공용 파일(_common.sh·_install-utils.sh·bw-lib)을 $DEVTOOLS2 로컬 저장소에서 불러오지 않는가
+#   스트리밍 실행된 새 스크립트가 커밋 동기화를 건너뛴(미커밋 변경·갈라짐) 오래된 로컬 공용 파일을 불러오면
+#   새 공용 함수가 없어 중단됩니다. 로드 순서는 "스크립트 옆 파일 → 같은 커밋(DT2_REF)의 원격"이어야 합니다.
+localsrc_violations=$(
+  python3 - "$REPO_ROOT/scripts/linux/dev-env" <<'EOF'
+import os, sys, re
+
+folder = sys.argv[1]
+violations = []
+pat = re.compile(r'\$\{?DEVTOOLS2[^/"]*\}?/scripts/(linux/dev-env/_[A-Za-z-]+\.sh|fzf/bw-lib)')
+for f in sorted(os.listdir(folder)):
+    if not f.endswith('.sh'):
+        continue
+    with open(os.path.join(folder, f), 'r', encoding='utf-8', errors='ignore') as fp:
+        for idx, line in enumerate(fp):
+            if line.strip().startswith('#'):
+                continue
+            if pat.search(line.split(' #', 1)[0]):
+                violations.append(f"{f}:{idx+1}")
+
+print(len(violations), ";".join(violations))
+EOF
+)
+localsrc_cnt=$(echo "$localsrc_violations" | cut -d' ' -f1)
+localsrc_files=$(echo "$localsrc_violations" | cut -d' ' -f2-)
+if [ "$localsrc_cnt" -eq 0 ]; then
+  assert_test "설치 스크립트가 공용 파일을 \$DEVTOOLS2 로컬 저장소 대신 스크립트 옆·같은 커밋 원격에서 불러오는가" 0
+else
+  assert_test "설치 스크립트가 공용 파일을 \$DEVTOOLS2 로컬 저장소 대신 스크립트 옆·같은 커밋 원격에서 불러오는가" 1 "위반: $localsrc_files"
+fi
+
+# 6-4. WSLg 한글 입력 래퍼(wslg_ime_env_snippet)를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가
+#   래퍼의 입력기 코드는 fcitx5 가 있을 때만 동작하므로, 앱 설치 스크립트가 직접 입력기·글꼴을 준비해야 합니다
+#   (예전에는 Sublime Merge 만 준비해, Orca 만 설치하면 WSLg 창에서 한글 입력 불가).
+gui_violations=$(
+  python3 - "$REPO_ROOT/scripts/linux/dev-env" <<'EOF'
+import os, sys
+
+folder = sys.argv[1]
+violations = []
+for f in sorted(os.listdir(folder)):
+    if not f.endswith('.sh') or f == '_install-utils.sh':
+        continue
+    with open(os.path.join(folder, f), 'r', encoding='utf-8', errors='ignore') as fp:
+        code = '\n'.join(l for l in fp.read().split('\n') if not l.strip().startswith('#'))
+    if '$(wslg_ime_env_snippet)' in code and 'ensure_gui_app_env ' not in code:
+        violations.append(f)
+
+print(len(violations), ";".join(violations))
+EOF
+)
+gui_cnt=$(echo "$gui_violations" | cut -d' ' -f1)
+gui_files=$(echo "$gui_violations" | cut -d' ' -f2-)
+if [ "$gui_cnt" -eq 0 ]; then
+  assert_test "WSLg 한글 입력 래퍼를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가" 0
+else
+  assert_test "WSLg 한글 입력 래퍼를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가" 1 "위반: $gui_files"
+fi
+
+# ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================
 echo ""
