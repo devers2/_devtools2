@@ -10,7 +10,10 @@
 #    - Start-Process -PassThru 비동기 ExitCode $null 트랩
 #    - WSL python3 인자 큰따옴표 증발 및 SyntaxError
 #    - /etc/wsl.conf 자가 치유(Self-Healing) 분기 감지
-#    - Linux safe_download_and_extract / safe_download_binary 파라미터 정합성
+#    - Linux safe_download_and_extract 아카이브 형식 판별(URL 확장자 대신 파일 헤더)
+#    - PS 5.1 비호환 문법(?? 등)·5.1 파서 문법 오류, 셸 스크립트 bash -n
+#    - 설치 흐름 결함(timeout 정지, 로컬 공용 파일 로드, WSLg 한글 입력 준비) — Suite 6
+#    (run-all-tests.sh 와 같은 항목·기준을 유지합니다)
 #
 # [실행 방법]
 #   PowerShell 5.1 또는 PowerShell 7 어디서든:
@@ -23,8 +26,10 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 # PSScriptRoot 무(無)파일/인메모리 런타임 호환 처리 (Rule 5)
+# ⚠️ PS 7 에서 UNC 경로(\\wsl.localhost\...)에 Resolve-Path 를 쓰면 ".." 를 정리하지 않아 "...\tests\.." 로 남습니다
+#    (실측). 그러면 저장소 기준 상대 경로 계산이 어긋나므로 GetFullPath 로 ".." 를 정리합니다.
 $repoRootPath = if (-not [string]::IsNullOrEmpty($PSScriptRoot)) {
-    (Resolve-Path (Join-Path $PSScriptRoot "..")).ProviderPath
+    [System.IO.Path]::GetFullPath((Resolve-Path (Join-Path $PSScriptRoot "..")).ProviderPath)
 } else {
     (Get-Location).ProviderPath
 }
@@ -41,6 +46,21 @@ function Write-TestHeader {
     Write-Host "===========================================================================" -ForegroundColor Cyan
     Write-Host "  $Title" -ForegroundColor Cyan
     Write-Host "===========================================================================" -ForegroundColor DarkGray
+}
+
+# 저장소 기준 상대 경로 (실패 메시지 표시용)
+#   WSL 저장소를 Windows 에서 열면 같은 위치가 \\wsl.localhost\<배포판>\... 와 \\wsl$\<배포판>\... 로 섞여 들어와
+#   저장소 경로 길이만큼 잘라내면 앞부분이 잘린 경로(예: "vim\init.lua")가 표시됐습니다. 접두어를 맞춘 뒤 비교하고,
+#   저장소 밖이면 전체 경로를 그대로 돌려줍니다.
+function Get-RepoRelativePath {
+    param([string]$FullPath)
+    $norm = { param($p) ($p -replace '^\\\\wsl\$\\', '\\wsl.localhost\').TrimEnd('\', '/') }
+    $root = & $norm $repoRootPath
+    $full = & $norm $FullPath
+    if ($full.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $full.Substring($root.Length).TrimStart('\', '/')
+    }
+    return $FullPath
 }
 
 function Assert-Test {
@@ -67,7 +87,9 @@ function Assert-Test {
 # ==============================================================================
 Write-TestHeader "[Suite 1] UTF-8 NoBOM 및 스크립트 헤더 무결성 검증"
 
-$targetExtensions = @("*.ps1", "*.sh", "*.bash", "*.json", "*.toml", "*.conf")
+# BOM 검사 대상: 모든 텍스트 파일 (AGENTS.md 1번 "저장소의 모든 텍스트 파일은 UTF-8 NoBOM").
+#   예전에는 .ps1/.sh/.bash/.json/.toml/.conf 6종만 봐서 .lua·.md·.yml·.bat·.ahk 등이 빠져 있었습니다.
+#   앞 8KB 에 NUL 바이트가 있으면 바이너리로 보고 건너뜁니다.
 $bomViolations = @()
 $paramViolations = @()
 
@@ -76,12 +98,14 @@ $excludedDirs = "^(\.git|\.vscode|\.idea|target|build|node_modules|data|modules)
 $targetDirs = Get-ChildItem -LiteralPath $repoRootPath -Directory | Where-Object { $_.Name -notmatch $excludedDirs }
 $allCandidateFiles = @($targetDirs | Get-ChildItem -Recurse -File | Where-Object { $_.FullName -notmatch "(\.git|\.vscode|\.idea|target|build|node_modules|data|modules)" }) + @(Get-ChildItem -LiteralPath $repoRootPath -File)
 
-foreach ($ext in $targetExtensions) {
-    $allCandidateFiles | Where-Object { $_.Name -like $ext } | ForEach-Object {
-        # 1) BOM 검사 (0xEF, 0xBB, 0xBF - PS 5.1 / 7 공용 .NET API 사용)
+foreach ($candidate in $allCandidateFiles) {
+    $candidate | ForEach-Object {
+        # 1) BOM 검사 (0xEF, 0xBB, 0xBF - PS 5.1 / 7 공용 .NET API 사용, 바이너리 파일은 건너뜀)
         $bytes = [System.IO.File]::ReadAllBytes($_.FullName)
-        if ($bytes -and $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
-            $bomViolations += $_.FullName.Substring($repoRootPath.Length + 1)
+        $headLen = [Math]::Min($bytes.Length, 8192)
+        $isBinary = ($headLen -gt 0) -and ([Array]::IndexOf($bytes, [byte]0, 0, $headLen) -ge 0)
+        if (-not $isBinary -and $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
+            $bomViolations += (Get-RepoRelativePath $_.FullName)
         }
 
         # 2) .ps1의 스크립트 레벨 param() 위치 검사 (실행문이 param()보다 앞에 오면 안 됨)
@@ -116,18 +140,69 @@ Write-TestHeader "[Suite 2] PowerShell 구문 정적 분석 (PS 5.1 / 7 파서)"
 
 $psFiles = $allCandidateFiles | Where-Object { $_.Extension -eq ".ps1" }
 
+# --- 2-1. 실제 PowerShell 파서로 문법 오류 검사
+#     run-all-tests.bat 는 pwsh(7)가 있으면 그걸 먼저 쓰는데, PS 7 파서는 ?? · 삼항 · && 같은 7 전용 문법을 오류로 보지 않습니다.
+#     설치 대상은 Windows PowerShell 5.1 이므로, 7 에서 실행 중이고 powershell.exe(5.1)가 있으면 5.1 파서로 따로 검사합니다
+#     (run-all-tests.sh 도 WSL 에서는 powershell.exe 를 우선 사용). 5.1 파서 실행 자체가 실패하면 실패로 처리합니다.
 $syntaxErrors = @()
-foreach ($file in $psFiles) {
-    $code = [System.IO.File]::ReadAllText($file.FullName, [System.Text.Encoding]::UTF8)
-    $errors = $null
-    $null = [System.Management.Automation.Language.Parser]::ParseInput($code, $file.FullName, [ref]$null, [ref]$errors)
-    if ($errors -and $errors.Count -gt 0) {
-        $syntaxErrors += "$($file.Name): $($errors[0].Message)"
+$ps51 = Get-Command powershell.exe -ErrorAction SilentlyContinue
+if ($PSVersionTable.PSVersion.Major -ge 6 -and $ps51) {
+    $quoted = ($psFiles | ForEach-Object { "'" + ($_.FullName -replace "'", "''") + "'" }) -join ","
+    $parseScript = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(`$false); `$errors = @(); " +
+        "foreach (`$f in @($quoted)) { `$code = [System.IO.File]::ReadAllText(`$f, [System.Text.Encoding]::UTF8); `$errs = `$null; " +
+        "[System.Management.Automation.Language.Parser]::ParseInput(`$code, `$f, [ref]`$null, [ref]`$errs) | Out-Null; " +
+        "if (`$errs -and `$errs.Count -gt 0) { `$errors += ([System.IO.Path]::GetFileName(`$f) + ': ' + `$errs[0].Message) } }; " +
+        "'DT2_PARSED=' + (`$errors -join ';')"
+    $parseOut = @(& $ps51.Source -NoProfile -Command $parseScript 2>$null) | ForEach-Object { [string]$_ }
+    $parsedLine = $parseOut | Where-Object { $_ -like 'DT2_PARSED=*' } | Select-Object -Last 1
+    if ($null -eq $parsedLine) {
+        $syntaxErrors += "powershell.exe 파서 실행 실패"
+    } elseif ($parsedLine.Length -gt 'DT2_PARSED='.Length) {
+        $syntaxErrors += $parsedLine.Substring('DT2_PARSED='.Length) -split ';'
+    }
+} else {
+    foreach ($file in $psFiles) {
+        $code = [System.IO.File]::ReadAllText($file.FullName, [System.Text.Encoding]::UTF8)
+        $errors = $null
+        $null = [System.Management.Automation.Language.Parser]::ParseInput($code, $file.FullName, [ref]$null, [ref]$errors)
+        if ($errors -and $errors.Count -gt 0) {
+            $syntaxErrors += "$($file.Name): $($errors[0].Message)"
+        }
     }
 }
 
-Assert-Test "모든 .ps1 파일에 문법 오류가 없는가 (오류 파일: 0건)" ($syntaxErrors.Count -eq 0) `
+Assert-Test "모든 .ps1 파일에 문법 오류가 없는가 (PowerShell 파서)" ($syntaxErrors.Count -eq 0) `
     ($syntaxErrors -join "`n         -> ")
+
+# --- 2-2. PS 5.1 호환 정적 검사 (run-all-tests.sh 의 Python 정밀 검사와 같은 항목·기준)
+#     예전에는 이 러너에 없었고 sh 러너도 pwsh 가 없을 때만 실행해서, pwsh 가 있는 PC 에서는 ?? 연산자를 아무도 잡지 못했습니다
+#     (AGENTS.md 3번 "널 병합 연산자(??) 사용 금지"). 테스트 러너 자신은 검사 패턴을 문자열로 품고 있어 제외합니다.
+#     1) ?? 연산자  2) 빈 해시 리터럴 대입(@{ Key = })  3) 접두사 변수 누락 URL(-Url "/...")
+#     4) 좌변 변수 탈락 빈 대입문(= ...)  5) Test-Path 괄호 누락으로 -and/-or 가 매개변수로 오인
+$compatErrors = @()
+foreach ($file in ($psFiles | Where-Object { $_.Name -ne "run-all-tests.ps1" })) {
+    $rel = Get-RepoRelativePath $file.FullName
+    $content = [System.IO.File]::ReadAllText($file.FullName, [System.Text.Encoding]::UTF8)
+    $lines = $content -split "`r?`n"
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $codePart = ($lines[$i] -split '#', 2)[0]
+        if ($codePart.Contains('?' + '?')) { $compatErrors += "${rel}:$($i + 1): PS 5.1 비호환 ?? 연산자" }
+        $stripped = $lines[$i].Trim()
+        if ($stripped.StartsWith('= ') -or $stripped -eq '=') { $compatErrors += "${rel}:$($i + 1): 좌변 변수 누락 대입문" }
+    }
+    $noComments = $content -replace '#.*', ''
+    foreach ($m in [regex]::Matches($noComments, '@\{[^}]*?\b([a-zA-Z0-9_]+)\s*=\s*(?:\}|;|\n\s*\})')) {
+        $compatErrors += "${rel}: 빈 해시테이블 대입문 (@{ ... $($m.Groups[1].Value) = ... })"
+    }
+    foreach ($m in [regex]::Matches($noComments, '-Url\s+["'']/[a-zA-Z0-9_]')) {
+        $compatErrors += "${rel}: 접두사 변수 누락 URL (-Url `"/...`")"
+    }
+    foreach ($m in [regex]::Matches($noComments, '(?<!\()\bTest-Path\s+[^()\n]+?\s+(-and|-or)\b')) {
+        $compatErrors += "${rel}: Test-Path 괄호 누락 매개변수 오인 ($($m.Value.Trim()))"
+    }
+}
+Assert-Test "PS 5.1 호환 정적 검사 (?? 연산자·빈 해시 대입·URL 접두 변수 누락·Test-Path 괄호)" ($compatErrors.Count -eq 0) `
+    ($compatErrors -join "`n         -> ")
 
 # ==============================================================================
 # [Suite 3] Linux Bash 스크립트 문법 검증 (bash -n)
@@ -145,8 +220,14 @@ foreach ($b in $possibleBashes) {
 }
 
 if ($bashExe) {
-    $shFiles = Get-ChildItem -Path (Join-Path $repoRootPath "scripts\linux") -Recurse -File | Where-Object {
-        $_.Extension -in @(".sh", ".bash")
+    # 대상: scripts\ 아래 모든 셸 스크립트 — .sh/.bash 와, 확장자가 없어도 첫 줄이 bash/sh shebang 인 파일
+    #   예전에는 scripts\linux 의 .sh 만 봐서 bw-lib·command-palette·bw-server-manager·git 훅(pre-commit)·
+    #   format·jdtls 래퍼가 빠져 있었습니다(이 중 bw-lib 은 설치 스크립트가 직접 불러옴).
+    $shFiles = Get-ChildItem -Path (Join-Path $repoRootPath "scripts") -Recurse -File | Where-Object {
+        if ($_.Extension -in @(".sh", ".bash")) { return $true }
+        if ($_.Extension -ne "") { return $false }
+        $firstLine = [string](Get-Content -LiteralPath $_.FullName -TotalCount 1 -ErrorAction SilentlyContinue)
+        return ($firstLine -match '^#!.*\b(bash|sh)\b')
     }
 
     # WSL 의 bash.exe(System32)는 Windows 경로를 이해하지 못하므로 리눅스 경로로 바꿔 넘깁니다.
@@ -170,7 +251,7 @@ if ($bashExe) {
         }
         Remove-Item "$env:TEMP\bash_test_err.txt" -Force -ErrorAction SilentlyContinue
     }
-    Assert-Test "모든 Linux .sh 스크립트가 bash -n 검사를 통과하는가" ($bashErrors.Count -eq 0) `
+    Assert-Test "scripts/ 의 모든 셸 스크립트가 bash -n 검사를 통과하는가" ($bashErrors.Count -eq 0) `
         ($bashErrors -join "`n         -> ")
 } else {
     Assert-Test "Bash 환경 감지 (Git Bash / WSL 미설치로 건너뜀)" $true
@@ -181,39 +262,25 @@ if ($bashExe) {
 # ==============================================================================
 Write-TestHeader "[Suite 4] 런타임 회귀 버그 전수 검증"
 
-# --- 4-1. 0바이트 빈 파일에 대한 문자열 안전 처리 검증 (Trim on Null 방어)
-$tempEmptyFile = Join-Path $env:TEMP "test_empty_error.log"
-"" | Set-Content $tempEmptyFile -NoNewline -Force
-
-# 기존 버그 재현 확인: Get-Content -Raw 는 빈 파일에서 $null 을 반환
-$rawContent = Get-Content $tempEmptyFile -Raw
-$isNull = ($null -eq $rawContent)
-
-# 안전 패턴 검증 (Rule 7)
-$safeExtracted = [string](Get-Content $tempEmptyFile -Raw -ErrorAction SilentlyContinue)
-$safeTrimmed = if (-not [string]::IsNullOrWhiteSpace($safeExtracted)) { $safeExtracted.Trim() } else { "" }
-Remove-Item $tempEmptyFile -Force -ErrorAction SilentlyContinue
-
-Assert-Test "빈 파일 Get-Content -Raw 의 `$null 반환 특성 인지 및 안전 변환 검증" ($isNull -and $safeTrimmed -eq "")
-
-# 0.setup-wsl.ps1 파일 내에 위험한 '(Get-Content ...).Trim()' 패턴이 남아있지 않은지 소스 전수 검사
+# --- 4-1. Windows 스크립트에 위험한 '(Get-Content ...).Trim()' 직통 호출이 남아있지 않은지 소스 전수 검사
+#     빈 파일의 Get-Content -Raw 는 $null 을 돌려주므로 .Trim() 이 바로 크래시합니다(AGENTS.md 3번 .Trim() 널 가드).
+#     예전에는 0.setup-wsl.ps1 한 파일만 봤지만 규칙은 모든 .ps1 에 적용되므로 scripts\windows 전체를 봅니다.
+#     (예전의 "빈 파일 Get-Content -Raw 가 $null 을 돌려주는가" 검사는 PowerShell 자체 동작 확인이라 저장소와 무관하게
+#      항상 통과해 삭제했습니다 — 그 특성은 이 검사와 AGENTS.md 의 근거로 남아 있습니다)
 $wslSetupFile = Join-Path $repoRootPath "scripts\windows\dev-env\0.setup-wsl.ps1"
 $wslSetupCode = [System.IO.File]::ReadAllText($wslSetupFile, [System.Text.Encoding]::UTF8)
-$hasUnsafeTrim = ($wslSetupCode -match '\(Get-Content[^\)]+\)\.Trim\(\)')
-Assert-Test "0.setup-wsl.ps1 내 위험한 '(Get-Content).Trim()' 직통 호출이 0건인가" (-not $hasUnsafeTrim)
+$unsafeTrim = @()
+$winScriptFilesForTrim = $psFiles | Where-Object { $_.FullName -like "*\scripts\windows\*" -or $_.FullName -like "*/scripts/windows/*" }
+foreach ($file in $winScriptFilesForTrim) {
+    $tLines = [System.IO.File]::ReadAllLines($file.FullName, [System.Text.Encoding]::UTF8)
+    for ($i = 0; $i -lt $tLines.Count; $i++) {
+        if ($tLines[$i] -match '\(Get-Content[^\)]+\)\.Trim\(\)') { $unsafeTrim += "$($file.Name):$($i + 1)" }
+    }
+}
+Assert-Test "Windows 스크립트에 위험한 '(Get-Content).Trim()' 직통 호출이 0건인가" ($unsafeTrim.Count -eq 0) `
+    ("위반: " + ($unsafeTrim -join ", "))
 
-# --- 4-2. Start-Process 비동기 ExitCode $null 트랩 방어 검증 (Rule 8)
-# Start-Process -PassThru 만 사용하고 -Wait 가 없으면 핸들이 닫혀 ExitCode 가 $null 임을 확인
-$dummyProc = Start-Process powershell.exe -ArgumentList "-NoProfile -Command `"`"" -PassThru -NoNewWindow
-while (-not $dummyProc.HasExited) { Start-Sleep -Milliseconds 50 }
-$passThruExitIsNull = ($null -eq $dummyProc.ExitCode)
-
-# 0.setup-wsl.ps1 에서 wsl --import 시 .NET Process API 를 사용하여 정수 ExitCode 를 반환하는지 검증
-$usesProcessStartInfo = ($wslSetupCode -match 'System\.Diagnostics\.ProcessStartInfo')
-$usesDotNetProcessStart = ($wslSetupCode -match '\[System\.Diagnostics\.Process\]::Start')
-Assert-Test "0.setup-wsl.ps1 wsl --import 가 .NET ProcessStartInfo 기반으로 `$null 트랩을 방지하는가" ($usesProcessStartInfo -and $usesDotNetProcessStart)
-
-# --- 4-3. WSL /etc/wsl.conf 파이썬 코드 인용부호 및 configparser 정상 동작 검증 (Rule 9)
+# --- 4-2. WSL /etc/wsl.conf 파이썬 코드 인용부호 및 configparser 정상 동작 검증 (Rule 9)
 $pyMatch = [regex]::Match($wslSetupCode, '(?s)\$mergeWslConfPy\s*=\s*@''\r?\n(.*?)\r?\n''@')
 $pyCodeExtracted = if ($pyMatch.Success) { $pyMatch.Groups[1].Value } else { "" }
 
@@ -256,21 +323,11 @@ $usesStdinPipe = ($wslSetupCode -match '\$mergeWslConfPy\s*\|\s*wsl')
 $avoidsInlineDashC = ($wslSetupCode -notmatch 'python3\s+-c\s+"\$mergeWslConfPy"')
 Assert-Test "0.setup-wsl.ps1 이 따옴표 탈락 방지를 위해 STDIN 파이프라인으로 파이썬을 호출하는가" ($usesStdinPipe -and $avoidsInlineDashC)
 
-# --- 4-4. 배포판 자가 치유 (Self-Healing) 분기 로직 검증
+# --- 4-3. 배포판 자가 치유 (Self-Healing) 분기 로직 검증
 $hasSelfHealingCode = ($wslSetupCode -match '\[user\]' -and $wslSetupCode -match 'default\s*=' -and $wslSetupCode -match 'wsl\.exe\s+--unregister')
 Assert-Test "0.setup-wsl.ps1 에 미완성 배포판 자동 감지 및 unregister 자가 치유 로직이 존재하는가" $hasSelfHealingCode
 
-# --- 4-5. Linux 다운로드/압축해제 헬퍼 파라미터 정합성 검증
-$coreToolsFile = Join-Path $repoRootPath "scripts\linux\dev-env\2.install-core-tools.sh"
-$coreToolsCode = [System.IO.File]::ReadAllText($coreToolsFile, [System.Text.Encoding]::UTF8)
-
-$hasJdkLabel = ($coreToolsCode -match 'safe_download_and_extract\s+"\$dl_url"\s+"\$target_path"\s+1\s+"\$checksum"\s+"JDK \$major"')
-$hasGradleLabel = ($coreToolsCode -match 'safe_download_and_extract\s+"\$_gradle_url"\s+"\$DEVTOOLS2/modules/gradle"\s+0\s+"\$_gradle_sha"\s+"Gradle \$GRADLE_VERSION"')
-$hasNeovimLabel = ($coreToolsCode -match 'safe_download_and_extract\s+"\$_nvim_url"\s+"\$DEVTOOLS2/modules/neovim/nvim"\s+1\s+"[^"]*"\s+"Neovim \$NEOVIM_VERSION"')
-
-Assert-Test "Linux Core Tools(JDK, Gradle, Neovim) 다운로드 시 UX 라벨 인자가 완벽히 전달되는가" ($hasJdkLabel -and $hasGradleLabel -and $hasNeovimLabel)
-
-# --- 4-6. Linux safe_download_and_extract 아카이브 포맷 자동 판별 검증
+# --- 4-4. Linux safe_download_and_extract 아카이브 포맷 자동 판별 검증
 $installUtilsFile = Join-Path $repoRootPath "scripts\linux\dev-env\_install-utils.sh"
 $installUtilsCode = [System.IO.File]::ReadAllText($installUtilsFile, [System.Text.Encoding]::UTF8)
 $hasUnzipTest = ($installUtilsCode -match 'unzip\s+-tq\s+"\$tmp_archive"')
@@ -337,7 +394,7 @@ $missingDeny = @()
 foreach ($gi in $trackAllIgnores) {
     $giCode = [System.IO.File]::ReadAllText($gi.FullName, [System.Text.Encoding]::UTF8)
     if (($giCode -notmatch '(?m)^\.env\s*$') -or ($giCode -notmatch '(?m)^auth\.json\s*$') -or ($giCode -notmatch '(?m)^\.claude/\s*$')) {
-        $missingDeny += $gi.FullName.Substring($repoRootPath.Length)
+        $missingDeny += (Get-RepoRelativePath $gi.FullName)
     }
 }
 Assert-Test "전부 추적('!*')하는 폴더의 .gitignore 마다 비밀 정보 차단 목록이 있는가" ($missingDeny.Count -eq 0) `

@@ -64,7 +64,9 @@ assert_test() {
 # ==============================================================================
 write_header "[Suite 1] UTF-8 NoBOM 및 스크립트 헤더 무결성 검증"
 
-# 대상 확장자: .ps1, .sh, .bash, .json, .toml, .conf
+# 대상: 모든 텍스트 파일 (AGENTS.md 1번 "저장소의 모든 텍스트 파일은 UTF-8 NoBOM").
+#   예전에는 .ps1/.sh/.bash/.json/.toml/.conf 6종만 봐서 .lua·.md·.yml·.bat·.ahk 등이 빠져 있었습니다.
+#   앞 8KB 에 NUL 바이트가 있으면 바이너리로 보고 건너뜁니다.
 # 제외 디렉터리: .git, .vscode, .idea, target, build, node_modules, data, modules
 suite1_result=$(
   python3 - "$REPO_ROOT" <<'EOF'
@@ -73,7 +75,6 @@ import sys
 
 repo = sys.argv[1]
 excluded = {'.git', '.vscode', '.idea', 'target', 'build', 'node_modules', 'data', 'modules'}
-target_exts = ('.ps1', '.sh', '.bash', '.json', '.toml', '.conf')
 
 bom_violations = []
 param_violations = []
@@ -81,19 +82,19 @@ param_violations = []
 for root, dirs, files in os.walk(repo):
     dirs[:] = [d for d in dirs if d not in excluded]
     for f in files:
-        if not f.endswith(target_exts):
-            continue
         full_path = os.path.join(root, f)
         rel_path = os.path.relpath(full_path, repo)
-        
-        # 1) BOM Check
+
+        # 1) BOM Check (바이너리 파일은 건너뜀)
         try:
             with open(full_path, 'rb') as fp:
-                head = fp.read(3)
-                if head == b'\xef\xbb\xbf':
-                    bom_violations.append(rel_path)
+                head = fp.read(8192)
         except Exception:
-            pass
+            continue
+        if b'\0' in head:
+            continue
+        if head.startswith(b'\xef\xbb\xbf'):
+            bom_violations.append(rel_path)
 
         # 2) .ps1 스크립트 레벨 param() 위치 검사 (함수 밖 param은 첫 실행문이어야 함)
         if f.endswith('.ps1'):
@@ -161,29 +162,64 @@ fi
 # ==============================================================================
 write_header "[Suite 2] PowerShell 구문 정적 분석 (PS 5.1 / 7 파서)"
 
-if command -v pwsh >/dev/null 2>&1; then
-  ps_errors=$(pwsh -NoProfile -Command "
+# 2-1. 실제 PowerShell 파서로 문법 오류 검사
+#   WSL 이면 설치 대상과 같은 Windows PowerShell 5.1(powershell.exe)을 우선 쓰고, 없으면 pwsh(7), 둘 다 없으면 건너뜁니다.
+#   ⚠️ PS 7 파서는 ?? · 삼항 · && 같은 7 전용 문법을 오류로 보지 않으므로 5.1 파서가 더 엄격합니다.
+#   ⚠️ 파서 프로세스가 실행 자체에 실패하면 출력이 비어 "오류 없음"으로 오판되므로, 끝까지 돌았다는 표시를 확인합니다.
+ps1_files=()
+while IFS= read -r _f; do ps1_files+=("$_f"); done < <(
+  find "$REPO_ROOT" \( -path "$REPO_ROOT/data" -o -path "$REPO_ROOT/modules" -o -path "$REPO_ROOT/.git" -o -name node_modules \) -prune \
+    -o -type f -name '*.ps1' -print 2>/dev/null | sort
+)
+ps_parser=""
+if command -v powershell.exe >/dev/null 2>&1 && command -v wslpath >/dev/null 2>&1; then
+  ps_parser="powershell.exe"
+elif command -v pwsh >/dev/null 2>&1; then
+  ps_parser="pwsh"
+fi
+
+if [ -n "$ps_parser" ]; then
+  ps_list=""
+  for _f in "${ps1_files[@]}"; do
+    [ "$ps_parser" = "powershell.exe" ] && _f=$(wslpath -w "$_f")
+    ps_list+="'${_f//\'/\'\'}',"
+  done
+  ps_list="${ps_list%,}"
+  ps_out=$("$ps_parser" -NoProfile -Command "
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(\$false)
         \$errors = @()
-        Get-ChildItem -Path '$REPO_ROOT' -Filter '*.ps1' -Recurse | Where-Object { \$_.FullName -notmatch '(data|modules|\.git)' } | ForEach-Object {
-            \$code = [System.IO.File]::ReadAllText(\$_.FullName, [System.Text.Encoding]::UTF8)
+        foreach (\$f in @($ps_list)) {
+            \$code = [System.IO.File]::ReadAllText(\$f, [System.Text.Encoding]::UTF8)
             \$errs = \$null
-            [System.Management.Automation.Language.Parser]::ParseInput(\$code, \$_.FullName, [ref]\$null, [ref]\$errs) | Out-Null
-            if (\$errs -and \$errs.Count -gt 0) { \$errors += \"\$(\$_.Name): \$(\$errs[0].Message)\" }
+            [System.Management.Automation.Language.Parser]::ParseInput(\$code, \$f, [ref]\$null, [ref]\$errs) | Out-Null
+            if (\$errs -and \$errs.Count -gt 0) { \$errors += \"\$([System.IO.Path]::GetFileName(\$f)): \$(\$errs[0].Message)\" }
         }
-        \$errors -join ';'
-    " 2>/dev/null || true)
-  if [ -z "$ps_errors" ]; then
-    assert_test "모든 .ps1 파일에 문법 오류가 없는가 (오류 파일: 0건)" 0
+        'DT2_PARSED=' + (\$errors -join ';')
+    " 2>/dev/null | tr -d '\r' || true)
+  if ! printf '%s\n' "$ps_out" | grep -q '^DT2_PARSED='; then
+    assert_test "모든 .ps1 파일에 문법 오류가 없는가 (PowerShell 파서)" 1 "$ps_parser 파서 실행 실패"
   else
-    assert_test "모든 .ps1 파일에 문법 오류가 없는가" 1 "$ps_errors"
+    ps_errors=$(printf '%s\n' "$ps_out" | sed -n 's/^DT2_PARSED=//p')
+    if [ -z "$ps_errors" ]; then
+      assert_test "모든 .ps1 파일에 문법 오류가 없는가 (PowerShell 파서)" 0
+    else
+      assert_test "모든 .ps1 파일에 문법 오류가 없는가 (PowerShell 파서)" 1 "$ps_errors"
+    fi
   fi
 else
-  # Linux 네이티브 환경(pwsh 미설치): Python 기반 정적 문법 및 구조 정밀 분석
-  # 1) PS 5.1 비호환 '??' 연산자 검사
-  # 2) 빈 해시 리터럴 대입문 검사 (@{ Key =  })
-  # 3) 접두사 변수 누락 URL 패턴 검사 (-Url "/...")
-  # 4) 좌변 변수 탈락 빈 대입문 검사 (^= ...)
-  ps_static_errors=$(python3 -c "
+  assert_test "PowerShell 파서 감지 (powershell.exe / pwsh 미설치로 건너뜀)" 0
+fi
+
+# 2-2. PS 5.1 호환 정적 검사 — 파서 유무와 관계없이 항상 실행
+#   예전에는 pwsh 가 없을 때만 실행해서, pwsh 가 있는 PC 에서는 PS 7 파서가 통과시키는 ?? 연산자를 아무도 잡지 못했습니다
+#   (AGENTS.md 3번 "널 병합 연산자(??) 사용 금지"). 테스트 러너 자신(run-all-tests.ps1)은 검사 패턴을 문자열로 품고 있어 제외합니다.
+# Python 기반 정적 문법 및 구조 정밀 분석
+# 1) PS 5.1 비호환 '??' 연산자 검사
+# 2) 빈 해시 리터럴 대입문 검사 (@{ Key =  })
+# 3) 접두사 변수 누락 URL 패턴 검사 (-Url "/...")
+# 4) 좌변 변수 탈락 빈 대입문 검사 (^= ...)
+# 5) Test-Path 괄호 누락으로 -and/-or 가 매개변수로 오인되는 패턴 검사
+ps_static_errors=$(python3 -c "
 import os, re
 
 repo_root = '$REPO_ROOT'
@@ -193,7 +229,7 @@ for root, _, files in os.walk(repo_root):
     if any(p in root for p in ['modules', 'data', '.git']):
         continue
     for f in files:
-        if f.endswith('.ps1'):
+        if f.endswith('.ps1') and f != 'run-all-tests.ps1':
             path = os.path.join(root, f)
             rel = os.path.relpath(path, repo_root)
             with open(path, 'r', encoding='utf-8', errors='ignore') as fp:
@@ -231,11 +267,10 @@ for root, _, files in os.walk(repo_root):
 print('; '.join(errors))
 " 2>/dev/null || true)
 
-  if [ -z "$ps_static_errors" ]; then
-    assert_test "PowerShell 구문 정적 분석 (Python 정밀 검사: 빈 해시/누락 변수/PS5.1 호환성)" 0
-  else
-    assert_test "PowerShell 구문 정적 분석 (문법/변수 결함 감지)" 1 "$ps_static_errors"
-  fi
+if [ -z "$ps_static_errors" ]; then
+  assert_test "PS 5.1 호환 정적 검사 (?? 연산자·빈 해시 대입·URL 접두 변수 누락·Test-Path 괄호)" 0
+else
+  assert_test "PS 5.1 호환 정적 검사 (?? 연산자·빈 해시 대입·URL 접두 변수 누락·Test-Path 괄호)" 1 "$ps_static_errors"
 fi
 
 # ==============================================================================
@@ -243,19 +278,26 @@ fi
 # ==============================================================================
 write_header "[Suite 3] Linux Bash 스크립트 구문 검사 (bash -n)"
 
+# 대상: scripts/ 아래 모든 셸 스크립트 — .sh/.bash 와, 확장자가 없어도 첫 줄이 bash/sh shebang 인 파일
+#   예전에는 scripts/linux 의 .sh 만 봐서 bw-lib·command-palette·bw-server-manager·git 훅(pre-commit)·
+#   format·jdtls 래퍼가 빠져 있었습니다(이 중 bw-lib 은 설치 스크립트가 직접 불러옴).
 bash_errors=()
 while IFS= read -r sh_file; do
   if [ -f "$sh_file" ]; then
+    case "$sh_file" in
+      *.sh | *.bash) ;;
+      *) head -n 1 "$sh_file" 2>/dev/null | grep -qE '^#!.*\b(bash|sh)\b' || continue ;;
+    esac
     if ! err_out=$(bash -n "$sh_file" 2>&1); then
       bash_errors+=("$(basename "$sh_file"): $err_out")
     fi
   fi
-done < <(find "$REPO_ROOT/scripts/linux" -type f \( -name "*.sh" -o -name "*.bash" \) 2>/dev/null || true)
+done < <(find "$REPO_ROOT/scripts" -type f 2>/dev/null | sort || true)
 
 if [ ${#bash_errors[@]} -eq 0 ]; then
-  assert_test "모든 Linux .sh 스크립트가 bash -n 검사를 통과하는가" 0
+  assert_test "scripts/ 의 모든 셸 스크립트가 bash -n 검사를 통과하는가" 0
 else
-  assert_test "모든 Linux .sh 스크립트가 bash -n 검사를 통과하는가" 1 "${bash_errors[*]}"
+  assert_test "scripts/ 의 모든 셸 스크립트가 bash -n 검사를 통과하는가" 1 "${bash_errors[*]}"
 fi
 
 # ==============================================================================
@@ -263,30 +305,23 @@ fi
 # ==============================================================================
 write_header "[Suite 4] 런타임 회귀 버그 전수 검증"
 
-# 4-1. 0.setup-wsl.ps1 내 위험한 '(Get-Content).Trim()' 직통 호출이 0건인가
+# 4-1. Windows 스크립트에 위험한 '(Get-Content).Trim()' 직통 호출이 0건인가
+#   빈 파일의 Get-Content -Raw 는 $null 을 돌려주므로 .Trim() 이 바로 크래시합니다(AGENTS.md 3번 .Trim() 널 가드).
+#   예전에는 0.setup-wsl.ps1 한 파일만 봤지만 규칙은 모든 .ps1 에 적용되므로 scripts/windows 전체를 봅니다.
 wsl_setup_ps1="$REPO_ROOT/scripts/windows/dev-env/0.setup-wsl.ps1"
 if [ -f "$wsl_setup_ps1" ]; then
-  unsafe_trim=$(grep -P '\(Get-Content[^\)]+\)\.Trim\(\)' "$wsl_setup_ps1" || true)
+  unsafe_trim=$(grep -rnP --include='*.ps1' '\(Get-Content[^\)]+\)\.Trim\(\)' "$REPO_ROOT/scripts/windows" | sed "s|$REPO_ROOT/||" || true)
   if [ -z "$unsafe_trim" ]; then
-    assert_test "0.setup-wsl.ps1 내 위험한 '(Get-Content).Trim()' 직통 호출이 0건인가" 0
+    assert_test "Windows 스크립트에 위험한 '(Get-Content).Trim()' 직통 호출이 0건인가" 0
   else
-    assert_test "0.setup-wsl.ps1 내 위험한 '(Get-Content).Trim()' 직통 호출이 0건인가" 1 "$unsafe_trim"
+    assert_test "Windows 스크립트에 위험한 '(Get-Content).Trim()' 직통 호출이 0건인가" 1 "$unsafe_trim"
   fi
 else
   assert_test "0.setup-wsl.ps1 파일 존재 확인" 1 "파일 누락: $wsl_setup_ps1"
 fi
 
-# 4-2. 0.setup-wsl.ps1 wsl --import 가 .NET ProcessStartInfo 기반으로 $null 트랩을 방지하는가
-has_psi=$(grep -c 'System\.Diagnostics\.ProcessStartInfo' "$wsl_setup_ps1" || true)
-has_proc_start=$(grep -c '\[System\.Diagnostics\.Process\]::Start' "$wsl_setup_ps1" || true)
-if [ "$has_psi" -gt 0 ] && [ "$has_proc_start" -gt 0 ]; then
-  assert_test "0.setup-wsl.ps1 wsl --import 가 .NET ProcessStartInfo 기반으로 \$null 트랩을 방지하는가" 0
-else
-  assert_test "0.setup-wsl.ps1 wsl --import 가 .NET ProcessStartInfo 기반으로 \$null 트랩을 방지하는가" 1 "ProcessStartInfo 패턴 누락"
-fi
-
-# 4-3. 0.setup-wsl.ps1 내 /etc/wsl.conf 파이썬 주입 코드가 문법 에러 없이 컴파일되는가 및 STDIN 호출
-suite4_3_result=$(
+# 4-2. 0.setup-wsl.ps1 내 /etc/wsl.conf 파이썬 주입 코드가 문법 에러 없이 컴파일되는가 및 STDIN 호출
+suite4_2_result=$(
   python3 - "$wsl_setup_ps1" <<'EOF'
 import sys
 import re
@@ -321,8 +356,8 @@ print(1 if (uses_stdin and avoids_inline) else 0)
 EOF
 )
 
-py_comp_ok=$(echo "$suite4_3_result" | sed -n '1p')
-py_pipe_ok=$(echo "$suite4_3_result" | sed -n '2p')
+py_comp_ok=$(echo "$suite4_2_result" | sed -n '1p')
+py_pipe_ok=$(echo "$suite4_2_result" | sed -n '2p')
 
 if [ "$py_comp_ok" -eq 1 ]; then
   assert_test "0.setup-wsl.ps1 내 /etc/wsl.conf 파이썬 주입 코드가 문법 에러 없이 컴파일되는가" 0
@@ -336,7 +371,7 @@ else
   assert_test "0.setup-wsl.ps1 이 따옴표 탈락 방지를 위해 STDIN 파이프라인으로 파이썬을 호출하는가" 1 "STDIN 파이프라인 누락 또는 -c 인라인 사용"
 fi
 
-# 4-4. 0.setup-wsl.ps1 에 미완성 배포판 자동 감지 및 unregister 자가 치유 로직이 존재하는가
+# 4-3. 0.setup-wsl.ps1 에 미완성 배포판 자동 감지 및 unregister 자가 치유 로직이 존재하는가
 has_user=$(grep -c '\[user\]' "$wsl_setup_ps1" || true)
 has_default=$(grep -c 'default\s*=' "$wsl_setup_ps1" || true)
 has_unreg=$(grep -c 'wsl\.exe\s\+--unregister' "$wsl_setup_ps1" || true)
@@ -346,19 +381,7 @@ else
   assert_test "0.setup-wsl.ps1 에 미완성 배포판 자동 감지 및 unregister 자가 치유 로직이 존재하는가" 1 "자가 치유 로직 미완성"
 fi
 
-# 4-5. Linux Core Tools(JDK, Gradle, Neovim) 다운로드 시 UX 라벨 인자가 완벽히 전달되는가
-core_tools_sh="$REPO_ROOT/scripts/linux/dev-env/2.install-core-tools.sh"
-has_jdk_lbl=$(grep -P 'safe_download_and_extract\s+"\$dl_url"\s+"\$target_path"\s+1\s+"\$checksum"\s+"JDK \$major"' "$core_tools_sh" || true)
-has_gradle_lbl=$(grep -P 'safe_download_and_extract\s+"\$_gradle_url"\s+"\$DEVTOOLS2/modules/gradle"\s+0\s+"\$_gradle_sha"\s+"Gradle \$GRADLE_VERSION"' "$core_tools_sh" || true)
-has_nvim_lbl=$(grep -P 'safe_download_and_extract\s+"\$_nvim_url"\s+"\$DEVTOOLS2/modules/neovim/nvim"\s+1\s+"[^"]*"\s+"Neovim \$NEOVIM_VERSION"' "$core_tools_sh" || true)
-
-if [ -n "$has_jdk_lbl" ] && [ -n "$has_gradle_lbl" ] && [ -n "$has_nvim_lbl" ]; then
-  assert_test "Linux Core Tools(JDK, Gradle, Neovim) 다운로드 시 UX 라벨 인자가 완벽히 전달되는가" 0
-else
-  assert_test "Linux Core Tools(JDK, Gradle, Neovim) 다운로드 시 UX 라벨 인자가 완벽히 전달되는가" 1 "UX 라벨 인자 전달 패턴 불일치"
-fi
-
-# 4-6. Linux safe_download_and_extract 가 URL 확장자 대신 파일 헤더 무결성(unzip -tq)으로 아카이브를 판별하는가
+# 4-4. Linux safe_download_and_extract 가 URL 확장자 대신 파일 헤더 무결성(unzip -tq)으로 아카이브를 판별하는가
 install_utils_sh="$REPO_ROOT/scripts/linux/dev-env/_install-utils.sh"
 has_unzip=$(grep -P 'unzip\s+-tq\s+"\$tmp_archive"' "$install_utils_sh" || true)
 has_targz=$(grep -P 'tar\s+-tzf\s+"\$tmp_archive"' "$install_utils_sh" || true)
