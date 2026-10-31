@@ -851,6 +851,37 @@ else
   assert_test "command-palette 의 Gradle 작업(Tasks) 메뉴가 \"실행\"(bootRun) 분기에 가로채이지 않는가" 1 "Tasks 분기가 bootRun 분기보다 뒤에 있거나 메뉴 문구에 '실행' 포함"
 fi
 
+# 6-6. 세 편집기(VS Code·Neovim·Zed)의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가
+#   VS Code 가 -Xms8G -Xmx8G 로 고정되어, WSL(기본 PC 메모리의 절반) 안에서 시작부터 8GB 를 잡고
+#   Neovim jdtls·Gradle 데몬과 함께 메모리가 빠듯했습니다. 셋 다 메모리의 25% 기준으로 맞춥니다.
+#   ● VS Code settings.json: java.jdt.ls.vmargs 에 고정 -Xmx 없이 -XX:MaxRAMPercentage
+#   ● Neovim plugins/java.lua: /proc/meminfo 로 계산 (고정 --jvm-arg=-Xmx<숫자> 없음)
+#   ● Zed scripts/java/jdtls: /proc/meminfo 로 계산한 JDTLS_HEAP_ARGS 를 실행 줄마다 넘김
+jdtls_heap_bad=$(
+  python3 - "$REPO_ROOT" <<'EOF'
+import os, re, sys
+root = sys.argv[1]
+bad = []
+vs = open(os.path.join(root, '.config/vscode/settings.json'), encoding='utf-8').read()
+m = re.search(r'^\s*"java\.jdt\.ls\.vmargs"\s*:\s*"([^"]*)"', vs, re.M)
+if not m or re.search(r'-Xmx\d', m.group(1)) or 'MaxRAMPercentage' not in m.group(1):
+    bad.append('VS Code vmargs')
+nv = open(os.path.join(root, '.config/nvim/lua/plugins/java.lua'), encoding='utf-8').read()
+if 'MemTotal' not in nv or re.search(r"--jvm-arg=-Xmx\d", nv):
+    bad.append('Neovim java.lua')
+zd = open(os.path.join(root, 'scripts/java/jdtls'), encoding='utf-8').read()
+execs = [l for l in zd.splitlines() if l.strip().startswith('exec "$JDTLS_BIN"')]
+if 'MemTotal' not in zd or not execs or any('JDTLS_HEAP_ARGS' not in l for l in execs):
+    bad.append('Zed 런처')
+print(';'.join(bad))
+EOF
+)
+if [ -z "$jdtls_heap_bad" ]; then
+  assert_test "VS Code·Neovim·Zed 의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가" 0
+else
+  assert_test "VS Code·Neovim·Zed 의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가" 1 "위반: $jdtls_heap_bad"
+fi
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================

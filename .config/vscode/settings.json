@@ -217,7 +217,15 @@
 
   /* Java 및 Spring Boot 설정 */
   "java.configuration.updateBuildConfiguration": "interactive", // 빌드 구성 업데이트 방식 (Maven이나 Gradle 프로젝트 구조 및 의존성 변경 시) → "interactive": 사용자에게 알림 후 업데이트, "interactive": 자동 업데이트, "disabled": 비활성화
-  "java.jdt.ls.vmargs": "-Dfile.encoding=UTF-8 -Duser.language=ko -Duser.country=KR -Xms8G -Xmx8G -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MaxMetaspaceSize=512m -XX:+UseCompressedOops", // Java Language Server의 VM 옵션: 32GB RAM 환경에서 OOM 방지 및 성능 최적화를 위한 8GB 힙 설정 (독립된 VS Code 창 2개 이내로 사용 조건, 16GB RAM 환경은 -Xms4G -Xmx4G 변경 필요)
+  // Java Language Server의 VM 옵션: OOM 방지 및 성능 최적화를 위한 힙 설정 (독립된 VS Code 창 2개 이내로 사용 조건)
+  // - 최대 힙은 고정값 대신 실행 환경 메모리의 25%(-XX:MaxRAMPercentage=25): WSL 은 WSL 에 할당된 메모리, 리눅스 네이티브는 PC 메모리 기준.
+  //   예전 고정 8GB(-Xms8G -Xmx8G)는 32GB PC 기준이었는데, WSL 은 기본으로 PC 메모리의 절반(16GB)만 받아
+  //   시작부터 8GB 를 잡고 Neovim jdtls·Gradle 데몬과 함께 돌면 메모리가 빠듯했습니다(16GB PC 는 직접 고쳐야 했음).
+  //   Neovim(plugins/java.lua)·Zed(scripts/java/jdtls)와 같은 25% 기준이라 메모리가 바뀌어도 함께 맞춰집니다
+  //   (WSL 메모리 상한은 설치 스크립트 0.setup-wsl.ps1 이 PC 메모리에 맞춰 제안).
+  // - 초기 힙은 1GB 로 작게 시작해 필요한 만큼만 늘립니다(실측: 대형 프로젝트에서도 사용 힙 약 2.4GB).
+  // - 대형 모노레포에서 "Java heap space" 알림이 뜨면 이 PC 에서 MaxRAMPercentage 를 30~35 로 올리세요.
+  "java.jdt.ls.vmargs": "-Dfile.encoding=UTF-8 -Duser.language=ko -Duser.country=KR -Xms1G -XX:MaxRAMPercentage=25 -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MaxMetaspaceSize=512m -XX:+UseCompressedOops",
   "java.compile.nullAnalysis.mode": "automatic", // Java 컴파일러의 null 분석 모드 → "automatic": 자동으로 null 분석 모드를 적용, "disabled": null 분석 모드를 적용하지 않음
   "java.debug.settings.console": "integratedTerminal", // 디버깅 콘솔을 통합 터미널로 설정
   "java.debug.settings.vmArgs": "-Dfile.encoding=UTF-8 -Dconsole.encoding=UTF-8 -Xmx2G -XX:+UseG1GC", // Java 디버깅 시 JVM 옵션 (대규모 스프링 프로젝트에서 디버깅 시 메모리 부족 방지)

@@ -564,6 +564,20 @@ $paletteOrderOk = $labelMatch.Success -and (-not $labelMatch.Groups[1].Value.Con
 Assert-Test "command-palette 의 Gradle 작업(Tasks) 메뉴가 `"실행`"(bootRun) 분기에 가로채이지 않는가" $paletteOrderOk `
     "Tasks 분기가 bootRun 분기보다 뒤에 있거나 메뉴 문구에 '실행' 포함"
 
+# --- 6-6. 세 편집기(VS Code·Neovim·Zed)의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가
+#     VS Code 가 -Xms8G -Xmx8G 로 고정되어 WSL(기본 PC 메모리의 절반) 안에서 시작부터 8GB 를 잡았음 → 셋 다 메모리의 25% 기준
+$jdtlsHeapBad = @()
+$vsCode = [System.IO.File]::ReadAllText((Join-Path $repoRootPath ".config\vscode\settings.json"), [System.Text.Encoding]::UTF8)
+$vmMatch = [regex]::Match($vsCode, '(?m)^\s*"java\.jdt\.ls\.vmargs"\s*:\s*"([^"]*)"')
+if (-not $vmMatch.Success -or $vmMatch.Groups[1].Value -match '-Xmx\d' -or -not $vmMatch.Groups[1].Value.Contains('MaxRAMPercentage')) { $jdtlsHeapBad += "VS Code vmargs" }
+$nvJava = [System.IO.File]::ReadAllText((Join-Path $repoRootPath ".config\nvim\lua\plugins\java.lua"), [System.Text.Encoding]::UTF8)
+if (-not $nvJava.Contains('MemTotal') -or $nvJava -match '--jvm-arg=-Xmx\d') { $jdtlsHeapBad += "Neovim java.lua" }
+$zedLauncher = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\java\jdtls"), [System.Text.Encoding]::UTF8)
+$zedExecs = @(($zedLauncher -split "`r?`n") | Where-Object { $_.Trim().StartsWith('exec "$JDTLS_BIN"') })
+if (-not $zedLauncher.Contains('MemTotal') -or $zedExecs.Count -eq 0 -or @($zedExecs | Where-Object { -not $_.Contains('JDTLS_HEAP_ARGS') }).Count -gt 0) { $jdtlsHeapBad += "Zed 런처" }
+Assert-Test "VS Code·Neovim·Zed 의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가" ($jdtlsHeapBad.Count -eq 0) `
+    ("위반: " + ($jdtlsHeapBad -join ", "))
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================
