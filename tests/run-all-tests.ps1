@@ -553,6 +553,17 @@ foreach ($sh in (Get-ChildItem -Path $devEnvDir -File -Filter "*.sh")) {
 Assert-Test "WSLg 한글 입력 래퍼를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가" ($guiViolations.Count -eq 0) `
     ("위반: " + ($guiViolations -join ", "))
 
+# --- 6-5. command-palette 의 Gradle 작업(Tasks) 메뉴가 "실행"(bootRun) 분기에 가로채이지 않는가
+#     선택 분기는 메뉴 문구의 부분 문자열(*"실행"*)로 고르므로, Tasks 분기가 bootRun 분기보다 뒤에 있거나
+#     메뉴 문구에 "실행"이 들어가면 Tasks 를 골라도 bootRun 이 실행됨
+$paletteCode = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\fzf\command-palette"), [System.Text.Encoding]::UTF8)
+$labelMatch = [regex]::Match($paletteCode, 'MENU_OPTIONS\+=\("(\[Gradle\] 작업 \(Tasks\)[^"]*)"\)')
+$tasksIdx = $paletteCode.IndexOf('if [[ "$CHOICE" == *"[Gradle] 작업 (Tasks)"* ]]')
+$runIdx = $paletteCode.IndexOf('[[ "$CHOICE" == *"실행"* ]]')
+$paletteOrderOk = $labelMatch.Success -and (-not $labelMatch.Groups[1].Value.Contains('실행')) -and $tasksIdx -ge 0 -and $runIdx -ge 0 -and $tasksIdx -lt $runIdx
+Assert-Test "command-palette 의 Gradle 작업(Tasks) 메뉴가 `"실행`"(bootRun) 분기에 가로채이지 않는가" $paletteOrderOk `
+    "Tasks 분기가 bootRun 분기보다 뒤에 있거나 메뉴 문구에 '실행' 포함"
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================

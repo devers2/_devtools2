@@ -457,6 +457,8 @@ if $GRADLEW_EXISTS; then
     if $CENTRAL_PORTAL_EXISTS; then
         MENU_OPTIONS+=("[Gradle] Maven 중앙 저장소 배포 (publishAllPublicationsToCentralPortalRepository)")
     fi
+    # 모듈 › 그룹 › 작업 계층형 메뉴 (VS Code Gradle 확장의 Tasks 트리와 같은 구조, 아래 분기 참고)
+    MENU_OPTIONS+=("[Gradle] 작업 (Tasks) ▸ 모듈 › 그룹 › 작업")
 fi
 MENU_OPTIONS+=("[JDTLS] 캐시 초기화")
 MENU_OPTIONS+=("[Project] 프로젝트 설정 (Clone & 초기화)")
@@ -782,8 +784,217 @@ PYEOF
     return 0
 }
 
+# ── [Gradle] 작업 (Tasks) — 모듈 › 그룹 › 작업 계층형 메뉴 ──────────────────────
+# VS Code Gradle 확장의 Tasks 트리(프로젝트 › 모듈 › 그룹 › 작업)와 같은 구조로, 프로젝트에 실제로 있는 작업을
+# 동적으로 보여 줍니다(build·publishing·verification 등 플러그인이 만든 작업 포함).
+#   ● 작업 목록: ./gradlew tasks --all 출력을 파싱합니다(모듈 작업은 "s2-core:publish" 형태로 나옴).
+#     빌드 설정 파일(settings·build.gradle(.kts)·gradle.properties·*.versions.toml·wrapper)이 바뀌었을 때만 다시 읽고
+#     나머지는 캐시(~/.devtools2/gradle-tasks/<프로젝트 키>.tsv)를 씁니다. 플러그인 버전만 바뀐 경우 등은 "🔄 새로 읽기".
+#   ● 단계: 모듈(여러 모듈일 때만) → 그룹 → 작업. Esc 는 한 단계 위로, 첫 단계에서는 닫기. fzf 라 글자 입력으로 바로 걸러짐.
+#   ● 실행 의미: 루트에서 고른 작업은 이름만 넘겨 모든 모듈에서 실행(./gradlew publish — VS Code·위 build/배포 항목과 같음),
+#     하위 모듈에서 고른 작업은 그 모듈만 실행(./gradlew :s2-core:publish).
+#   ● 최근 실행한 작업 5개를 첫 단계 맨 위에 보여 줍니다(프로젝트별).
+#   ● JDK: [Gradle] 빌드에서 저장한 Java Home 이 있으면 같은 값을 씁니다(목록 읽기·실행 모두).
+#   ⚠️ 이 분기는 반드시 아래 "실행"(bootRun) 분기보다 앞에 둡니다 — 그 분기는 메뉴 문구의 "실행" 부분 문자열로 고릅니다.
+if [[ "$CHOICE" == *"[Gradle] 작업 (Tasks)"* ]]; then
+    _GT_DIR="$STATE_DIR/gradle-tasks"
+    mkdir -p "$_GT_DIR"
+    _GT_CACHE="$_GT_DIR/$PROJ_KEY.tsv"
+    _GT_SIG="$_GT_DIR/$PROJ_KEY.sig"
+    _GT_RECENT="$_GT_DIR/$PROJ_KEY.recent"
+
+    # gradlew 가 없고 build.gradle 만 있는 프로젝트는 설치된 gradle 사용
+    _GT_GW="$GW_NAME"
+    if [ ! -x "$CWD/gradlew" ] && command -v gradle >/dev/null 2>&1; then
+        _GT_GW="gradle"
+    fi
+    _GT_JAVA_ARGS=()
+    _gt_java_home=$(get_state "gradle_build" "java_home")
+    [ -n "$_gt_java_home" ] && _GT_JAVA_ARGS=("-Dorg.gradle.java.home=$_gt_java_home")
+
+    # 빌드 설정 파일들의 경로·수정 시각·크기로 만든 서명 (macOS 도 지원하도록 find -printf 대신 Python)
+    _gt_signature() {
+        python3 - "$CWD" <<'PYSIG'
+import hashlib, os, re, sys
+root = sys.argv[1]
+skip = {'build', '.gradle', '.git', 'node_modules', 'out', 'bin', '.idea', '.vscode'}
+pat = re.compile(r'(settings|build)\.gradle(\.kts)?$|gradle\.properties$|\.versions\.toml$|gradle-wrapper\.properties$')
+rows = []
+for d, dirs, files in os.walk(root):
+    dirs[:] = [x for x in dirs if x not in skip]
+    if d[len(root):].count(os.sep) >= 3:
+        dirs[:] = []
+    for f in files:
+        if pat.search(f):
+            p = os.path.join(d, f)
+            st = os.stat(p)
+            rows.append(f"{os.path.relpath(p, root)} {st.st_mtime_ns} {st.st_size}")
+print(hashlib.md5('\n'.join(sorted(rows)).encode()).hexdigest())
+PYSIG
+    }
+
+    # ./gradlew tasks --all 출력 → "모듈<TAB>그룹<TAB>작업<TAB>설명" (루트 모듈은 빈 문자열, 첫 줄은 "@root<TAB>루트 이름")
+    _gt_parse() {
+        python3 -c '
+import re, sys
+lines = sys.stdin.read().splitlines()
+root, group, rows = "", None, []
+for i, line in enumerate(lines):
+    m = re.match(r"Tasks runnable from (?:root )?project \x27([^\x27]+)\x27", line)
+    if m:
+        root = m.group(1)
+        continue
+    nxt = lines[i + 1] if i + 1 < len(lines) else ""
+    if line and re.fullmatch(r"-+", nxt) and not re.fullmatch(r"-+", line):
+        group = re.sub(r"\s+tasks$", "", line.strip(), flags=re.I).lower()
+        continue
+    if group is None or not line.strip() or re.fullmatch(r"-+", line) or line.startswith((" ", "To see", "Pattern:")):
+        continue
+    name, _, desc = line.partition(" - ")
+    name = name.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.:-]+", name):
+        continue
+    module, _, task = name.rpartition(":")
+    rows.append("\t".join([module, group, task, desc.strip()]))
+print("@root\t" + (root or "root"))
+print("\n".join(rows))
+'
+    }
+
+    _gt_load() {
+        local _force="${1:-false}" _sig _raw _pid _rc=0
+        _sig=$(_gt_signature 2>/dev/null)
+        if [ "$_force" != true ] && [ -s "$_GT_CACHE" ] && [ -n "$_sig" ] && [ "$(cat "$_GT_SIG" 2>/dev/null)" = "$_sig" ]; then
+            return 0
+        fi
+        _raw=$(mktemp)
+        ("$_GT_GW" tasks --all --console=plain -q "${_GT_JAVA_ARGS[@]}" </dev/null >"$_raw" 2>&1) &
+        _pid=$!
+        if command -v show_spinner_status >/dev/null 2>&1; then
+            show_spinner_status "$_pid" "   📋 Gradle 작업 목록 읽는 중... (빌드 설정이 바뀌었을 때만)"
+        else
+            echo "   📋 Gradle 작업 목록 읽는 중... (빌드 설정이 바뀌었을 때만)"
+        fi
+        wait "$_pid" || _rc=$?
+        echo ""
+        if [ "$_rc" -ne 0 ]; then
+            echo "❌ Gradle 작업 목록을 읽지 못했습니다 (종료 코드: $_rc). 마지막 출력:"
+            tail -n 15 "$_raw" | sed 's/^/   │ /'
+            rm -f "$_raw"
+            return 1
+        fi
+        if ! _gt_parse <"$_raw" >"$_GT_CACHE.tmp" || [ "$(wc -l <"$_GT_CACHE.tmp")" -le 1 ]; then
+            echo "❌ Gradle 작업 목록을 해석하지 못했습니다."
+            rm -f "$_raw" "$_GT_CACHE.tmp"
+            return 1
+        fi
+        mv "$_GT_CACHE.tmp" "$_GT_CACHE"
+        echo "$_sig" >"$_GT_SIG"
+        rm -f "$_raw"
+    }
+
+    _gt_run() {
+        local _target="$1" _tmp
+        # 최근 실행 기록 (중복 제거, 최신 5개)
+        _tmp=$(mktemp)
+        { echo "$_target"; grep -vxF "$_target" "$_GT_RECENT" 2>/dev/null; } | head -n 5 >"$_tmp"
+        mv "$_tmp" "$_GT_RECENT"
+        local _cmd=("$_GT_GW" "$_target" "${_GT_JAVA_ARGS[@]}")
+        echo "▶️ 실행 명령어: ${_cmd[*]}"
+        "${_cmd[@]}"
+    }
+
+    _gt_load || exit 1
+    _GT_ROOT=$(awk -F'\t' '$1=="@root"{print $2; exit}' "$_GT_CACHE")
+    # 모듈 목록: 루트 먼저, 나머지는 이름순
+    mapfile -t _GT_MODULES < <(awk -F'\t' '$1!="@root" && $1!=""{print $1}' "$_GT_CACHE" | sort -u)
+    _GT_MULTI=false
+    [ "${#_GT_MODULES[@]}" -gt 0 ] && _GT_MULTI=true
+
+    _GT_LEVEL="module"
+    $_GT_MULTI || _GT_LEVEL="group"
+    _GT_MOD=""
+    _GT_GROUP=""
+    _GT_FZF=(fzf --height=60% --reverse --no-sort)
+    while true; do
+        case "$_GT_LEVEL" in
+        module | group)
+            _items=()
+            # 첫 단계에만 최근 실행 · 새로 읽기 표시
+            if [ "$_GT_LEVEL" = "module" ] || ! $_GT_MULTI; then
+                while IFS= read -r _r; do
+                    [ -n "$_r" ] && _items+=("🕘 최근  $_r")
+                done <"$_GT_RECENT" 2>/dev/null
+            fi
+            if [ "$_GT_LEVEL" = "module" ]; then
+                _items+=("📦 ${_GT_ROOT} (루트 · 전체 모듈)")
+                for _m in "${_GT_MODULES[@]}"; do _items+=("📦 $_m"); done
+                _prompt="📦 모듈 선택 (${_GT_ROOT}) > "
+                _header="Esc: 닫기 · 루트에서 고른 작업은 모든 모듈에서 실행됩니다"
+            else
+                while IFS=$'\t' read -r _g _n; do
+                    _items+=("📂 $_g ($_n)")
+                done < <(awk -F'\t' -v m="$_GT_MOD" '$1!="@root" && $1==m{c[$2]++; if(!($2 in o)){o[$2]=++n; g[n]=$2}} END{for(i=1;i<=n;i++) print g[i] "\t" c[g[i]]}' "$_GT_CACHE")
+                if [ -n "$_GT_MOD" ]; then
+                    _prompt="📂 그룹 선택 (${_GT_MOD}) > "
+                elif $_GT_MULTI; then
+                    _prompt="📂 그룹 선택 (${_GT_ROOT} · 전체 모듈) > "
+                else
+                    _prompt="📂 그룹 선택 (${_GT_ROOT}) > "
+                fi
+                if $_GT_MULTI; then _header="Esc: 모듈 선택으로"; else _header="Esc: 닫기"; fi
+            fi
+            if [ "$_GT_LEVEL" = "module" ] || ! $_GT_MULTI; then
+                _items+=("🔄 작업 목록 새로 읽기")
+            fi
+            _sel=$(printf '%s\n' "${_items[@]}" | "${_GT_FZF[@]}" --prompt="$_prompt" --header="$_header")
+            if [ -z "$_sel" ]; then
+                if [ "$_GT_LEVEL" = "group" ] && $_GT_MULTI; then
+                    _GT_LEVEL="module"
+                    continue
+                fi
+                exit 0
+            fi
+            case "$_sel" in
+            "🕘 최근  "*)
+                _gt_run "${_sel#🕘 최근  }"
+                break
+                ;;
+            "🔄 작업 목록 새로 읽기")
+                _gt_load true || exit 1
+                mapfile -t _GT_MODULES < <(awk -F'\t' '$1!="@root" && $1!=""{print $1}' "$_GT_CACHE" | sort -u)
+                ;;
+            "📦 "*)
+                if [ "$_sel" = "📦 ${_GT_ROOT} (루트 · 전체 모듈)" ]; then _GT_MOD=""; else _GT_MOD="${_sel#📦 }"; fi
+                _GT_LEVEL="group"
+                ;;
+            "📂 "*)
+                _GT_GROUP="${_sel#📂 }"
+                _GT_GROUP="${_GT_GROUP% (*}"
+                _GT_LEVEL="task"
+                ;;
+            esac
+            ;;
+        task)
+            _sel=$(awk -F'\t' -v m="$_GT_MOD" -v g="$_GT_GROUP" '$1!="@root" && $1==m && $2==g{printf "🔧 %-48s  %s\n", $3, $4}' "$_GT_CACHE" |
+                "${_GT_FZF[@]}" --prompt="🔧 작업 선택 (${_GT_MOD:-${_GT_ROOT}} › ${_GT_GROUP}) > " --header="Esc: 그룹 선택으로")
+            if [ -z "$_sel" ]; then
+                _GT_LEVEL="group"
+                continue
+            fi
+            _task=$(echo "${_sel#🔧 }" | awk '{print $1}')
+            if [ -n "$_GT_MOD" ]; then
+                _gt_run ":${_GT_MOD}:${_task}"
+            else
+                _gt_run "$_task"
+            fi
+            break
+            ;;
+        esac
+    done
+
 # ── [Gradle] 실행 (bootRun) ──────────────────────────────────────────────────
-if [[ "$CHOICE" == *"실행"* ]]; then
+elif [[ "$CHOICE" == *"실행"* ]]; then
     TARGET_LAUNCH_NAME=""
     TARGET_MAIN_CLASS=""
     TARGET_MOD=""

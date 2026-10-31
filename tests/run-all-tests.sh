@@ -831,6 +831,26 @@ else
   assert_test "WSLg 한글 입력 래퍼를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가" 1 "위반: $gui_files"
 fi
 
+# 6-5. command-palette 의 Gradle 작업(Tasks) 메뉴가 "실행"(bootRun) 분기에 가로채이지 않는가
+#   선택 분기는 메뉴 문구의 부분 문자열(*"실행"*)로 고르므로, Tasks 분기가 bootRun 분기보다 뒤에 있거나
+#   메뉴 문구에 "실행"이 들어가면 Tasks 를 골라도 bootRun 이 실행됩니다.
+palette_order_ok=$(
+  python3 - "$REPO_ROOT/scripts/fzf/command-palette" <<'EOF'
+import re, sys
+c = open(sys.argv[1], encoding='utf-8').read()
+label = re.search(r'MENU_OPTIONS\+=\("(\[Gradle\] 작업 \(Tasks\)[^"]*)"\)', c)
+tasks = c.find('if [[ "$CHOICE" == *"[Gradle] 작업 (Tasks)"* ]]')
+run = c.find('[[ "$CHOICE" == *"실행"* ]]')
+ok = bool(label) and '실행' not in label.group(1) and tasks != -1 and run != -1 and tasks < run
+print(1 if ok else 0)
+EOF
+)
+if [ "$palette_order_ok" = "1" ]; then
+  assert_test "command-palette 의 Gradle 작업(Tasks) 메뉴가 \"실행\"(bootRun) 분기에 가로채이지 않는가" 0
+else
+  assert_test "command-palette 의 Gradle 작업(Tasks) 메뉴가 \"실행\"(bootRun) 분기에 가로채이지 않는가" 1 "Tasks 분기가 bootRun 분기보다 뒤에 있거나 메뉴 문구에 '실행' 포함"
+fi
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================
