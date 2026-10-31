@@ -25,6 +25,8 @@
 #   4. [동적 최신 버전 자동 감지]
 #      - 특정 버전 번호를 코드에 하드코딩하지 않고 sort -V 정렬을 통해
 #        항상 디스크에 존재하는 가장 최신 버전의 바이너리와 JAR를 자동으로 선택합니다.
+#   5. [실행 환경 메모리에 맞춘 힙 크기]
+#      - Neovim(plugins/java.lua)과 같은 규칙으로 힙을 정합니다(아래 3번 설명 참고).
 # ==============================================================================
 
 # ── 0. DevTools2 루트 디렉터리 동적 확정 ──────────────────────────────────────
@@ -90,15 +92,31 @@ for _d in "$DEVTOOLS2"/modules/java/jdk-*; do
 done
 [ -n "$JDTLS_JAVA_HOME" ] || JDTLS_JAVA_HOME="$DEVTOOLS2/modules/java/jdk-21"
 
+# [jdtls 힙 크기: 이 환경의 전체 메모리에 맞춰 결정 — Neovim(plugins/java.lua)·VS Code(settings.json)와 같은 기준]
+#   최대 힙 = 전체 메모리의 1/4 (최소 2GB, 최대 12GB), 초기 힙 = 최대 힙의 1/4 (최대 2GB).
+#   전체 메모리는 /proc/meminfo 기준이라 WSL 은 WSL 에 할당된 메모리(.wslconfig memory), 리눅스 네이티브는 PC 메모리입니다.
+#   예전에는 힙을 지정하지 않아 Mason jdtls 기본(-Xms1G)과 JVM 기본(최대 = 메모리의 25%)에 맡겼는데, 결과는 비슷해도
+#   Mason·JVM 기본값이 바뀌면 함께 흔들리므로 Neovim 과 같은 값을 명시합니다(뒤에 오는 --jvm-arg 가 기본값을 덮어씀).
+JDTLS_HEAP_ARGS=()
+_mem_kb=$(awk '/^MemTotal:/{print $2; exit}' /proc/meminfo 2>/dev/null)
+if [ -n "$_mem_kb" ] && [ "$_mem_kb" -gt 0 ] 2>/dev/null; then
+    _xmx=$(( _mem_kb / 1024 / 4 ))
+    [ "$_xmx" -lt 2048 ] && _xmx=2048
+    [ "$_xmx" -gt 12288 ] && _xmx=12288
+    _xms=$(( _xmx / 4 ))
+    [ "$_xms" -gt 2048 ] && _xms=2048
+    JDTLS_HEAP_ARGS=("--jvm-arg=-Xms${_xms}m" "--jvm-arg=-Xmx${_xmx}m")
+fi
+
 if [ -n "$JDTLS_BIN" ] && [ -x "$JDTLS_BIN" ]; then
     export JAVA_HOME="$JDTLS_JAVA_HOME"
     # PATH 의 java 는 Gradle 등 하위 도구용으로 기존처럼 JDK 21 유지 (jdtls 자체는 위 JAVA_HOME 으로 실행)
     export PATH="$DEVTOOLS2/modules/java/jdk-21/bin:$DEVTOOLS2/modules/gradle/current/bin:$PATH"
 
     if [ -n "$LOMBOK_JAR" ]; then
-        exec "$JDTLS_BIN" "--jvm-arg=-javaagent:$LOMBOK_JAR" "$@"
+        exec "$JDTLS_BIN" "${JDTLS_HEAP_ARGS[@]}" "--jvm-arg=-javaagent:$LOMBOK_JAR" "$@"
     else
-        exec "$JDTLS_BIN" "$@"
+        exec "$JDTLS_BIN" "${JDTLS_HEAP_ARGS[@]}" "$@"
     fi
 else
     echo "Error: [Zed] jdtls binary not found in Zed extensions or DevTools2 packages ($DEVTOOLS2/data/nvim/mason/packages/jdtls)." >&2

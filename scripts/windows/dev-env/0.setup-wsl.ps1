@@ -1056,6 +1056,65 @@ if (Test-Path $wslConfigFile) {
     }
 }
 
+# 9-1. .wslconfig 의 WSL2 메모리 상한([wsl2] memory)을 PC 메모리에 맞춰 제안
+# [설계 원칙 / Rationale]
+#   ● WSL 기본 메모리는 PC 메모리의 50%입니다(32GB PC → 16GB). 이 안에서 VS Code·Neovim 의 jdtls, Gradle 데몬,
+#     언어 서버들이 함께 돌아 Java 프로젝트를 두 편집기에서 동시에 열면 메모리가 빠듯해집니다
+#     (실측: VS Code jdtls 하나가 4.6GB, WSL 전체 8.5GB 사용 중).
+#   ● 제안값 = PC 메모리의 62.5%(내림), 단 Windows 에 최소 8GB 를 남깁니다(VS Code 창·브라우저 등은 Windows 에서 돔).
+#     32GB → 20GB, 64GB → 40GB. 16GB 이하 PC 는 늘릴 여유가 없어 기본값(50%)을 그대로 둡니다.
+#   ● memory 는 "최대 이만큼까지 쓸 수 있다"는 상한이지 미리 잡는 양이 아닙니다. WSL 은 기본으로
+#     캐시 메모리를 Windows 에 바로 돌려주고([experimental] autoMemoryReclaim 기본값 dropCache — 문서 확인),
+#     모든 WSL 을 닫거나 'wsl --shutdown' 하면 전부 반환합니다(게임 등 Windows 작업에 영향 없음).
+#   ● 이미 [wsl2] memory 가 있으면 사용자 설정으로 보고 건드리지 않습니다(멱등). 동의를 받은 뒤에만 기록합니다.
+#   ● 적용 시점: 다음 WSL 재시작부터('wsl --shutdown' 후 다시 열기). 설치를 이어 가는 지금 세션에는 영향 없음.
+#   ● jdtls 힙은 각 편집기가 실행 환경의 메모리 비율(25%)로 정하므로, 메모리를 늘리면 jdtls 상한도 함께 늘어납니다
+#     (Neovim: plugins/java.lua, Zed: scripts/java/jdtls, VS Code: settings.json 의 java.jdt.ls.vmargs).
+$hostMemBytes = $null
+try {
+    $hostMemBytes = (Get-CimInstance Win32_PhysicalMemory -ErrorAction Stop | Measure-Object -Property Capacity -Sum).Sum
+} catch {}
+if (-not $hostMemBytes) {
+    try { $hostMemBytes = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory } catch {}
+}
+$hostMemGB = if ($hostMemBytes) { [int][Math]::Round($hostMemBytes / 1GB) } else { 0 }
+
+$wslConfigText = ""
+if (Test-Path $wslConfigFile) {
+    $wslConfigText = [string](Get-Content $wslConfigFile -Raw -ErrorAction SilentlyContinue)
+}
+# [wsl2] 섹션 안의 memory 값(주석 제외)
+$existingWslMemory = $null
+$inWsl2Section = $false
+foreach ($cfgLine in ($wslConfigText -split "`r?`n")) {
+    $cfgTrim = $cfgLine.Trim()
+    if ($cfgTrim -match '^\[(.+)\]$') { $inWsl2Section = ($matches[1].Trim() -ieq "wsl2"); continue }
+    if ($inWsl2Section -and $cfgTrim -match '^memory\s*=\s*(.+)$') { $existingWslMemory = $matches[1].Trim() }
+}
+
+if ($hostMemGB -le 0) {
+    Write-Skip "PC 메모리 용량을 확인하지 못해 WSL 메모리 설정을 건너뜁니다."
+} elseif ($null -ne $existingWslMemory) {
+    Write-Success ".wslconfig 의 WSL 메모리 상한이 이미 설정되어 있어 그대로 둡니다. (memory=$existingWslMemory, PC 메모리 ${hostMemGB}GB)"
+} elseif ($hostMemGB -le 16) {
+    Write-Skip "PC 메모리가 ${hostMemGB}GB 라 WSL 메모리는 기본값(PC 메모리의 50%)을 유지합니다."
+} else {
+    $suggestWslMemGB = [Math]::Min([int][Math]::Floor($hostMemGB * 0.625), $hostMemGB - 8)
+    $defaultWslMemGB = [int][Math]::Floor($hostMemGB / 2)
+    Write-Host ""
+    Write-Question "❓ WSL 메모리 상한을 ${defaultWslMemGB}GB(기본) → ${suggestWslMemGB}GB 로 늘리시겠습니까? (PC 메모리 ${hostMemGB}GB)"
+    Write-Info "   • Java 프로젝트를 Neovim·VS Code 에서 함께 열어도 메모리가 부족하지 않게 여유를 둡니다."
+    Write-Info "   • 상한일 뿐 미리 잡지 않으며, WSL 을 모두 닫거나 'wsl --shutdown' 하면 Windows 로 전부 반환됩니다."
+    Write-Info "   • Windows 에는 $($hostMemGB - $suggestWslMemGB)GB 가 남습니다. 적용은 다음 WSL 재시작부터입니다."
+    if (Prompt-Confirm "   WSL 메모리 상한을 ${suggestWslMemGB}GB 로 설정하시겠습니까?" "Y") {
+        $updated = Set-IniKeyText -Text $wslConfigText -Section "wsl2" -Key "memory" -Value "${suggestWslMemGB}GB"
+        [System.IO.File]::WriteAllText($wslConfigFile, $updated, $utf8NoBom)
+        Write-Success ".wslconfig 에 WSL 메모리 상한(memory=${suggestWslMemGB}GB)을 설정했습니다. ('wsl --shutdown' 후 다시 열면 적용)"
+    } else {
+        Write-Info "WSL 메모리 설정을 건너뛰었습니다. (기본값: PC 메모리의 50%)"
+    }
+}
+
 # 10. %USERPROFILE%\.devtools2 통일 디렉터리 보장 및 배포판 정보 저장
 $devtools2Dir = Join-Path $env:USERPROFILE ".devtools2"
 if (-not (Test-Path $devtools2Dir)) {
