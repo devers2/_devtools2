@@ -414,6 +414,89 @@ Assert-Test "백신 오탐(Trojan:Win32/Commando.A!ml)을 유발하는 -EncodedC
     ("위반: " + ($encodedCommandViolations -join ", "))
 
 # ==============================================================================
+# [Suite 6] 2026-11 설치 흐름 점검 결함 회귀 방지 (run-all-tests.sh 의 Suite 6 과 같은 항목·기준)
+# ==============================================================================
+Write-TestHeader "[Suite 6] 2026-11 설치 흐름 점검 결함 회귀 방지"
+
+# --- 6-1. Start-Process -PassThru(-Wait 없음) 프로세스의 ExitCode 를 읽으면 .Handle 을 미리 여는가
+#     Handle 을 미리 열지 않으면 PS 5.1 에서 정상 종료해도 ExitCode 가 $null(실측) → 0.setup-wsl.ps1 이
+#     설치된 WSL 을 매번 "미설치"로 판정했음. 대입 문장(백틱 줄 이어짐 포함) 뒤 8줄 안에 .Handle/.WaitForExit 필요
+$exitCodeViolations = @()
+$winScriptFiles = $psFiles | Where-Object { $_.FullName -like "*\scripts\windows\*" -or $_.FullName -like "*/scripts/windows/*" }
+foreach ($file in $winScriptFiles) {
+    $lines = [System.IO.File]::ReadAllLines($file.FullName, [System.Text.Encoding]::UTF8)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -notmatch '^\s*\$(\w+)\s*=\s*Start-Process\b') { continue }
+        $var = $Matches[1]
+        $j = $i
+        $stmt = $lines[$i]
+        while ($stmt.TrimEnd().EndsWith('`') -and ($j + 1) -lt $lines.Count) {
+            $j++
+            $stmt += ' ' + $lines[$j]
+        }
+        if ($stmt -notmatch '-PassThru\b' -or $stmt -match '-Wait\b') { continue }
+        $varEsc = [regex]::Escape($var)
+        $rest = if (($j + 1) -lt $lines.Count) { ($lines[($j + 1)..($lines.Count - 1)] -join "`n") } else { "" }
+        if ($rest -notmatch ('\$' + $varEsc + '\.ExitCode\b')) { continue }
+        $winEnd = [Math]::Min($j + 8, $lines.Count - 1)
+        $window = if (($j + 1) -le $winEnd) { ($lines[($j + 1)..$winEnd] -join "`n") } else { "" }
+        if ($window -notmatch ('\$' + $varEsc + '\.(Handle|WaitForExit)\b')) { $exitCodeViolations += "$($file.Name):$($i + 1)(`$$var)" }
+    }
+}
+Assert-Test "Start-Process -PassThru 프로세스의 ExitCode 를 읽을 때 .Handle 을 미리 여는가 (PS 5.1 `$null 트랩)" ($exitCodeViolations.Count -eq 0) `
+    ("위반: " + ($exitCodeViolations -join ", "))
+
+# --- 6-2. 리눅스 설치 스크립트의 timeout 이 setsid(터미널 분리)와 함께 쓰이는가
+#     timeout 은 명령을 백그라운드 프로세스 그룹에서 실행 → 안에서 터미널을 잡는 명령(대화형 bash, sudo 질문)의
+#     SIGTTIN 으로 timeout 까지 정지해 설치가 영원히 멈춤(실측: Orca 권장 스킬 설치). setsid -w timeout 사용,
+#     setsid 없는 시스템용 대체 줄은 "# dt2:setsid-fallback" 표시로 예외
+$timeoutViolations = @()
+$devEnvDir = Join-Path $repoRootPath "scripts\linux\dev-env"
+$timeoutTargets = @(Get-ChildItem -Path $devEnvDir -File -Filter "*.sh") + @(Get-Item (Join-Path $repoRootPath "scripts\linux\setup-devtools2.sh") -ErrorAction SilentlyContinue)
+foreach ($sh in $timeoutTargets) {
+    if ($null -eq $sh) { continue }
+    $shLines = [System.IO.File]::ReadAllLines($sh.FullName, [System.Text.Encoding]::UTF8)
+    for ($i = 0; $i -lt $shLines.Count; $i++) {
+        $l = $shLines[$i]
+        if ($l -match '^\s*#') { continue }
+        $code = ($l -split ' #', 2)[0]
+        if ($code -notmatch '(^|[\s;&|(`$])timeout\s+(-[A-Za-z-]+(\s+\S+)?\s+)*[0-9]') { continue }
+        if ($code -match 'setsid' -or $l -match 'dt2:setsid-fallback') { continue }
+        $timeoutViolations += "$($sh.Name):$($i + 1)"
+    }
+}
+Assert-Test "리눅스 설치 스크립트의 timeout 이 setsid(터미널 분리)와 함께 쓰이는가 (SIGTTIN 정지 방지)" ($timeoutViolations.Count -eq 0) `
+    ("위반: " + ($timeoutViolations -join ", "))
+
+# --- 6-3. 설치 스크립트가 공용 파일(_common.sh·_install-utils.sh·bw-lib)을 $DEVTOOLS2 로컬 저장소에서 불러오지 않는가
+#     오래된 로컬 공용 파일을 불러오면 새 공용 함수가 없어 중단 → "스크립트 옆 파일 → 같은 커밋(DT2_REF) 원격" 순서
+$localSourceViolations = @()
+foreach ($sh in (Get-ChildItem -Path $devEnvDir -File -Filter "*.sh")) {
+    $shLines = [System.IO.File]::ReadAllLines($sh.FullName, [System.Text.Encoding]::UTF8)
+    for ($i = 0; $i -lt $shLines.Count; $i++) {
+        $l = $shLines[$i]
+        if ($l -match '^\s*#') { continue }
+        $code = ($l -split ' #', 2)[0]
+        if ($code -match '\$\{?DEVTOOLS2[^/"]*\}?/scripts/(linux/dev-env/_[A-Za-z-]+\.sh|fzf/bw-lib)') { $localSourceViolations += "$($sh.Name):$($i + 1)" }
+    }
+}
+Assert-Test "설치 스크립트가 공용 파일을 `$DEVTOOLS2 로컬 저장소 대신 스크립트 옆·같은 커밋 원격에서 불러오는가" ($localSourceViolations.Count -eq 0) `
+    ("위반: " + ($localSourceViolations -join ", "))
+
+# --- 6-4. WSLg 한글 입력 래퍼(wslg_ime_env_snippet)를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가
+#     래퍼의 입력기 코드는 fcitx5 가 있을 때만 동작 → 앱 설치 스크립트가 입력기·글꼴을 준비해야 함
+#     (예전에는 Sublime Merge 만 준비해 Orca 만 설치하면 WSLg 창에서 한글 입력 불가)
+$guiViolations = @()
+foreach ($sh in (Get-ChildItem -Path $devEnvDir -File -Filter "*.sh")) {
+    if ($sh.Name -eq "_install-utils.sh") { continue }
+    $shLines = [System.IO.File]::ReadAllLines($sh.FullName, [System.Text.Encoding]::UTF8)
+    $code = ($shLines | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+    if ($code.Contains('$(wslg_ime_env_snippet)') -and -not $code.Contains('ensure_gui_app_env ')) { $guiViolations += $sh.Name }
+}
+Assert-Test "WSLg 한글 입력 래퍼를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가" ($guiViolations.Count -eq 0) `
+    ("위반: " + ($guiViolations -join ", "))
+
+# ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================
 Write-Host ""

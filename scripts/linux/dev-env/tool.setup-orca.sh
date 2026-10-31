@@ -89,7 +89,7 @@ _orca_run() {
     if command -v setsid >/dev/null 2>&1; then
         setsid -w timeout -k 5 "$_secs" "$@" < /dev/null
     else
-        timeout -k 5 "$_secs" "$@" < /dev/null
+        timeout -k 5 "$_secs" "$@" < /dev/null   # dt2:setsid-fallback (setsid 없는 시스템 전용, 테스트 6-2 예외)
     fi
 }
 # Orca CLI 호출용 (사용법: _orca_cli <제한 초> <orca 인수...>)
