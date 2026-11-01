@@ -146,7 +146,10 @@ $psFiles = $allCandidateFiles | Where-Object { $_.Extension -eq ".ps1" }
 #     (run-all-tests.sh 도 WSL 에서는 powershell.exe 를 우선 사용). 5.1 파서 실행 자체가 실패하면 실패로 처리합니다.
 $syntaxErrors = @()
 $ps51 = Get-Command powershell.exe -ErrorAction SilentlyContinue
-if ($PSVersionTable.PSVersion.Major -ge 6 -and $ps51) {
+if (@($psFiles).Count -eq 0) {
+    # 검사할 파일이 0개면 "오류 없음"으로 통과해 버리므로 실패로 처리 (sh 러너에서 REPO_ROOT 가 심볼릭 링크라 0개였던 사례)
+    $syntaxErrors += "검사할 .ps1 파일을 찾지 못함 ($repoRootPath)"
+} elseif ($PSVersionTable.PSVersion.Major -ge 6 -and $ps51) {
     $quoted = ($psFiles | ForEach-Object { "'" + ($_.FullName -replace "'", "''") + "'" }) -join ","
     $parseScript = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(`$false); `$errors = @(); " +
         "foreach (`$f in @($quoted)) { `$code = [System.IO.File]::ReadAllText(`$f, [System.Text.Encoding]::UTF8); `$errs = `$null; " +
@@ -173,6 +176,32 @@ if ($PSVersionTable.PSVersion.Major -ge 6 -and $ps51) {
 
 Assert-Test "모든 .ps1 파일에 문법 오류가 없는가 (PowerShell 파서)" ($syntaxErrors.Count -eq 0) `
     ($syntaxErrors -join "`n         -> ")
+
+# --- 2-3. .ps1 이 부르는 함수·cmdlet 이 모두 정의되어 있는가 (정의 없는 함수 호출)
+#     0.setup-wsl.ps1 이 Write-Question 을 부르기만 하고 정의가 없어, 그 줄이 실행되는 경우(.wslconfig 미러링 없음 ·
+#     WSL 메모리 상한 질문)에만 멈췄음 — 문법 검사(2-1)는 통과. 검사 본문은 tests\lib\Find-UndefinedPsCommands.ps1 (sh 러너와 공용)
+#     ● 내장 cmdlet 목록은 PowerShell 마다 달라, 7 에서 실행 중이고 powershell.exe(5.1)가 있으면 5.1 로 따로 검사(2-1 과 같은 방식)
+$undefChecker = Join-Path $repoRootPath "tests\lib\Find-UndefinedPsCommands.ps1"
+$undefOut = @()
+if ($PSVersionTable.PSVersion.Major -ge 6 -and $ps51) {
+    $quotedFiles = ($psFiles | ForEach-Object { "'" + ($_.FullName -replace "'", "''") + "'" }) -join ","
+    $undefScript = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(`$false); " +
+        "& ([scriptblock]::Create([System.IO.File]::ReadAllText('" + ($undefChecker -replace "'", "''") + "', [System.Text.Encoding]::UTF8))) -Files @($quotedFiles)"
+    $undefOut = @(& $ps51.Source -NoProfile -Command $undefScript 2>$null) | ForEach-Object { [string]$_ }
+} else {
+    $undefOut = @(& ([scriptblock]::Create([System.IO.File]::ReadAllText($undefChecker, [System.Text.Encoding]::UTF8))) -Files @($psFiles | ForEach-Object { $_.FullName })) | ForEach-Object { [string]$_ }
+}
+$undefCallsLine = $undefOut | Where-Object { $_ -like 'DT2_CALLS=*' } | Select-Object -Last 1
+$undefLine = $undefOut | Where-Object { $_ -like 'DT2_UNDEF=*' } | Select-Object -Last 1
+$undefCalls = 0
+if ($undefCallsLine) { $undefCalls = [int]$undefCallsLine.Substring('DT2_CALLS='.Length) }
+$undefBad = ""
+if ($null -eq $undefLine -or $undefCalls -eq 0) {
+    $undefBad = "검사 실행 실패 (호출 ${undefCalls}개)"
+} elseif ($undefLine.Length -gt 'DT2_UNDEF='.Length) {
+    $undefBad = "정의 없음: " + $undefLine.Substring('DT2_UNDEF='.Length)
+}
+Assert-Test ".ps1 이 부르는 함수·cmdlet 이 모두 정의되어 있는가" ([string]::IsNullOrEmpty($undefBad)) $undefBad
 
 # --- 2-2. PS 5.1 호환 정적 검사 (run-all-tests.sh 의 Python 정밀 검사와 같은 항목·기준)
 #     예전에는 이 러너에 없었고 sh 러너도 pwsh 가 없을 때만 실행해서, pwsh 가 있는 PC 에서는 ?? 연산자를 아무도 잡지 못했습니다

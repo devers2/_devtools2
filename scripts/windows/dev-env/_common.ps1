@@ -64,6 +64,14 @@ function Write-Fail {
     Write-Host "[오류] $Message" -ForegroundColor Red
 }
 
+# 질문 제목 줄 (바로 뒤에 Write-Info 로 설명, Prompt-Confirm 으로 답을 받는 형태) — bash 쪽 print_question 과 같은 청록색
+# ⚠️ 예전에는 0.setup-wsl.ps1 이 이 함수를 부르기만 하고 정의가 없어, .wslconfig 미러링·WSL 메모리 상한 질문에서
+#    "'Write-Question' 용어가 ... 인식되지 않습니다" 로 멈췄습니다(테스트 2-3 이 정의 없는 함수 호출을 검사).
+function Write-Question {
+    param([string]$Message)
+    Write-Host $Message -ForegroundColor Cyan
+}
+
 function Pause-Script {
     # 기본 메시지: 이 함수를 부르는 호출부는 대부분 곧이어 exit 하는 상황이라
     # "계속하려면"이 아니라 "종료합니다"가 정확합니다(0.setup-wsl.ps1에서 실측 확인 —

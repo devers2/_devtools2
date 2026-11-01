@@ -17,8 +17,11 @@
 set -euo pipefail
 
 # 스크립트 위치 기준 저장소 루트 경로 감지
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# ⚠️ pwd -P(실제 경로): 저장소를 심볼릭 링크 경로(예: ~/_devtools2 → /var/opt/_devtools2)로 열면 REPO_ROOT 가 링크가 되고,
+#    find "$REPO_ROOT" 는 링크 안으로 들어가지 않아 대상 파일이 0개가 됩니다. 그래서 PowerShell 문법 검사(2-1)가
+#    파일 없이 "통과"하고 있었습니다(정의 없는 함수 검사 2-3 의 "호출 0개 = 실행 실패" 확인에서 발견).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 # 색상 정의
 _C_RESET="\033[0m"
@@ -178,7 +181,10 @@ elif command -v pwsh >/dev/null 2>&1; then
   ps_parser="pwsh"
 fi
 
-if [ -n "$ps_parser" ]; then
+if [ "${#ps1_files[@]}" -eq 0 ]; then
+  # 검사할 파일이 0개면 "오류 없음"으로 통과해 버리므로 실패로 처리합니다(REPO_ROOT 심볼릭 링크 사례)
+  assert_test "모든 .ps1 파일에 문법 오류가 없는가 (PowerShell 파서)" 1 "검사할 .ps1 파일을 찾지 못함 (REPO_ROOT=$REPO_ROOT)"
+elif [ -n "$ps_parser" ]; then
   ps_list=""
   for _f in "${ps1_files[@]}"; do
     [ "$ps_parser" = "powershell.exe" ] && _f=$(wslpath -w "$_f")
@@ -208,6 +214,34 @@ if [ -n "$ps_parser" ]; then
   fi
 else
   assert_test "PowerShell 파서 감지 (powershell.exe / pwsh 미설치로 건너뜀)" 0
+fi
+
+# 2-3. .ps1 이 부르는 함수·cmdlet 이 모두 정의되어 있는가 (정의 없는 함수 호출)
+#   0.setup-wsl.ps1 이 Write-Question 을 부르기만 하고 정의가 없어, 그 줄이 실행되는 경우(.wslconfig 미러링 없음 ·
+#   WSL 메모리 상한 질문)에만 "'Write-Question' 용어가 ... 인식되지 않습니다" 로 멈췄습니다. 문법 검사(2-1)는 통과합니다.
+#   ● 검사 본문은 tests/lib/Find-UndefinedPsCommands.ps1 하나를 두 러너가 같이 씁니다(구문 트리로 Verb-Noun 호출을 모아
+#     저장소 전체 function 정의 + Get-Command 로 찾을 수 있는 명령과 비교).
+#   ● 내장 cmdlet 목록은 실행하는 PowerShell 에 따라 다르므로 설치 대상과 같은 Windows PowerShell 5.1(powershell.exe)로만
+#     검사합니다. 없으면(리눅스) 건너뛰고, CI 는 Windows 에서 run-all-tests.ps1 로 같은 검사를 합니다.
+if [ "${#ps1_files[@]}" -gt 0 ] && [ "$ps_parser" = "powershell.exe" ]; then
+  undef_checker=$(wslpath -w "$REPO_ROOT/tests/lib/Find-UndefinedPsCommands.ps1")
+  undef_out=$(powershell.exe -NoProfile -Command "
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(\$false)
+        & ([scriptblock]::Create([System.IO.File]::ReadAllText('${undef_checker//\'/\'\'}', [System.Text.Encoding]::UTF8))) -Files @($ps_list)
+    " 2>/dev/null | tr -d '\r' || true)
+  undef_calls=$(printf '%s\n' "$undef_out" | sed -n 's/^DT2_CALLS=//p')
+  if ! printf '%s\n' "$undef_out" | grep -q '^DT2_UNDEF=' || [ "${undef_calls:-0}" -eq 0 ]; then
+    assert_test ".ps1 이 부르는 함수·cmdlet 이 모두 정의되어 있는가" 1 "검사 실행 실패 (호출 ${undef_calls:-0}개)"
+  else
+    undef_list=$(printf '%s\n' "$undef_out" | sed -n 's/^DT2_UNDEF=//p')
+    if [ -z "$undef_list" ]; then
+      assert_test ".ps1 이 부르는 함수·cmdlet 이 모두 정의되어 있는가" 0
+    else
+      assert_test ".ps1 이 부르는 함수·cmdlet 이 모두 정의되어 있는가" 1 "정의 없음: $undef_list"
+    fi
+  fi
+else
+  assert_test ".ps1 정의 없는 함수 호출 검사 (Windows PowerShell 5.1 없음 — CI 의 Windows 실행에서 검사)" 0
 fi
 
 # 2-2. PS 5.1 호환 정적 검사 — 파서 유무와 관계없이 항상 실행
