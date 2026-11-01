@@ -883,23 +883,38 @@ _MENU_GIT+=(
 )
 
 # 열기 — 설치된 도구만 (파일 관리자: WSL·macOS 는 항상, Linux 는 데스크톱 환경 + xdg-open 이 있을 때)
+#   1단계 그룹 문구도 실제로 있는 항목 이름만 이어 붙여 만듭니다(_OPEN_KW — 예: "탐색기 · VS Code · Zed").
 _MENU_OPEN=()
+_OPEN_KW=()
 if $IS_WSL; then
-    command -v explorer.exe >/dev/null 2>&1 && _MENU_OPEN+=("open_explorer	Windows 탐색기로 현재 폴더 열기")
+    command -v explorer.exe >/dev/null 2>&1 && _MENU_OPEN+=("open_explorer	Windows 탐색기로 현재 폴더 열기") && _OPEN_KW+=("탐색기")
 elif $IS_MAC; then
-    _MENU_OPEN+=("open_explorer	Finder 로 현재 폴더 열기")
+    _MENU_OPEN+=("open_explorer	Finder 로 현재 폴더 열기") && _OPEN_KW+=("Finder")
 elif $_HAS_DESKTOP && command -v xdg-open >/dev/null 2>&1; then
-    _MENU_OPEN+=("open_explorer	파일 관리자로 현재 폴더 열기")
+    _MENU_OPEN+=("open_explorer	파일 관리자로 현재 폴더 열기") && _OPEN_KW+=("파일 관리자")
 fi
-command -v code >/dev/null 2>&1 && _MENU_OPEN+=("open_vscode	VS Code 로 현재 폴더 열기")
-[ -n "$_ZED_CMD" ] && _MENU_OPEN+=("open_zed	Zed 로 현재 폴더 열기")
+command -v code >/dev/null 2>&1 && _MENU_OPEN+=("open_vscode	VS Code 로 현재 폴더 열기") && _OPEN_KW+=("VS Code")
+[ -n "$_ZED_CMD" ] && _MENU_OPEN+=("open_zed	Zed 로 현재 폴더 열기") && _OPEN_KW+=("Zed")
+
+# Orca — 편집기가 아니라 저장소(프로젝트)·워크트리·에이전트를 관리하는 앱이라 "열기"와 나눠 별도 그룹으로 둡니다.
 # (modules/orca 는 Linux AppImage 라 WSL(WSLg)·Linux 데스크톱에서만)
+_MENU_ORCA=()
 if [ -x "$_ORCA_DIR/orca" ] && { $IS_WSL || $_HAS_DESKTOP; }; then
     if [ -n "$_GIT_ROOT" ]; then
-        _MENU_OPEN+=("open_orca	Orca 열기 + 현재 저장소를 프로젝트로 추가")
+        _MENU_ORCA+=("open_orca	Orca 열기 + 현재 저장소를 프로젝트로 추가")
     else
-        _MENU_OPEN+=("open_orca	Orca 열기")
+        _MENU_ORCA+=("open_orca	Orca 열기")
     fi
+fi
+
+# AI 스킬 — 저장소(.config/agents/skills) 하나로 Claude·Codex·Antigravity 스킬을 맞춤 (scripts/linux/cmd/agent-skills.sh)
+_AGENT_SKILLS="$_CP_SCRIPT_DIR/../linux/cmd/agent-skills.sh"
+_MENU_SKILLS=()
+if [ -f "$_AGENT_SKILLS" ]; then
+    _MENU_SKILLS+=(
+        "skills_status	스킬 연결 상태 · 다시 연결 (Claude · Codex · Antigravity)"
+        "skills_import	스킬 가져오기 (에이전트 폴더 → DevTools2 저장소, Orca 공유 링크로 받은 스킬 등)"
+    )
 fi
 _MENU_BASE64=(
     "base64_encode	파일 → 텍스트 인코딩 (클립보드 복사)"
@@ -918,9 +933,14 @@ _cp_detach() {
 
 # 2단계 항목 선택 — 고른 항목의 ID 를 출력 (Esc 면 빈 문자열)
 # 사용법: _pick_leaf "<프롬프트>" "ID<TAB>문구" ...
+#   항목이 하나뿐인 그룹(예: 🐋 Orca)은 2단계 메뉴를 띄우지 않고 바로 그 항목을 고릅니다.
 _pick_leaf() {
     local _prompt="$1" _sel
     shift
+    if [ "$#" -eq 1 ]; then
+        printf '%s' "${1%%$'\t'*}"
+        return 0
+    fi
     _sel=$(printf '%s\n' "$@" | fzf --delimiter=$'\t' --with-nth=2 --prompt="$_prompt" --header="Esc: 메뉴로" --height=40% --reverse) || true
     printf '%s' "${_sel%%$'\t'*}"
 }
@@ -930,7 +950,14 @@ while [ -z "$CHOICE_ID" ]; do
     _TOP=()
     $GRADLEW_EXISTS && _TOP+=("gradle	🐘 Gradle ▸ 실행 · 빌드 · 배포 · 작업(Tasks)")
     _TOP+=("git	🌿 Git · 프로젝트 ▸ lazygit · 브랜치 · PR · Clone · 프로젝트 설정")
-    [ "${#_MENU_OPEN[@]}" -gt 0 ] && _TOP+=("open	📂 열기 ▸ 탐색기 · VS Code · Zed · Orca (설치된 것만)")
+    if [ "${#_MENU_OPEN[@]}" -gt 0 ]; then
+        _kw=$(printf ' · %s' "${_OPEN_KW[@]}")
+        _TOP+=("open	📂 열기 ▸ ${_kw# · }")
+    fi
+    if [ "${#_MENU_ORCA[@]}" -gt 0 ]; then
+        if [ -n "$_GIT_ROOT" ]; then _TOP+=("orca	🐋 Orca ▸ 열기 · 현재 저장소를 프로젝트로 추가"); else _TOP+=("orca	🐋 Orca ▸ 열기"); fi
+    fi
+    [ "${#_MENU_SKILLS[@]}" -gt 0 ] && _TOP+=("skills	🧩 AI 스킬 ▸ 연결 상태 · 다시 연결 · 가져오기")
     _TOP+=("port	🔌 포트 · 프로세스 · 메모리 ▸ 포트 확인 · 프로세스 확인 · 종료 · 메모리 현황")
     _TOP+=("env	☕ 개발 환경 ▸ JDK · Python · JDTLS 캐시")
     _TOP+=("base64	🔤 Base64 ▸ 인코딩 · 복원")
@@ -946,6 +973,8 @@ while [ -z "$CHOICE_ID" ]; do
         ;;
     git) CHOICE_ID=$(_pick_leaf "🌿 Git · 프로젝트 > " "${_MENU_GIT[@]}") ;;
     open) CHOICE_ID=$(_pick_leaf "📂 열기 > " "${_MENU_OPEN[@]}") ;;
+    orca) CHOICE_ID=$(_pick_leaf "🐋 Orca > " "${_MENU_ORCA[@]}") ;;
+    skills) CHOICE_ID=$(_pick_leaf "🧩 AI 스킬 > " "${_MENU_SKILLS[@]}") ;;
     port) CHOICE_ID=$(_pick_leaf "🔌 포트 · 프로세스 · 메모리 > " "${_MENU_PORT[@]}") ;;
     env) CHOICE_ID=$(_pick_leaf "☕ 개발 환경 > " "${_MENU_ENV[@]}") ;;
     base64) CHOICE_ID=$(_pick_leaf "🔤 Base64 > " "${_MENU_BASE64[@]}") ;;
@@ -2373,6 +2402,19 @@ print("has" if want and walk(d.get("result", d)) else "ok")
         fi
     fi
     echo "   Orca 창의 프로젝트 목록에서 고르세요."
+
+# ── [AI 스킬] 연결 상태 · 다시 연결 ─────────────────────────────────────────────
+# 저장소 스킬을 설치된 에이전트 폴더에 다시 연결(sync)한 뒤 상태를 보여 줍니다. 셸을 열 때도 자동으로 맞추지만,
+# targets.conf 를 고쳤거나 에이전트를 막 설치한 직후 바로 반영할 때 씁니다.
+elif [ "$CHOICE_ID" = "skills_status" ]; then
+    bash "$_AGENT_SKILLS" sync
+    echo ""
+    bash "$_AGENT_SKILLS" status
+
+# ── [AI 스킬] 스킬 가져오기 ───────────────────────────────────────────────────
+# 에이전트 폴더에만 있는 스킬(Orca 공유 링크로 받은 것 등)을 저장소로 옮기고 링크로 바꾼 뒤 커밋·푸시까지 안내합니다.
+elif [ "$CHOICE_ID" = "skills_import" ]; then
+    bash "$_AGENT_SKILLS" import
 
 # ── [Base64] 파일 → 텍스트 인코딩 ────────────────────────────────────────────
 # Bitwarden 등에 파일 자체를 첨부할 수 없는 경우(무료 플랜) 파일을 Base64 문자열로
