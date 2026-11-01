@@ -831,24 +831,36 @@ else
   assert_test "WSLg 한글 입력 래퍼를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가" 1 "위반: $gui_files"
 fi
 
-# 6-5. command-palette 의 Gradle 작업(Tasks) 메뉴가 "실행"(bootRun) 분기에 가로채이지 않는가
-#   선택 분기는 메뉴 문구의 부분 문자열(*"실행"*)로 고르므로, Tasks 분기가 bootRun 분기보다 뒤에 있거나
-#   메뉴 문구에 "실행"이 들어가면 Tasks 를 골라도 bootRun 이 실행됩니다.
-palette_order_ok=$(
+# 6-5. command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가 (메뉴 문구 부분 문자열로 분기하지 않는가)
+#   예전에는 메뉴 문구의 부분 문자열(*"실행"* 등)로 분기를 골라, 새 항목 문구가 겹치면 엉뚱한 분기가 실행될 수
+#   있었습니다(예: "작업 실행" 을 고르면 bootRun 실행). 이제 항목은 "ID<TAB>문구", 분기는 ID 로 고릅니다.
+#   ● 메뉴 ID: _MENU_* 배열의 항목 + Gradle 빠른 실행(_GT_RESULT="quick:<ID>")
+#   ● 분기 ID: [ "$CHOICE_ID" = "<ID>" ] — 메뉴에만 있거나 분기에만 있는 ID 가 없어야 하고, 분기는 ID 당 하나
+palette_menu_bad=$(
   python3 - "$REPO_ROOT/scripts/fzf/command-palette" <<'EOF'
 import re, sys
 c = open(sys.argv[1], encoding='utf-8').read()
-label = re.search(r'MENU_OPTIONS\+=\("(\[Gradle\] 작업 \(Tasks\)[^"]*)"\)', c)
-tasks = c.find('if [[ "$CHOICE" == *"[Gradle] 작업 (Tasks)"* ]]')
-run = c.find('[[ "$CHOICE" == *"실행"* ]]')
-ok = bool(label) and '실행' not in label.group(1) and tasks != -1 and run != -1 and tasks < run
-print(1 if ok else 0)
+menu = set(re.findall(r'^\s*"([a-z0-9_]+)\t', c, re.M)) | set(re.findall(r'_GT_RESULT="quick:([a-z0-9_]+)"', c))
+menu -= {'gradle', 'port', 'env', 'project', 'base64'}  # 1단계 그룹 ID (분기 대상 아님)
+branches = re.findall(r'\[ "\$CHOICE_ID" = "([a-z0-9_]+)" \]', c)
+bad = []
+if not menu:
+    bad.append('메뉴 ID 없음')
+if sorted(set(branches)) != sorted(branches):
+    bad.append('중복 분기')
+if menu - set(branches):
+    bad.append('분기 없는 메뉴: ' + ','.join(sorted(menu - set(branches))))
+if set(branches) - menu:
+    bad.append('메뉴 없는 분기: ' + ','.join(sorted(set(branches) - menu)))
+if re.search(r'\[\[ "\$CHOICE" ==', c):
+    bad.append('문구 부분 문자열 분기 남음')
+print('; '.join(bad))
 EOF
 )
-if [ "$palette_order_ok" = "1" ]; then
-  assert_test "command-palette 의 Gradle 작업(Tasks) 메뉴가 \"실행\"(bootRun) 분기에 가로채이지 않는가" 0
+if [ -z "$palette_menu_bad" ]; then
+  assert_test "command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가" 0
 else
-  assert_test "command-palette 의 Gradle 작업(Tasks) 메뉴가 \"실행\"(bootRun) 분기에 가로채이지 않는가" 1 "Tasks 분기가 bootRun 분기보다 뒤에 있거나 메뉴 문구에 '실행' 포함"
+  assert_test "command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가" 1 "$palette_menu_bad"
 fi
 
 # 6-6. 세 편집기(VS Code·Neovim·Zed)의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가

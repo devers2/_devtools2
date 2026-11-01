@@ -553,16 +553,24 @@ foreach ($sh in (Get-ChildItem -Path $devEnvDir -File -Filter "*.sh")) {
 Assert-Test "WSLg 한글 입력 래퍼를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가" ($guiViolations.Count -eq 0) `
     ("위반: " + ($guiViolations -join ", "))
 
-# --- 6-5. command-palette 의 Gradle 작업(Tasks) 메뉴가 "실행"(bootRun) 분기에 가로채이지 않는가
-#     선택 분기는 메뉴 문구의 부분 문자열(*"실행"*)로 고르므로, Tasks 분기가 bootRun 분기보다 뒤에 있거나
-#     메뉴 문구에 "실행"이 들어가면 Tasks 를 골라도 bootRun 이 실행됨
+# --- 6-5. command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가 (메뉴 문구 부분 문자열로 분기하지 않는가)
+#     예전에는 메뉴 문구의 부분 문자열(*"실행"* 등)로 분기를 골라, 문구가 겹치면 엉뚱한 분기가 실행될 수 있었음
+#     → 항목은 "ID<TAB>문구", 분기는 [ "$CHOICE_ID" = "<ID>" ] (메뉴 ID = _MENU_* 항목 + Gradle 빠른 실행 quick:<ID>)
 $paletteCode = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\fzf\command-palette"), [System.Text.Encoding]::UTF8)
-$labelMatch = [regex]::Match($paletteCode, 'MENU_OPTIONS\+=\("(\[Gradle\] 작업 \(Tasks\)[^"]*)"\)')
-$tasksIdx = $paletteCode.IndexOf('if [[ "$CHOICE" == *"[Gradle] 작업 (Tasks)"* ]]')
-$runIdx = $paletteCode.IndexOf('[[ "$CHOICE" == *"실행"* ]]')
-$paletteOrderOk = $labelMatch.Success -and (-not $labelMatch.Groups[1].Value.Contains('실행')) -and $tasksIdx -ge 0 -and $runIdx -ge 0 -and $tasksIdx -lt $runIdx
-Assert-Test "command-palette 의 Gradle 작업(Tasks) 메뉴가 `"실행`"(bootRun) 분기에 가로채이지 않는가" $paletteOrderOk `
-    "Tasks 분기가 bootRun 분기보다 뒤에 있거나 메뉴 문구에 '실행' 포함"
+$menuIds = New-Object System.Collections.Generic.HashSet[string]
+foreach ($m in [regex]::Matches($paletteCode, '(?m)^\s*"([a-z0-9_]+)\t')) { [void]$menuIds.Add($m.Groups[1].Value) }
+foreach ($m in [regex]::Matches($paletteCode, '_GT_RESULT="quick:([a-z0-9_]+)"')) { [void]$menuIds.Add($m.Groups[1].Value) }
+foreach ($g in @('gradle', 'port', 'env', 'project', 'base64')) { [void]$menuIds.Remove($g) }
+$branchIds = @([regex]::Matches($paletteCode, '\[ "\$CHOICE_ID" = "([a-z0-9_]+)" \]') | ForEach-Object { $_.Groups[1].Value })
+$paletteMenuBad = @()
+if ($menuIds.Count -eq 0) { $paletteMenuBad += "메뉴 ID 없음" }
+if (@($branchIds | Sort-Object -Unique).Count -ne $branchIds.Count) { $paletteMenuBad += "중복 분기" }
+$noBranch = @($menuIds | Where-Object { $branchIds -notcontains $_ } | Sort-Object)
+if ($noBranch.Count -gt 0) { $paletteMenuBad += ("분기 없는 메뉴: " + ($noBranch -join ",")) }
+$noMenu = @($branchIds | Where-Object { -not $menuIds.Contains($_) } | Sort-Object -Unique)
+if ($noMenu.Count -gt 0) { $paletteMenuBad += ("메뉴 없는 분기: " + ($noMenu -join ",")) }
+if ($paletteCode -match '\[\[ "\$CHOICE" ==') { $paletteMenuBad += "문구 부분 문자열 분기 남음" }
+Assert-Test "command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가" ($paletteMenuBad.Count -eq 0) ($paletteMenuBad -join "; ")
 
 # --- 6-6. 세 편집기(VS Code·Neovim·Zed)의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가
 #     VS Code 가 -Xms8G -Xmx8G 로 고정되어 WSL(기본 PC 메모리의 절반) 안에서 시작부터 8GB 를 잡았음 → 셋 다 메모리의 25% 기준
