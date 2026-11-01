@@ -410,6 +410,23 @@ fi
 BIND_EOF
 
 print_done "~/.bashrc 에 readline 단축키 바인딩을 등록했습니다 (Alt+c, Alt+h)."
+
+# ── AI 에이전트 스킬 링크 자동 맞춤 (대화형 셸을 열 때) ──────────────────────────
+# 스킬 원본은 저장소 .config/agents/skills 한 곳이고, 에이전트 폴더에는 스킬마다 링크만 겁니다(agent-skills.sh 설명 참고).
+# 스킬 내용 수정은 링크라 git pull 만으로 반영되지만, 새 스킬·삭제된 스킬·나중에 설치한 에이전트는 링크를 새로 맞춰야 해서
+# 셸을 열 때 sync --quiet 를 실행합니다. 바뀐 것이 없으면 아무것도 출력하지 않고, 폴더 몇 개만 확인해 셸 시작이 느려지지 않습니다.
+_SKILLS_BLOCK_START='# === DEVTOOLS2 에이전트 스킬 링크 시작 ==='
+_SKILLS_BLOCK_END='# === DEVTOOLS2 에이전트 스킬 링크 끝 ==='
+sed -i "/$_SKILLS_BLOCK_START/,/$_SKILLS_BLOCK_END/d" ~/.bashrc 2>/dev/null || true
+cat >> ~/.bashrc << 'SKILLS_EOF'
+# === DEVTOOLS2 에이전트 스킬 링크 시작 ===
+# 저장소의 스킬(.config/agents/skills)을 설치된 AI 에이전트(Claude·Codex·Antigravity) 폴더에 링크 (대화형 셸만)
+if [ -n "${PS1:-}" ] && [ -f "${DEVTOOLS2:-}/scripts/linux/cmd/agent-skills.sh" ]; then
+    bash "$DEVTOOLS2/scripts/linux/cmd/agent-skills.sh" sync --quiet 2>/dev/null
+fi
+# === DEVTOOLS2 에이전트 스킬 링크 끝 ===
+SKILLS_EOF
+print_done "~/.bashrc 에 에이전트 스킬 링크 자동 맞춤을 등록했습니다 (새 셸을 열 때)."
 echo ""
 
 print_subsep
@@ -436,7 +453,7 @@ if [ -f "$HOME/.bash_profile" ]; then
 fi
 
 print_subsep
-print_step "[Step 4] 에디터(Neovim, Zed) 설정: 심볼릭 링크 생성 및 권한 검사"
+print_step "[Step 4] 에디터(Neovim, Zed)·에이전트 스킬 설정: 심볼릭 링크 생성 및 권한 검사"
 echo ""
 # 공통 심볼릭 링크 유틸리티 스크립트 — 로컬에 없으면 GitHub에서 직접 스트리밍 실행
 _SYMLINK_RAW="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/scripts/linux/cmd/create-symbolic-link.sh"
@@ -503,6 +520,16 @@ else
     _run_symlink "$DEVTOOLS2/.config/vscode/settings.json" "$cfg_dir/Code/User/settings.json"
     _run_symlink "$DEVTOOLS2/.config/vscode/keybindings.json" "$cfg_dir/Code/User/keybindings.json"
     _run_symlink "$DEVTOOLS2/.config/vscode/tasks.json" "$cfg_dir/Code/User/tasks.json"
+fi
+
+# --- AI 에이전트 스킬 (Claude · Codex · Antigravity 공용) ---
+# 스킬 원본은 저장소 .config/agents/skills/<스킬>/SKILL.md 한 곳에만 두고, 설치된 에이전트의 스킬 폴더
+# (~/.claude/skills · ~/.agents/skills · ~/.gemini/config/skills)에 스킬마다 링크합니다(자세한 이유는 agent-skills.sh 머리말).
+# 스킬은 이 PC 의 저장소에 있는 파일이라 원격 스트리밍 대상이 아니며, 저장소가 없으면 연결할 스킬도 없어 건너뜁니다.
+# 아직 설치되지 않은 에이전트(Orca 단계에서 설치되는 CLI 등)는 설치 뒤 새 셸을 열 때 ~/.bashrc 의 sync --quiet 가 연결합니다.
+mkdir -p "$DEVTOOLS2/.config/agents/skills" 2>/dev/null || true
+if [ -f "$DEVTOOLS2/scripts/linux/cmd/agent-skills.sh" ]; then
+    bash "$DEVTOOLS2/scripts/linux/cmd/agent-skills.sh" sync || print_warn "에이전트 스킬 링크를 맞추지 못했습니다 (건너뛰고 계속 진행합니다)"
 fi
 
 # data 대상 디렉터리 결정
