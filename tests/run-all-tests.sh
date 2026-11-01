@@ -463,9 +463,10 @@ else
 fi
 
 # 5-4. command-palette 포트 해제가 LISTEN 프로세스만 대상으로 하는가
-palette_file="$REPO_ROOT/scripts/fzf/command-palette"
-bad_lsof=$(grep -P '^[^#\r\n]*lsof\s+-ti\s+:' "$palette_file" 2>/dev/null || true)
-has_listen=$(grep -P '\-sTCP:LISTEN' "$palette_file" 2>/dev/null || true)
+#   (팔레트는 command-palette + palette.d/*.sh 로 나뉘어 있어 함께 봅니다 — 포트 함수는 palette.d/_lib.sh)
+palette_files=("$REPO_ROOT/scripts/fzf/command-palette" "$REPO_ROOT"/scripts/fzf/palette.d/*.sh)
+bad_lsof=$(grep -hP '^[^#\r\n]*lsof\s+-ti\s+:' "${palette_files[@]}" 2>/dev/null || true)
+has_listen=$(grep -hP '\-sTCP:LISTEN' "${palette_files[@]}" 2>/dev/null || true)
 
 if [ -z "$bad_lsof" ] && [ -n "$has_listen" ]; then
   assert_test "command-palette 포트 해제가 LISTEN 프로세스만 대상으로 하는가" 0
@@ -831,37 +832,76 @@ else
   assert_test "WSLg 한글 입력 래퍼를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가" 1 "위반: $gui_files"
 fi
 
-# 6-5. command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가 (메뉴 문구 부분 문자열로 분기하지 않는가)
+# 6-5. command-palette 의 그룹 파일 · 메뉴 항목 ID · 실행 함수가 짝이 맞는가 (메뉴 문구 부분 문자열로 분기하지 않는가)
 #   예전에는 메뉴 문구의 부분 문자열(*"실행"* 등)로 분기를 골라, 새 항목 문구가 겹치면 엉뚱한 분기가 실행될 수
-#   있었습니다(예: "작업 실행" 을 고르면 bootRun 실행). 이제 항목은 "ID<TAB>문구", 분기는 ID 로 고릅니다.
-#   ● 메뉴 ID: _MENU_* 배열의 항목(설치된 도구만 보이는 조건부 항목 _MENU_X+=("ID<TAB>...") 포함) + Gradle 빠른 실행(_GT_RESULT="quick:<ID>")
-#   ● 분기 ID: [ "$CHOICE_ID" = "<ID>" ] — 메뉴에만 있거나 분기에만 있는 ID 가 없어야 하고, 분기는 ID 당 하나
+#   있었습니다(예: "작업 실행" 을 고르면 bootRun 실행). 이제 항목은 "ID<TAB>문구", 실행은 cp_run_<ID> 함수입니다.
+#   팔레트는 1단계 메뉴 그룹마다 파일 하나(scripts/fzf/palette.d/<그룹 ID>.sh)로 나뉘어 있습니다.
+#   ● command-palette 의 _CP_GROUP_FILES 와 palette.d 의 그룹 파일(_lib.sh 제외)이 같은가 (빠뜨리거나 남는 파일 없음)
+#   ● 그룹 파일마다 1단계 등록(cp_register_group <ID>)의 ID 가 파일 이름과 같고, cp_group_<ID> 2단계 함수가 있는가
+#   ● 메뉴 ID(배열 항목 줄 "ID<TAB>..." · 조건부 항목 _MENU_X+=("ID<TAB>...") · Gradle 빠른 실행 quick:<ID>)마다
+#     실행 함수 cp_run_<ID> 가 하나씩, 그리고 같은 그룹 파일 안에 있는가 (메뉴에만 · 함수에만 있는 ID 없음)
+#   ● palette.d 에서 BASH_SOURCE 를 쓰지 않는가 — 함수가 palette.d 파일에 정의돼 그 파일을 가리키므로
+#     팔레트 위치는 $_CP_SCRIPT_DIR 을 써야 합니다(JDK·Python 전환, 배포 자동 설정이 예전에 BASH_SOURCE 기준이었음)
+#   ● if/elif 분기([ "$CHOICE_ID" = ... ])·문구 부분 문자열 분기가 남아 있지 않은가
 palette_menu_bad=$(
   python3 - "$REPO_ROOT/scripts/fzf/command-palette" <<'EOF'
-import re, sys
-c = open(sys.argv[1], encoding='utf-8').read()
-# 배열 항목 줄("ID<TAB>...") + 조건부로 붙이는 항목(_MENU_X+=("ID<TAB>...")) + Gradle 빠른 실행
-menu = set(re.findall(r'(?:^\s*|\+?=\()"([a-z0-9_]+)\t', c, re.M)) | set(re.findall(r'_GT_RESULT="quick:([a-z0-9_]+)"', c))
-menu -= {'gradle', 'git', 'open', 'ai', 'port', 'env', 'base64'}  # 1단계 그룹 ID (분기 대상 아님)
-branches = re.findall(r'\[ "\$CHOICE_ID" = "([a-z0-9_]+)" \]', c)
+import glob, os, re, sys
+main = sys.argv[1]
+pdir = os.path.join(os.path.dirname(main), 'palette.d')
+def code_only(text):
+    return '\n'.join(l for l in text.split('\n') if not l.lstrip().startswith('#'))
+mc = open(main, encoding='utf-8').read()
+files = {os.path.basename(f)[:-3]: open(f, encoding='utf-8').read() for f in sorted(glob.glob(pdir + '/*.sh'))}
 bad = []
-if not menu:
+m = re.search(r'^_CP_GROUP_FILES=\(([^)]*)\)', mc, re.M)
+order = m.group(1).split() if m else []
+groups = set(files) - {'_lib'}
+if '_lib' not in files:
+    bad.append('palette.d/_lib.sh 없음')
+if not order:
+    bad.append('_CP_GROUP_FILES 없음')
+elif set(order) != groups or len(order) != len(set(order)):
+    bad.append('불러오는 그룹(%s) ≠ palette.d 그룹 파일(%s)' % (','.join(order), ','.join(sorted(groups))))
+item_re = re.compile(r'(?:^\s*|\+?=\()"([a-z0-9_]+)\t', re.M)
+run_re = re.compile(r'^cp_run_([a-z0-9_]+)\(\)\s*\{', re.M)
+owner = {}
+for g, text in files.items():
+    c = code_only(text)
+    regs = re.findall(r'cp_register_group\s+([a-z0-9_]+)\s', c)
+    if g == '_lib':
+        if regs:
+            bad.append('_lib.sh 가 그룹을 등록함')
+    else:
+        if set(regs) != {g}:
+            bad.append('%s.sh 의 1단계 등록 ID(%s)가 파일 이름과 다름' % (g, ','.join(regs) or '없음'))
+        if not re.search(r'^cp_group_%s\(\)\s*\{' % re.escape(g), c, re.M):
+            bad.append('cp_group_%s 없음' % g)
+    items = set(item_re.findall(c)) | set(re.findall(r'_GT_RESULT="quick:([a-z0-9_]+)"', c))
+    runs = run_re.findall(c)
+    for r in runs:
+        if r in owner:
+            bad.append('실행 함수 중복: cp_run_%s (%s.sh, %s.sh)' % (r, owner[r], g))
+        owner[r] = g
+    if items - set(runs):
+        bad.append('%s.sh 실행 함수 없는 메뉴: %s' % (g, ','.join(sorted(items - set(runs)))))
+    if set(runs) - items:
+        bad.append('%s.sh 메뉴 없는 실행 함수: %s' % (g, ','.join(sorted(set(runs) - items))))
+    if 'BASH_SOURCE' in c:
+        bad.append('palette.d/%s.sh 에서 BASH_SOURCE 사용 (팔레트 위치는 $_CP_SCRIPT_DIR)' % g)
+if not owner:
     bad.append('메뉴 ID 없음')
-if sorted(set(branches)) != sorted(branches):
-    bad.append('중복 분기')
-if menu - set(branches):
-    bad.append('분기 없는 메뉴: ' + ','.join(sorted(menu - set(branches))))
-if set(branches) - menu:
-    bad.append('메뉴 없는 분기: ' + ','.join(sorted(set(branches) - menu)))
-if re.search(r'\[\[ "\$CHOICE" ==', c):
+allc = code_only(mc) + '\n' + '\n'.join(code_only(t) for t in files.values())
+if re.search(r'\[ "\$CHOICE_ID" =', allc):
+    bad.append('if/elif 분기 남음')
+if re.search(r'\[\[ "\$CHOICE" ==', allc):
     bad.append('문구 부분 문자열 분기 남음')
 print('; '.join(bad))
 EOF
 )
 if [ -z "$palette_menu_bad" ]; then
-  assert_test "command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가" 0
+  assert_test "command-palette 의 그룹 파일 · 메뉴 항목 ID · 실행 함수가 짝이 맞는가" 0
 else
-  assert_test "command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가" 1 "$palette_menu_bad"
+  assert_test "command-palette 의 그룹 파일 · 메뉴 항목 ID · 실행 함수가 짝이 맞는가" 1 "$palette_menu_bad"
 fi
 
 # 6-6. 세 편집기(VS Code·Neovim·Zed)의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가
