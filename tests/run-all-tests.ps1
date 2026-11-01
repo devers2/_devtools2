@@ -587,10 +587,12 @@ if (-not $zedLauncher.Contains('MemTotal') -or $zedExecs.Count -eq 0 -or @($zedE
 Assert-Test "VS Code·Neovim·Zed 의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가" ($jdtlsHeapBad.Count -eq 0) `
     ("위반: " + ($jdtlsHeapBad -join ", "))
 
-# --- 6-7. 0.setup-wsl.ps1 의 .wslconfig(9 · 9-1 메모리) · 배포판 정보 저장(10) 단계가 "배포판 새로 설치" 블록 밖에 있는가
+# --- 6-7. 0.setup-wsl.ps1 의 .wslconfig(9 · 9-1 메모리) · 배포판 정보 저장(10) 단계가 "배포판 새로 설치" 함수·호출 블록 밖에 있는가
 #     예전에는 새 설치 블록이 스크립트 끝까지 이어져 기존 배포판 재설치에서 9 · 9-1 · 10 단계를 통째로 건너뜀
-#     (실측: 온라인 설치를 다시 해도 WSL 메모리 상한을 묻지 않음) → 새 설치 블록은 "# 9." 앞에서 닫혀야 함
-#     ● PowerShell 구문 트리(AST)로 if ($isNewDistroInstall) 블록의 끝 줄을 구해 각 단계 주석 줄과 비교
+#     (실측: 온라인 설치를 다시 해도 WSL 메모리 상한을 묻지 않음) → 새 설치 단계는 Install-NewDevtools2Distro 함수,
+#     호출은 if ($isNewDistroInstall) { . Install-NewDevtools2Distro } — 두 블록 모두 "# 9." 앞에서 닫혀야 함
+#     ● PowerShell 구문 트리(AST)로 함수·if 블록의 끝 줄을 구해 각 단계 주석 줄과 비교
+#     ● 함수 본문에 최상위 return 이 없어야 함(인라인일 때는 스크립트 종료였지만 함수에서는 함수만 빠져나와 의미가 바뀜)
 $wslSetupPath = Join-Path $repoRootPath "scripts\windows\dev-env\0.setup-wsl.ps1"
 $wslSetupSrc = [System.IO.File]::ReadAllText($wslSetupPath, [System.Text.Encoding]::UTF8)
 $wslSetupLines = $wslSetupSrc -split "`r?`n"
@@ -598,21 +600,36 @@ $wslBlockBad = @()
 $wslTokens = $null
 $wslErrors = $null
 $wslAst = [System.Management.Automation.Language.Parser]::ParseInput($wslSetupSrc, [ref]$wslTokens, [ref]$wslErrors)
+$newInstallFn = @($wslAst.EndBlock.Statements | Where-Object {
+        $_ -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Install-NewDevtools2Distro'
+    }) | Select-Object -First 1
 $newInstallIf = @($wslAst.EndBlock.Statements | Where-Object {
         $_ -is [System.Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -eq '$isNewDistroInstall'
     }) | Select-Object -First 1
-if ($null -eq $newInstallIf) {
-    $wslBlockBad += "새 설치 블록(if (`$isNewDistroInstall)) 없음"
-} else {
-    $blockEnd = $newInstallIf.Extent.EndLineNumber
-    foreach ($stepMark in @('# 9. Windows', '# 9-1.', '# 10.')) {
-        $stepLine = 0
-        for ($li = 0; $li -lt $wslSetupLines.Count; $li++) {
-            if ($wslSetupLines[$li].StartsWith($stepMark)) { $stepLine = $li + 1; break }
-        }
-        if ($stepLine -eq 0) { $wslBlockBad += "$stepMark 없음" }
-        elseif ($stepLine -le $blockEnd) { $wslBlockBad += "$stepMark 단계가 새 설치 블록 안에 있음" }
+$wslBlocks = @()
+if ($null -eq $newInstallFn) { $wslBlockBad += "Install-NewDevtools2Distro 함수 없음" } else { $wslBlocks += , @('Install-NewDevtools2Distro 함수', $newInstallFn.Extent) }
+if ($null -eq $newInstallIf) { $wslBlockBad += "새 설치 호출 블록(if (`$isNewDistroInstall)) 없음" } else { $wslBlocks += , @('새 설치 호출 블록', $newInstallIf.Extent) }
+# 단계 주석은 들여쓰기와 상관없이 모든 위치를 봅니다(단계를 함수 안으로 옮기면 들여써지므로)
+foreach ($stepMark in @('# 9. Windows', '# 9-1.', '# 10.')) {
+    $stepLines = @()
+    for ($li = 0; $li -lt $wslSetupLines.Count; $li++) {
+        if ($wslSetupLines[$li].TrimStart().StartsWith($stepMark)) { $stepLines += ($li + 1) }
     }
+    if ($stepLines.Count -eq 0) { $wslBlockBad += "$stepMark 없음"; continue }
+    foreach ($blk in $wslBlocks) {
+        $inside = @($stepLines | Where-Object { $_ -ge $blk[1].StartLineNumber -and $_ -le $blk[1].EndLineNumber })
+        if ($inside.Count -gt 0) { $wslBlockBad += "$stepMark 단계가 $($blk[0]) 안에 있음" }
+    }
+}
+if ($null -ne $newInstallFn) {
+    # 함수 본문 바로 아래(중첩 스크립트 블록 { ... } 안이 아닌) return 문
+    $fnBody = $newInstallFn.Body
+    $topReturns = @($fnBody.FindAll({ param($n) $n -is [System.Management.Automation.Language.ReturnStatementAst] }, $true) | Where-Object {
+            $p = $_.Parent
+            while ($null -ne $p -and -not ($p -is [System.Management.Automation.Language.ScriptBlockAst])) { $p = $p.Parent }
+            $p -eq $fnBody
+        })
+    foreach ($r in $topReturns) { $wslBlockBad += "함수 본문 최상위 return ($($r.Extent.StartLineNumber)행)" }
 }
 Assert-Test "0.setup-wsl.ps1 의 .wslconfig·메모리·배포판 정보 단계가 기존 배포판 재설치에서도 실행되는가" ($wslBlockBad.Count -eq 0) `
     ($wslBlockBad -join "; ")
