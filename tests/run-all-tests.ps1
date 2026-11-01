@@ -561,7 +561,7 @@ $menuIds = New-Object System.Collections.Generic.HashSet[string]
 #     (배열 항목 줄 + 설치된 도구만 보이는 조건부 항목 _MENU_X+=("ID<TAB>...") 포함)
 foreach ($m in [regex]::Matches($paletteCode, '(?m)(?:^\s*|\+?=\()"([a-z0-9_]+)\t')) { [void]$menuIds.Add($m.Groups[1].Value) }
 foreach ($m in [regex]::Matches($paletteCode, '_GT_RESULT="quick:([a-z0-9_]+)"')) { [void]$menuIds.Add($m.Groups[1].Value) }
-foreach ($g in @('gradle', 'git', 'open', 'orca', 'skills', 'port', 'env', 'base64')) { [void]$menuIds.Remove($g) }
+foreach ($g in @('gradle', 'git', 'open', 'ai', 'port', 'env', 'base64')) { [void]$menuIds.Remove($g) }
 $branchIds = @([regex]::Matches($paletteCode, '\[ "\$CHOICE_ID" = "([a-z0-9_]+)" \]') | ForEach-Object { $_.Groups[1].Value })
 $paletteMenuBad = @()
 if ($menuIds.Count -eq 0) { $paletteMenuBad += "메뉴 ID 없음" }

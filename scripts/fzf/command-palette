@@ -896,26 +896,31 @@ fi
 command -v code >/dev/null 2>&1 && _MENU_OPEN+=("open_vscode	VS Code 로 현재 폴더 열기") && _OPEN_KW+=("VS Code")
 [ -n "$_ZED_CMD" ] && _MENU_OPEN+=("open_zed	Zed 로 현재 폴더 열기") && _OPEN_KW+=("Zed")
 
-# Orca — 편집기가 아니라 저장소(프로젝트)·워크트리·에이전트를 관리하는 앱이라 "열기"와 나눠 별도 그룹으로 둡니다.
-# (modules/orca 는 Linux AppImage 라 WSL(WSLg)·Linux 데스크톱에서만)
-_MENU_ORCA=()
+# AI 에이전트 — Orca(설치돼 있을 때)와 에이전트 스킬(Claude·Codex·Antigravity 공용 — scripts/linux/cmd/agent-skills.sh)
+#   ● Orca 는 편집기가 아니라 저장소(프로젝트)·워크트리·에이전트를 관리하는 앱이라 "📂 열기"와 나눠 이 그룹에 둡니다.
+#     (modules/orca 는 Linux AppImage 라 WSL(WSLg)·Linux 데스크톱에서만)
+#   ● 스킬 항목은 Orca 없이도 동작하므로(에이전트 폴더 ↔ 저장소 링크) Orca 가 없는 PC 에서도 보입니다.
+#     Orca 공유 링크로 받은 스킬은 Orca 앱에서 "이 컴퓨터 · 전역"으로 설치하면 ~/.agents/skills 에 생기고,
+#     "스킬 가져오기"로 저장소에 넣습니다(Orca CLI 에는 공유 링크로 설치하는 명령이 없어 설치는 앱 화면에서).
+_AGENT_SKILLS="$_CP_SCRIPT_DIR/../linux/cmd/agent-skills.sh"
+_MENU_AI=()
+_AI_KW=()
 if [ -x "$_ORCA_DIR/orca" ] && { $IS_WSL || $_HAS_DESKTOP; }; then
     if [ -n "$_GIT_ROOT" ]; then
-        _MENU_ORCA+=("open_orca	Orca 열기 + 현재 저장소를 프로젝트로 추가")
+        _MENU_AI+=("open_orca	Orca 열기 + 현재 저장소를 프로젝트로 추가")
     else
-        _MENU_ORCA+=("open_orca	Orca 열기")
+        _MENU_AI+=("open_orca	Orca 열기")
     fi
+    _AI_KW+=("Orca 열기")
+fi
+if [ -f "$_AGENT_SKILLS" ]; then
+    _MENU_AI+=(
+        "skills_import	스킬 가져오기 (에이전트 폴더 → DevTools2 저장소, Orca 에서 받은 스킬 등)"
+        "skills_status	스킬 연결 상태 · 다시 연결 (Claude · Codex · Antigravity)"
+    )
+    _AI_KW+=("스킬 가져오기" "스킬 연결 상태")
 fi
 
-# AI 스킬 — 저장소(.config/agents/skills) 하나로 Claude·Codex·Antigravity 스킬을 맞춤 (scripts/linux/cmd/agent-skills.sh)
-_AGENT_SKILLS="$_CP_SCRIPT_DIR/../linux/cmd/agent-skills.sh"
-_MENU_SKILLS=()
-if [ -f "$_AGENT_SKILLS" ]; then
-    _MENU_SKILLS+=(
-        "skills_status	스킬 연결 상태 · 다시 연결 (Claude · Codex · Antigravity)"
-        "skills_import	스킬 가져오기 (에이전트 폴더 → DevTools2 저장소, Orca 공유 링크로 받은 스킬 등)"
-    )
-fi
 _MENU_BASE64=(
     "base64_encode	파일 → 텍스트 인코딩 (클립보드 복사)"
     "base64_decode	텍스트 → 파일 복원 (클립보드 붙여넣기)"
@@ -933,7 +938,7 @@ _cp_detach() {
 
 # 2단계 항목 선택 — 고른 항목의 ID 를 출력 (Esc 면 빈 문자열)
 # 사용법: _pick_leaf "<프롬프트>" "ID<TAB>문구" ...
-#   항목이 하나뿐인 그룹(예: 🐋 Orca)은 2단계 메뉴를 띄우지 않고 바로 그 항목을 고릅니다.
+#   항목이 하나뿐인 그룹은 2단계 메뉴를 띄우지 않고 바로 그 항목을 고릅니다.
 _pick_leaf() {
     local _prompt="$1" _sel
     shift
@@ -954,10 +959,10 @@ while [ -z "$CHOICE_ID" ]; do
         _kw=$(printf ' · %s' "${_OPEN_KW[@]}")
         _TOP+=("open	📂 열기 ▸ ${_kw# · }")
     fi
-    if [ "${#_MENU_ORCA[@]}" -gt 0 ]; then
-        if [ -n "$_GIT_ROOT" ]; then _TOP+=("orca	🐋 Orca ▸ 열기 · 현재 저장소를 프로젝트로 추가"); else _TOP+=("orca	🐋 Orca ▸ 열기"); fi
+    if [ "${#_MENU_AI[@]}" -gt 0 ]; then
+        _kw=$(printf ' · %s' "${_AI_KW[@]}")
+        _TOP+=("ai	🤖 AI 에이전트 ▸ ${_kw# · }")
     fi
-    [ "${#_MENU_SKILLS[@]}" -gt 0 ] && _TOP+=("skills	🧩 AI 스킬 ▸ 연결 상태 · 다시 연결 · 가져오기")
     _TOP+=("port	🔌 포트 · 프로세스 · 메모리 ▸ 포트 확인 · 프로세스 확인 · 종료 · 메모리 현황")
     _TOP+=("env	☕ 개발 환경 ▸ JDK · Python · JDTLS 캐시")
     _TOP+=("base64	🔤 Base64 ▸ 인코딩 · 복원")
@@ -973,8 +978,7 @@ while [ -z "$CHOICE_ID" ]; do
         ;;
     git) CHOICE_ID=$(_pick_leaf "🌿 Git · 프로젝트 > " "${_MENU_GIT[@]}") ;;
     open) CHOICE_ID=$(_pick_leaf "📂 열기 > " "${_MENU_OPEN[@]}") ;;
-    orca) CHOICE_ID=$(_pick_leaf "🐋 Orca > " "${_MENU_ORCA[@]}") ;;
-    skills) CHOICE_ID=$(_pick_leaf "🧩 AI 스킬 > " "${_MENU_SKILLS[@]}") ;;
+    ai) CHOICE_ID=$(_pick_leaf "🤖 AI 에이전트 > " "${_MENU_AI[@]}") ;;
     port) CHOICE_ID=$(_pick_leaf "🔌 포트 · 프로세스 · 메모리 > " "${_MENU_PORT[@]}") ;;
     env) CHOICE_ID=$(_pick_leaf "☕ 개발 환경 > " "${_MENU_ENV[@]}") ;;
     base64) CHOICE_ID=$(_pick_leaf "🔤 Base64 > " "${_MENU_BASE64[@]}") ;;
