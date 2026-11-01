@@ -376,7 +376,13 @@ $linuxSudoTest = ($linuxMaster -match 'sudo -n test -e')
 Assert-Test "임시 sudo 회수가 Windows(try/finally)·리눅스(sudo -n test) 모두 실제로 동작하는 형태인가" ($winFinally -and $linuxNoPlainTest -and $linuxSudoTest)
 
 # --- 5-4. 포트 해제는 LISTEN 소켓만 대상 (lsof -ti :PORT 는 그 포트로 접속한 클라이언트까지 포함)
-$paletteCode = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\fzf\command-palette"), [System.Text.Encoding]::UTF8)
+#     (팔레트는 command-palette + palette.d\*.sh 로 나뉘어 있어 함께 봄 — 포트 함수는 palette.d\_lib.sh)
+$paletteMain = Join-Path $repoRootPath "scripts\fzf\command-palette"
+$paletteDir = Join-Path $repoRootPath "scripts\fzf\palette.d"
+$paletteCode = [System.IO.File]::ReadAllText($paletteMain, [System.Text.Encoding]::UTF8)
+foreach ($pf in @(Get-ChildItem -LiteralPath $paletteDir -Filter "*.sh" -File | Sort-Object Name)) {
+    $paletteCode += "`n" + [System.IO.File]::ReadAllText($pf.FullName, [System.Text.Encoding]::UTF8)
+}
 $noClientKill = ($paletteCode -notmatch '(?m)^[^#\r\n]*lsof\s+-ti\s+:') -and ($paletteCode -match '-sTCP:LISTEN')
 Assert-Test "command-palette 포트 해제가 LISTEN 프로세스만 대상으로 하는가" $noClientKill
 
@@ -553,25 +559,61 @@ foreach ($sh in (Get-ChildItem -Path $devEnvDir -File -Filter "*.sh")) {
 Assert-Test "WSLg 한글 입력 래퍼를 쓰는 GUI 앱 설치 스크립트가 ensure_gui_app_env 를 부르는가" ($guiViolations.Count -eq 0) `
     ("위반: " + ($guiViolations -join ", "))
 
-# --- 6-5. command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가 (메뉴 문구 부분 문자열로 분기하지 않는가)
+# --- 6-5. command-palette 의 그룹 파일 · 메뉴 항목 ID · 실행 함수가 짝이 맞는가 (메뉴 문구 부분 문자열로 분기하지 않는가)
 #     예전에는 메뉴 문구의 부분 문자열(*"실행"* 등)로 분기를 골라, 문구가 겹치면 엉뚱한 분기가 실행될 수 있었음
-#     → 항목은 "ID<TAB>문구", 분기는 [ "$CHOICE_ID" = "<ID>" ] (메뉴 ID = _MENU_* 항목 + Gradle 빠른 실행 quick:<ID>)
-$paletteCode = [System.IO.File]::ReadAllText((Join-Path $repoRootPath "scripts\fzf\command-palette"), [System.Text.Encoding]::UTF8)
-$menuIds = New-Object System.Collections.Generic.HashSet[string]
-#     (배열 항목 줄 + 설치된 도구만 보이는 조건부 항목 _MENU_X+=("ID<TAB>...") 포함)
-foreach ($m in [regex]::Matches($paletteCode, '(?m)(?:^\s*|\+?=\()"([a-z0-9_]+)\t')) { [void]$menuIds.Add($m.Groups[1].Value) }
-foreach ($m in [regex]::Matches($paletteCode, '_GT_RESULT="quick:([a-z0-9_]+)"')) { [void]$menuIds.Add($m.Groups[1].Value) }
-foreach ($g in @('gradle', 'git', 'open', 'ai', 'port', 'env', 'base64')) { [void]$menuIds.Remove($g) }
-$branchIds = @([regex]::Matches($paletteCode, '\[ "\$CHOICE_ID" = "([a-z0-9_]+)" \]') | ForEach-Object { $_.Groups[1].Value })
+#     → 항목은 "ID<TAB>문구", 실행은 cp_run_<ID> 함수. 팔레트는 1단계 그룹마다 palette.d\<그룹 ID>.sh 파일 하나
+#     ● _CP_GROUP_FILES ↔ palette.d 그룹 파일(_lib.sh 제외) 일치, 그룹 파일의 등록 ID = 파일 이름, cp_group_<ID> 존재
+#     ● 메뉴 ID(배열 항목 줄 · 조건부 _MENU_X+=("ID<TAB>...") · Gradle quick:<ID>)마다 cp_run_<ID> 가 하나씩 같은 파일에
+#     ● palette.d 에서 BASH_SOURCE 금지(함수가 palette.d 파일에 정의돼 그 파일을 가리킴 → 팔레트 위치는 $_CP_SCRIPT_DIR)
+#     ● if/elif 분기([ "$CHOICE_ID" = ... ])·문구 부분 문자열 분기 없음
+function Get-PaletteCodeOnly([string]$text) {
+    (($text -split "`r?`n") | Where-Object { -not $_.TrimStart().StartsWith('#') }) -join "`n"
+}
 $paletteMenuBad = @()
-if ($menuIds.Count -eq 0) { $paletteMenuBad += "메뉴 ID 없음" }
-if (@($branchIds | Sort-Object -Unique).Count -ne $branchIds.Count) { $paletteMenuBad += "중복 분기" }
-$noBranch = @($menuIds | Where-Object { $branchIds -notcontains $_ } | Sort-Object)
-if ($noBranch.Count -gt 0) { $paletteMenuBad += ("분기 없는 메뉴: " + ($noBranch -join ",")) }
-$noMenu = @($branchIds | Where-Object { -not $menuIds.Contains($_) } | Sort-Object -Unique)
-if ($noMenu.Count -gt 0) { $paletteMenuBad += ("메뉴 없는 분기: " + ($noMenu -join ",")) }
-if ($paletteCode -match '\[\[ "\$CHOICE" ==') { $paletteMenuBad += "문구 부분 문자열 분기 남음" }
-Assert-Test "command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가" ($paletteMenuBad.Count -eq 0) ($paletteMenuBad -join "; ")
+$paletteMainCode = Get-PaletteCodeOnly ([System.IO.File]::ReadAllText($paletteMain, [System.Text.Encoding]::UTF8))
+$paletteGroupFiles = @{}
+foreach ($pf in @(Get-ChildItem -LiteralPath $paletteDir -Filter "*.sh" -File | Sort-Object Name)) {
+    $paletteGroupFiles[[System.IO.Path]::GetFileNameWithoutExtension($pf.Name)] = Get-PaletteCodeOnly ([System.IO.File]::ReadAllText($pf.FullName, [System.Text.Encoding]::UTF8))
+}
+$groupNames = @($paletteGroupFiles.Keys | Where-Object { $_ -ne '_lib' } | Sort-Object)
+if (-not $paletteGroupFiles.ContainsKey('_lib')) { $paletteMenuBad += "palette.d/_lib.sh 없음" }
+$orderMatch = [regex]::Match($paletteMainCode, '(?m)^_CP_GROUP_FILES=\(([^)]*)\)')
+$groupOrder = @()
+if ($orderMatch.Success) { $groupOrder = @($orderMatch.Groups[1].Value -split '\s+' | Where-Object { $_ }) }
+if ($groupOrder.Count -eq 0) {
+    $paletteMenuBad += "_CP_GROUP_FILES 없음"
+} elseif ((@($groupOrder | Sort-Object -Unique) -join ',') -ne ($groupNames -join ',') -or @($groupOrder | Sort-Object -Unique).Count -ne $groupOrder.Count) {
+    $paletteMenuBad += ("불러오는 그룹(" + ($groupOrder -join ',') + ") ≠ palette.d 그룹 파일(" + ($groupNames -join ',') + ")")
+}
+$runOwner = @{}
+foreach ($g in @($paletteGroupFiles.Keys | Sort-Object)) {
+    $code = $paletteGroupFiles[$g]
+    $regs = @([regex]::Matches($code, 'cp_register_group\s+([a-z0-9_]+)\s') | ForEach-Object { $_.Groups[1].Value })
+    if ($g -eq '_lib') {
+        if ($regs.Count -gt 0) { $paletteMenuBad += "_lib.sh 가 그룹을 등록함" }
+    } else {
+        if ((@($regs | Sort-Object -Unique) -join ',') -ne $g) { $paletteMenuBad += ("$g.sh 의 1단계 등록 ID(" + (@($regs) -join ',') + ")가 파일 이름과 다름") }
+        if ($code -notmatch ('(?m)^cp_group_' + [regex]::Escape($g) + '\(\)\s*\{')) { $paletteMenuBad += "cp_group_$g 없음" }
+    }
+    $items = New-Object System.Collections.Generic.HashSet[string]
+    foreach ($m in [regex]::Matches($code, '(?m)(?:^\s*|\+?=\()"([a-z0-9_]+)\t')) { [void]$items.Add($m.Groups[1].Value) }
+    foreach ($m in [regex]::Matches($code, '_GT_RESULT="quick:([a-z0-9_]+)"')) { [void]$items.Add($m.Groups[1].Value) }
+    $runs = @([regex]::Matches($code, '(?m)^cp_run_([a-z0-9_]+)\(\)\s*\{') | ForEach-Object { $_.Groups[1].Value })
+    foreach ($r in $runs) {
+        if ($runOwner.ContainsKey($r)) { $paletteMenuBad += "실행 함수 중복: cp_run_$r ($($runOwner[$r]).sh, $g.sh)" }
+        $runOwner[$r] = $g
+    }
+    $noRun = @($items | Where-Object { $runs -notcontains $_ } | Sort-Object)
+    if ($noRun.Count -gt 0) { $paletteMenuBad += ("$g.sh 실행 함수 없는 메뉴: " + ($noRun -join ",")) }
+    $noItem = @($runs | Where-Object { -not $items.Contains($_) } | Sort-Object)
+    if ($noItem.Count -gt 0) { $paletteMenuBad += ("$g.sh 메뉴 없는 실행 함수: " + ($noItem -join ",")) }
+    if ($code.Contains('BASH_SOURCE')) { $paletteMenuBad += "palette.d/$g.sh 에서 BASH_SOURCE 사용 (팔레트 위치는 `$_CP_SCRIPT_DIR)" }
+}
+if ($runOwner.Count -eq 0) { $paletteMenuBad += "메뉴 ID 없음" }
+$paletteAllCode = $paletteMainCode + "`n" + (@($paletteGroupFiles.Values) -join "`n")
+if ($paletteAllCode -match '\[ "\$CHOICE_ID" =') { $paletteMenuBad += "if/elif 분기 남음" }
+if ($paletteAllCode -match '\[\[ "\$CHOICE" ==') { $paletteMenuBad += "문구 부분 문자열 분기 남음" }
+Assert-Test "command-palette 의 그룹 파일 · 메뉴 항목 ID · 실행 함수가 짝이 맞는가" ($paletteMenuBad.Count -eq 0) ($paletteMenuBad -join "; ")
 
 # --- 6-6. 세 편집기(VS Code·Neovim·Zed)의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가
 #     VS Code 가 -Xms8G -Xmx8G 로 고정되어 WSL(기본 PC 메모리의 절반) 안에서 시작부터 8GB 를 잡았음 → 셋 다 메모리의 25% 기준
