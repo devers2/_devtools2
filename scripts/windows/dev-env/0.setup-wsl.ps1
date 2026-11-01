@@ -497,7 +497,12 @@ if ($registeredDistros -contains $wslName) {
     }
 }
 
-if (-not ($registeredDistros -contains $wslName)) {
+# 배포판을 새로 만드는 경우에만 Step 2~3-5(경로 선택·다운로드·import·계정 구성)를 실행합니다.
+# ⚠️ 이 블록은 아래 "# 9." 바로 앞에서 닫힙니다. 9(.wslconfig 네트워크)·9-1(메모리)·10(배포판 정보 저장)은
+#    기존 배포판을 그대로 쓰는 재실행에서도 실행되어야 하므로 이 블록 밖에 둡니다.
+#    (예전에는 이 블록이 스크립트 끝까지 이어져, 재설치하면 메모리 상한 제안이 아예 나오지 않았습니다 — 실측 확인)
+$isNewDistroInstall = -not ($registeredDistros -contains $wslName)
+if ($isNewDistroInstall) {
 
 # ==============================================================================
 # [Step 2] 설치 경로 결정 - 개발자 드라이브(Dev Drive / ReFS) 자동 감지 및 사용자 선택
@@ -976,6 +981,9 @@ EOF
     wsl --terminate $wslName 2>$null
 }
 
+}
+# ── 배포판 새로 설치 블록(if ($isNewDistroInstall)) 끝 ── 아래 9~10 단계는 새 설치·기존 배포판 재실행 모두 실행
+
 # 9. Windows 사용자 프로필에 .wslconfig (네트워크 미러링) 설정 확인
 #    WSL2 내부 포트(8881, 8080, 5005 등)를 Windows 호스트 localhost에서 별도 포트포워딩 없이 바로 접속 가능하도록 동기화
 #    주의: .wslconfig 는 모든 WSL2 배포판/Docker/VPN에 전역 적용되므로 사용자 동의 후 적용합니다.
@@ -1127,8 +1135,9 @@ $distroSaveFile = Join-Path $devtools2Dir "wsl_distro"
 [System.IO.File]::WriteAllText($distroSaveFile, "WSL_DISTRO=$wslName`n", $utf8NoBom)
 
 # --------------------------------------------------------------------------
-# [Step 4] 완료
+# [Step 4] 완료 — 설치 경로·배포판 정보는 새로 설치했을 때만 있으므로 그때만 요약을 보여 줍니다
 # --------------------------------------------------------------------------
+if ($isNewDistroInstall) {
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor DarkCyan
 Write-Host "🎉 WSL2 설치 및 환경 설정 완료!" -ForegroundColor Green

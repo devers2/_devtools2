@@ -895,6 +895,50 @@ else
   assert_test "VS Code·Neovim·Zed 의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가" 1 "위반: $jdtls_heap_bad"
 fi
 
+# 6-7. 0.setup-wsl.ps1 의 .wslconfig(9 · 9-1 메모리) · 배포판 정보 저장(10) 단계가 "배포판 새로 설치" 블록 밖에 있는가
+#   예전에는 새 설치 블록(if (-not ($registeredDistros -contains $wslName)) { ... })이 스크립트 끝까지 이어져,
+#   기존 배포판을 그대로 쓰는 재설치에서는 9 · 9-1 · 10 단계가 통째로 건너뛰어졌습니다
+#   (실측: 온라인 설치를 다시 해도 WSL 메모리 상한을 묻지 않음). 새 설치 블록은 "# 9." 앞에서 닫혀야 합니다.
+#   ● 중괄호 짝으로 블록 끝을 찾습니다(문자열 · 주석 · here-string 안의 중괄호는 제외)
+wsl_block_bad=$(
+  python3 - "$REPO_ROOT/scripts/windows/dev-env/0.setup-wsl.ps1" <<'EOF'
+import re, sys
+src = open(sys.argv[1], encoding='utf-8').read().splitlines()
+# 'if ($isNewDistroInstall) {' 첫 번째(배포판 새로 설치) 블록이 '# 9-1.' 과 '# 10.' 보다 먼저 닫히는가
+start = next((i for i, l in enumerate(src) if re.match(r'^if \(\$isNewDistroInstall\) \{\s*$', l)), None)
+targets = {k: next((i for i, l in enumerate(src) if l.startswith(k)), None) for k in ('# 9. Windows', '# 9-1.', '# 10.')}
+bad = []
+if start is None:
+    bad.append('새 설치 블록(if ($isNewDistroInstall)) 없음')
+else:
+    depth, end, here = 0, None, False
+    for i in range(start, len(src)):
+        l = src[i]
+        if here:
+            if re.match(r"^['\"]@", l): here = False
+            continue
+        if re.search(r"@['\"]\s*$", l): here = True
+        code = re.sub(r"'[^']*'", "''", l)          # 작은따옴표 문자열 제거
+        code = re.sub(r'"(?:[^"`]|`.)*"', '""', code)  # 큰따옴표 문자열 제거
+        code = code.split('#', 1)[0]                 # 주석 제거
+        depth += code.count('{') - code.count('}')
+        if depth == 0 and i > start:
+            end = i; break
+    if end is None:
+        bad.append('새 설치 블록의 끝을 찾지 못함')
+    else:
+        for k, t in targets.items():
+            if t is None: bad.append(k + ' 없음')
+            elif t < end: bad.append(k + ' 단계가 새 설치 블록 안에 있음')
+print('; '.join(bad))
+EOF
+)
+if [ -z "$wsl_block_bad" ]; then
+  assert_test "0.setup-wsl.ps1 의 .wslconfig·메모리·배포판 정보 단계가 기존 배포판 재설치에서도 실행되는가" 0
+else
+  assert_test "0.setup-wsl.ps1 의 .wslconfig·메모리·배포판 정보 단계가 기존 배포판 재설치에서도 실행되는가" 1 "$wsl_block_bad"
+fi
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================
