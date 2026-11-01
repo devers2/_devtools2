@@ -51,9 +51,18 @@ _restore_tty() {
 #   빈 답으로 다음 단계가 진행됐습니다. 이제 Ctrl+C 를 받으면 터미널을 원복하고 바로 종료합니다.
 #   (Gradle 은 같은 Ctrl+C 를 함께 받아 클라이언트가 끝나고, 데몬은 진행 중인 작업을 취소합니다 — 실측 확인)
 #   ● fzf 메뉴의 Ctrl+C 는 fzf 가 직접 처리(선택 취소)하므로 이 trap 과 무관합니다.
+#   ● 스피너를 띄우려고 백그라운드(&)로 돌린 명령(예: Gradle 작업 목록 읽기)은 Ctrl+C 를 무시하므로
+#     (비대화형 셸의 백그라운드 명령은 SIGINT 무시), 중단할 때 이 스크립트가 띄운 백그라운드 작업도 함께 종료합니다.
+_cp_kill_bg_jobs() {
+    local _p
+    for _p in $(jobs -p 2>/dev/null); do
+        pkill -TERM -P "$_p" 2>/dev/null || true   # ( ... ) & 서브셸 안의 실제 명령
+        kill -TERM "$_p" 2>/dev/null || true
+    done
+}
 trap '_restore_tty' EXIT
-trap '_restore_tty; echo ""; echo "⛔ Ctrl+C 로 중단했습니다."; exit 130' INT
-trap '_restore_tty; exit 143' TERM
+trap '_cp_kill_bg_jobs; _restore_tty; echo ""; echo "⛔ Ctrl+C 로 중단했습니다."; exit 130' INT
+trap '_cp_kill_bg_jobs; _restore_tty; exit 143' TERM
 normalize_tty
 
 # 1. 현재 작업 환경 분석 및 OS 판별 (IS_MAC, IS_WSL)
