@@ -842,7 +842,7 @@ import re, sys
 c = open(sys.argv[1], encoding='utf-8').read()
 # 배열 항목 줄("ID<TAB>...") + 조건부로 붙이는 항목(_MENU_X+=("ID<TAB>...")) + Gradle 빠른 실행
 menu = set(re.findall(r'(?:^\s*|\+?=\()"([a-z0-9_]+)\t', c, re.M)) | set(re.findall(r'_GT_RESULT="quick:([a-z0-9_]+)"', c))
-menu -= {'gradle', 'git', 'open', 'orca', 'skills', 'port', 'env', 'base64'}  # 1단계 그룹 ID (분기 대상 아님)
+menu -= {'gradle', 'git', 'open', 'ai', 'port', 'env', 'base64'}  # 1단계 그룹 ID (분기 대상 아님)
 branches = re.findall(r'\[ "\$CHOICE_ID" = "([a-z0-9_]+)" \]', c)
 bad = []
 if not menu:
