@@ -895,42 +895,55 @@ else
   assert_test "VS Code·Neovim·Zed 의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가" 1 "위반: $jdtls_heap_bad"
 fi
 
-# 6-7. 0.setup-wsl.ps1 의 .wslconfig(9 · 9-1 메모리) · 배포판 정보 저장(10) 단계가 "배포판 새로 설치" 블록 밖에 있는가
+# 6-7. 0.setup-wsl.ps1 의 .wslconfig(9 · 9-1 메모리) · 배포판 정보 저장(10) 단계가 "배포판 새로 설치" 함수·호출 블록 밖에 있는가
 #   예전에는 새 설치 블록(if (-not ($registeredDistros -contains $wslName)) { ... })이 스크립트 끝까지 이어져,
 #   기존 배포판을 그대로 쓰는 재설치에서는 9 · 9-1 · 10 단계가 통째로 건너뛰어졌습니다
-#   (실측: 온라인 설치를 다시 해도 WSL 메모리 상한을 묻지 않음). 새 설치 블록은 "# 9." 앞에서 닫혀야 합니다.
+#   (실측: 온라인 설치를 다시 해도 WSL 메모리 상한을 묻지 않음). 이제 새 설치 단계는 Install-NewDevtools2Distro 함수로
+#   묶고 if ($isNewDistroInstall) { . Install-NewDevtools2Distro } 로 부릅니다. 두 블록 모두 "# 9." 앞에서 닫혀야 합니다.
 #   ● 중괄호 짝으로 블록 끝을 찾습니다(문자열 · 주석 · here-string 안의 중괄호는 제외)
+#   ● 함수 본문에 최상위 return 이 없어야 합니다(인라인일 때는 스크립트 종료였지만 함수에서는 함수만 빠져나와 의미가 바뀜)
 wsl_block_bad=$(
   python3 - "$REPO_ROOT/scripts/windows/dev-env/0.setup-wsl.ps1" <<'EOF'
 import re, sys
 src = open(sys.argv[1], encoding='utf-8').read().splitlines()
-# 'if ($isNewDistroInstall) {' 첫 번째(배포판 새로 설치) 블록이 '# 9-1.' 과 '# 10.' 보다 먼저 닫히는가
-start = next((i for i, l in enumerate(src) if re.match(r'^if \(\$isNewDistroInstall\) \{\s*$', l)), None)
-targets = {k: next((i for i, l in enumerate(src) if l.startswith(k)), None) for k in ('# 9. Windows', '# 9-1.', '# 10.')}
-bad = []
-if start is None:
-    bad.append('새 설치 블록(if ($isNewDistroInstall)) 없음')
-else:
-    depth, end, here = 0, None, False
+
+def block_end(start):
+    depth, here = 0, False
     for i in range(start, len(src)):
         l = src[i]
         if here:
             if re.match(r"^['\"]@", l): here = False
             continue
         if re.search(r"@['\"]\s*$", l): here = True
-        code = re.sub(r"'[^']*'", "''", l)          # 작은따옴표 문자열 제거
-        code = re.sub(r'"(?:[^"`]|`.)*"', '""', code)  # 큰따옴표 문자열 제거
-        code = code.split('#', 1)[0]                 # 주석 제거
+        code = re.sub(r"'[^']*'", "''", l)
+        code = re.sub(r'"(?:[^"`]|`.)*"', '""', code)
+        code = code.split('#', 1)[0]
         depth += code.count('{') - code.count('}')
         if depth == 0 and i > start:
-            end = i; break
-    if end is None:
-        bad.append('새 설치 블록의 끝을 찾지 못함')
-    else:
-        for k, t in targets.items():
-            if t is None: bad.append(k + ' 없음')
-            elif t < end: bad.append(k + ' 단계가 새 설치 블록 안에 있음')
-print('; '.join(bad))
+            return i
+    return None
+
+bad = []
+starts = {
+    'Install-NewDevtools2Distro 함수': next((i for i, l in enumerate(src) if re.match(r'^function Install-NewDevtools2Distro \{\s*$', l)), None),
+    '새 설치 호출 블록(if ($isNewDistroInstall))': next((i for i, l in enumerate(src) if re.match(r'^if \(\$isNewDistroInstall\) \{\s*$', l)), None),
+}
+# 단계 주석은 들여쓰기와 상관없이 모든 위치를 봅니다(단계를 함수 안으로 옮기면 들여써지므로)
+steps = {k: [i for i, l in enumerate(src) if l.lstrip().startswith(k)] for k in ('# 9. Windows', '# 9-1.', '# 10.')}
+for name, st in starts.items():
+    if st is None:
+        bad.append(name + ' 없음'); continue
+    en = block_end(st)
+    if en is None:
+        bad.append(name + ' 의 끝을 찾지 못함'); continue
+    for k, ts in steps.items():
+        if not ts: bad.append(k + ' 없음')
+        elif any(st < t <= en for t in ts): bad.append(k + ' 단계가 ' + name + ' 안에 있음')
+    if name.startswith('Install-'):
+        for i in range(st + 1, en):
+            if re.match(r'^    return\b', src[i]):
+                bad.append('함수 본문 최상위 return (%d행)' % (i + 1))
+print('; '.join(dict.fromkeys(bad)))
 EOF
 )
 if [ -z "$wsl_block_bad" ]; then

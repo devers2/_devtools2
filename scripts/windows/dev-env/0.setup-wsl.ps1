@@ -498,438 +498,445 @@ if ($registeredDistros -contains $wslName) {
 }
 
 # 배포판을 새로 만드는 경우에만 Step 2~3-5(경로 선택·다운로드·import·계정 구성)를 실행합니다.
-# ⚠️ 이 블록은 아래 "# 9." 바로 앞에서 닫힙니다. 9(.wslconfig 네트워크)·9-1(메모리)·10(배포판 정보 저장)은
-#    기존 배포판을 그대로 쓰는 재실행에서도 실행되어야 하므로 이 블록 밖에 둡니다.
-#    (예전에는 이 블록이 스크립트 끝까지 이어져, 재설치하면 메모리 상한 제안이 아예 나오지 않았습니다 — 실측 확인)
+# [설계 원칙 / Rationale]
+#   ● 이 단계들은 Install-NewDevtools2Distro 함수로 묶고, 새 설치일 때만 아래에서 호출합니다.
+#     예전에는 들여쓰기 없는 if 블록(약 480줄)이 스크립트 끝까지 이어져, 9(.wslconfig 네트워크)·9-1(메모리)·
+#     10(배포판 정보 저장)까지 그 안에 들어가 재설치하면 메모리 상한 제안이 아예 나오지 않았습니다(실측 확인).
+#     함수로 경계를 분명히 하고 테스트 6-7 이 9~10 단계가 함수·호출 블록 밖에 있는지 검사합니다.
+#   ● dot-source(. Install-NewDevtools2Distro)로 호출해 함수 안에서 만든 변수($wslInstallPath, $installedDistroDesc,
+#     $createdUsername 등)가 예전 인라인 코드와 똑같이 스크립트 범위에 남습니다(아래 완료 요약에서 사용).
+#   ● 함수 안의 exit 는 예전과 같이 스크립트 전체를 끝냅니다. 함수 본문에 최상위 return 은 두지 않습니다
+#     (인라인일 때는 스크립트 종료였지만 함수에서는 함수만 빠져나와 의미가 달라지기 때문).
+#   ● here-string(@' … '@) 본문과 닫는 줄은 들여쓰지 않습니다(닫는 '@ 는 줄 맨 앞이어야 하고, 본문 Python 코드는 들여쓰기가 의미).
 $isNewDistroInstall = -not ($registeredDistros -contains $wslName)
-if ($isNewDistroInstall) {
+function Install-NewDevtools2Distro {
 
-# ==============================================================================
-# [Step 2] 설치 경로 결정 - 개발자 드라이브(Dev Drive / ReFS) 자동 감지 및 사용자 선택
-# ------------------------------------------------------------------------------
-# 같은 PC의 여러 Windows 사용자가 드라이브를 공유할 수 있으므로,
-# 파일 충돌 방지를 위해 경로에 Windows 계정명($env:USERNAME)을 포함합니다.
-# (배포판 이름 'devtools2'는 고정 유지 - WSL 등록은 사용자별로 독립적)
-# ==============================================================================
-Write-Step "[Step 2] WSL2 가상 머신 설치 경로 결정"
+    # ==============================================================================
+    # [Step 2] 설치 경로 결정 - 개발자 드라이브(Dev Drive / ReFS) 자동 감지 및 사용자 선택
+    # ------------------------------------------------------------------------------
+    # 같은 PC의 여러 Windows 사용자가 드라이브를 공유할 수 있으므로,
+    # 파일 충돌 방지를 위해 경로에 Windows 계정명($env:USERNAME)을 포함합니다.
+    # (배포판 이름 'devtools2'는 고정 유지 - WSL 등록은 사용자별로 독립적)
+    # ==============================================================================
+    Write-Step "[Step 2] WSL2 가상 머신 설치 경로 결정"
 
-$windowsUser = $env:USERNAME.ToLower()
+    $windowsUser = $env:USERNAME.ToLower()
 
-# 모든 드라이브를 순회하여 개발자 드라이브(ReFS 포맷) 자동 감지
-# Win32_Volume WMI 쿼리: FileSystem=ReFS 이면서 실제 접근 가능한 드라이브만 수집
-$devDrives = @()
-try {
-    $volumes = Get-CimInstance -ClassName Win32_Volume -Filter "DriveType=3" -ErrorAction SilentlyContinue |
-        Where-Object { $_.FileSystem -eq 'ReFS' -and -not [string]::IsNullOrEmpty($_.DriveLetter) } |
-        Sort-Object DriveLetter
-    foreach ($vol in $volumes) {
-        $letter = $vol.DriveLetter.TrimEnd('\')   # "Z:" 형태로 정규화
-        if (Test-Path "$letter\") {
-            $devDrives += $letter
-        }
-    }
-} catch {
+    # 모든 드라이브를 순회하여 개발자 드라이브(ReFS 포맷) 자동 감지
+    # Win32_Volume WMI 쿼리: FileSystem=ReFS 이면서 실제 접근 가능한 드라이브만 수집
     $devDrives = @()
-}
-
-$cDriveDefault = Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName"
-
-Write-Host ""
-Write-Host "===========================================================================" -ForegroundColor DarkCyan
-Write-Host "  📂 WSL2 가상 머신 설치 드라이브 선택" -ForegroundColor DarkCyan
-Write-Host "===========================================================================" -ForegroundColor DarkCyan
-Write-Host ""
-Write-Host "  💡 개발자 드라이브(Dev Drive / ReFS)에 설치하면 WSL2 파일 I/O 성능이" -ForegroundColor Yellow
-Write-Host "     크게 향상됩니다. 가능하다면 개발자 드라이브를 선택하는 것을 권장합니다." -ForegroundColor Yellow
-Write-Host ""
-
-$choices = @()
-
-if ($devDrives.Count -gt 0) {
-    Write-Host "  ✅ 감지된 개발자 드라이브 (권장):" -ForegroundColor Green
-    foreach ($drv in $devDrives) {
-        $installPath = "$drv\wsl\devtools2\$windowsUser"
-        $idx = $choices.Count + 1
-        Write-Host ("  {0}) ★ {1}  →  {2}" -f $idx, $drv, $installPath) -ForegroundColor Cyan
-        $choices += @{ Label = "$drv (개발자 드라이브)"; Path = $installPath }
-    }
-    Write-Host ""
-}
-
-# C: 폴백 옵션 (항상 마지막 번호로 추가)
-$cIdx = $choices.Count + 1
-Write-Host ("  {0}) C: (일반 드라이브)  →  {1}" -f $cIdx, $cDriveDefault) -ForegroundColor Gray
-$choices += @{ Label = "C: (일반 드라이브)"; Path = $cDriveDefault }
-
-Write-Host ""
-Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
-
-$driveIdx = Prompt-Choice "👉 설치할 드라이브 번호를 입력하세요" ($choices | ForEach-Object { $_.Label }) 1
-$wslInstallPath = $choices[$driveIdx - 1].Path
-$selectedLabel  = $choices[$driveIdx - 1].Label
-
-Write-Host ""
-Write-Success "선택 완료: $selectedLabel"
-Write-Info    "WSL2 가상 머신 설치 경로: $wslInstallPath"
-Write-Host ""
-
-# ==============================================================================
-# [Step 3] 가상 머신 존재 확인 또는 공식 RootFS 직접 Import 생성
-# ------------------------------------------------------------------------------
-# ⚠️ [보안 및 안정성 원칙]
-# - 기존에 PC에 설치되어 있던 다른 Ubuntu 배포판(Ubuntu, Ubuntu-22.04 등)을
-#   절대 조회하거나 해제(unregister)하지 않습니다.
-# - Canonical 공식 Ubuntu WSL 경량 rootfs 이미지를 다운로드하여 지정된 경로에
-#   'wsl --import'로 직접 단번에 배포판을 생성합니다.
-# ==============================================================================
-$existingVhdx = Join-Path $wslInstallPath "ext4.vhdx"
-$skipDownload = $false
-$installedDistroDesc = "Ubuntu"
-
-if (Test-Path $existingVhdx) {
-    Write-Host ""
-    Write-Success "지정된 경로에 기존 WSL2 가상 디스크(ext4.vhdx)가 발견되었습니다:"
-    Write-Host "   $existingVhdx" -ForegroundColor Cyan
-    Write-Host ""
-    $useExisting = Prompt-Confirm "기존 가상 디스크를 '$wslName' 배포판으로 즉시 재등록하여 사용하시겠습니까?" "Y"
-    if ($useExisting) {
-        Write-Info "기존 가상 디스크를 '$wslName'으로 등록 중..."
-        # ⚠️ "wsl --import ... --vhd" 는 vhdx 를 설치 위치로 "복사"하므로, 원본이 이미 설치 위치
-        #    ($wslInstallPath\ext4.vhdx)에 있으면 같은 경로로 복사하려다 실패합니다.
-        #    이미 있는 가상 디스크를 그 자리에서 등록하는 명령은 --import-in-place 입니다.
-        wsl --import-in-place $wslName $existingVhdx
-        if ($LASTEXITCODE -eq 0) {
-            Write-Success "기존 가상 디스크 재등록 완료!"
-            $skipDownload = $true
-            $installedDistroDesc = "Ubuntu (기존 가상 디스크 재등록)"
-        } else {
-            Write-Warn "기존 가상 디스크 재등록에 실패했습니다. 새로운 배포판 설치를 진행합니다."
-        }
-    }
-}
-
-if (-not $skipDownload) {
-    # ── 1. Ubuntu 배포판 버전 선택 (동적 탐지) ─────────────────────────────
-    # [1순위] Microsoft 공식 WSL 배포판 목록(DistributionInfo.json)에서 LTS 버전을 가져옵니다.
-    #   ● wsl --install / wsl --list --online 이 쓰는 것과 같은 목록이라 새 LTS 가 나오면 자동으로 보입니다.
-    #   ● Canonical 은 26.04 부터 WSL 이미지를 cloud-images.ubuntu.com/wsl 이 아니라 releases.ubuntu.com 에
-    #     새 형식(.wsl — 내용은 일반 rootfs tar.gz)으로만 올립니다. 예전처럼 cloud-images 만 보면 26.04 가
-    #     목록에 없어 24.04 가 "최신 LTS"로 잘못 표시됐습니다(2026-10 확인).
-    #   ● 각 이미지의 다운로드 URL 과 SHA256 이 함께 들어 있어 아래 무결성 검증에 그대로 씁니다.
-    #   ● LTS(짝수 연도 .04)만, 최신 LTS 부터 3개($ltsKeep)만 보여 주며 1번(최신 LTS)이 기본값입니다.
-    #     설치 후 문제가 있으면 이전 LTS 를 골라 다시 설치하면 됩니다.
-    # [2순위 폴백] 공식 목록 조회에 실패하면 아래의 기존 방식(cloud-images 탐지)을 그대로 씁니다:
-    # cloud-images.ubuntu.com/wsl/releases/ 에서 사용 가능한 LTS 버전을
-    # 런타임에 자동 탐지합니다. 각 버전의 /current/ 디렉터리에서 rootfs
-    # 파일명을 파싱하여 codename(noble, jammy 등)을 추출합니다.
-    # --------------------------------------------------------------------------
-    Write-Step "[Step 3-1] Ubuntu 배포판 버전 선택"
-    Write-Info "설치 가능한 Ubuntu LTS 버전을 확인하는 중..."
-
-    $ltsKeep = 3
-    # 아키텍처는 버전 목록(이미지 URL)부터 필요하므로 여기서 먼저 정합니다 (Step 3-3 에서 그대로 사용)
-    $isArm64 = ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64)
-    $arch = if ($isArm64) { "arm64" } else { "amd64" }
-
-    # 버전("26.04") → @{ Ver; Url; Sha256 } (Microsoft 공식 목록에서 찾은 이미지)
-    $msDistros = [ordered]@{}
     try {
-        $distInfo = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json" -TimeoutSec 15 -ErrorAction Stop
-        $found = @()
-        foreach ($d in @($distInfo.ModernDistributions.Ubuntu)) {
-            # "Ubuntu"(= 최신 LTS 별칭) 은 버전이 붙은 항목과 중복이라 건너뛰고 "Ubuntu-NN.04" 만 봅니다
-            $vm = [regex]::Match([string]$d.Name, '^Ubuntu-(\d+)\.04$')
-            if (-not $vm.Success) { continue }
-            if (([int]$vm.Groups[1].Value % 2) -ne 0) { continue }   # 짝수 연도 .04 = LTS
-            $urlObj = if ($isArm64) { $d.Arm64Url } else { $d.Amd64Url }
-            if ($null -eq $urlObj -or [string]::IsNullOrWhiteSpace([string]$urlObj.Url)) { continue }
-            $sha = [string]$urlObj.Sha256
-            if (-not [string]::IsNullOrWhiteSpace($sha)) { $sha = ($sha.Trim().ToLower() -replace '^0x', '') }
-            $found += [pscustomobject]@{ Ver = "$($vm.Groups[1].Value).04"; Url = [string]$urlObj.Url; Sha256 = $sha }
-        }
-        foreach ($f in @($found | Sort-Object { [System.Version]($_.Ver + ".0") } -Descending | Select-Object -First $ltsKeep)) {
-            $msDistros[$f.Ver] = $f
+        $volumes = Get-CimInstance -ClassName Win32_Volume -Filter "DriveType=3" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FileSystem -eq 'ReFS' -and -not [string]::IsNullOrEmpty($_.DriveLetter) } |
+            Sort-Object DriveLetter
+        foreach ($vol in $volumes) {
+            $letter = $vol.DriveLetter.TrimEnd('\')   # "Z:" 형태로 정규화
+            if (Test-Path "$letter\") {
+                $devDrives += $letter
+            }
         }
     } catch {
-        Write-Warn "Microsoft 공식 WSL 배포판 목록 조회에 실패했습니다. Canonical cloud-images 목록으로 확인합니다."
+        $devDrives = @()
     }
 
-    if ($msDistros.Count -gt 0) {
-        $availableVersions = @($msDistros.Keys)
-    } else {
-        $availableVersions = @()
+    $cDriveDefault = Join-Path $env:USERPROFILE "AppData\Local\WSL\$wslName"
+
+    Write-Host ""
+    Write-Host "===========================================================================" -ForegroundColor DarkCyan
+    Write-Host "  📂 WSL2 가상 머신 설치 드라이브 선택" -ForegroundColor DarkCyan
+    Write-Host "===========================================================================" -ForegroundColor DarkCyan
+    Write-Host ""
+    Write-Host "  💡 개발자 드라이브(Dev Drive / ReFS)에 설치하면 WSL2 파일 I/O 성능이" -ForegroundColor Yellow
+    Write-Host "     크게 향상됩니다. 가능하다면 개발자 드라이브를 선택하는 것을 권장합니다." -ForegroundColor Yellow
+    Write-Host ""
+
+    $choices = @()
+
+    if ($devDrives.Count -gt 0) {
+        Write-Host "  ✅ 감지된 개발자 드라이브 (권장):" -ForegroundColor Green
+        foreach ($drv in $devDrives) {
+            $installPath = "$drv\wsl\devtools2\$windowsUser"
+            $idx = $choices.Count + 1
+            Write-Host ("  {0}) ★ {1}  →  {2}" -f $idx, $drv, $installPath) -ForegroundColor Cyan
+            $choices += @{ Label = "$drv (개발자 드라이브)"; Path = $installPath }
+        }
+        Write-Host ""
+    }
+
+    # C: 폴백 옵션 (항상 마지막 번호로 추가)
+    $cIdx = $choices.Count + 1
+    Write-Host ("  {0}) C: (일반 드라이브)  →  {1}" -f $cIdx, $cDriveDefault) -ForegroundColor Gray
+    $choices += @{ Label = "C: (일반 드라이브)"; Path = $cDriveDefault }
+
+    Write-Host ""
+    Write-Host "---------------------------------------------------------------------------" -ForegroundColor DarkGray
+
+    $driveIdx = Prompt-Choice "👉 설치할 드라이브 번호를 입력하세요" ($choices | ForEach-Object { $_.Label }) 1
+    $wslInstallPath = $choices[$driveIdx - 1].Path
+    $selectedLabel  = $choices[$driveIdx - 1].Label
+
+    Write-Host ""
+    Write-Success "선택 완료: $selectedLabel"
+    Write-Info    "WSL2 가상 머신 설치 경로: $wslInstallPath"
+    Write-Host ""
+
+    # ==============================================================================
+    # [Step 3] 가상 머신 존재 확인 또는 공식 RootFS 직접 Import 생성
+    # ------------------------------------------------------------------------------
+    # ⚠️ [보안 및 안정성 원칙]
+    # - 기존에 PC에 설치되어 있던 다른 Ubuntu 배포판(Ubuntu, Ubuntu-22.04 등)을
+    #   절대 조회하거나 해제(unregister)하지 않습니다.
+    # - Canonical 공식 Ubuntu WSL 경량 rootfs 이미지를 다운로드하여 지정된 경로에
+    #   'wsl --import'로 직접 단번에 배포판을 생성합니다.
+    # ==============================================================================
+    $existingVhdx = Join-Path $wslInstallPath "ext4.vhdx"
+    $skipDownload = $false
+    $installedDistroDesc = "Ubuntu"
+
+    if (Test-Path $existingVhdx) {
+        Write-Host ""
+        Write-Success "지정된 경로에 기존 WSL2 가상 디스크(ext4.vhdx)가 발견되었습니다:"
+        Write-Host "   $existingVhdx" -ForegroundColor Cyan
+        Write-Host ""
+        $useExisting = Prompt-Confirm "기존 가상 디스크를 '$wslName' 배포판으로 즉시 재등록하여 사용하시겠습니까?" "Y"
+        if ($useExisting) {
+            Write-Info "기존 가상 디스크를 '$wslName'으로 등록 중..."
+            # ⚠️ "wsl --import ... --vhd" 는 vhdx 를 설치 위치로 "복사"하므로, 원본이 이미 설치 위치
+            #    ($wslInstallPath\ext4.vhdx)에 있으면 같은 경로로 복사하려다 실패합니다.
+            #    이미 있는 가상 디스크를 그 자리에서 등록하는 명령은 --import-in-place 입니다.
+            wsl --import-in-place $wslName $existingVhdx
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "기존 가상 디스크 재등록 완료!"
+                $skipDownload = $true
+                $installedDistroDesc = "Ubuntu (기존 가상 디스크 재등록)"
+            } else {
+                Write-Warn "기존 가상 디스크 재등록에 실패했습니다. 새로운 배포판 설치를 진행합니다."
+            }
+        }
+    }
+
+    if (-not $skipDownload) {
+        # ── 1. Ubuntu 배포판 버전 선택 (동적 탐지) ─────────────────────────────
+        # [1순위] Microsoft 공식 WSL 배포판 목록(DistributionInfo.json)에서 LTS 버전을 가져옵니다.
+        #   ● wsl --install / wsl --list --online 이 쓰는 것과 같은 목록이라 새 LTS 가 나오면 자동으로 보입니다.
+        #   ● Canonical 은 26.04 부터 WSL 이미지를 cloud-images.ubuntu.com/wsl 이 아니라 releases.ubuntu.com 에
+        #     새 형식(.wsl — 내용은 일반 rootfs tar.gz)으로만 올립니다. 예전처럼 cloud-images 만 보면 26.04 가
+        #     목록에 없어 24.04 가 "최신 LTS"로 잘못 표시됐습니다(2026-10 확인).
+        #   ● 각 이미지의 다운로드 URL 과 SHA256 이 함께 들어 있어 아래 무결성 검증에 그대로 씁니다.
+        #   ● LTS(짝수 연도 .04)만, 최신 LTS 부터 3개($ltsKeep)만 보여 주며 1번(최신 LTS)이 기본값입니다.
+        #     설치 후 문제가 있으면 이전 LTS 를 골라 다시 설치하면 됩니다.
+        # [2순위 폴백] 공식 목록 조회에 실패하면 아래의 기존 방식(cloud-images 탐지)을 그대로 씁니다:
+        # cloud-images.ubuntu.com/wsl/releases/ 에서 사용 가능한 LTS 버전을
+        # 런타임에 자동 탐지합니다. 각 버전의 /current/ 디렉터리에서 rootfs
+        # 파일명을 파싱하여 codename(noble, jammy 등)을 추출합니다.
+        # --------------------------------------------------------------------------
+        Write-Step "[Step 3-1] Ubuntu 배포판 버전 선택"
+        Write-Info "설치 가능한 Ubuntu LTS 버전을 확인하는 중..."
+
+        $ltsKeep = 3
+        # 아키텍처는 버전 목록(이미지 URL)부터 필요하므로 여기서 먼저 정합니다 (Step 3-3 에서 그대로 사용)
+        $isArm64 = ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64)
+        $arch = if ($isArm64) { "arm64" } else { "amd64" }
+
+        # 버전("26.04") → @{ Ver; Url; Sha256 } (Microsoft 공식 목록에서 찾은 이미지)
+        $msDistros = [ordered]@{}
         try {
-            $releasesHtml = Invoke-RestMethod -Uri "https://cloud-images.ubuntu.com/wsl/releases/" -TimeoutSec 15 -ErrorAction Stop
-            # HTML 디렉터리 목록에서 "22.04/", "24.04/" 같은 버전 링크 추출
-            # Apache 버전(2.4, 3.2 등)을 제외하기 위해 >= 20.00 필터 적용
-            $versionMatches = [regex]::Matches($releasesHtml, 'href="(\d+\.\d+)/"')
-            foreach ($m in $versionMatches) {
-                $ver = $m.Groups[1].Value
-                if ([double]$ver -ge 20.0) {
-                    $availableVersions += $ver
+            $distInfo = Invoke-RestMethod -Uri "https://raw.githubusercontent.com/microsoft/WSL/master/distributions/DistributionInfo.json" -TimeoutSec 15 -ErrorAction Stop
+            $found = @()
+            foreach ($d in @($distInfo.ModernDistributions.Ubuntu)) {
+                # "Ubuntu"(= 최신 LTS 별칭) 은 버전이 붙은 항목과 중복이라 건너뛰고 "Ubuntu-NN.04" 만 봅니다
+                $vm = [regex]::Match([string]$d.Name, '^Ubuntu-(\d+)\.04$')
+                if (-not $vm.Success) { continue }
+                if (([int]$vm.Groups[1].Value % 2) -ne 0) { continue }   # 짝수 연도 .04 = LTS
+                $urlObj = if ($isArm64) { $d.Arm64Url } else { $d.Amd64Url }
+                if ($null -eq $urlObj -or [string]::IsNullOrWhiteSpace([string]$urlObj.Url)) { continue }
+                $sha = [string]$urlObj.Sha256
+                if (-not [string]::IsNullOrWhiteSpace($sha)) { $sha = ($sha.Trim().ToLower() -replace '^0x', '') }
+                $found += [pscustomobject]@{ Ver = "$($vm.Groups[1].Value).04"; Url = [string]$urlObj.Url; Sha256 = $sha }
+            }
+            foreach ($f in @($found | Sort-Object { [System.Version]($_.Ver + ".0") } -Descending | Select-Object -First $ltsKeep)) {
+                $msDistros[$f.Ver] = $f
+            }
+        } catch {
+            Write-Warn "Microsoft 공식 WSL 배포판 목록 조회에 실패했습니다. Canonical cloud-images 목록으로 확인합니다."
+        }
+
+        if ($msDistros.Count -gt 0) {
+            $availableVersions = @($msDistros.Keys)
+        } else {
+            $availableVersions = @()
+            try {
+                $releasesHtml = Invoke-RestMethod -Uri "https://cloud-images.ubuntu.com/wsl/releases/" -TimeoutSec 15 -ErrorAction Stop
+                # HTML 디렉터리 목록에서 "22.04/", "24.04/" 같은 버전 링크 추출
+                # Apache 버전(2.4, 3.2 등)을 제외하기 위해 >= 20.00 필터 적용
+                $versionMatches = [regex]::Matches($releasesHtml, 'href="(\d+\.\d+)/"')
+                foreach ($m in $versionMatches) {
+                    $ver = $m.Groups[1].Value
+                    if ([double]$ver -ge 20.0) {
+                        $availableVersions += $ver
+                    }
+                }
+                # 최신 버전이 맨 앞에 오도록 내림차순 정렬
+                $availableVersions = $availableVersions | Sort-Object { [System.Version]($_ + ".0") } -Descending
+            } catch {
+                Write-Warn "온라인 버전 목록 조회에 실패했습니다. 기본 버전(24.04, 22.04)을 사용합니다."
+                $availableVersions = @("24.04", "22.04")
+            }
+
+            if ($availableVersions.Count -eq 0) {
+                Write-Warn "사용 가능한 Ubuntu 버전을 찾을 수 없습니다. 기본 버전(24.04, 22.04)을 사용합니다."
+                $availableVersions = @("24.04", "22.04")
+            }
+            # 폴백 목록도 최신 LTS 부터 3개만
+            $availableVersions = @($availableVersions | Select-Object -First $ltsKeep)
+        }
+
+        # 각 버전의 codename 을 rootfs 파일명에서 동적으로 추출
+        # 예: ubuntu-noble-wsl-amd64-wsl.rootfs.tar.gz → "noble"
+        $versionMap = [ordered]@{}
+        foreach ($ver in $availableVersions) {
+            $codename = $null
+            # 공식 목록에서 찾은 버전은 이미지 URL 을 이미 알므로 cloud-images 조회를 건너뜁니다(표시는 아래 알려진 코드명)
+            if (-not $msDistros.Contains($ver)) { try {
+                $currentHtml = Invoke-RestMethod -Uri "https://cloud-images.ubuntu.com/wsl/releases/$ver/current/" -TimeoutSec 10 -ErrorAction Stop
+                $codenameMatch = [regex]::Match($currentHtml, 'ubuntu-([a-z]+)-wsl-')
+                if ($codenameMatch.Success) {
+                    $codename = $codenameMatch.Groups[1].Value
+                }
+            } catch {
+                # codename 조회 실패 시 무시 — 아래에서 폴백 처리
+            } }
+            # 잘 알려진 LTS codename 폴백 매핑
+            if ([string]::IsNullOrEmpty($codename)) {
+                $knownCodenames = @{
+                    "24.04" = "noble"; "22.04" = "jammy"; "20.04" = "focal"
+                    # 26.04 정식 코드명은 Resolute Raccoon (예전 값 "euphoric" 은 잘못된 추정이었음)
+                    "26.04" = "resolute"; "28.04" = "unknown"
+                }
+                if ($knownCodenames.ContainsKey($ver)) {
+                    $codename = $knownCodenames[$ver]
+                } else {
+                    $codename = "unknown"
                 }
             }
-            # 최신 버전이 맨 앞에 오도록 내림차순 정렬
-            $availableVersions = $availableVersions | Sort-Object { [System.Version]($_ + ".0") } -Descending
-        } catch {
-            Write-Warn "온라인 버전 목록 조회에 실패했습니다. 기본 버전(24.04, 22.04)을 사용합니다."
-            $availableVersions = @("24.04", "22.04")
+            $versionMap[$ver] = $codename
         }
 
-        if ($availableVersions.Count -eq 0) {
-            Write-Warn "사용 가능한 Ubuntu 버전을 찾을 수 없습니다. 기본 버전(24.04, 22.04)을 사용합니다."
-            $availableVersions = @("24.04", "22.04")
-        }
-        # 폴백 목록도 최신 LTS 부터 3개만
-        $availableVersions = @($availableVersions | Select-Object -First $ltsKeep)
-    }
-
-    # 각 버전의 codename 을 rootfs 파일명에서 동적으로 추출
-    # 예: ubuntu-noble-wsl-amd64-wsl.rootfs.tar.gz → "noble"
-    $versionMap = [ordered]@{}
-    foreach ($ver in $availableVersions) {
-        $codename = $null
-        # 공식 목록에서 찾은 버전은 이미지 URL 을 이미 알므로 cloud-images 조회를 건너뜁니다(표시는 아래 알려진 코드명)
-        if (-not $msDistros.Contains($ver)) { try {
-            $currentHtml = Invoke-RestMethod -Uri "https://cloud-images.ubuntu.com/wsl/releases/$ver/current/" -TimeoutSec 10 -ErrorAction Stop
-            $codenameMatch = [regex]::Match($currentHtml, 'ubuntu-([a-z]+)-wsl-')
-            if ($codenameMatch.Success) {
-                $codename = $codenameMatch.Groups[1].Value
-            }
-        } catch {
-            # codename 조회 실패 시 무시 — 아래에서 폴백 처리
-        } }
-        # 잘 알려진 LTS codename 폴백 매핑
-        if ([string]::IsNullOrEmpty($codename)) {
-            $knownCodenames = @{
-                "24.04" = "noble"; "22.04" = "jammy"; "20.04" = "focal"
-                # 26.04 정식 코드명은 Resolute Raccoon (예전 값 "euphoric" 은 잘못된 추정이었음)
-                "26.04" = "resolute"; "28.04" = "unknown"
-            }
-            if ($knownCodenames.ContainsKey($ver)) {
-                $codename = $knownCodenames[$ver]
+        # 사용자에게 선택지 제시 (최신 버전 = 1번 = 기본 선택)
+        Write-Host "  설치할 Ubuntu 버전을 선택하세요:" -ForegroundColor White
+        $versionChoices = @()
+        $vIdx = 1
+        foreach ($ver in $versionMap.Keys) {
+            $cn = $versionMap[$ver]
+            $cnCapital = (Get-Culture).TextInfo.ToTitleCase($cn)
+            # 코드명을 모르는 새 LTS(unknown)는 괄호 안에 버전 설명만 표시
+            $cnPart = if ($cn -eq "unknown") { "" } else { "$cnCapital - " }
+            $label = if ($vIdx -eq 1) {
+                "Ubuntu $ver LTS (${cnPart}최신 LTS 권장)"
+            } elseif ($cn -eq "unknown") {
+                "Ubuntu $ver LTS"
             } else {
-                $codename = "unknown"
+                "Ubuntu $ver LTS ($cnCapital)"
+            }
+            $color = if ($vIdx -eq 1) { "Cyan" } else { "White" }
+            Write-Host ("    {0}) {1}" -f $vIdx, $label) -ForegroundColor $color
+            $versionChoices += $label
+            $vIdx++
+        }
+        Write-Host ""
+        $versionIdx = Prompt-Choice "👉 번호를 입력하세요" $versionChoices 1
+
+        $selectedVer = @($versionMap.Keys)[$versionIdx - 1]
+        $ubuntuVer = $selectedVer
+        $ubuntuCodename = $versionMap[$selectedVer]
+        $installedDistroDesc = "Ubuntu $ubuntuVer LTS ($ubuntuCodename)"
+        Write-Info "선택된 Ubuntu 버전: $installedDistroDesc"
+
+        # ── 2. WSL2 내부 기본 사용자 계정 및 비밀번호 설정 ─────────────────────
+        Write-Step "[Step 3-2] WSL2 기본 사용자 계정 설정"
+        Write-Host "  WSL2 내부에서 사용할 기본 사용자 계정과 비밀번호를 설정합니다." -ForegroundColor White
+        $createdUsername = ""
+        while ([string]::IsNullOrEmpty($createdUsername)) {
+            Write-Host "👉 사용자 이름(Username) 입력 [기본값: $windowsUser]: " -ForegroundColor Yellow -NoNewline
+            $inputUser = Read-Host
+            $candidate = if ([string]::IsNullOrWhiteSpace($inputUser)) { $windowsUser } else { $inputUser.Trim() }
+            $candidate = $candidate.Trim([char]0xFEFF).Trim().ToLower()
+
+            # 리눅스 계정명 규칙 검증: 영문 소문자, 숫자, 하이픈(-), 밑줄(_)
+            if ($candidate -match '^[a-z_][a-z0-9_-]*$') {
+                $createdUsername = $candidate
+            } else {
+                Write-Warn "사용자 계정명은 영문 소문자, 숫자, 하이픈(-), 밑줄(_)만 사용할 수 있습니다. (입력값: '$candidate')"
+                Write-Host ""
             }
         }
-        $versionMap[$ver] = $codename
-    }
+        Write-Success "사용자 계정명: $createdUsername"
 
-    # 사용자에게 선택지 제시 (최신 버전 = 1번 = 기본 선택)
-    Write-Host "  설치할 Ubuntu 버전을 선택하세요:" -ForegroundColor White
-    $versionChoices = @()
-    $vIdx = 1
-    foreach ($ver in $versionMap.Keys) {
-        $cn = $versionMap[$ver]
-        $cnCapital = (Get-Culture).TextInfo.ToTitleCase($cn)
-        # 코드명을 모르는 새 LTS(unknown)는 괄호 안에 버전 설명만 표시
-        $cnPart = if ($cn -eq "unknown") { "" } else { "$cnCapital - " }
-        $label = if ($vIdx -eq 1) {
-            "Ubuntu $ver LTS (${cnPart}최신 LTS 권장)"
-        } elseif ($cn -eq "unknown") {
-            "Ubuntu $ver LTS"
-        } else {
-            "Ubuntu $ver LTS ($cnCapital)"
-        }
-        $color = if ($vIdx -eq 1) { "Cyan" } else { "White" }
-        Write-Host ("    {0}) {1}" -f $vIdx, $label) -ForegroundColor $color
-        $versionChoices += $label
-        $vIdx++
-    }
-    Write-Host ""
-    $versionIdx = Prompt-Choice "👉 번호를 입력하세요" $versionChoices 1
+        $plainPassword = ""
+        while ([string]::IsNullOrEmpty($plainPassword)) {
+            $pw1 = Prompt-Password "👉 비밀번호(Password) 입력: "
+            $bstr1 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw1)
+            $plain1 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr1)
+            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr1)
 
-    $selectedVer = @($versionMap.Keys)[$versionIdx - 1]
-    $ubuntuVer = $selectedVer
-    $ubuntuCodename = $versionMap[$selectedVer]
-    $installedDistroDesc = "Ubuntu $ubuntuVer LTS ($ubuntuCodename)"
-    Write-Info "선택된 Ubuntu 버전: $installedDistroDesc"
+            $pw2 = Prompt-Password "👉 비밀번호(Password) 확인: "
+            $bstr2 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw2)
+            $plain2 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr2)
+            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr2)
 
-    # ── 2. WSL2 내부 기본 사용자 계정 및 비밀번호 설정 ─────────────────────
-    Write-Step "[Step 3-2] WSL2 기본 사용자 계정 설정"
-    Write-Host "  WSL2 내부에서 사용할 기본 사용자 계정과 비밀번호를 설정합니다." -ForegroundColor White
-    $createdUsername = ""
-    while ([string]::IsNullOrEmpty($createdUsername)) {
-        Write-Host "👉 사용자 이름(Username) 입력 [기본값: $windowsUser]: " -ForegroundColor Yellow -NoNewline
-        $inputUser = Read-Host
-        $candidate = if ([string]::IsNullOrWhiteSpace($inputUser)) { $windowsUser } else { $inputUser.Trim() }
-        $candidate = $candidate.Trim([char]0xFEFF).Trim().ToLower()
-
-        # 리눅스 계정명 규칙 검증: 영문 소문자, 숫자, 하이픈(-), 밑줄(_)
-        if ($candidate -match '^[a-z_][a-z0-9_-]*$') {
-            $createdUsername = $candidate
-        } else {
-            Write-Warn "사용자 계정명은 영문 소문자, 숫자, 하이픈(-), 밑줄(_)만 사용할 수 있습니다. (입력값: '$candidate')"
-            Write-Host ""
-        }
-    }
-    Write-Success "사용자 계정명: $createdUsername"
-
-    $plainPassword = ""
-    while ([string]::IsNullOrEmpty($plainPassword)) {
-        $pw1 = Prompt-Password "👉 비밀번호(Password) 입력: "
-        $bstr1 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw1)
-        $plain1 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr1)
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr1)
-
-        $pw2 = Prompt-Password "👉 비밀번호(Password) 확인: "
-        $bstr2 = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($pw2)
-        $plain2 = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr2)
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr2)
-
-        if ($plain1 -eq $plain2 -and -not [string]::IsNullOrEmpty($plain1)) {
-            $plainPassword = $plain1
-            Write-Success "비밀번호 설정 확인 완료"
-        } else {
-            Write-Fail "비밀번호가 일치하지 않거나 비어있습니다. 다시 입력해 주세요."
-            Write-Host ""
-        }
-    }
-
-    # ── 3. Canonical 공식 Ubuntu WSL RootFS 다운로드 (미러 및 원본 폴백 지원) ──
-    Write-Step "[Step 3-3] Ubuntu WSL RootFS 다운로드"
-    # ($isArm64 / $arch 는 Step 3-1 에서 이미 정했습니다)
-    $rootfsFileName = "ubuntu-$ubuntuCodename-wsl-$arch-wsl.rootfs.tar.gz"
-
-    # 우선순위 미러 및 공식 CDN URL 목록 (다중 URL 자동 폴백 지원)
-    $rootfsUrls = @(
-        "https://cloud-images.ubuntu.com/wsl/releases/$ubuntuVer/current/$rootfsFileName",
-        "https://cloud-images.ubuntu.com/wsl/$ubuntuCodename/current/$rootfsFileName"
-    )
-    # Microsoft 공식 목록에서 고른 버전: releases.ubuntu.com 의 .wsl 이미지(내용은 rootfs tar.gz)를 사용
-    # (wsl --import 는 gzip 압축을 내용으로 판별하므로 임시 파일 이름은 기존과 같은 .tar.gz 로 둡니다)
-    $msImage = $null
-    if ($msDistros.Contains($ubuntuVer)) {
-        $msImage = $msDistros[$ubuntuVer]
-        $rootfsUrls = @($msImage.Url)
-    }
-
-    $tempTarPath = Join-Path $env:TEMP "ubuntu-$ubuntuCodename-wsl-$arch.rootfs.tar.gz"
-    $downloadOk = Download-WithProgress -Urls $rootfsUrls -DestinationPath $tempTarPath -Description "Ubuntu $ubuntuVer LTS ($arch)"
-
-    if (-not $downloadOk -or -not (Test-Path $tempTarPath)) {
-        Write-Fail "Ubuntu RootFS 다운로드에 실패했습니다. 네트워크 연결 상태를 확인해 주세요."
-        Pause-Script
-        exit 1
-    }
-
-    # ── RootFS SHA256 무결성 검증 (같은 폴더의 공식 SHA256SUMS 기준) ──
-    # 불일치하면 손상·변조된 이미지로 배포판을 만들지 않도록 중단합니다.
-    # SHA256SUMS 자체를 받지 못한 경우에만 경고 후 계속합니다.
-    # (Microsoft 공식 목록 이미지는 목록에 들어 있는 SHA256 을 그대로 기준값으로 씁니다)
-    $expectedSha = $null
-    if ($msImage -and -not [string]::IsNullOrWhiteSpace($msImage.Sha256)) { $expectedSha = $msImage.Sha256 }
-    if (-not $expectedSha) { foreach ($u in $rootfsUrls) {
-        $sumsUrl = ($u -replace '/[^/]+$', '') + '/SHA256SUMS'
-        try {
-            $sums = [string](Invoke-RestMethod -Uri $sumsUrl -TimeoutSec 15 -ErrorAction Stop)
-            foreach ($line in ($sums -split "`n")) {
-                $parts = $line.Trim() -split '\s+'
-                if ($parts.Count -ge 2 -and $parts[1].TrimStart('*') -eq $rootfsFileName) { $expectedSha = $parts[0].ToLower(); break }
+            if ($plain1 -eq $plain2 -and -not [string]::IsNullOrEmpty($plain1)) {
+                $plainPassword = $plain1
+                Write-Success "비밀번호 설정 확인 완료"
+            } else {
+                Write-Fail "비밀번호가 일치하지 않거나 비어있습니다. 다시 입력해 주세요."
+                Write-Host ""
             }
-        } catch {}
-        if ($expectedSha) { break }
-    } }
-    if ($expectedSha) {
-        $actualSha = (Get-FileHash -Path $tempTarPath -Algorithm SHA256).Hash.ToLower()
-        if ($actualSha -ne $expectedSha) {
-            Write-Fail "Ubuntu RootFS SHA256 불일치 — 손상되었거나 변조된 파일일 수 있어 설치를 중단합니다."
-            Write-Host "    예상: $expectedSha" -ForegroundColor Gray
-            Write-Host "    실제: $actualSha" -ForegroundColor Gray
-            Remove-Item $tempTarPath -Force -ErrorAction SilentlyContinue
+        }
+
+        # ── 3. Canonical 공식 Ubuntu WSL RootFS 다운로드 (미러 및 원본 폴백 지원) ──
+        Write-Step "[Step 3-3] Ubuntu WSL RootFS 다운로드"
+        # ($isArm64 / $arch 는 Step 3-1 에서 이미 정했습니다)
+        $rootfsFileName = "ubuntu-$ubuntuCodename-wsl-$arch-wsl.rootfs.tar.gz"
+
+        # 우선순위 미러 및 공식 CDN URL 목록 (다중 URL 자동 폴백 지원)
+        $rootfsUrls = @(
+            "https://cloud-images.ubuntu.com/wsl/releases/$ubuntuVer/current/$rootfsFileName",
+            "https://cloud-images.ubuntu.com/wsl/$ubuntuCodename/current/$rootfsFileName"
+        )
+        # Microsoft 공식 목록에서 고른 버전: releases.ubuntu.com 의 .wsl 이미지(내용은 rootfs tar.gz)를 사용
+        # (wsl --import 는 gzip 압축을 내용으로 판별하므로 임시 파일 이름은 기존과 같은 .tar.gz 로 둡니다)
+        $msImage = $null
+        if ($msDistros.Contains($ubuntuVer)) {
+            $msImage = $msDistros[$ubuntuVer]
+            $rootfsUrls = @($msImage.Url)
+        }
+
+        $tempTarPath = Join-Path $env:TEMP "ubuntu-$ubuntuCodename-wsl-$arch.rootfs.tar.gz"
+        $downloadOk = Download-WithProgress -Urls $rootfsUrls -DestinationPath $tempTarPath -Description "Ubuntu $ubuntuVer LTS ($arch)"
+
+        if (-not $downloadOk -or -not (Test-Path $tempTarPath)) {
+            Write-Fail "Ubuntu RootFS 다운로드에 실패했습니다. 네트워크 연결 상태를 확인해 주세요."
             Pause-Script
             exit 1
         }
-        Write-Success "Ubuntu RootFS SHA256 무결성 검증 통과"
-    } else {
-        Write-Warn "SHA256SUMS 를 받지 못해 RootFS 체크섬 검증 없이 계속합니다."
-    }
 
-    # ── 4. 지정 경로에 WSL2 배포판 직접 Import ─────────────────────────────
-    Write-Step "[Step 3-4] WSL2 배포판 직접 생성 (wsl --import)"
-    if (-not (Test-Path $wslInstallPath)) {
-        New-Item -ItemType Directory -Path $wslInstallPath -Force | Out-Null
-    }
+        # ── RootFS SHA256 무결성 검증 (같은 폴더의 공식 SHA256SUMS 기준) ──
+        # 불일치하면 손상·변조된 이미지로 배포판을 만들지 않도록 중단합니다.
+        # SHA256SUMS 자체를 받지 못한 경우에만 경고 후 계속합니다.
+        # (Microsoft 공식 목록 이미지는 목록에 들어 있는 SHA256 을 그대로 기준값으로 씁니다)
+        $expectedSha = $null
+        if ($msImage -and -not [string]::IsNullOrWhiteSpace($msImage.Sha256)) { $expectedSha = $msImage.Sha256 }
+        if (-not $expectedSha) { foreach ($u in $rootfsUrls) {
+            $sumsUrl = ($u -replace '/[^/]+$', '') + '/SHA256SUMS'
+            try {
+                $sums = [string](Invoke-RestMethod -Uri $sumsUrl -TimeoutSec 15 -ErrorAction Stop)
+                foreach ($line in ($sums -split "`n")) {
+                    $parts = $line.Trim() -split '\s+'
+                    if ($parts.Count -ge 2 -and $parts[1].TrimStart('*') -eq $rootfsFileName) { $expectedSha = $parts[0].ToLower(); break }
+                }
+            } catch {}
+            if ($expectedSha) { break }
+        } }
+        if ($expectedSha) {
+            $actualSha = (Get-FileHash -Path $tempTarPath -Algorithm SHA256).Hash.ToLower()
+            if ($actualSha -ne $expectedSha) {
+                Write-Fail "Ubuntu RootFS SHA256 불일치 — 손상되었거나 변조된 파일일 수 있어 설치를 중단합니다."
+                Write-Host "    예상: $expectedSha" -ForegroundColor Gray
+                Write-Host "    실제: $actualSha" -ForegroundColor Gray
+                Remove-Item $tempTarPath -Force -ErrorAction SilentlyContinue
+                Pause-Script
+                exit 1
+            }
+            Write-Success "Ubuntu RootFS SHA256 무결성 검증 통과"
+        } else {
+            Write-Warn "SHA256SUMS 를 받지 못해 RootFS 체크섬 검증 없이 계속합니다."
+        }
 
-    Write-Info "배포판을 '$wslName' 이름으로 생성 중... ($wslInstallPath)"
+        # ── 4. 지정 경로에 WSL2 배포판 직접 Import ─────────────────────────────
+        Write-Step "[Step 3-4] WSL2 배포판 직접 생성 (wsl --import)"
+        if (-not (Test-Path $wslInstallPath)) {
+            New-Item -ItemType Directory -Path $wslInstallPath -Force | Out-Null
+        }
 
-    # .NET Process API로 직접 백그라운드 프로세스 실행 (PS 5.1의 Start-Process 핸들 누락 버그 회피 - Rule 8)
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = "$env:SystemRoot\System32\wsl.exe"
-    $psi.Arguments = "--import `"$wslName`" `"$wslInstallPath`" `"$tempTarPath`" --version 2"
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-    $psi.RedirectStandardError = $true
+        Write-Info "배포판을 '$wslName' 이름으로 생성 중... ($wslInstallPath)"
 
-    $importProc = [System.Diagnostics.Process]::Start($psi)
-    $importWait = Wait-WithSpinner -Message "WSL2 배포판 가상 디스크 생성 및 Import 중" -Condition {
-        return ($null -eq $importProc) -or $importProc.HasExited
-    } -MaxTimeoutSeconds 600
+        # .NET Process API로 직접 백그라운드 프로세스 실행 (PS 5.1의 Start-Process 핸들 누락 버그 회피 - Rule 8)
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = "$env:SystemRoot\System32\wsl.exe"
+        $psi.Arguments = "--import `"$wslName`" `"$wslInstallPath`" `"$tempTarPath`" --version 2"
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardError = $true
 
-    $jobExit = 1
-    $errDetail = ""
-    if ($importProc) {
-        $importProc.WaitForExit()
-        $jobExit = $importProc.ExitCode
-        $errDetail = ([string]$importProc.StandardError.ReadToEnd()).Trim()
-        $importProc.Dispose()
-    } else {
-        $errDetail = "WSL 가져오기 프로세스를 시작할 수 없습니다."
-    }
-    Remove-Item $tempTarPath -Force -ErrorAction SilentlyContinue
+        $importProc = [System.Diagnostics.Process]::Start($psi)
+        $importWait = Wait-WithSpinner -Message "WSL2 배포판 가상 디스크 생성 및 Import 중" -Condition {
+            return ($null -eq $importProc) -or $importProc.HasExited
+        } -MaxTimeoutSeconds 600
 
-    # 배포판 등록 여부 실제 확인 (Rule 8: 프로세스 종료코드 외에 실제 시스템 자원 상태 교차 검증)
-    $distroExists = $false
-    try {
-        $rawList = @(wsl.exe --list --quiet 2>$null)
-        $cleanDistros = $rawList | ForEach-Object { ([string]$_ -replace "`0", "").Trim() }
-        $distroExists = [bool]($cleanDistros -contains $wslName)
-    } catch {}
+        $jobExit = 1
+        $errDetail = ""
+        if ($importProc) {
+            $importProc.WaitForExit()
+            $jobExit = $importProc.ExitCode
+            $errDetail = ([string]$importProc.StandardError.ReadToEnd()).Trim()
+            $importProc.Dispose()
+        } else {
+            $errDetail = "WSL 가져오기 프로세스를 시작할 수 없습니다."
+        }
+        Remove-Item $tempTarPath -Force -ErrorAction SilentlyContinue
 
-    # 최종 성공 여부 판정:
-    # 1) 타임아웃 미발생
-    # 2) 배포판이 실제로 정상 등록됨 (실측 검증)
-    # 3) 명시적 실패(종료 코드 0이 아님)가 아님
-    $isImportSuccess = $importWait -and $distroExists -and ($jobExit -eq 0)
+        # 배포판 등록 여부 실제 확인 (Rule 8: 프로세스 종료코드 외에 실제 시스템 자원 상태 교차 검증)
+        $distroExists = $false
+        try {
+            $rawList = @(wsl.exe --list --quiet 2>$null)
+            $cleanDistros = $rawList | ForEach-Object { ([string]$_ -replace "`0", "").Trim() }
+            $distroExists = [bool]($cleanDistros -contains $wslName)
+        } catch {}
 
-    if (-not $isImportSuccess) {
-        Write-Fail "배포판 가져오기(Import) 실패 (종료 코드: $jobExit)"
-        if (-not [string]::IsNullOrWhiteSpace($errDetail)) { Write-Warn "오류 상세: $errDetail" }
-        Pause-Script
-        exit 1
-    }
-    Write-Success "WSL2 배포판 '$wslName' 생성 완료!"
+        # 최종 성공 여부 판정:
+        # 1) 타임아웃 미발생
+        # 2) 배포판이 실제로 정상 등록됨 (실측 검증)
+        # 3) 명시적 실패(종료 코드 0이 아님)가 아님
+        $isImportSuccess = $importWait -and $distroExists -and ($jobExit -eq 0)
 
-    # ── 5. 기본 계정 생성 및 시스템 설정 초기화 (root 권한 1회 설정) ─────────
-    Write-Step "[Step 3-5] 기본 계정 및 시스템 환경 구성"
-    Write-Info "사용자 계정($createdUsername) 생성 및 wsl.conf(systemd=true 포함) 구성 중..."
+        if (-not $isImportSuccess) {
+            Write-Fail "배포판 가져오기(Import) 실패 (종료 코드: $jobExit)"
+            if (-not [string]::IsNullOrWhiteSpace($errDetail)) { Write-Warn "오류 상세: $errDetail" }
+            Pause-Script
+            exit 1
+        }
+        Write-Success "WSL2 배포판 '$wslName' 생성 완료!"
 
-    # 1) 일반 사용자 계정 생성 (sudo, adm, users 그룹 등록)
-    wsl -d $wslName -u root -- bash -c "id -u '$createdUsername' >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,adm,users '$createdUsername'"
-    $userAddExit = $LASTEXITCODE
-    if ($userAddExit -ne 0) {
-        Write-Fail "사용자 계정($createdUsername) 생성 실패 (종료 코드: $userAddExit)"
-        Pause-Script
-        exit 1
-    }
+        # ── 5. 기본 계정 생성 및 시스템 설정 초기화 (root 권한 1회 설정) ─────────
+        Write-Step "[Step 3-5] 기본 계정 및 시스템 환경 구성"
+        Write-Info "사용자 계정($createdUsername) 생성 및 wsl.conf(systemd=true 포함) 구성 중..."
 
-    # 2) 사용자 비밀번호 설정 (NoBOM 인코딩 보장 및 chpasswd 표준입력 전달)
-    #    ⚠️ PowerShell은 네이티브 프로그램(wsl.exe)으로 파이프할 때 줄 끝에 CRLF(\r\n)를 붙입니다(실측).
-    #    chpasswd는 \n만 제거하므로 그대로 넘기면 비밀번호 끝에 \r이 포함되어 저장되고,
-    #    설치 후 sudo 등에서 입력한 비밀번호가 맞지 않게 됩니다. → tr -d '\r' 로 CR을 제거한 뒤 전달합니다.
-    $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-    Write-Output "${createdUsername}:${plainPassword}" | wsl -d $wslName -u root -- bash -c "tr -d '\r' | chpasswd"
-    $chpasswdExit = $LASTEXITCODE
-    $plainPassword = $null
-    if ($chpasswdExit -ne 0) {
-        Write-Fail "사용자 비밀번호 설정(chpasswd) 실패 (종료 코드: $chpasswdExit)"
-        Pause-Script
-        exit 1
-    }
+        # 1) 일반 사용자 계정 생성 (sudo, adm, users 그룹 등록)
+        wsl -d $wslName -u root -- bash -c "id -u '$createdUsername' >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,adm,users '$createdUsername'"
+        $userAddExit = $LASTEXITCODE
+        if ($userAddExit -ne 0) {
+            Write-Fail "사용자 계정($createdUsername) 생성 실패 (종료 코드: $userAddExit)"
+            Pause-Script
+            exit 1
+        }
 
-    # 2) hostname 및 /etc/wsl.conf 설정 (기존 설정 보존하며 default user, systemd=true, interop 섹션 병합)
-    wsl -d $wslName -u root -- bash -c "echo '$wslName' > /etc/hostname"
-    $mergeWslConfPy = @'
+        # 2) 사용자 비밀번호 설정 (NoBOM 인코딩 보장 및 chpasswd 표준입력 전달)
+        #    ⚠️ PowerShell은 네이티브 프로그램(wsl.exe)으로 파이프할 때 줄 끝에 CRLF(\r\n)를 붙입니다(실측).
+        #    chpasswd는 \n만 제거하므로 그대로 넘기면 비밀번호 끝에 \r이 포함되어 저장되고,
+        #    설치 후 sudo 등에서 입력한 비밀번호가 맞지 않게 됩니다. → tr -d '\r' 로 CR을 제거한 뒤 전달합니다.
+        $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        Write-Output "${createdUsername}:${plainPassword}" | wsl -d $wslName -u root -- bash -c "tr -d '\r' | chpasswd"
+        $chpasswdExit = $LASTEXITCODE
+        $plainPassword = $null
+        if ($chpasswdExit -ne 0) {
+            Write-Fail "사용자 비밀번호 설정(chpasswd) 실패 (종료 코드: $chpasswdExit)"
+            Pause-Script
+            exit 1
+        }
+
+        # 2) hostname 및 /etc/wsl.conf 설정 (기존 설정 보존하며 default user, systemd=true, interop 섹션 병합)
+        wsl -d $wslName -u root -- bash -c "echo '$wslName' > /etc/hostname"
+        $mergeWslConfPy = @'
 import configparser, sys
 
 path = '/etc/wsl.conf'
@@ -952,10 +959,10 @@ c.set('interop', 'appendWindowsPath', 'true')
 with open(path, 'w', encoding='utf-8') as f:
     c.write(f)
 '@
-    $mergeWslConfPy | wsl -d $wslName -u root -- python3 - "$createdUsername"
-    if ($LASTEXITCODE -ne 0) {
-        # Python 실패 시 bash 순수 heredoc 폴백으로 직접 기록
-        $confFallback = @"
+        $mergeWslConfPy | wsl -d $wslName -u root -- python3 - "$createdUsername"
+        if ($LASTEXITCODE -ne 0) {
+            # Python 실패 시 bash 순수 heredoc 폴백으로 직접 기록
+            $confFallback = @"
 cat << 'EOF' > /etc/wsl.conf
 [boot]
 systemd=true
@@ -968,21 +975,26 @@ enabled=true
 appendWindowsPath=true
 EOF
 "@
-        # CRLF(파이프 줄 끝/로컬 CRLF 체크아웃)가 섞이면 heredoc 종료 줄(EOF\r)을 인식하지 못하므로 CR 제거 후 실행
-        $confFallback | wsl -d $wslName -u root -- bash -c "tr -d '\r' | bash"
+            # CRLF(파이프 줄 끝/로컬 CRLF 체크아웃)가 섞이면 heredoc 종료 줄(EOF\r)을 인식하지 못하므로 CR 제거 후 실행
+            $confFallback | wsl -d $wslName -u root -- bash -c "tr -d '\r' | bash"
+        }
+
+        # 3) Windows Interop 핸들러 등록
+        Register-WslInterop $wslName
+
+        Write-Success "WSL2 시스템 환경 및 사용자($createdUsername) 구성 완료!"
+
+        # 4) /etc/wsl.conf 의 [user] default=$createdUsername 및 systemd 설정을 즉시 적용하기 위해 배포판 종료(terminate)
+        wsl --terminate $wslName 2>$null
     }
 
-    # 3) Windows Interop 핸들러 등록
-    Register-WslInterop $wslName
-
-    Write-Success "WSL2 시스템 환경 및 사용자($createdUsername) 구성 완료!"
-
-    # 4) /etc/wsl.conf 의 [user] default=$createdUsername 및 systemd 설정을 즉시 적용하기 위해 배포판 종료(terminate)
-    wsl --terminate $wslName 2>$null
 }
+# ── Install-NewDevtools2Distro 끝 ──
 
+if ($isNewDistroInstall) {
+    . Install-NewDevtools2Distro
 }
-# ── 배포판 새로 설치 블록(if ($isNewDistroInstall)) 끝 ── 아래 9~10 단계는 새 설치·기존 배포판 재실행 모두 실행
+# 아래 9~10 단계는 새 설치·기존 배포판 재실행 모두 실행합니다(테스트 6-7 이 검사).
 
 # 9. Windows 사용자 프로필에 .wslconfig (네트워크 미러링) 설정 확인
 #    WSL2 내부 포트(8881, 8080, 5005 등)를 Windows 호스트 localhost에서 별도 포트포워딩 없이 바로 접속 가능하도록 동기화

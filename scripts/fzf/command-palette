@@ -936,6 +936,14 @@ _cp_detach() {
     fi
 }
 
+# 1단계 그룹 문구용 — 실제로 있는 항목 이름을 " · " 로 이어 출력 (예: _cp_join_kw 탐색기 "VS Code" Zed → "탐색기 · VS Code · Zed")
+# 설치된 도구에 따라 항목이 달라지는 그룹(📂 열기 · 🤖 AI 에이전트)이 씁니다.
+_cp_join_kw() {
+    local _s
+    _s=$(printf ' · %s' "$@")
+    printf '%s' "${_s# · }"
+}
+
 # 2단계 항목 선택 — 고른 항목의 ID 를 출력 (Esc 면 빈 문자열)
 # 사용법: _pick_leaf "<프롬프트>" "ID<TAB>문구" ...
 #   항목이 하나뿐인 그룹은 2단계 메뉴를 띄우지 않고 바로 그 항목을 고릅니다.
@@ -955,14 +963,8 @@ while [ -z "$CHOICE_ID" ]; do
     _TOP=()
     $GRADLEW_EXISTS && _TOP+=("gradle	🐘 Gradle ▸ 실행 · 빌드 · 배포 · 작업(Tasks)")
     _TOP+=("git	🌿 Git · 프로젝트 ▸ lazygit · 브랜치 · PR · Clone · 프로젝트 설정")
-    if [ "${#_MENU_OPEN[@]}" -gt 0 ]; then
-        _kw=$(printf ' · %s' "${_OPEN_KW[@]}")
-        _TOP+=("open	📂 열기 ▸ ${_kw# · }")
-    fi
-    if [ "${#_MENU_AI[@]}" -gt 0 ]; then
-        _kw=$(printf ' · %s' "${_AI_KW[@]}")
-        _TOP+=("ai	🤖 AI 에이전트 ▸ ${_kw# · }")
-    fi
+    [ "${#_MENU_OPEN[@]}" -gt 0 ] && _TOP+=("open	📂 열기 ▸ $(_cp_join_kw "${_OPEN_KW[@]}")")
+    [ "${#_MENU_AI[@]}" -gt 0 ] && _TOP+=("ai	🤖 AI 에이전트 ▸ $(_cp_join_kw "${_AI_KW[@]}")")
     _TOP+=("port	🔌 포트 · 프로세스 · 메모리 ▸ 포트 확인 · 프로세스 확인 · 종료 · 메모리 현황")
     _TOP+=("env	☕ 개발 환경 ▸ JDK · Python · JDTLS 캐시")
     _TOP+=("base64	🔤 Base64 ▸ 인코딩 · 복원")
