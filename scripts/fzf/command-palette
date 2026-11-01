@@ -44,7 +44,16 @@ _restore_tty() {
         fi
     fi
 }
-trap '_restore_tty' EXIT INT TERM
+# [Ctrl+C = 팔레트 전체 중단]
+#   예전에는 INT 도 EXIT 와 같은 trap('_restore_tty' 만 실행)이라, Ctrl+C 로 Gradle 이 끊긴 뒤에도 스크립트가
+#   다음 줄로 계속 진행했습니다(실측: Alt+C 로 실행한 Gradle 은 Ctrl+C 로 종료 코드 130 을 받고 끝나지만 팔레트는 계속 진행).
+#   그래서 배포를 중단해도 "❌ 배포 실패 ... BUILD FAILED 원인을 확인" 같은 잘못된 안내가 나오고, 질문(read) 중 Ctrl+C 는
+#   빈 답으로 다음 단계가 진행됐습니다. 이제 Ctrl+C 를 받으면 터미널을 원복하고 바로 종료합니다.
+#   (Gradle 은 같은 Ctrl+C 를 함께 받아 클라이언트가 끝나고, 데몬은 진행 중인 작업을 취소합니다 — 실측 확인)
+#   ● fzf 메뉴의 Ctrl+C 는 fzf 가 직접 처리(선택 취소)하므로 이 trap 과 무관합니다.
+trap '_restore_tty' EXIT
+trap '_restore_tty; echo ""; echo "⛔ Ctrl+C 로 중단했습니다."; exit 130' INT
+trap '_restore_tty; exit 143' TERM
 normalize_tty
 
 # 1. 현재 작업 환경 분석 및 OS 판별 (IS_MAC, IS_WSL)
@@ -834,13 +843,104 @@ PYSIG
     }
 
     # ./gradlew tasks --all 출력 → "모듈<TAB>그룹<TAB>작업<TAB>설명" (루트 모듈은 빈 문자열, 첫 줄은 "@root<TAB>루트 이름")
-    _gt_parse() {
-        python3 -c '
+    # [설명 한글화] Gradle·Spring Boot 표준 작업의 영어 설명을 한글로 바꿉니다(문장 패턴 사전).
+    #   ● 설명 속 프로젝트 이름('goono-eln', ':s2-core')·퍼블리케이션 이름('mavenJava')·저장소 이름(CentralPortal)은 그대로 살립니다.
+    #   ● 사전에 없는 설명(프로젝트가 직접 만든 작업 등)은 영어 그대로 둡니다.
+    #   ● 번역은 목록을 읽을 때 캐시에 저장되므로, 사전을 고치면 _GT_PARSER_VER 를 올려 캐시를 한 번 다시 읽게 합니다.
+    # (파이썬 코드에 작은따옴표가 많아 python3 -c '...' 대신 heredoc 으로 변수에 담아 넘깁니다 — 표준입력은 Gradle 출력용)
+    _GT_PARSER_VER=2
+    read -r -d '' _GT_PARSER_PY <<'PYPARSE'
 import re, sys
+
+PROJ = "§P§"  # 설명 속 "root project 'x'" / "project ':x'" 자리 표시
+KO = [
+    (r"Assembles the outputs of this project\.", "이 프로젝트의 산출물을 만듭니다."),
+    (r"Assembles and tests this project\.", "이 프로젝트를 빌드하고 테스트합니다."),
+    (r"Assembles and tests this project and all projects that depend on it\.", "이 프로젝트와, 이 프로젝트에 의존하는 모든 프로젝트를 빌드하고 테스트합니다."),
+    (r"Assembles and tests this project and all projects it depends on\.", "이 프로젝트와, 이 프로젝트가 의존하는 모든 프로젝트를 빌드하고 테스트합니다."),
+    (r"Assembles main classes\.", "main 클래스를 컴파일합니다."),
+    (r"Assembles test classes\.", "test 클래스를 컴파일합니다."),
+    (r"Assembles a jar archive containing the classes of the '([^']+)' feature\.", r"'\1' 기능의 클래스를 담은 jar 를 만듭니다."),
+    (r"Assembles a jar archive containing the main classes\.", "main 클래스를 담은 jar 를 만듭니다."),
+    (r"Assembles a jar archive containing the main javadoc\.", "main Javadoc 을 담은 jar 를 만듭니다."),
+    (r"Assembles a jar archive containing the main sources\.", "main 소스를 담은 jar 를 만듭니다."),
+    (r"Assembles an executable jar archive containing the main classes and their dependencies\.", "main 클래스와 의존성을 모두 담은 실행 가능한 jar 를 만듭니다."),
+    (r"Assembles an executable war archive containing webapp content, and the main classes and their dependencies\.", "웹앱 콘텐츠·main 클래스·의존성을 모두 담은 실행 가능한 war 를 만듭니다."),
+    (r"Generates a war archive with all the compiled classes, the web-app content and the libraries\.", "컴파일된 클래스·웹앱 콘텐츠·라이브러리를 담은 war 를 만듭니다."),
+    (r"Builds an OCI image of the application using the output of the bootJar task", "bootJar 결과물로 애플리케이션 OCI(컨테이너) 이미지를 만듭니다."),
+    (r"Resolves the name of the application's main class for the (\w+) task\.", r"\1 작업에 쓸 애플리케이션 main 클래스 이름을 찾습니다."),
+    (r"Runs this project as a Spring Boot application\.", "이 프로젝트를 Spring Boot 애플리케이션으로 실행합니다."),
+    (r"Runs this project as a JVM application", "이 프로젝트를 JVM 애플리케이션으로 실행합니다."),
+    (r"Generates Spring Boot build profile for local development", "로컬 개발용 Spring Boot 빌드 프로필을 만듭니다."),
+    (r"Copies license files of bundled dependencies for the Fat JAR\.", "Fat JAR 에 포함된 의존성의 라이선스 파일을 복사합니다."),
+    (r"Deletes the build directory\.", "build 디렉터리를 삭제합니다."),
+    (r"Compiles main Java source\.", "main Java 소스를 컴파일합니다."),
+    (r"Compiles test Java source\.", "test Java 소스를 컴파일합니다."),
+    (r"Compiles main Kotlin source\.", "main Kotlin 소스를 컴파일합니다."),
+    (r"Compiles test Kotlin source\.", "test Kotlin 소스를 컴파일합니다."),
+    (r"Processes main resources\.", "main 리소스를 처리(복사)합니다."),
+    (r"Processes test resources\.", "test 리소스를 처리(복사)합니다."),
+    (r"Runs all checks\.", "모든 검사(테스트 포함)를 실행합니다."),
+    (r"Runs the test suite\.", "테스트를 실행합니다."),
+    (r"Runs the unit tests\.", "단위 테스트를 실행합니다."),
+    (r"Generates Javadoc API documentation for the '([^']+)' feature\.", r"'\1' 기능의 Javadoc API 문서를 만듭니다."),
+    (r"Generates Javadoc API documentation for the main source code\.", "main 소스의 Javadoc API 문서를 만듭니다."),
+    (r"Displays a help message\.", "도움말을 표시합니다."),
+    (r"Displays the detected java toolchains\.", "감지된 Java 툴체인을 표시합니다."),
+    (r"Prints the Kotlin code for accessing the currently available project extensions\.", "현재 프로젝트 확장에 접근하는 Kotlin 코드를 출력합니다."),
+    (r"Displays all buildscript dependencies declared in §P§\.", "§P§의 빌드 스크립트(buildscript) 의존성을 모두 표시합니다."),
+    (r"Displays all dependencies declared in §P§\.", "§P§에 선언된 모든 의존성을 표시합니다."),
+    (r"Displays the insight into a specific dependency in §P§\.", "§P§에서 특정 의존성이 어떻게 결정됐는지 자세히 표시합니다."),
+    (r"Displays the dependency management declared in §P§\.", "§P§에 선언된 의존성 관리(BOM 등)를 표시합니다."),
+    (r"Displays the components produced by §P§\.", "§P§에서 만드는 컴포넌트를 표시합니다."),
+    (r"Displays the dependent components of components in §P§\.", "§P§의 컴포넌트에 의존하는 컴포넌트를 표시합니다."),
+    (r"Displays the Artifact Transforms that can be executed in §P§\.", "§P§에서 실행할 수 있는 아티팩트 변환을 표시합니다."),
+    (r"Displays the configuration model of §P§\.", "§P§의 구성 모델을 표시합니다."),
+    (r"Displays the outgoing variants of §P§\.", "§P§에서 내보내는 변형(variant)을 표시합니다."),
+    (r"Displays the sub-projects of §P§\.", "§P§의 하위 프로젝트를 표시합니다."),
+    (r"Displays the properties of §P§\.", "§P§의 속성을 표시합니다."),
+    (r"Displays the configurations that can be resolved in §P§\.", "§P§에서 의존성을 결정할 수 있는 구성(configuration)을 표시합니다."),
+    (r"Displays the tasks runnable from §P§\.", "§P§에서 실행할 수 있는 작업을 표시합니다."),
+    (r"Displays the tasks runnable from §P§ and its subprojects\.", "§P§와 하위 프로젝트에서 실행할 수 있는 작업을 표시합니다."),
+    (r"Displays the tasks runnable from §P§ \(some of the displayed tasks may belong to subprojects\)\.", "§P§에서 실행할 수 있는 작업을 표시합니다(일부는 하위 프로젝트 작업)."),
+    (r"Initializes a new Gradle build\.", "새 Gradle 빌드를 초기화합니다."),
+    (r"Generates Gradle wrapper files\.", "Gradle 래퍼(gradlew) 파일을 만듭니다."),
+    (r"Generates or updates the Gradle Daemon JVM criteria\.", "Gradle 데몬 JVM 조건을 만들거나 갱신합니다."),
+    (r"Publishes all publications produced by this project\.", "이 프로젝트의 모든 퍼블리케이션을 배포합니다."),
+    (r"Publishes all Maven publications produced by this project to the local Maven cache\.", "이 프로젝트의 모든 Maven 퍼블리케이션을 로컬 Maven 저장소(~/.m2)에 배포합니다."),
+    (r"Publishes all Maven publications produced by this project to the (\S+) repository\.", r"이 프로젝트의 모든 Maven 퍼블리케이션을 \1 저장소에 배포합니다."),
+    (r"Publishes Maven publication '([^']+)' to the local Maven repository\.", r"Maven 퍼블리케이션 '\1'을(를) 로컬 Maven 저장소(~/.m2)에 배포합니다."),
+    (r"Publishes Maven publication '([^']+)' to Maven repository '([^']+)'\.", r"Maven 퍼블리케이션 '\1'을(를) Maven 저장소 '\2'에 배포합니다."),
+    (r"Generates the Gradle metadata file for publication '([^']+)'\.", r"퍼블리케이션 '\1'의 Gradle 메타데이터 파일을 만듭니다."),
+    (r"Generates the Maven POM file for publication '([^']+)'\.", r"퍼블리케이션 '\1'의 Maven POM 파일을 만듭니다."),
+    (r"Signs all artifacts in the '([^']+)' publication\.", r"퍼블리케이션 '\1'의 모든 아티팩트에 서명합니다."),
+]
+KO = [(re.compile(p), r) for p, r in KO]
+
+
+def to_korean(desc):
+    if not desc:
+        return desc
+    deprecated = desc.endswith("[deprecated]")
+    text = desc[: -len("[deprecated]")].strip() if deprecated else desc
+    proj = None
+    m = re.search(r"(?:root )?project '(:?[^']+)'", text)
+    if m:
+        proj = m.group(1).lstrip(":")
+        text = text.replace(m.group(0), PROJ)
+    for pat, rep in KO:
+        if pat.fullmatch(text):
+            out = pat.sub(rep, text)
+            if proj is not None:
+                out = out.replace(PROJ, "프로젝트 '" + proj + "'")
+            return out + (" (사용 중단 예정)" if deprecated else "")
+    return desc
+
+
 lines = sys.stdin.read().splitlines()
 root, group, rows = "", None, []
 for i, line in enumerate(lines):
-    m = re.match(r"Tasks runnable from (?:root )?project \x27([^\x27]+)\x27", line)
+    m = re.match(r"Tasks runnable from (?:root )?project '([^']+)'", line)
     if m:
         root = m.group(1)
         continue
@@ -855,15 +955,18 @@ for i, line in enumerate(lines):
     if not re.fullmatch(r"[A-Za-z0-9_.:-]+", name):
         continue
     module, _, task = name.rpartition(":")
-    rows.append("\t".join([module, group, task, desc.strip()]))
+    rows.append("\t".join([module, group, task, to_korean(desc.strip())]))
 print("@root\t" + (root or "root"))
 print("\n".join(rows))
-'
+PYPARSE
+    _gt_parse() {
+        python3 -c "$_GT_PARSER_PY"
     }
 
     _gt_load() {
         local _force="${1:-false}" _sig _raw _pid _rc=0
         _sig=$(_gt_signature 2>/dev/null)
+        [ -n "$_sig" ] && _sig="v${_GT_PARSER_VER}:$_sig"
         if [ "$_force" != true ] && [ -s "$_GT_CACHE" ] && [ -n "$_sig" ] && [ "$(cat "$_GT_SIG" 2>/dev/null)" = "$_sig" ]; then
             return 0
         fi
@@ -901,6 +1004,7 @@ print("\n".join(rows))
         mv "$_tmp" "$_GT_RECENT"
         local _cmd=("$_GT_GW" "$_target" "${_GT_JAVA_ARGS[@]}")
         echo "▶️ 실행 명령어: ${_cmd[*]}"
+        echo "   ⏹ 중단: Ctrl+C"
         "${_cmd[@]}"
     }
 
@@ -1075,6 +1179,7 @@ GRADLE_INIT
     check_and_resolve_port_conflict "$TARGET_MOD"
 
     echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
+    echo "   ⏹ 종료: Ctrl+C (실행 중인 앱과 Gradle 변경 감시가 함께 종료됩니다)"
     if [[ "${SAVE_LOG,,}" == "y" ]]; then
         LOG_DIR="$CWD/logs"
         mkdir -p "$LOG_DIR"
@@ -1189,6 +1294,7 @@ elif [[ "$CHOICE" == *"빌드"* ]]; then
     fi
 
     echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
+    echo "   ⏹ 중단: Ctrl+C"
     "${CMD_ARGS[@]}"
 
 # ── [Gradle] Maven 중앙 저장소 배포 ──────────────────────────────────────────
@@ -1396,6 +1502,7 @@ except Exception:
     CMD_ARGS+=("-Pversion=${CP_VERSION}" "-x" "test" "--build-cache")
 
     echo "▶️ 실행 명령어: ${CMD_ARGS[*]}"
+    echo "   ⏹ 중단: Ctrl+C (배포 도중 중단하면 Central Portal 에 일부만 올라갈 수 있으니 확인하세요)"
     if "${CMD_ARGS[@]}"; then
         echo ""
         echo "✅ Maven 중앙 저장소 배포 완료! (패키지: $_CP_DISPLAY_TARGET, 버전: $CP_VERSION)"
