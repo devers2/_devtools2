@@ -587,6 +587,36 @@ if (-not $zedLauncher.Contains('MemTotal') -or $zedExecs.Count -eq 0 -or @($zedE
 Assert-Test "VS Code·Neovim·Zed 의 jdtls 힙이 고정값이 아니라 실행 환경 메모리 기준인가" ($jdtlsHeapBad.Count -eq 0) `
     ("위반: " + ($jdtlsHeapBad -join ", "))
 
+# --- 6-7. 0.setup-wsl.ps1 의 .wslconfig(9 · 9-1 메모리) · 배포판 정보 저장(10) 단계가 "배포판 새로 설치" 블록 밖에 있는가
+#     예전에는 새 설치 블록이 스크립트 끝까지 이어져 기존 배포판 재설치에서 9 · 9-1 · 10 단계를 통째로 건너뜀
+#     (실측: 온라인 설치를 다시 해도 WSL 메모리 상한을 묻지 않음) → 새 설치 블록은 "# 9." 앞에서 닫혀야 함
+#     ● PowerShell 구문 트리(AST)로 if ($isNewDistroInstall) 블록의 끝 줄을 구해 각 단계 주석 줄과 비교
+$wslSetupPath = Join-Path $repoRootPath "scripts\windows\dev-env\0.setup-wsl.ps1"
+$wslSetupSrc = [System.IO.File]::ReadAllText($wslSetupPath, [System.Text.Encoding]::UTF8)
+$wslSetupLines = $wslSetupSrc -split "`r?`n"
+$wslBlockBad = @()
+$wslTokens = $null
+$wslErrors = $null
+$wslAst = [System.Management.Automation.Language.Parser]::ParseInput($wslSetupSrc, [ref]$wslTokens, [ref]$wslErrors)
+$newInstallIf = @($wslAst.EndBlock.Statements | Where-Object {
+        $_ -is [System.Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -eq '$isNewDistroInstall'
+    }) | Select-Object -First 1
+if ($null -eq $newInstallIf) {
+    $wslBlockBad += "새 설치 블록(if (`$isNewDistroInstall)) 없음"
+} else {
+    $blockEnd = $newInstallIf.Extent.EndLineNumber
+    foreach ($stepMark in @('# 9. Windows', '# 9-1.', '# 10.')) {
+        $stepLine = 0
+        for ($li = 0; $li -lt $wslSetupLines.Count; $li++) {
+            if ($wslSetupLines[$li].StartsWith($stepMark)) { $stepLine = $li + 1; break }
+        }
+        if ($stepLine -eq 0) { $wslBlockBad += "$stepMark 없음" }
+        elseif ($stepLine -le $blockEnd) { $wslBlockBad += "$stepMark 단계가 새 설치 블록 안에 있음" }
+    }
+}
+Assert-Test "0.setup-wsl.ps1 의 .wslconfig·메모리·배포판 정보 단계가 기존 배포판 재설치에서도 실행되는가" ($wslBlockBad.Count -eq 0) `
+    ($wslBlockBad -join "; ")
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================
