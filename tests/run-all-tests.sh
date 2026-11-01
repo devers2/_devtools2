@@ -834,14 +834,15 @@ fi
 # 6-5. command-palette 의 메뉴 항목 ID 와 실행 분기가 1:1 로 짝이 맞는가 (메뉴 문구 부분 문자열로 분기하지 않는가)
 #   예전에는 메뉴 문구의 부분 문자열(*"실행"* 등)로 분기를 골라, 새 항목 문구가 겹치면 엉뚱한 분기가 실행될 수
 #   있었습니다(예: "작업 실행" 을 고르면 bootRun 실행). 이제 항목은 "ID<TAB>문구", 분기는 ID 로 고릅니다.
-#   ● 메뉴 ID: _MENU_* 배열의 항목 + Gradle 빠른 실행(_GT_RESULT="quick:<ID>")
+#   ● 메뉴 ID: _MENU_* 배열의 항목(설치된 도구만 보이는 조건부 항목 _MENU_X+=("ID<TAB>...") 포함) + Gradle 빠른 실행(_GT_RESULT="quick:<ID>")
 #   ● 분기 ID: [ "$CHOICE_ID" = "<ID>" ] — 메뉴에만 있거나 분기에만 있는 ID 가 없어야 하고, 분기는 ID 당 하나
 palette_menu_bad=$(
   python3 - "$REPO_ROOT/scripts/fzf/command-palette" <<'EOF'
 import re, sys
 c = open(sys.argv[1], encoding='utf-8').read()
-menu = set(re.findall(r'^\s*"([a-z0-9_]+)\t', c, re.M)) | set(re.findall(r'_GT_RESULT="quick:([a-z0-9_]+)"', c))
-menu -= {'gradle', 'port', 'env', 'project', 'base64'}  # 1단계 그룹 ID (분기 대상 아님)
+# 배열 항목 줄("ID<TAB>...") + 조건부로 붙이는 항목(_MENU_X+=("ID<TAB>...")) + Gradle 빠른 실행
+menu = set(re.findall(r'(?:^\s*|\+?=\()"([a-z0-9_]+)\t', c, re.M)) | set(re.findall(r'_GT_RESULT="quick:([a-z0-9_]+)"', c))
+menu -= {'gradle', 'git', 'open', 'port', 'env', 'base64'}  # 1단계 그룹 ID (분기 대상 아님)
 branches = re.findall(r'\[ "\$CHOICE_ID" = "([a-z0-9_]+)" \]', c)
 bad = []
 if not menu:
