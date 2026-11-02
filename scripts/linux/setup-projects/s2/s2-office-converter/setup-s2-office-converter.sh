@@ -4,7 +4,7 @@
 # 위치: _devtools2/scripts/linux/setup-projects/s2/s2-office-converter/  (같은 폴더의 README.md 참고)
 # ==============================================================================
 #
-# [실행 방법] s2-kit 을 쓰는 앱과 같은 서버에서, sudo 를 쓸 수 있는 계정으로 실행합니다.
+# [실행 방법] s2-docflow 를 쓰는 앱과 같은 서버에서, sudo 를 쓸 수 있는 계정으로 실행합니다.
 #             이 파일 하나만으로 동작하므로 저장소를 받을 필요 없이 GitHub 에서 바로 실행하면 됩니다.
 #
 #   주소: https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/setup-projects/s2/s2-office-converter/setup-s2-office-converter.sh
@@ -32,25 +32,32 @@
 #
 #   - 처음 실행은 LibreOffice 를 받느라 몇 분 걸리며, sudo 비밀번호를 물을 수 있습니다.
 #   - 여러 번 실행해도 안전합니다. 이미 설치된 것은 건너뛰고 빠진 것만 채웁니다.
-#   - 설치가 끝나면 앱을 다시 시작할 필요 없이 S2PdfUtil 이 s2-soffice 를 자동으로 찾습니다.
+#   - 설치가 끝나면 앱을 다시 시작할 필요 없이 S2OfficeConverter 가 s2-soffice 를 자동으로 찾습니다.
 #   - 확인: sudo -u appuser s2-soffice --version, sudo -u appuser s2-chrome --version
 #   - 웹 페이지 변환(Chromium)이 필요 없으면 --no-chrome (이미지 약 0.7GB 작아짐)
 #
 # [하는 일]
-# S2PdfUtil(s2-kit)이 docx·xlsx·pptx·hwp·hwpx 등을 PDF 로 변환·병합할 수 있도록
+# S2DocumentMerger·S2OfficeConverter(s2-docflow)가 docx·xlsx·pptx·hwp·hwpx 등을 PDF 로 변환·병합할 수 있도록
 # LibreOffice + H2Orestart(한글 확장) + 한글 폰트가 든 Podman 컨테이너 이미지를 만들고,
 # 이를 호출하는 명령 s2-soffice 를 설치합니다. 웹 페이지(URL 로 받은 HTML)를 화면 그대로 PDF 로 만들도록
 # Chromium 과 명령 s2-chrome 도 함께 설치합니다 (--no-chrome 으로 뺄 수 있음).
+# Chromium 을 넣으면 한글 문서 전용 명령 s2-hwp 도 설치합니다: rhwp(HWP/HWPX 조판)가 그린 쪽을 Chromium 으로 인쇄해
+# 쪽 나눔·그림·글꼴이 LibreOffice + H2Orestart 보다 원본에 가깝습니다. 앱은 s2-hwp 를 먼저 쓰고 실패하면 s2-soffice 로 변환합니다.
 #
-#   [앱] S2PdfUtil ──(s2-soffice --headless --convert-to pdf ...)──▶ [Podman 컨테이너]
-#                  ──(s2-chrome --print-to-pdf <pdf> <html>)────────▶  LibreOffice + H2Orestart + Chromium + 폰트
+#   [앱] S2DocumentMerger ──(s2-soffice --headless --convert-to pdf ...)──▶ [Podman 컨테이너]
+#                  ──(s2-chrome --print-to-pdf <pdf> <html>)────────▶  LibreOffice + H2Orestart + Chromium
+#                  ──(s2-hwp --outdir <폴더> <파일.hwp>)─────────────▶  + Node.js·rhwp + 폰트
+#
+# 버전: H2Orestart·rhwp 의 버전 정책은 같은 폴더의 s2-office-converter-versions.toml(Git 관리)에 있습니다.
+#   [track] 범위 안의 최신 버전을 설치하고, 이미 설치된 버전보다 새 버전이 있으면 업데이트할지 묻습니다 (기본 Y,
+#   무인 실행은 유지, 강제: S2_CONVERTER_UPDATE=y|n). 되돌릴 때는 그 파일의 [track] 을 이전 버전으로 고정합니다.
 #
 # 옵션:
 #   --app-user 계정    앱 실행 계정(웹 애플리케이션을 실행하는 리눅스 계정). 기본: 이 스크립트를 실행한 계정.
 #                      --user 도 같은 뜻으로 받습니다.
 #   --rebuild          이미지를 다시 만듭니다 (보안 업데이트 반영 등).
 #   --no-chrome        웹 페이지 변환용 Chromium(s2-chrome)을 빼고 설치합니다 (이미지 약 0.7GB 작아짐).
-#                      없으면 S2PdfUtil 은 웹 페이지를 내장 렌더러(openhtmltopdf)로 변환합니다.
+#                      (HTML-to-PDF 및 SVG 변환 기능이 비활성화됩니다)
 #   --uninstall        s2-soffice 명령과 이미지를 제거합니다 (Podman 자체는 남김).
 #   --export [파일]    폐쇄망용 설치 파일 하나를 만듭니다 (기본 ./setup-s2-office-converter-offline.sh).
 #                      인터넷 되는 PC에서 실행. 이 스크립트 뒤에 변환기 이미지와 Podman 설치 파일을 붙인 파일로,
@@ -61,28 +68,41 @@
 # 멱등성: 몇 번을 실행해도 같은 상태가 됩니다. 이미 있는 것은 건너뛰고 없는 것만 준비합니다.
 #   - Podman: 없으면 설치 (온라인: apt/dnf, 폐쇄망: 설치 파일에 든 패키지)
 #   - 대상 계정의 subuid/subgid: 없으면 추가 (rootless Podman 필요 조건)
-#   - 이미지: 같은 버전(태그)이 있으면 건너뜀. 버전을 올리면 새로 만들고 이전 버전은 정리
-#   - /usr/local/bin/s2-soffice, s2-chrome: 내용이 다를 때만 교체 (--no-chrome 이면 s2-chrome 제거)
+#   - 이미지: 같은 버전(태그)이 있으면 건너뜀. 버전을 올리면(업데이트에 동의하면) 새로 만들고 이전 버전은 정리
+#   - /usr/local/bin/s2-soffice, s2-chrome, s2-hwp: 내용이 다를 때만 교체 (--no-chrome 이면 s2-chrome·s2-hwp 제거)
 #   - 마지막에 실제 변환으로 동작을 확인
 #
-# 라이선스: 이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(MIT), Chromium(BSD 3-Clause 등), 폰트(SIL OFL 1.1 등), Podman(Apache 2.0)을
+# 라이선스: 이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(MIT), rhwp(MIT), Node.js(MIT), Chromium(BSD 3-Clause 등),
+# 폰트(SIL OFL 1.1 등), Podman(Apache 2.0)을
 # 각 배포처에서 받아 설치할 뿐, 재배포하지 않습니다. 각 소프트웨어는 자체 라이선스를 따릅니다.
 # (폐쇄망 설치 파일을 다른 조직에 전달하면 그 안의 소프트웨어를 배포하는 것이 되므로 각 라이선스를 확인하십시오.)
 # ==============================================================================
 set -euo pipefail
 
 # ------------------------------------------------------------------------------
-# 버전 고정 (올리면 다음 실행 때 이미지를 새로 만듦)
+# 버전
 # ------------------------------------------------------------------------------
+# H2Orestart·rhwp 버전 정책과 이력은 같은 폴더의 s2-office-converter-versions.toml(Git 관리)에 있습니다.
+# 버전을 올리거나 되돌릴 때는 그 파일의 [track] 을 바꿉니다 (그 파일 머리말 참고).
+# 아래 기본값은 그 파일을 읽지 못할 때(파일도 없고 GitHub 접속도 안 될 때)만 씁니다.
+DEFAULT_H2ORESTART_VERSION="0.8.0"
+DEFAULT_RHWP_VERSION="0.8.7"
+# 이미지 만드는 방법(아래 Containerfile)을 바꾸면 올립니다. 다음 실행 때 같은 구성 요소 버전으로 이미지를 다시 만듭니다.
+IMAGE_REVISION="4"
 BASE_IMAGE="docker.io/library/debian:trixie-slim"
-H2ORESTART_VERSION="0.7.14"
-H2ORESTART_SHA256="cbea23bc37861361bbc534bc0675e5bc67b36f712072490f82a9bf410d7c04d8"
-IMAGE_REVISION="2"
 IMAGE_NAME="localhost/s2-office-converter"
 WRAPPER_PATH="/usr/local/bin/s2-soffice"
 CHROME_WRAPPER_PATH="/usr/local/bin/s2-chrome"
+HWP_WRAPPER_PATH="/usr/local/bin/s2-hwp"
 SCRIPT_NAME="setup-s2-office-converter.sh"
-SCRIPT_URL="https://raw.githubusercontent.com/devers2/_devtools2/main/scripts/linux/setup-projects/s2/s2-office-converter/${SCRIPT_NAME}"
+SCRIPT_URL="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/scripts/linux/setup-projects/s2/s2-office-converter/${SCRIPT_NAME}"
+VERSIONS_NAME="s2-office-converter-versions.toml"
+VERSIONS_URL="${SCRIPT_URL%/*}/${VERSIONS_NAME}"
+# Chosen in select_versions (install, export) or read from the bundle (offline) | select_versions 또는 설치 파일에서 정함
+H2ORESTART_VERSION=""
+H2ORESTART_SHA256=""
+RHWP_VERSION=""
+RHWP_INTEGRITY=""
 IMAGE_ARCHIVE="s2-office-converter.tar"
 OFFLINE_FILE="setup-s2-office-converter-offline.sh"
 # Line between the script and the attached payload of an offline file | 폐쇄망 설치 파일에서 스크립트와 첨부 데이터의 경계 줄
@@ -116,6 +136,9 @@ usage() {
                        서버에서: bash setup-s2-office-converter-offline.sh --app-user 계정
   --target 배포판      --export 에서 서버 배포판:버전 (예: ubuntu:22.04, debian:12, rockylinux:9). 기본: 이 PC 와 같음
   --help               이 도움말
+
+버전: s2-office-converter-versions.toml 의 [track] 범위 안 최신 버전을 설치합니다. 설치된 버전보다 새 버전이 있으면
+      업데이트할지 묻습니다 (무인 실행은 유지). 묻지 않으려면 S2_CONVERTER_UPDATE=y (업데이트) 또는 n (유지).
 
 자세한 안내: 같은 폴더의 README.md
 USAGE
@@ -187,15 +210,16 @@ if [ -n "$TARGET_DISTRO" ] && [ "$MODE" != "export" ]; then
     fail "--target 은 --export 와 함께 씁니다."
 fi
 
-# Image tag per content: with Chromium or without | 이미지 태그는 내용별 (Chromium 포함 여부)
+# Image tag per content: recipe revision, component versions, with Chromium (and rhwp) or without
+# | 이미지 태그는 내용별: 만드는 방법 리비전, 구성 요소 버전, Chromium(과 rhwp) 포함 여부
 image_for() {
     if [ "$1" = true ]; then
-        echo "${IMAGE_NAME}:${IMAGE_REVISION}-h2o${H2ORESTART_VERSION}-chrome"
+        echo "${IMAGE_NAME}:${IMAGE_REVISION}-h2o${H2ORESTART_VERSION}-rhwp${RHWP_VERSION}-chrome"
     else
         echo "${IMAGE_NAME}:${IMAGE_REVISION}-h2o${H2ORESTART_VERSION}"
     fi
 }
-IMAGE="$(image_for "$WITH_CHROME")"
+IMAGE=""
 
 # An offline file is this script with the payload attached after a marker line: "<marker> <sha256 of payload>"
 # | 폐쇄망 설치 파일은 이 스크립트 뒤에 경계 줄("<경계> <첨부 데이터 sha256>")과 첨부 데이터를 붙인 것
@@ -306,6 +330,222 @@ distro_family() {
 }
 
 # ==============================================================================
+# 버전 정책 (s2-office-converter-versions.toml)
+# ==============================================================================
+# _devtools2 의 tool-versions.toml 과 같은 규칙:
+#   ● [track] 범위 안의 최신 버전을 배포처에서 찾는다 (조회 실패 시 [versions] 첫 항목)
+#   ● 처음 설치는 묻지 않고 그 버전으로, 이미 설치된 버전과 다르면 업데이트 여부를 묻는다 (기본 Y)
+#   ● 무인 실행(터미널 없음)은 설치된 버전 유지. 강제: S2_CONVERTER_UPDATE=y|n
+#   ● 범위 밖의 새 버전은 안내만 (올리려면 [track] 값을 바꿈)
+#   ● 버전 파일은 읽기만 한다 (Git 작업 트리 보호). 새로 검증한 해시는 파일에 넣을 줄을 출력한다
+
+VERSIONS_TOML=""
+VERSIONS_SOURCE=""
+load_versions() {
+    local local_file=""
+    [ -z "$SELF" ] || local_file="$(dirname "$SELF")/${VERSIONS_NAME}"
+    if [ -n "$local_file" ] && [ -f "$local_file" ]; then
+        VERSIONS_TOML="$(cat "$local_file")"
+        VERSIONS_SOURCE="$local_file"
+    elif VERSIONS_TOML="$(curl -fsSL --max-time 15 -H 'Cache-Control: no-cache' "$VERSIONS_URL" 2>/dev/null)" &&
+        [ -n "$VERSIONS_TOML" ]; then
+        VERSIONS_SOURCE="$VERSIONS_URL"
+    else
+        VERSIONS_TOML=""
+        VERSIONS_SOURCE="(스크립트 기본값)"
+        warn "버전 파일을 읽지 못해 스크립트 기본값을 씁니다: ${VERSIONS_NAME}"
+    fi
+}
+
+# Value of "key = ..." inside one [section] | [섹션] 안의 "키 = 값"
+toml_value() {
+    local section="$1" key="$2"
+    awk -v section="[$section]" -v key="$key" '
+        /^\[/ { inside = ($0 == section); next }
+        inside {
+            line = $0
+            sub(/[ \t]+#.*$/, "", line)
+            k = line; sub(/[ \t]*=.*$/, "", k)
+            if (k == key) { sub(/^[^=]*=[ \t]*/, "", line); print line; exit }
+        }' <<<"$VERSIONS_TOML"
+}
+toml_track() { toml_value track "$1" | tr -d '"'; }
+toml_fallback() { toml_value versions "$1" | grep -oE '"[^"]+"' | head -1 | tr -d '"' || true; }
+toml_checksum() { toml_value checksums "\"$1@$2\"" | tr -d '"'; }
+
+# Versions offered by the publisher, one per line (stable releases only) | 배포처의 버전 목록 (정식 릴리스만)
+list_upstream() {
+    case "$1" in
+    h2orestart)
+        curl -fsSL --max-time 20 "https://api.github.com/repos/ebandal/H2Orestart/releases?per_page=50" 2>/dev/null |
+            grep -oE '"tag_name": *"v?[0-9][^"]*"' | sed -E 's/.*"v?([^"]*)"$/\1/' ;;
+    rhwp)
+        curl -fsSL --max-time 20 -H 'Accept: application/vnd.npm.install-v1+json' \
+            "https://registry.npmjs.org/@rhwp/core" 2>/dev/null |
+            grep -oE '"version":"[^"]+"' | sed -E 's/.*:"([^"]*)"$/\1/' ;;
+    esac | grep -E '^[0-9]+(\.[0-9]+)*$' | sort -uV || true
+}
+
+# Checksum published with a release | 배포처가 알려 주는 검증값
+upstream_checksum() {
+    local digests
+    case "$1" in
+    h2orestart)
+        # A release has the single asset H2Orestart.oxt; more than one digest means an unexpected layout
+        # | 릴리스 자산은 H2Orestart.oxt 하나. 검증값이 여럿이면 예상과 다른 구성이라 쓰지 않음
+        digests="$(curl -fsSL --max-time 20 "https://api.github.com/repos/ebandal/H2Orestart/releases/tags/v$2" 2>/dev/null |
+            grep -oE '"digest": *"sha256:[0-9a-f]{64}"' | grep -oE '[0-9a-f]{64}' || true)"
+        [ "$(grep -c . <<<"$digests")" = 1 ] && echo "$digests" ;;
+    rhwp)
+        curl -fsSL --max-time 20 "https://registry.npmjs.org/@rhwp/core/$2" 2>/dev/null |
+            grep -oE '"integrity":"sha512-[A-Za-z0-9+/=]+"' | head -1 | sed -E 's/.*:"([^"]*)"$/\1/' ;;
+    esac
+}
+
+in_track() {
+    local track="$1" version="$2"
+    [ "$track" = latest ] || [ "$version" = "$track" ] || [ "${version#"$track".}" != "$version" ]
+}
+is_exact_track() { [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; }
+
+# Newest version within the track, or the fallback | track 범위 안 최신 버전 (없으면 폴백)
+resolve_target() {
+    local key="$1" default="$2" track list best top version
+    # Without a versions file there is no policy: the script's default, never "latest" | 버전 파일이 없으면 정책도 없으므로 기본값
+    if [ -z "$VERSIONS_TOML" ]; then
+        echo "$default"
+        return
+    fi
+    track="$(toml_track "$key")"
+    track="${track:-latest}"
+    if is_exact_track "$track"; then
+        echo "$track"
+        return
+    fi
+    list="$(list_upstream "$key")"
+    best=""
+    while IFS= read -r version; do
+        [ -n "$version" ] && in_track "$track" "$version" && best="$version"
+    done <<<"$list"
+    top="$(tail -n 1 <<<"$list")"
+    if [ -n "$top" ] && [ -n "$best" ] && [ "$top" != "$best" ]; then
+        printf 'ℹ️  %s: track "%s" 밖에 새 버전 %s 이 있습니다. 올리려면 %s 의 [track] %s 값을 바꾸십시오.\n' \
+            "$key" "$track" "$top" "$VERSIONS_NAME" "$key" >&2
+    fi
+    if [ -z "$best" ]; then
+        best="$(toml_fallback "$key")"
+        best="${best:-$default}"
+        printf 'ℹ️  %s: 배포처에서 버전 목록을 받지 못해 %s 을 씁니다.\n' "$key" "$best" >&2
+    fi
+    echo "$best"
+}
+
+# Asks on the terminal even when the script itself arrives on stdin (curl | bash) | curl | bash 로 실행해도 터미널에서 물음
+can_ask() { [ -z "${S2_CONVERTER_NONINTERACTIVE:-}" ] && { : </dev/tty; } 2>/dev/null; }
+ask_yes() {
+    local answer=""
+    printf '%s [Y/n]: ' "$1" >/dev/tty
+    read -r answer </dev/tty || answer=""
+    case "${answer:-Y}" in [Yy]*) return 0 ;; *) return 1 ;; esac
+}
+
+# The installed image: the one the s2-soffice command uses, if it still exists | 설치된 이미지 (s2-soffice 가 쓰는 것)
+installed_image() {
+    local image
+    [ -f "$WRAPPER_PATH" ] || return 0
+    image="$(sed -n 's/^IMAGE="\(.*\)"$/\1/p' "$WRAPPER_PATH" | head -1)"
+    [ -n "$image" ] && podman_target image exists "$image" 2>/dev/null && echo "$image" || true
+}
+image_label() {
+    podman_target image inspect --format "{{index .Labels \"$2\"}}" "$1" 2>/dev/null | sed 's/^<no value>$//' || true
+}
+
+# Installed or target version for one component | 구성 요소 하나의 버전 결정 (설치된 것 유지 또는 새 버전)
+choose_version() {
+    local name="$1" installed="$2" target="$3"
+    if [ -z "$installed" ] || [ "$installed" = "$target" ]; then
+        echo "$target"
+        return
+    fi
+    local verb="업데이트"
+    if [ "$(printf '%s\n%s\n' "$installed" "$target" | sort -V | tail -n 1)" = "$installed" ]; then
+        # The track now names an older version: a rollback | track 이 더 낮은 버전을 가리킴: 되돌리기
+        verb="되돌리기"
+        printf 'ℹ️  %s: 버전 정책([track])이 설치된 %s 보다 낮은 %s 를 가리킵니다.\n' "$name" "$installed" "$target" >&2
+    else
+        printf 'ℹ️  %s 새 버전이 있습니다: %s → %s\n' "$name" "$installed" "$target" >&2
+    fi
+    case "${S2_CONVERTER_UPDATE:-}" in
+    [Yy]*) echo "$target"; return ;;
+    [Nn]*) printf '⏭️  %s %s 유지 (S2_CONVERTER_UPDATE)\n' "$name" "$installed" >&2; echo "$installed"; return ;;
+    esac
+    if ! can_ask; then
+        printf '⏭️  무인 실행이라 %s %s 를 유지합니다 (S2_CONVERTER_UPDATE=y 로 %s).\n' "$name" "$installed" "$verb" >&2
+        echo "$installed"
+    elif ask_yes "   👉 ${name} 을(를) ${target} 로 바꿀까요? (${verb})"; then
+        echo "$target"
+    else
+        printf '⏭️  %s %s 유지\n' "$name" "$installed" >&2
+        echo "$installed"
+    fi
+}
+
+# Checksum for a version into CHECKSUM: the versions file first, then the publisher. Not called through $(...), so
+# fail stops the script and the new line is kept | 검증값을 CHECKSUM 에: 버전 파일 → 배포처. $(...) 로 부르지 않아야
+# fail 이 스크립트를 멈추고 새 줄이 남음
+CHECKSUM=""
+checksum_for() {
+    local key="$1" version="$2"
+    CHECKSUM="$(toml_checksum "$key" "$version")"
+    if [ -z "$CHECKSUM" ]; then
+        CHECKSUM="$(upstream_checksum "$key" "$version")" || CHECKSUM=""
+        [ -n "$CHECKSUM" ] || fail "${key} ${version} 의 검증값을 구하지 못했습니다 (${VERSIONS_NAME} 에도 없음). 네트워크를 확인하거나 [track] 을 검증된 버전으로 고정하십시오."
+        NEW_CHECKSUM_LINES+=("\"${key}@${version}\" = \"${CHECKSUM}\"")
+    fi
+}
+
+# Decides the component versions and the image tag | 구성 요소 버전과 이미지 태그 결정
+NEW_CHECKSUM_LINES=()
+select_versions() {
+    info "구성 요소 버전 확인"
+    load_versions
+    local current="" current_h2o="" current_rhwp="" target_h2o target_rhwp=""
+    current="$(installed_image)"
+    if [ -n "$current" ]; then
+        current_h2o="$(image_label "$current" s2.h2orestart.version)"
+        current_rhwp="$(image_label "$current" s2.rhwp.version)"
+    fi
+    target_h2o="$(resolve_target h2orestart "$DEFAULT_H2ORESTART_VERSION")"
+    H2ORESTART_VERSION="$(choose_version H2Orestart "$current_h2o" "$target_h2o")"
+    if [ "$WITH_CHROME" = true ]; then
+        target_rhwp="$(resolve_target rhwp "$DEFAULT_RHWP_VERSION")"
+        RHWP_VERSION="$(choose_version rhwp "$current_rhwp" "$target_rhwp")"
+    fi
+    IMAGE="$(image_for "$WITH_CHROME")"
+    # Checksums are needed only to build | 검증값은 이미지를 만들 때만 필요
+    if [ "$REBUILD" = true ] || ! podman_target image exists "$IMAGE" 2>/dev/null; then
+        checksum_for h2orestart "$H2ORESTART_VERSION"
+        H2ORESTART_SHA256="$CHECKSUM"
+        if [ "$WITH_CHROME" = true ]; then
+            checksum_for rhwp "$RHWP_VERSION"
+            RHWP_INTEGRITY="$CHECKSUM"
+        fi
+    fi
+    ok "H2Orestart ${H2ORESTART_VERSION}${RHWP_VERSION:+, rhwp ${RHWP_VERSION}} (버전 정책: ${VERSIONS_SOURCE})"
+}
+
+# Lines to add to the versions file after verifying a new version | 새로 검증한 버전을 버전 파일에 넣을 줄 안내
+print_new_checksums() {
+    [ ${#NEW_CHECKSUM_LINES[@]} -gt 0 ] || return 0
+    cat <<NOTE
+
+📝 버전 파일에 없던 버전을 배포처의 검증값으로 설치했습니다. 실제 문서로 확인한 뒤 Git 으로 남기려면
+   ${VERSIONS_NAME} 의 [versions] 배열 맨 앞에 버전을, [checksums] 에 아래 줄을 넣고 커밋하십시오:
+NOTE
+    printf '     %s\n' "${NEW_CHECKSUM_LINES[@]}"
+}
+
+# ==============================================================================
 # 단계 함수
 # ==============================================================================
 
@@ -347,6 +587,128 @@ ensure_subids() {
     done
 }
 
+# Files that go into the image for s2-hwp | s2-hwp 용으로 이미지에 넣는 파일
+write_hwp_files() {
+    cat >"$1/s2-hwp-render.mjs" <<'RENDER'
+// s2-hwp-render (s2-office-converter): HWP/HWPX -> one HTML page per document page, laid out by rhwp as SVG, for
+// Chromium to print. Installed by setup-s2-office-converter.sh; do not edit inside the image.
+// | rhwp 가 SVG 로 조판한 쪽들을 Chromium 이 인쇄할 HTML 한 장으로 모은다.
+//
+//   node s2-hwp-render.mjs <rhwp folder> <input .hwp|.hwpx> <output .html>
+//   node s2-hwp-render.mjs <rhwp folder> --version
+//
+// Exit codes | 종료 코드: 0 ok, 2 usage, 3 password protected (암호 문서), 4 unreadable or empty (읽을 수 없음)
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+const [pkg, input, output] = process.argv.slice(2);
+if (!pkg || !input || (input !== '--version' && !output)) {
+    console.error('usage: s2-hwp-render <rhwp folder> <input> <output.html> | <rhwp folder> --version');
+    process.exit(2);
+}
+const rhwp = await import(pathToFileURL(join(pkg, 'rhwp.js')).href);
+rhwp.initSync({ module: readFileSync(join(pkg, 'rhwp_bg.wasm')) });
+if (input === '--version') {
+    console.log('rhwp ' + rhwp.version() + ' (Node.js ' + process.version + ')');
+    process.exit(0);
+}
+
+let doc;
+try {
+    doc = new rhwp.HwpDocument(new Uint8Array(readFileSync(input)));
+} catch (e) {
+    const message = String(e?.message ?? e);
+    console.error('s2-hwp-render: ' + message);
+    process.exit(/password|암호|encrypt/i.test(message) ? 3 : 4);
+}
+
+// Each page is an SVG whose ids (clip paths, patterns) restart from the same names, so they are made unique per
+// page before the pages share one HTML document | 쪽마다 id 가 같은 이름으로 다시 시작하므로 한 문서에 모으기 전에 쪽별로 바꿈
+function scopeIds(svg, prefix) {
+    const ids = new Set();
+    for (const m of svg.matchAll(/\sid="([^"]+)"/g)) ids.add(m[1]);
+    if (ids.size === 0) return svg;
+    const esc = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const any = new RegExp('(\\sid="|url\\(#|href="#)(' + [...ids].map(esc).join('|') + ')(?=[")])', 'g');
+    return svg.replace(any, (_, lead, id) => lead + prefix + id);
+}
+
+// Page size in CSS px (96 per inch), the unit of the SVG width and height | 쪽 크기 (CSS px, SVG 너비·높이 단위)
+function size(svg) {
+    const w = /<svg\b[^>]*?\swidth="([\d.]+)"/.exec(svg);
+    const h = /<svg\b[^>]*?\sheight="([\d.]+)"/.exec(svg);
+    return w && h ? [Number(w[1]), Number(h[1])] : [793.7, 1122.5];
+}
+
+const count = doc.pageCount();
+if (!count) {
+    console.error('s2-hwp-render: no pages');
+    process.exit(4);
+}
+const sizes = new Map(); // "WxH" -> named @page, so portrait and landscape pages keep their own size
+const pages = [];
+for (let i = 0; i < count; i++) {
+    const svg = scopeIds(doc.renderPageSvg(i).replace(/^<\?xml[^>]*>\s*/, ''), 'p' + i + '-');
+    const [w, h] = size(svg);
+    const key = w.toFixed(2) + 'x' + h.toFixed(2);
+    if (!sizes.has(key)) sizes.set(key, { name: 's' + sizes.size, w, h });
+    pages.push('<div class="page ' + sizes.get(key).name + '">' + svg + '</div>');
+}
+doc.free();
+
+const css = [...sizes.values()]
+    .map((s) => `@page ${s.name} { size: ${s.w}px ${s.h}px; margin: 0 }\n.${s.name} { page: ${s.name}; width: ${s.w}px; height: ${s.h}px }`)
+    .join('\n');
+writeFileSync(output, `<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+@page { margin: 0 }
+html, body { margin: 0; padding: 0 }
+.page { overflow: hidden; break-after: page }
+.page:last-child { break-after: auto }
+.page > svg { display: block }
+${css}
+</style></head>
+<body>
+${pages.join('\n')}
+</body></html>
+`);
+console.log(count);
+RENDER
+    cat >"$1/s2-hwp-convert.sh" <<'CONVERT'
+#!/bin/sh
+# s2-hwp-convert (s2-office-converter): HWP/HWPX -> PDF inside the container. rhwp lays the pages out as SVG and
+# Chromium prints them. Installed by setup-s2-office-converter.sh; do not edit inside the image.
+# | 컨테이너 안에서 HWP/HWPX → PDF. rhwp 가 쪽을 SVG 로 조판하고 Chromium 이 인쇄한다.
+#
+#   s2-hwp-convert <input .hwp|.hwpx> <output .pdf>
+#   s2-hwp-convert --version
+#
+# Exit codes are those of s2-hwp-render (3: password protected) or 1 when printing fails | 종료 코드: 3 암호 문서, 1 인쇄 실패
+set -eu
+if [ "${1:-}" = "--version" ]; then
+    exec node /opt/s2-hwp/s2-hwp-render.mjs /opt/rhwp --version
+fi
+[ $# -eq 2 ] || {
+    echo "사용법: s2-hwp-convert <입력 .hwp|.hwpx> <출력 .pdf>" >&2
+    exit 2
+}
+work=/tmp/s2-hwp
+mkdir -p "$work"
+node /opt/s2-hwp/s2-hwp-render.mjs /opt/rhwp "$1" "$work/page.html" >/dev/null
+# The page has no scripts, so no time budget is needed; Chromium's own D-Bus noise goes to a file shown only on failure
+# | 스크립트가 없는 페이지라 대기 시간 불필요. Chromium 의 D-Bus 경고는 파일로 받아 실패할 때만 보여 줌
+if ! chromium --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run --no-default-browser-check \
+    --disable-extensions --disable-background-networking --disable-sync --disable-crash-reporter --mute-audio \
+    --hide-scrollbars --no-pdf-header-footer --user-data-dir="$work/chrome" \
+    --print-to-pdf="$2" "file://$work/page.html" >"$work/chrome.log" 2>&1 || [ ! -s "$2" ]; then
+    grep -v 'dbus' "$work/chrome.log" | tail -20 >&2
+    exit 1
+fi
+CONVERT
+}
+
 # 변환기 이미지 빌드 (온라인)
 build_image() {
     info "변환기 이미지 ($IMAGE)"
@@ -355,10 +717,30 @@ build_image() {
         remove_old_images
         return
     fi
-    local build_dir chrome_packages=""
-    [ "$WITH_CHROME" = false ] || chrome_packages="chromium"
+    local build_dir chrome_packages="" rhwp_block=""
     build_dir="$(mktemp -d)"
     CLEANUP_PATHS+=("$build_dir")
+    if [ "$WITH_CHROME" = true ]; then
+        # Chromium prints web pages and the HWP pages rhwp lays out; Node.js runs rhwp (WebAssembly)
+        # | Chromium 은 웹 페이지와 rhwp 가 그린 HWP 쪽을 인쇄하고, Node.js 는 rhwp(WebAssembly)를 실행
+        chrome_packages="chromium nodejs"
+        local rhwp_sha512
+        rhwp_sha512="$(printf '%s' "${RHWP_INTEGRITY#sha512-}" | base64 -d | od -An -v -tx1 | tr -d ' \n')"
+        [ ${#rhwp_sha512} -eq 128 ] || fail "rhwp ${RHWP_VERSION} 의 검증값 형식이 올바르지 않습니다: ${RHWP_INTEGRITY}"
+        write_hwp_files "$build_dir"
+        rhwp_block="
+# rhwp (MIT, https://github.com/edwardkim/rhwp): HWP/HWPX layout to SVG for s2-hwp, verified by SHA-512 (npm integrity)
+# | rhwp: s2-hwp 가 쓰는 HWP/HWPX 조판(SVG). npm integrity(SHA-512)로 검증
+RUN curl -fsSL -o /tmp/rhwp.tgz https://registry.npmjs.org/@rhwp/core/-/core-${RHWP_VERSION}.tgz \\
+ && echo \"${rhwp_sha512}  /tmp/rhwp.tgz\" | sha512sum -c - \\
+ && mkdir -p /opt/rhwp \\
+ && tar -xzf /tmp/rhwp.tgz -C /opt/rhwp --strip-components=1 --no-same-owner \\
+ && chmod -R a+rX /opt/rhwp \\
+ && find /tmp -mindepth 1 -delete
+COPY s2-hwp-render.mjs s2-hwp-convert.sh /opt/s2-hwp/
+RUN chmod 755 /opt/s2-hwp /opt/s2-hwp/s2-hwp-convert.sh && chmod 644 /opt/s2-hwp/s2-hwp-render.mjs
+"
+    fi
     cat >"$build_dir/Containerfile" <<CONTAINERFILE
 FROM ${BASE_IMAGE}
 
@@ -380,21 +762,28 @@ RUN curl -fsSL -o /tmp/H2Orestart.oxt \\
  && HOME=/tmp unopkg add --shared /tmp/H2Orestart.oxt \\
  && unopkg list --shared | grep -qi h2o \\
  && find /tmp -mindepth 1 -delete
-
+${rhwp_block}
 # /tmp is HOME at run time and is copied into each container, so it must start empty (root-owned leftovers from the
 # install above would block the converting account) | /tmp 는 실행 시 HOME 이고 컨테이너마다 복사되므로 비어 있어야 함
 # (위 설치의 root 소유 잔여물이 있으면 변환 계정이 쓰지 못함)
 
 LABEL org.opencontainers.image.title="s2-office-converter" \\
-      org.opencontainers.image.description="LibreOffice + H2Orestart + Korean fonts for s2-kit S2PdfUtil" \\
+      org.opencontainers.image.description="LibreOffice + H2Orestart + rhwp + Korean fonts for s2-docflow" \\
+      s2.image.revision="${IMAGE_REVISION}" \\
       s2.h2orestart.version="${H2ORESTART_VERSION}" \\
+      s2.rhwp.version="${RHWP_VERSION}" \\
       s2.chromium="${WITH_CHROME}"
 
-ENV HOME=/tmp LANG=C.UTF-8
+# Java ignores HOME and takes user.home from /etc/passwd (/root, read-only and not the converting account's). H2Orestart
+# keeps its working files under user.home, and without a writable one it drops the pictures of HWP documents
+# | Java 는 HOME 대신 /etc/passwd 의 홈(/root: 읽기 전용, 변환 계정 소유 아님)을 user.home 으로 쓴다. H2Orestart 는 작업
+# 파일을 user.home 아래에 두므로, 쓸 수 없으면 HWP 문서의 그림이 빠진다
+ENV HOME=/tmp LANG=C.UTF-8 JAVA_TOOL_OPTIONS=-Duser.home=/tmp
 WORKDIR /work
 CONTAINERFILE
     chmod 755 "$build_dir"
     chmod 644 "$build_dir/Containerfile"
+    [ "$WITH_CHROME" = false ] || chmod 644 "$build_dir/s2-hwp-render.mjs" "$build_dir/s2-hwp-convert.sh"
     info "이미지를 만듭니다. 처음에는 LibreOffice 를 받느라 몇 분 걸립니다..."
     podman_target build --pull=newer -t "$IMAGE" "$build_dir"
     ok "이미지 생성: $IMAGE ($TARGET_USER)"
@@ -422,16 +811,23 @@ install_wrapper() {
 # _devtools2/scripts/linux/setup-projects/s2/s2-office-converter/setup-s2-office-converter.sh 가 설치합니다.
 # 직접 고치지 마십시오 (다시 실행하면 덮어씀).
 #
-# 지원하는 형식 (S2PdfUtil 이 쓰는 부분):
+# 지원하는 형식 (s2-docflow 가 쓰는 부분):
 #   s2-soffice --headless --convert-to <형식[:필터]> [--infilter=<필터>] --outdir <출력 폴더> <입력 파일>
 #   s2-soffice --version
 #
 # 환경 변수:
 #   S2_SOFFICE_TIMEOUT  변환 제한 시간(초, 기본 180)
+#   S2_SOFFICE_MEMORY   컨테이너 메모리 상한 (예: 1g, 지정할 때만. cgroup v2 위임이 있어야 함)
+#   S2_SOFFICE_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
 TIMEOUT="${S2_SOFFICE_TIMEOUT:-180}"
+# Optional resource limits; rootless accounts without cgroup delegation cannot use them, so they are opt-in
+# | 선택 자원 상한. cgroup 위임이 없는 rootless 계정은 쓸 수 없으므로 지정할 때만 적용
+limits=()
+[ -z "${S2_SOFFICE_MEMORY:-}" ] || limits+=(--memory "$S2_SOFFICE_MEMORY" --memory-swap "$S2_SOFFICE_MEMORY")
+[ -z "${S2_SOFFICE_CPUS:-}" ] || limits+=(--cpus "$S2_SOFFICE_CPUS")
 
 runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 [ -d "$runtime_dir" ] && [ -w "$runtime_dir" ] || runtime_dir="/tmp/podman-run-$(id -u)"
@@ -500,15 +896,22 @@ args=(soffice --headless --norestore --nolockcheck --convert-to "$convert_to" --
 args+=("/work/in/$name")
 
 # No network, read-only root (/tmp stays writable), no capabilities, the caller's uid (results stay owned by the
-# caller), time limit. No cgroup limits: rootless service accounts often have no cgroup delegation
+# caller), time limit. Memory/CPU limits only when S2_SOFFICE_MEMORY/S2_SOFFICE_CPUS are set (cgroup delegation needed)
 # | 네트워크 없음, 읽기 전용 루트(/tmp 는 쓰기 가능), 권한 없음, 호출자 uid(결과 파일 소유자 유지), 시간 제한.
-# cgroup 제한은 쓰지 않음 (rootless 서비스 계정은 cgroup 위임이 없는 경우가 많음)
-"${podman_cmd[@]}" run --rm \
+# 메모리·CPU 상한은 S2_SOFFICE_MEMORY / S2_SOFFICE_CPUS 를 지정할 때만 (cgroup 위임 필요)
+# Stop the container when the caller gives up (S2DocFlow sends SIGTERM on its time limit). Bash runs a trap only
+# after a foreground command ends, so the container runs in the background and the script waits for it
+# | 호출자가 포기하면(S2DocFlow 는 제한 시간에 SIGTERM) 컨테이너를 멈춘다. bash 는 전면 명령이 끝나야 trap 을 실행하므로
+# 컨테이너는 백그라운드로 돌리고 기다린다
+container="s2-soffice-$$-${RANDOM}"
+trap '"${podman_cmd[@]}" kill "$container" >/dev/null 2>&1 || true; exit 143' TERM INT
+"${podman_cmd[@]}" run --rm --name "$container" ${limits[@]+"${limits[@]}"} \
     --network=none --read-only \
     --cap-drop=ALL --security-opt=no-new-privileges \
     --userns=keep-id \
     -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
-    "$IMAGE" timeout --kill-after=5 "$TIMEOUT" "${args[@]}"
+    "$IMAGE" timeout --kill-after=5 "$TIMEOUT" "${args[@]}" &
+wait "$!"
 
 shopt -s nullglob
 results=("$work/out/"*)
@@ -559,10 +962,15 @@ install_chrome_wrapper() {
 #
 # 환경 변수:
 #   S2_CHROME_TIMEOUT  인쇄 제한 시간(초, 기본 60)
+#   S2_CHROME_MEMORY   컨테이너 메모리 상한 (예: 1g, 지정할 때만. cgroup v2 위임이 있어야 함)
+#   S2_CHROME_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
 TIMEOUT="${S2_CHROME_TIMEOUT:-60}"
+limits=()
+[ -z "${S2_CHROME_MEMORY:-}" ] || limits+=(--memory "$S2_CHROME_MEMORY" --memory-swap "$S2_CHROME_MEMORY")
+[ -z "${S2_CHROME_CPUS:-}" ] || limits+=(--cpus "$S2_CHROME_CPUS")
 
 runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 [ -d "$runtime_dir" ] && [ -w "$runtime_dir" ] || runtime_dir="/tmp/podman-run-$(id -u)"
@@ -590,7 +998,13 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/in" "$work/out"
 cp -- "$input" "$work/in/page.html"
 
-"${podman_cmd[@]}" run --rm \
+# Stop the container when the caller gives up (S2DocFlow sends SIGTERM on its time limit). Bash runs a trap only
+# after a foreground command ends, so the container runs in the background and the script waits for it
+# | 호출자가 포기하면(S2DocFlow 는 제한 시간에 SIGTERM) 컨테이너를 멈춘다. bash 는 전면 명령이 끝나야 trap 을 실행하므로
+# 컨테이너는 백그라운드로 돌리고 기다린다
+container="s2-chrome-$$-${RANDOM}"
+trap '"${podman_cmd[@]}" kill "$container" >/dev/null 2>&1 || true; exit 143' TERM INT
+"${podman_cmd[@]}" run --rm --name "$container" ${limits[@]+"${limits[@]}"} \
     --network=none --read-only \
     --cap-drop=ALL --security-opt=no-new-privileges \
     --userns=keep-id \
@@ -599,7 +1013,8 @@ cp -- "$input" "$work/in/page.html"
     --disable-dev-shm-usage --no-first-run --no-default-browser-check --disable-extensions \
     --disable-background-networking --disable-sync --disable-crash-reporter --mute-audio --hide-scrollbars \
     --no-pdf-header-footer --user-data-dir=/tmp/chrome --virtual-time-budget=10000 \
-    --print-to-pdf=/work/out/page.pdf file:///work/in/page.html >&2
+    --print-to-pdf=/work/out/page.pdf file:///work/in/page.html >&2 &
+wait "$!"
 
 [ -s "$work/out/page.pdf" ] || {
     echo "s2-chrome: 인쇄 결과가 없습니다." >&2
@@ -613,6 +1028,135 @@ WRAPPER
     else
         "${SUDO[@]}" install -m 0755 "$wrapper_tmp" "$CHROME_WRAPPER_PATH"
         ok "설치: $CHROME_WRAPPER_PATH"
+    fi
+}
+
+# s2-hwp 명령 (한글 문서 → PDF, rhwp 조판 + Chromium 인쇄). --no-chrome 이면 제거
+install_hwp_wrapper() {
+    info "s2-hwp 명령 ($HWP_WRAPPER_PATH)"
+    if [ "$WITH_CHROME" = false ]; then
+        if [ -f "$HWP_WRAPPER_PATH" ]; then
+            "${SUDO[@]}" rm -f "$HWP_WRAPPER_PATH"
+            ok "제거: $HWP_WRAPPER_PATH (--no-chrome: 한글 문서는 LibreOffice + H2Orestart 로 변환)"
+        else
+            skip "Chromium 없이 설치하므로 s2-hwp 를 두지 않습니다 (한글 문서는 LibreOffice + H2Orestart 로 변환)."
+        fi
+        return
+    fi
+    local wrapper_tmp
+    wrapper_tmp="$(mktemp)"
+    CLEANUP_PATHS+=("$wrapper_tmp")
+    cat >"$wrapper_tmp" <<'WRAPPER'
+#!/usr/bin/env bash
+# s2-hwp: 한글(HWP, HWPX) 문서를 PDF 로 변환합니다. Podman 컨테이너(s2-office-converter)에서 rhwp 로 쪽을 조판하고
+# Chromium 으로 인쇄합니다. 한글 프로그램과 같은 쪽 나눔·글꼴 대체(나눔·Noto 명조/고딕)를 따르므로 LibreOffice +
+# H2Orestart 보다 원본에 가깝습니다. s2-docflow 의 S2OfficeConverter 는 이 명령이 있으면 한글 문서에 먼저 쓰고,
+# 실패하면 s2-soffice(LibreOffice)로 다시 변환합니다.
+# _devtools2/scripts/linux/setup-projects/s2/s2-office-converter/setup-s2-office-converter.sh 가 설치합니다.
+# 직접 고치지 마십시오 (다시 실행하면 덮어씀).
+#
+#   s2-hwp --outdir <출력 폴더> <입력 .hwp|.hwpx>    → <출력 폴더>/<입력 이름>.pdf
+#   s2-hwp --version
+#
+# 종료 코드: 0 성공, 2 사용법 오류, 3 암호가 걸린 문서, 4 읽을 수 없는 문서, 그 밖 변환 실패
+#
+# 환경 변수:
+#   S2_HWP_TIMEOUT  변환 제한 시간(초, 기본 180)
+#   S2_HWP_MEMORY   컨테이너 메모리 상한 (예: 1g, 지정할 때만. cgroup v2 위임이 있어야 함)
+#   S2_HWP_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
+set -euo pipefail
+
+IMAGE="@IMAGE@"
+TIMEOUT="${S2_HWP_TIMEOUT:-180}"
+limits=()
+[ -z "${S2_HWP_MEMORY:-}" ] || limits+=(--memory "$S2_HWP_MEMORY" --memory-swap "$S2_HWP_MEMORY")
+[ -z "${S2_HWP_CPUS:-}" ] || limits+=(--cpus "$S2_HWP_CPUS")
+
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+[ -d "$runtime_dir" ] && [ -w "$runtime_dir" ] || runtime_dir="/tmp/podman-run-$(id -u)"
+mkdir -p "$runtime_dir"
+export XDG_RUNTIME_DIR="$runtime_dir"
+podman_cmd=(podman --cgroup-manager=cgroupfs --events-backend=file)
+
+if [ "${1:-}" = "--version" ]; then
+    exec "${podman_cmd[@]}" run --rm --network=none --read-only --userns=keep-id "$IMAGE" /opt/s2-hwp/s2-hwp-convert.sh --version
+fi
+
+outdir=""
+input=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+    --outdir)
+        outdir="${2:?--outdir 다음에 폴더가 필요합니다}"
+        shift 2
+        ;;
+    -*)
+        echo "s2-hwp: 지원하지 않는 옵션입니다: $1" >&2
+        exit 2
+        ;;
+    *)
+        [ -z "$input" ] || {
+            echo "s2-hwp: 입력 파일은 하나만 받습니다." >&2
+            exit 2
+        }
+        input="$1"
+        shift
+        ;;
+    esac
+done
+[ -n "$input" ] || {
+    echo "사용법: s2-hwp --outdir <폴더> <파일.hwp|hwpx>" >&2
+    exit 2
+}
+[ -f "$input" ] || {
+    echo "s2-hwp: 입력 파일이 없습니다: $input" >&2
+    exit 1
+}
+name="$(basename "$input")"
+case "${name##*.}" in
+hwp | HWP | hwpx | HWPX) ;;
+*)
+    echo "s2-hwp: 한글 문서(.hwp, .hwpx)만 변환합니다: $name" >&2
+    exit 2
+    ;;
+esac
+outdir="${outdir:-$(pwd)}"
+mkdir -p "$outdir"
+
+# Only a private copy is mounted, never the caller's folders | 호출자 폴더가 아닌 전용 사본만 컨테이너에 연결
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/in" "$work/out"
+extension="$(printf '%s' "${name##*.}" | tr 'A-Z' 'a-z')"
+cp -- "$input" "$work/in/document.$extension"
+
+# Same isolation as s2-soffice: no network, read-only root (/tmp stays writable), no capabilities, the caller's uid,
+# time limit; stop the container when the caller gives up (SIGTERM) | s2-soffice 와 같은 격리. 호출자가 포기하면 컨테이너를 멈춤
+container="s2-hwp-$$-${RANDOM}"
+trap '"${podman_cmd[@]}" kill "$container" >/dev/null 2>&1 || true; exit 143' TERM INT
+set +e
+"${podman_cmd[@]}" run --rm --name "$container" ${limits[@]+"${limits[@]}"} \
+    --network=none --read-only \
+    --cap-drop=ALL --security-opt=no-new-privileges \
+    --userns=keep-id \
+    -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
+    "$IMAGE" timeout --kill-after=5 "$TIMEOUT" /opt/s2-hwp/s2-hwp-convert.sh "/work/in/document.$extension" /work/out/document.pdf &
+wait "$!"
+status=$?
+set -e
+[ "$status" -eq 0 ] || exit "$status"
+[ -s "$work/out/document.pdf" ] || {
+    echo "s2-hwp: 변환 결과가 없습니다: $name" >&2
+    exit 1
+}
+mv -f -- "$work/out/document.pdf" "$outdir/${name%.*}.pdf"
+WRAPPER
+    sed -i "s|@IMAGE@|${IMAGE}|" "$wrapper_tmp"
+    if [ -f "$HWP_WRAPPER_PATH" ] && cmp -s "$wrapper_tmp" "$HWP_WRAPPER_PATH"; then
+        skip "s2-hwp 가 최신입니다."
+    else
+        "${SUDO[@]}" install -m 0755 "$wrapper_tmp" "$HWP_WRAPPER_PATH"
+        ok "설치: $HWP_WRAPPER_PATH"
     fi
 }
 
@@ -640,6 +1184,12 @@ verify() {
         warn "H2Orestart 가 확인되지 않습니다. --rebuild 로 이미지를 다시 만드십시오."
     fi
     [ "$WITH_CHROME" = true ] || return 0
+    local hwp_version
+    if hwp_version="$(as_target "$HWP_WRAPPER_PATH" --version 2>/dev/null)" && [ -n "$hwp_version" ]; then
+        ok "한글 문서 조판: ${hwp_version} (s2-hwp)"
+    else
+        fail "s2-hwp 확인 실패. 'sudo -u $TARGET_USER $HWP_WRAPPER_PATH --version' 으로 오류를 확인하십시오."
+    fi
     local web_dir
     web_dir="$(as_target mktemp -d)"
     as_target sh -c 'printf "<!doctype html><meta charset=utf-8><div style=\"display:flex\"><p>s2-chrome 확인 한글</p></div>" > "$1/page.html"' sh "$web_dir"
@@ -656,11 +1206,13 @@ verify() {
 done_message() {
     cat <<DONE
 
-🎉 완료. 계정 ${TARGET_USER} 로 실행하는 앱에서 S2PdfUtil 이 s2-soffice 를 자동으로 찾습니다.
-   예) S2PdfUtil.merge(List.of(PdfSource.ofDocument(Path.of("보고서.hwp")), ...));
+🎉 완료. 계정 ${TARGET_USER} 로 실행하는 앱에서 S2OfficeConverter 가 s2-soffice 를 자동으로 찾습니다.
+   예) S2DocumentMerger.merge(List.of(PdfSource.ofDocument(Path.of("보고서.hwp")), ...));
    확인) sudo -u ${TARGET_USER} ${WRAPPER_PATH} --version
 DONE
     [ "$WITH_CHROME" = false ] || echo "   웹 페이지(URL 로 받은 HTML)는 s2-chrome 으로 화면 그대로 변환합니다. 확인) sudo -u ${TARGET_USER} ${CHROME_WRAPPER_PATH} --version"
+    [ "$WITH_CHROME" = false ] || echo "   한글 문서(hwp, hwpx)는 s2-hwp(rhwp)로 먼저 변환하고, 실패하면 s2-soffice 로 변환합니다. 확인) sudo -u ${TARGET_USER} ${HWP_WRAPPER_PATH} --version"
+    print_new_checksums
 }
 
 # ==============================================================================
@@ -669,7 +1221,7 @@ DONE
 
 mode_uninstall() {
     local path
-    for path in "$WRAPPER_PATH" "$CHROME_WRAPPER_PATH"; do
+    for path in "$WRAPPER_PATH" "$CHROME_WRAPPER_PATH" "$HWP_WRAPPER_PATH"; do
         if [ -f "$path" ]; then
             "${SUDO[@]}" rm -f "$path"
             ok "제거: $path"
@@ -690,9 +1242,11 @@ mode_uninstall() {
 mode_install() {
     install_podman_online
     ensure_subids
+    select_versions
     build_image
     install_wrapper
     install_chrome_wrapper
+    install_hwp_wrapper
     verify
     done_message
 }
@@ -709,6 +1263,7 @@ mode_export() {
 
     install_podman_online
     ensure_subids
+    select_versions
     build_image
 
     local stage
@@ -747,6 +1302,7 @@ BUNDLE_ARCH=${ARCH}
 BUNDLE_IMAGE=${IMAGE}
 BUNDLE_CHROME=${WITH_CHROME}
 BUNDLE_H2ORESTART=${H2ORESTART_VERSION}
+BUNDLE_RHWP=${RHWP_VERSION}
 BUNDLE_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 MANIFEST
 
@@ -797,12 +1353,14 @@ mode_offline() {
     payload_stream | tar -xzf - -C "$dir" || fail "압축을 풀 수 없습니다. $WORK_TMP 의 여유 공간을 확인하십시오 (다른 위치: TMPDIR=<폴더> bash ...)."
     [ -f "$dir/manifest.env" ] && [ -f "$dir/$IMAGE_ARCHIVE" ] || fail "설치 파일의 내용이 올바르지 않습니다. --export 로 다시 만드십시오."
 
-    local BUNDLE_TARGET="" BUNDLE_ARCH="" BUNDLE_IMAGE="" BUNDLE_CHROME="false"
+    local BUNDLE_TARGET="" BUNDLE_ARCH="" BUNDLE_IMAGE="" BUNDLE_CHROME="false" BUNDLE_H2ORESTART="" BUNDLE_RHWP=""
     # shellcheck disable=SC1091
     . "$dir/manifest.env"
     [ "$BUNDLE_ARCH" = "$ARCH" ] || fail "CPU 종류가 다릅니다: 설치 파일 $BUNDLE_ARCH, 이 서버 $ARCH. 서버와 같은 CPU 의 PC 에서 다시 만드십시오."
     IMAGE="$BUNDLE_IMAGE"
     WITH_CHROME="$BUNDLE_CHROME"
+    H2ORESTART_VERSION="$BUNDLE_H2ORESTART"
+    RHWP_VERSION="$BUNDLE_RHWP"
 
     info "Podman 확인"
     if command -v podman >/dev/null 2>&1; then
@@ -846,6 +1404,7 @@ mode_offline() {
 
     install_wrapper
     install_chrome_wrapper
+    install_hwp_wrapper
     verify
     done_message
 }
