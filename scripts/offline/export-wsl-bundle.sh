@@ -20,7 +20,9 @@
 #   windows/                      ← autohotkey/ fonts/ terminal/ vscode/ zed/ wsl/(WSL 설치 파일) wslconfig.txt
 #   manifest.txt · 읽어보기.txt
 #
-# ■ 인증 정보는 기본으로 빼고 묶습니다 (오프라인 PC 에서는 쓸 수 없고, 묶음을 옮기다 잃어버려도 안전하도록):
+# ■ 인증 정보는 기본으로 빼고 묶습니다 (오프라인 PC 에서는 쓸 수 없고, 묶음을 옮기다 잃어버려도 안전하도록).
+#   "인증 정보를 모두 넣을까요?"에 Y 로 답하면 아래 항목도 그대로 넣습니다(오프라인 PC 가 사내망이라 그 안의 서버·저장소에
+#   쓸 때 등). N(기본)이면 SSH 개인 키만 따로 넣을지 묻습니다:
 #   GitHub 토큰(.git-credentials, gh), Bitwarden 데이터·세션, AI API 키(secrets.env), rclone 접속 정보, SSH 개인 키(선택),
 #   ~/.gradle/gradle.properties 의 비밀 값(GitHub Packages 토큰, Maven Central 비밀번호, GPG 서명 정보) —
 #   gradle.properties 는 통째로 빼지 않고 비밀 값만 지운 사본을 넣습니다(JDK 경로 org.gradle.java.installations.paths 가
@@ -69,10 +71,17 @@ if [ -d "$HOME/workspaces" ]; then
     _ws_size=$(du -sh "$HOME/workspaces" 2>/dev/null | cut -f1)
     prompt_confirm "📁 프로젝트 소스(~/workspaces, ${_ws_size})도 함께 넣을까요?" "N" && INCLUDE_WS=true
 fi
+INCLUDE_CRED=false
 KEEP_SSH=false
-if ls "$HOME"/.ssh/id_* >/dev/null 2>&1; then
-    echo "   ℹ️  오프라인 PC 가 사내망이고 그 안의 Git·개발 서버에 SSH 로 접속한다면 SSH 키를 남길 수 있습니다."
-    prompt_confirm "🔑 SSH 개인 키(~/.ssh/id_*)를 함께 넣을까요? (기본: 빼기)" "N" && KEEP_SSH=true
+echo "   ℹ️  인증 정보: GitHub 토큰·gh, Bitwarden, AI API 키(secrets.env), rclone 접속 정보, SSH 개인 키,"
+echo "      gradle.properties 의 토큰·비밀번호·GPG 서명 정보 — 오프라인에서는 쓸 수 없어 기본으로 뺍니다."
+if prompt_confirm "🔐 인증 정보를 모두 함께 넣을까요? (사내망 서버·저장소를 쓸 때만)" "N"; then
+    INCLUDE_CRED=true
+    KEEP_SSH=true
+    print_warn "인증 정보가 묶음에 들어갑니다. 묶음 파일을 옮기고 보관할 때 주의하세요."
+elif ls "$HOME"/.ssh/id_* >/dev/null 2>&1; then
+    echo "   ℹ️  오프라인 PC 가 사내망이고 그 안의 Git·개발 서버에 SSH 로 접속한다면 SSH 키만 남길 수 있습니다."
+    prompt_confirm "🔑 SSH 개인 키(~/.ssh/id_*)만 함께 넣을까요? (기본: 빼기)" "N" && KEEP_SSH=true
 fi
 
 STAMP="$(date +%Y%m%d-%H%M)"
@@ -95,7 +104,7 @@ sudo -v || { print_error "sudo 인증에 실패했습니다."; exit 1; }
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/dt2-offline-XXXXXX")"
 trap 'sudo rm -rf "$STAGE" 2>/dev/null' EXIT
 OVERLAY=()
-if [ -f "$HOME/.gradle/gradle.properties" ]; then
+if ! $INCLUDE_CRED && [ -f "$HOME/.gradle/gradle.properties" ]; then
     mkdir -p "$STAGE/$HOME_REL/.gradle"
     # 비밀 키: gpr.*(GitHub Packages), centralUsername/centralPassword(Maven Central), signing.*(GPG) — 주석·빈 줄·그 밖의 값은 유지
     grep -vE '^[[:space:]]*(gpr\.(user|key)|centralUsername|centralPassword|signing\.[A-Za-z0-9_.]+)[[:space:]]*=' \
@@ -111,13 +120,17 @@ EXCLUDES=(
     "./root/.cache" "./$HOME_REL/.cache"
     "./$HOME_REL/.vscode-server/data/logs" "./$HOME_REL/.local/state/nvim/*.log"
     "./var/opt/_devtools2/data/logs"
-    # 인증 정보
-    "./$HOME_REL/.git-credentials" "./$HOME_REL/.config/gh/hosts.yml"
-    "./$HOME_REL/.config/Bitwarden CLI" "./$HOME_REL/.bw_session*"
-    "./$HOME_REL/.config/devtools2/secrets.env" "./$HOME_REL/.config/rclone/rclone.conf"
-    "./$HOME_REL/.config/rclone/keys"
-    "./$HOME_REL/.gradle/gradle.properties"
 )
+# 인증 정보 (모두 넣기를 고르지 않았을 때)
+if ! $INCLUDE_CRED; then
+    EXCLUDES+=(
+        "./$HOME_REL/.git-credentials" "./$HOME_REL/.config/gh/hosts.yml"
+        "./$HOME_REL/.config/Bitwarden CLI" "./$HOME_REL/.bw_session*"
+        "./$HOME_REL/.config/devtools2/secrets.env" "./$HOME_REL/.config/rclone/rclone.conf"
+        "./$HOME_REL/.config/rclone/keys"
+        "./$HOME_REL/.gradle/gradle.properties"
+    )
+fi
 $KEEP_SSH || EXCLUDES+=("./$HOME_REL/.ssh/id_*" "./$HOME_REL/.ssh/*.pem")
 $INCLUDE_WS || EXCLUDES+=("./$HOME_REL/workspaces")
 # 저장 위치가 배포판 안이면(예: ~/backup) 자기 자신을 묶지 않게
@@ -128,18 +141,31 @@ TAR_ARGS=(--create --gzip --numeric-owner --preserve-permissions --xattrs --acls
 for e in "${EXCLUDES[@]}"; do TAR_ARGS+=("--exclude=$e"); done
 ROOTFS="$OUT/devtools2-rootfs.tar.gz"
 
+# [진행률] tar 가 읽은 양 / 예상 전체 양(배포판 사용량 - 빼는 큰 폴더)으로 퍼센트를 표시합니다.
+#   GNU tar 의 --checkpoint 는 레코드(기본 10KiB)마다 세므로 25,000 레코드(약 250MB)마다 진행 표시 스크립트를 부릅니다.
+#   예상 양은 대략값이라(압축 전 크기 기준, 시스템 폴더 일부 포함) 끝날 때 100% 에 못 미치거나 조금 넘을 수 있습니다.
+_skip_kb=$(du -sk "$HOME/.cache" 2>/dev/null | cut -f1)
+$INCLUDE_WS || _skip_kb=$(( ${_skip_kb:-0} + $(du -sk "$HOME/workspaces" 2>/dev/null | cut -f1 || echo 0) ))
+EST_BYTES=$(( (_used_kb - ${_skip_kb:-0}) * 1024 ))
+cat > "$STAGE/progress.sh" <<'PROG'
+#!/bin/sh
+# tar --checkpoint-action=exec 로 불림: TAR_CHECKPOINT(레코드 수) × 10240 = 읽은 바이트
+read_b=$(( ${TAR_CHECKPOINT:-0} * 10240 ))
+pct=$(( read_b * 100 / ${DT2_EST_BYTES:-1} )); [ "$pct" -gt 99 ] && pct=99
+out_sz=$(du -h "$DT2_ROOTFS" 2>/dev/null | cut -f1)
+msg=$(awk -v p="$pct" -v r="$read_b" -v t="${DT2_EST_BYTES:-0}" -v o="${out_sz:-0}" \
+    'BEGIN { printf "\r   진행: %3d%%  (읽음 %.1f / 약 %.1f GB, 압축 파일 %s)   ", p, r / 1073741824, t / 1073741824, o }')
+{ printf '%s' "$msg" > /dev/tty; } 2>/dev/null || printf '%s' "$msg" >&2
+PROG
+chmod 755 "$STAGE/progress.sh"
+
 print_step "🗜️  배포판 묶는 중 (수십 분 걸릴 수 있습니다)..."
-(
-    # 진행 표시: 만들어지는 파일 크기를 주기적으로 출력
-    while sleep 10; do
-        [ -f "$ROOTFS" ] && printf '\r   진행: %s 기록됨   ' "$(du -h "$ROOTFS" 2>/dev/null | cut -f1)"
-    done
-) &
-_progress_pid=$!
 # 첫 번째 -C / 묶음은 "./경로"(--anchored 제외 대상), 두 번째 -C $STAGE 묶음은 "home/..."(제외 패턴과 겹치지 않음)
-sudo tar "${TAR_ARGS[@]}" --file="$ROOTFS" -C / . -C "$STAGE" "${OVERLAY[@]}"
+sudo env DT2_EST_BYTES="$EST_BYTES" DT2_ROOTFS="$ROOTFS" \
+    tar "${TAR_ARGS[@]}" --checkpoint=25000 --checkpoint-action="exec=$STAGE/progress.sh" \
+    --file="$ROOTFS" -C / . -C "$STAGE" "${OVERLAY[@]}"
 _tar_rc=$?
-kill "$_progress_pid" 2>/dev/null; wait "$_progress_pid" 2>/dev/null; echo ""
+echo ""
 # GNU tar: 1 = 읽는 중 바뀐 파일이 있음(실행 중인 배포판이라 정상), 2 이상 = 오류
 if [ "$_tar_rc" -gt 1 ]; then
     print_error "배포판 묶기에 실패했습니다 (tar 종료 코드 $_tar_rc)."
@@ -152,7 +178,15 @@ print_done "배포판: $(du -h "$ROOTFS" | cut -f1)"
 W="$OUT/windows"
 copy_dir() {   # copy_dir <원본> <대상> <설명>
     if [ -d "$1" ]; then
-        mkdir -p "$2" && cp -a "$1/." "$2/" 2>/dev/null
+        mkdir -p "$2"
+        # rsync 전체 진행률(--info=progress2). Windows 드라이브(/mnt/*)는 리눅스 권한·소유자를 못 쓰므로 -rlt 만 (내용·링크·시간)
+        if command -v rsync >/dev/null 2>&1; then
+            echo "   $3 복사 중..."
+            rsync -rlt --info=progress2 --no-inc-recursive "$1/" "$2/" 2>/dev/null
+            echo ""
+        else
+            cp -a "$1/." "$2/" 2>/dev/null
+        fi
         print_done "$3 ($(du -sh "$2" 2>/dev/null | cut -f1))"
     else
         print_warn "$3 — 없음, 건너뜀 ($1)"
@@ -185,7 +219,8 @@ if [ -n "$_wsl_ver" ]; then
     _tag="${_wsl_ver%.*}"
     _arch=x64; [ "$(uname -m)" = "aarch64" ] && _arch=arm64
     mkdir -p "$W/wsl"
-    if curl -sSfL --max-time 600 -o "$W/wsl/wsl.${_wsl_ver}.${_arch}.msi" \
+    echo "   WSL 설치 파일 받는 중 (wsl.${_wsl_ver}.${_arch}.msi)..."
+    if curl -fL --progress-bar --max-time 1800 -o "$W/wsl/wsl.${_wsl_ver}.${_arch}.msi" \
         "https://github.com/microsoft/WSL/releases/download/${_tag}/wsl.${_wsl_ver}.${_arch}.msi"; then
         print_done "WSL 설치 파일 (${_wsl_ver})"
     else
@@ -206,6 +241,7 @@ sed 's/\r$//; s/$/\r/' "$DEVTOOLS2/scripts/offline/import-launcher.cmd" > "$OUT/
     echo "devtools2_commit=$(git -C "$DEVTOOLS2" rev-parse --short HEAD 2>/dev/null)"
     echo "wsl_version=${_wsl_ver:-unknown}"
     echo "include_workspaces=$INCLUDE_WS"
+    echo "include_credentials=$INCLUDE_CRED"
     echo "include_ssh_keys=$KEEP_SSH"
 } > "$OUT/manifest.txt"
 cat > "$OUT/읽어보기.txt" <<EOF
@@ -223,7 +259,7 @@ DevTools2 오프라인 이전 묶음 ($(date '+%Y-%m-%d'))
 - .wslconfig (네트워크 설정 + 그 PC 메모리에 맞춘 WSL 메모리 상한)
 
 [빠진 것]
-- 인증 정보 (GitHub·Bitwarden·AI API 키·rclone$( $KEEP_SSH || echo '·SSH 개인 키')) — 오프라인에서는 쓸 수 없음
+$( if $INCLUDE_CRED; then echo "- (인증 정보는 함께 넣었습니다 — 묶음 보관에 주의)"; else echo "- 인증 정보 (GitHub·Bitwarden·AI API 키·rclone$( $KEEP_SSH || echo '·SSH 개인 키')) — 오프라인에서는 쓸 수 없음"; fi )
 $( $INCLUDE_WS || echo "- 프로젝트 소스(~/workspaces)")
 
 [오프라인에서 안 되는 것]
