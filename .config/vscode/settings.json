@@ -228,7 +228,12 @@
   "java.jdt.ls.vmargs": "-Dfile.encoding=UTF-8 -Duser.language=ko -Duser.country=KR -Xms1G -XX:MaxRAMPercentage=25 -XX:+UseG1GC -XX:+UseStringDeduplication -XX:MaxMetaspaceSize=512m -XX:+UseCompressedOops",
   "java.compile.nullAnalysis.mode": "automatic", // Java 컴파일러의 null 분석 모드 → "automatic": 자동으로 null 분석 모드를 적용, "disabled": null 분석 모드를 적용하지 않음
   "java.debug.settings.console": "integratedTerminal", // 디버깅 콘솔을 통합 터미널로 설정
-  "java.debug.settings.vmArgs": "-Dfile.encoding=UTF-8 -Dconsole.encoding=UTF-8 -Xmx2G -XX:+UseG1GC", // Java 디버깅 시 JVM 옵션 (대규모 스프링 프로젝트에서 디버깅 시 메모리 부족 방지)
+  // Java 디버깅 시 JVM 옵션 (VS Code 에서 디버그로 실행하는 앱 전체에 붙음)
+  // - 최대 힙(-Xmx)은 지정하지 않음: JVM 기본값(실행 환경 메모리의 25% — WSL 은 .wslconfig memory 기준)을 따라 WSL 메모리에 맞춰집니다.
+  //   예전 -Xmx2G 고정은 대규모 스프링 프로젝트의 메모리 부족 방지용이었지만, VS Code 에서만 2GB 로 제한되어 Neovim·Zed
+  //   (따로 지정하지 않아 JVM 기본값)와 같은 앱이 다른 메모리로 실행됐습니다.
+  // - 프로젝트마다 앱 메모리를 정하려면 .vscode/launch.json 의 "vmArgs" 에 -Xmx 를 넣으세요 (Neovim·Zed 도 같이 적용).
+  "java.debug.settings.vmArgs": "-Dfile.encoding=UTF-8 -Dconsole.encoding=UTF-8 -XX:+UseG1GC",
   "java.debug.settings.onBuildFailureProceed": false, // Java 프로젝트를 디버깅할 때 빌드 실패 시 동작 제어 (false: 디버깅을 중단하고 계속할지 묻는 메시지 표시, true: 빌드 실패 시 자동으로 디버깅을 계속 진행(하지만 빌드 오류를 확인하기 어려움, 만약 false 로 해도 계속 진행된다면 .vscode/settings.json 의 설정도 확인해야한다.))
   "java.test.config": [
     {
