@@ -1,28 +1,32 @@
 # s2-office-converter
 
-s2-kit 의 `S2OfficeConverter`·`S2PdfUtil` 이 **오피스·한글 문서(docx, xlsx, pptx, hwp, hwpx 등)를 PDF 로 변환·병합하거나
+s2-docflow 의 `S2OfficeConverter`·`S2DocumentMerger` 가 **오피스·한글 문서(docx, xlsx, pptx, hwp, hwpx 등)를 PDF 로 변환·병합하거나
 웹에디터용 HTML 로 가져오고**,
 **웹 페이지(URL 로 받은 HTML)를 브라우저 화면 그대로 PDF 로** 만들 수 있도록 서버에 변환기를 설치하는 스크립트입니다.
 
 ```
-[앱] S2PdfUtil ──(s2-soffice --headless --convert-to pdf ...)──▶ [Podman 컨테이너]
-               ──(s2-chrome --print-to-pdf <pdf> <html>)────────▶  LibreOffice + H2Orestart(한글) + Chromium + 한글 폰트
+[앱] S2DocumentMerger ──(s2-soffice --headless --convert-to pdf ...)──▶ [Podman 컨테이너]
+               ──(s2-chrome --print-to-pdf <pdf> <html>)────────▶  LibreOffice + H2Orestart(한글) + Chromium
+               ──(s2-hwp --outdir <폴더> <파일.hwp>)─────────────▶  + Node.js·rhwp(한글 조판) + 한글 폰트
 ```
 
 - 변환기가 없어도 앱은 동작합니다. 오피스·한글이 아닌 소스(PDF, HTML, 이미지 등)는 그대로 병합되고,
   문서 소스만 `오피스·한글 문서를 변환하려면 s2-office-converter 설치가 필요합니다.` 오류가 납니다.
-- 웹 페이지는 `s2-chrome` 이 있으면 Chromium 으로(flex·grid·JavaScript 까지 화면 그대로), 없거나 실패하면(크롬 문제, 제한 시간 초과 등)
-  경고 로그를 남기고 내장 렌더러(openhtmltopdf)로 변환합니다. 웹 페이지 변환 때문에 병합이 실패하지는 않습니다.
-- 설치 후 앱을 다시 시작할 필요 없이 `S2OfficeConverter`(와 이를 쓰는 `S2PdfUtil`)가 자동으로 찾습니다.
+- 웹 페이지 및 HTML은 `s2-chrome`이 설치되면 Chromium 헤드리스로(flex·grid·JavaScript까지 화면 그대로) 100% LGPL-Free로 인쇄됩니다.
+- 한글 문서(hwp, hwpx)의 PDF 는 `s2-hwp`(rhwp 조판 + Chromium 인쇄)로 먼저 만들고, 실패하면 `s2-soffice`(LibreOffice + H2Orestart)로
+  만듭니다. rhwp 는 한글 프로그램과 같은 쪽 나눔을 따르므로 쪽 수·그림·표가 원본에 가깝습니다 (아래 [s2-hwp](#s2-hwp)).
+- 설치 후 앱을 다시 시작할 필요 없이 `S2OfficeConverter`(와 이를 쓰는 `S2DocumentMerger`)가 자동으로 찾습니다.
 
 ## 파일
 
 | 파일 | 역할 |
 |---|---|
 | `setup-s2-office-converter.sh` | 설치 스크립트. 이 파일 하나로 온라인 설치, 폐쇄망 설치 파일 만들기(`--export`), 다시 만들기, 제거를 모두 합니다. |
+| `s2-office-converter-versions.toml` | H2Orestart·rhwp **버전 정책과 이력** (Git 관리). 버전을 올리거나 되돌릴 때 이 파일의 `[track]` 을 바꿉니다. |
 | `README.md` | 이 안내문 |
 
-스크립트는 다른 파일에 의존하지 않으므로 GitHub 에서 바로 실행하거나, 이 파일만 복사해 실행할 수 있습니다.
+스크립트는 옆의 버전 파일을 읽고, GitHub 에서 바로 실행하면 같은 경로의 GitHub 원본을 읽습니다. 둘 다 읽지 못하면 스크립트에 적힌
+기본 버전으로 설치하므로, 스크립트 파일 하나만 복사해 실행해도 동작합니다.
 
 ## 필요 조건
 
@@ -51,11 +55,13 @@ curl -fsSL <주소> | bash
 
 1. Podman 확인 (없으면 설치)
 2. 앱 실행 계정 준비 (rootless Podman 용 subuid/subgid)
-3. 변환기 이미지 만들기 (LibreOffice + H2Orestart + Chromium + 한글·MS 호환 폰트, 약 1.6GB)
-4. `/usr/local/bin/s2-soffice`, `/usr/local/bin/s2-chrome` 설치
-5. 실제 변환으로 동작 확인 (문서, 한글 확장, 웹 페이지)
+3. 구성 요소 버전 확인 ([버전 관리](#버전-관리))
+4. 변환기 이미지 만들기 (LibreOffice + H2Orestart + Chromium + Node.js·rhwp + 한글·MS 호환 폰트, 약 1.6GB)
+5. `/usr/local/bin/s2-soffice`, `/usr/local/bin/s2-chrome`, `/usr/local/bin/s2-hwp` 설치
+6. 실제 변환으로 동작 확인 (문서, 한글 확장, 한글 조판, 웹 페이지)
 
-웹 페이지 변환이 필요 없으면 `--no-chrome` 을 붙입니다 (Chromium 을 빼서 이미지 약 0.9GB, `s2-chrome` 설치 안 함).
+웹 페이지 변환이 필요 없으면 `--no-chrome` 을 붙입니다 (Chromium 을 빼서 이미지 약 0.9GB, `s2-chrome`·`s2-hwp` 설치 안 함 →
+한글 문서는 LibreOffice + H2Orestart 로만 변환).
 
 ### 2. 폐쇄망 설치 (서버가 인터넷에 접속할 수 없을 때)
 
@@ -94,48 +100,89 @@ bash setup-s2-office-converter-offline.sh --app-user appuser
 # 확인
 sudo -u appuser s2-soffice --version
 sudo -u appuser s2-chrome --version
+sudo -u appuser s2-hwp --version
 
 # 다시 만들기 (보안 업데이트 반영 등)
 curl -fsSL <주소> | bash -s -- --app-user appuser --rebuild
 
-# 제거 (s2-soffice, s2-chrome 과 이미지. Podman 은 남김)
+# 제거 (s2-soffice, s2-chrome, s2-hwp 와 이미지. Podman 은 남김)
 curl -fsSL <주소> | bash -s -- --app-user appuser --uninstall
 ```
 
 - 여러 번 실행해도 안전합니다. 이미 있는 것은 건너뛰고 빠진 것만 채웁니다.
-- 변환기 버전(LibreOffice 이미지, H2Orestart)을 올리면 다음 실행 때 새 이미지를 만들고 이전 이미지는 정리합니다.
+- 구성 요소 버전을 바꾸면(업데이트에 동의하면) 새 이미지를 만들고 이전 이미지는 정리합니다.
 - 한 서버에서 여러 계정이 쓰면(예: 앱 계정과 배치 계정) 계정마다 한 번씩 실행합니다. `s2-soffice` 명령은 서버에 하나만 설치됩니다.
 
-## 앱(S2OfficeConverter, S2PdfUtil)에서 찾는 순서
+### 버전 관리
+
+H2Orestart 와 rhwp 는 `s2-office-converter-versions.toml` 의 정책을 따릅니다 (_devtools2 의 `tool-versions.toml` 과 같은 방식).
+
+| 상황 | 동작 |
+|---|---|
+| 처음 설치 | 묻지 않고 `[track]` 범위 안의 최신 버전으로 설치 |
+| 설치된 버전보다 새 버전이 범위 안에 있음 | 업데이트할지 묻습니다 (기본 Y). `curl ... \| bash` 로 실행해도 터미널에서 묻습니다 |
+| 무인 실행 (터미널 없음, cron 등) | 설치된 버전 유지. 강제하려면 `S2_CONVERTER_UPDATE=y`(업데이트) 또는 `n`(유지) |
+| 범위 밖의 새 버전 (예: track `0.8` 인데 0.9.0) | 안내만 합니다. 올리려면 `[track]` 값을 바꿈 |
+| 버전 파일에 검증값이 없는 새 버전 | 배포처의 검증값(GitHub 릴리스 digest, npm integrity)으로 확인해 설치하고, 버전 파일에 넣을 줄을 출력 |
+
+- **설치된 버전 확인:** 이미지 태그(`4-h2o0.8.0-rhwp0.8.7-chrome`)와 라벨에 남습니다.
+  `podman image inspect <이미지> --format '{{json .Labels}}'`
+- **새 버전 기록 (개발자):** 출력된 줄을 버전 파일에 넣고 실제 문서(특히 HWP)로 확인한 뒤 커밋합니다. 언제 무엇을 올렸는지 Git 이력에 남습니다.
+- **롤백:** 문제가 생기면 `[track]` 을 이전 전체 버전(예: `h2orestart = "0.7.14"`)으로 고정하고 스크립트를 다시 실행해 되돌리기에 동의합니다
+  (무인 실행이면 `S2_CONVERTER_UPDATE=y`).
+- LibreOffice·Chromium·Node.js·폰트는 Debian 패키지라 이미지를 만들 때의 최신 보안 업데이트가 들어갑니다 (`--rebuild` 로 다시 반영).
+
+## 앱(S2OfficeConverter, S2DocumentMerger)에서 찾는 순서
 
 1. `S2OfficeConverter.setCommand(...)` 로 지정한 명령
 2. 환경 변수 `S2_SOFFICE`
 3. PATH 의 `s2-soffice`, 그다음 `soffice`, `libreoffice`
 4. 고정 경로 `/usr/local/bin/s2-soffice` (cron 처럼 PATH 가 좁은 환경 대비), LibreOffice 기본 설치 경로
 
-웹 페이지 변환(`s2-chrome`)은 `S2PdfUtil.setBrowserCommand(...)`, 환경 변수 `S2_CHROME`, PATH 의 `s2-chrome`,
-`/usr/local/bin/s2-chrome` 순으로 찾습니다. 네트워크가 열린 일반 chrome/chromium 은 자동으로 쓰지 않습니다
-(페이지의 JavaScript 가 내부망에 접속할 수 있기 때문).
+웹 페이지 변환(`s2-chrome`)은 `S2DocumentMerger.setBrowserCommand(...)`, 환경 변수 `S2_CHROME`, PATH 의 `s2-chrome`,
+`/usr/local/bin/s2-chrome` 순으로 찾습니다. **주의:** 그래도 없으면 지금은 PATH 의 일반 chromium/chrome, 표준 설치 경로,
+Playwright 캐시의 브라우저까지 찾아 `--no-sandbox` 로 직접 실행합니다. 이때는 컨테이너 격리가 없고 네트워크도 열려 있으므로
+(페이지의 JavaScript 가 내부망에 접속할 수 있음) 운영 서버에는 반드시 `s2-chrome` 을 설치하고, 일반 브라우저 자동 사용은
+`S2DocumentMerger.setSystemBrowserAllowed(false)` 또는 `-Ds2.docflow.systemBrowser=false`(환경 변수 `S2_SYSTEM_BROWSER=false`)로 끄십시오.
 
 ```java
 if (S2OfficeConverter.isAvailable()) {
-    S2PdfUtil.merge(List.of(PdfSource.ofDocument(Path.of("계획서.docx")),
+    S2DocumentMerger.merge(List.of(PdfSource.ofDocument(Path.of("계획서.docx")),
             PdfSource.ofDocument(uploadedStream, "보고서.hwp")));
 }
 ```
 
 ## s2-chrome
 
-이미지·CSS 를 모두 넣은 HTML 파일을 Chromium 으로 PDF 인쇄하는 명령입니다. `S2PdfUtil` 이 URL 로 받은 HTML 페이지를
-변환할 때 씁니다 (페이지의 이미지·CSS 는 앱이 받아서 넣은 뒤 넘김).
+이미지·CSS 를 모두 넣은 HTML 파일을 Chromium 으로 PDF 인쇄하는 명령입니다. `S2DocumentMerger` 가 HTML·텍스트·SVG·마크다운 소스와
+URL 로 받은 웹 페이지를 변환할 때 씁니다 (페이지의 이미지·CSS 는 앱이 받아서 넣은 뒤 넘김).
 
 - 네트워크가 없는 컨테이너에서 실행하므로 페이지의 JavaScript 도 밖(내부망 포함)에 접속하지 못합니다.
 - Chromium 자체 샌드박스는 rootless 컨테이너 안에서 쓸 수 없어 끄고(`--no-sandbox`), 컨테이너(네트워크 없음, 읽기 전용 루트,
   권한 제거, 호출자 uid)가 격리를 맡습니다.
-- 제한 시간: 기본 60초 (`S2_CHROME_TIMEOUT`). 앱 쪽 제한은 `S2PdfUtil.setBrowserTimeout`.
+- 제한 시간: 기본 60초 (`S2_CHROME_TIMEOUT`). 앱 쪽 제한은 `S2DocumentMerger.setBrowserTimeout`.
+- 앱이 제한 시간에 보내는 SIGTERM 을 받으면 실행 중인 컨테이너를 `podman kill` 로 멈추고 끝납니다.
+- 자원 상한(선택): `S2_CHROME_MEMORY`(예: `1g`), `S2_CHROME_CPUS`(예: `1.5`). 지정할 때만 붙으며 cgroup v2 위임이 있어야 합니다.
 
 ```sh
 s2-chrome --print-to-pdf /tmp/out.pdf page.html
+```
+
+## s2-hwp
+
+한글 문서(hwp, hwpx)를 PDF 로 만드는 명령입니다. 컨테이너 안에서 [rhwp](https://github.com/edwardkim/rhwp)(MIT, Rust +
+WebAssembly)가 쪽을 SVG 로 조판하고 Chromium 이 인쇄합니다.
+
+- LibreOffice + H2Orestart 와 달리 한글 프로그램과 같은 쪽 나눔·표·그림 배치를 따르고, 원본 글꼴(함초롬바탕 등)이 없으면 이미지에 든
+  나눔명조·Noto Serif/Sans CJK 로 대체합니다 (글꼴을 따로 설치할 필요 없음). 글자는 PDF 에서 선택·검색됩니다.
+- `S2OfficeConverter` 는 이 명령이 있으면 한글 PDF 에 먼저 쓰고, 실패하면 `s2-soffice` 로 다시 변환합니다
+  (`S2OfficeConverter.setHwpRenderer(...)` 또는 `-Ds2.docflow.hwpRenderer=auto|rhwp|libreoffice`).
+- 격리, 제한 시간(기본 180초, `S2_HWP_TIMEOUT`), SIGTERM 처리, 자원 상한(`S2_HWP_MEMORY`, `S2_HWP_CPUS`)은 `s2-soffice` 와 같습니다.
+- 종료 코드: 0 성공, 2 사용법 오류, 3 암호가 걸린 문서, 4 읽을 수 없는 문서.
+- `--no-chrome` 으로 설치하면 두지 않습니다.
+
+```sh
+s2-hwp --outdir /tmp/out 보고서.hwp     # → /tmp/out/보고서.pdf
 ```
 
 ## s2-soffice
@@ -145,6 +192,10 @@ LibreOffice(`soffice`) 호환 명령입니다. 변환할 때마다 새 컨테이
 - 호출한 폴더가 아니라 **전용 사본**만 컨테이너에 연결
 - 네트워크 차단, 읽기 전용 루트, 권한 제거, 호출자 uid (결과 파일 소유자 유지)
 - 제한 시간: 기본 180초 (`S2_SOFFICE_TIMEOUT` 환경 변수로 변경)
+- 앱이 제한 시간에 보내는 SIGTERM 을 받으면 실행 중인 컨테이너를 `podman kill` 로 멈추고 끝납니다 (이전에는 컨테이너가 내부 제한 시간까지 남을 수 있었음).
+  이미 설치한 서버는 스크립트를 다시 실행해야 새 래퍼가 깔립니다.
+- 자원 상한(선택): `S2_SOFFICE_MEMORY`(예: `1g`), `S2_SOFFICE_CPUS`(예: `1.5`). 지정할 때만 붙으며 cgroup v2 위임이 있어야 합니다
+  (위임이 없는 rootless 계정에서는 podman 이 거부하므로 기본으로 켜지 않음). 앱 실행 환경의 환경 변수로 넘깁니다.
 
 ```sh
 s2-soffice --headless --convert-to pdf --outdir /tmp/out 보고서.hwp
@@ -156,16 +207,20 @@ s2-soffice --headless --convert-to pdf --outdir /tmp/out 보고서.hwp
 |---|---|
 | 앱에서 "s2-office-converter 설치가 필요합니다" | 앱 실행 계정으로 설치했는지 (`sudo -u <계정> s2-soffice --version`) |
 | "앱 실행 계정의 홈 폴더가 없습니다" | 안내된 명령으로 홈 폴더를 만든 뒤 다시 실행 |
-| 한글 문서만 변환 실패 | `--rebuild` 로 이미지를 다시 만듦 (H2Orestart 포함 여부는 마지막 확인 단계에 표시) |
+| 한글 문서의 그림이 빈 상자(파란 사각형)로 나옴 | 이미지 버전 3 이전에 설치한 경우입니다. 스크립트를 다시 실행하면 새 이미지로 바뀝니다 (H2Orestart 가 그림을 처리할 작업 폴더를 쓰지 못하던 문제) |
+| 한글 문서만 변환 실패 | `--rebuild` 로 이미지를 다시 만듦 (H2Orestart·rhwp 확인 결과는 마지막 확인 단계에 표시) |
+| 한글 문서의 쪽 수·배치가 원본과 다름 | `s2-hwp` 가 설치되었는지 확인 (`sudo -u <계정> s2-hwp --version`). 없으면 LibreOffice 로 변환됩니다. 앱 로그에 "rhwp 로 변환하지 못해" 가 있으면 그 문서는 rhwp 가 읽지 못한 것입니다 |
+| 새 버전으로 올린 뒤 변환 결과가 나빠짐 | 버전 파일의 `[track]` 을 이전 버전으로 고정하고 스크립트를 다시 실행 ([버전 관리](#버전-관리)) |
 | 변환 결과에서 글자 모양이 원본과 다름 | 원본 문서에 쓴 글꼴이 없어서입니다. 필요한 글꼴은 이미지에 추가해야 합니다 |
 | 폐쇄망 설치 파일에서 CPU·배포판 불일치 | 안내대로 `--target` 을 맞춰 인터넷 PC 에서 다시 `--export` |
 | 폐쇄망 설치 파일 "체크섬 불일치" | 옮기는 중 손상됨. 파일을 다시 옮김 |
 | 변환이 느림 | 변환마다 컨테이너를 새로 띄워 한 건에 수 초 걸립니다 (설계상 격리를 우선함) |
-| 웹 페이지가 화면과 다름 | `sudo -u <계정> s2-chrome --version` 으로 s2-chrome 이 동작하는지 확인. 앱 로그에 "브라우저 변환에 실패해 내장 렌더러로" 가 있으면 그 원인 확인 |
+| HTML·웹 페이지 변환이 "브라우저 엔진이 없습니다" 로 실패 | `sudo -u <계정> s2-chrome --version` 으로 s2-chrome 이 동작하는지 확인. 내장 렌더러로 대신 변환하는 기능은 없습니다 (HTML 은 Chromium 으로만 변환) |
 | 폐쇄망이라 Chromium 을 업데이트할 수 없음 | 그대로 써도 됩니다. 네트워크가 없는 컨테이너에서 이미 정리된 파일만 인쇄하므로 밖에서 공격받는 경로가 거의 없습니다. 업데이트는 인터넷 되는 PC 에서 `--export` 로 새 설치 파일을 만들어 옮깁니다 |
 
 ## 라이선스
 
-이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(MIT), Chromium(BSD 3-Clause 등), 폰트(SIL OFL 1.1 등), Podman(Apache 2.0)을 각 배포처에서 받아
+이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(MIT), rhwp(MIT), Node.js(MIT), Chromium(BSD 3-Clause 등), 폰트(SIL OFL 1.1 등),
+Podman(Apache 2.0)을 각 배포처에서 받아
 설치할 뿐 재배포하지 않습니다. 각 소프트웨어는 자체 라이선스를 따릅니다. 폐쇄망 설치 파일을 다른 조직에 전달하면 그 안의
 소프트웨어를 배포하는 것이 되므로 각 라이선스를 확인하십시오.

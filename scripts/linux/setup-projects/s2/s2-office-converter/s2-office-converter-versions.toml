@@ -1,0 +1,50 @@
+# s2-office-converter 구성 요소 버전 이력 (s2-office-converter-versions.toml)
+#
+# 형상관리: 이 파일은 설치 스크립트(setup-s2-office-converter.sh)와 같은 폴더에서 Git 으로 관리합니다.
+#           설치 스크립트는 이 파일을 읽기만 하고 고치지 않습니다 (Git 작업 트리 보호).
+#           스크립트를 파일로 실행하면 옆의 이 파일을, GitHub 에서 바로 실행하면 같은 경로의 GitHub 원본을 읽습니다.
+#
+# ─── 규칙 (_devtools2 의 scripts/linux/dev-env/tool-versions.toml 과 같은 방식) ────────────────
+#  • [track] 이 구성 요소별 "버전 정책"입니다. 버전을 올리거나 고정하거나 되돌리는 방법은 모두 같습니다:
+#    [track] 값 한 줄을 바꾸고 설치 스크립트를 다시 실행합니다.
+#  • 설치 스크립트는 track 범위 안의 최신 버전을 배포처(GitHub 릴리스, npm)에서 찾습니다.
+#    - 처음 설치: 묻지 않고 그 버전으로 설치
+#    - 이미 설치됨 + 범위 안에 새 버전: 업데이트 여부를 묻습니다 (기본 Y).
+#      무인 실행(터미널 없음)이면 설치된 버전을 유지합니다. 묻지 않으려면 S2_CONVERTER_UPDATE=y|n
+#    - 범위 밖에 더 새 버전(예: track "0.8" 인데 0.9.0 이 나옴): 안내만 합니다. 올리려면 track 값을 바꿉니다.
+#  • [versions] 배열의 첫 항목은 배포처 조회에 실패했을 때 쓰는 폴백 버전이고, 나머지는 이전 버전 이력입니다.
+#  • [checksums] 는 검증해 둔 내려받기 파일의 해시입니다. 여기 없는 새 버전은 배포처가 알려 주는 해시
+#    (GitHub 릴리스 자산 digest, npm integrity)로 검증하고, 설치 후 이 파일에 넣을 줄을 출력합니다.
+#  • 이 서버에 설치된 버전은 변환기 이미지의 라벨(s2.h2orestart.version, s2.rhwp.version)과 태그에 남습니다.
+#    확인: podman image inspect <이미지> --format '{{json .Labels}}'
+#
+# ─── 새 버전을 확인해 올렸을 때 (개발자) ─────────────────────────────────────────────
+#  1) 설치 스크립트가 출력한 줄로 [versions] 배열 맨 앞에 새 버전, [checksums] 에 해시를 추가
+#  2) 실제 문서(특히 HWP)로 변환 결과를 확인한 뒤 커밋 → 이력이 Git 에 남습니다
+#
+# ─── 롤백 ────────────────────────────────────────────────────────────────────────
+#  문제가 생기면 [track] 값을 이전 전체 버전(예: h2orestart = "0.7.14")으로 바꿔 고정하고 설치 스크립트를
+#  다시 실행합니다 (Git 이력에서 언제 무엇을 올렸는지 확인할 수 있습니다). 배열에서 항목을 지우는 것만으로는
+#  되돌아가지 않습니다.
+#
+# ─── 버전 범위(track) 표기 ──────────────────────────────────────────────────────────
+#  "latest"  → 항상 최신 (메이저 포함)
+#  "0.8"     → 0.8.x 안에서 최신
+#  "0.8.0"   → 정확히 이 버전으로 고정
+# ──────────────────────────────────────────────────────────────────────────────
+
+[track]
+h2orestart = "0.8"     # LibreOffice 한글(HWP/HWPX) 확장. 마이너가 바뀌면 그림·표 처리가 달라져 실제 문서로 확인 후 올림
+rhwp = "0.8"           # @rhwp/core (HWP/HWPX 렌더러, s2-hwp). 0.x 라 마이너마다 조판이 달라질 수 있어 패치만
+
+[versions]
+h2orestart = ["0.8.0", "0.7.14"]
+rhwp = ["0.8.7", "0.8.6"]
+
+[checksums]
+# H2Orestart.oxt (https://github.com/ebandal/H2Orestart/releases) — sha256 (hex)
+"h2orestart@0.8.0" = "f36c19fa6b7dff1cf34114d926bdc088e6bcfa7fdc93d67eaafd3f572be1d62c"
+"h2orestart@0.7.14" = "cbea23bc37861361bbc534bc0675e5bc67b36f712072490f82a9bf410d7c04d8"
+# @rhwp/core 패키지 (https://www.npmjs.com/package/@rhwp/core) — npm integrity (sha512, base64)
+"rhwp@0.8.7" = "sha512-qgNpY9aclCvy9D7cPnpuplu42kUFZCCPhdjAS5HBso4Z4XeHG3uchYdUleQBoas/zEuwfJ7H4/ulepqdL/LXDA=="
+"rhwp@0.8.6" = "sha512-ZMO2QMHbR4v7t86feMWiRJ4QozjjqHDGv4PyzTT4LyMuX1LeUpmQaOHrGLQpbYMJV0IWCYjVRewKqkXx+w16XQ=="
