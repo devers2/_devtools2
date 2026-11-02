@@ -3,14 +3,14 @@
 # ==============================================================================
 #
 # ■ 목적:
-#   명령 팔레트의 "오프라인 이전 묶음 만들기"(scripts/offline/export-wsl-bundle.sh)로 만든 묶음을, 인터넷이 없는 PC 에서
-#   그대로 구성합니다. 묶음 폴더의 "가져오기.cmd" 를 실행하면 이 스크립트가 관리자 권한으로 실행됩니다.
+#   명령 팔레트의 "개발 환경 내보내기 (오프라인 PC 설치용)"(scripts/offline/export-wsl-bundle.sh)로 만든 묶음을, 인터넷이 없는 PC 에서
+#   그대로 구성합니다. 묶음 폴더의 "DevTools2 개발 환경 가져오기.cmd" 를 실행하면 이 스크립트가 관리자 권한으로 실행됩니다.
 #
-# ■ ⚠️ AGENTS.md "오프라인 이전 예외" — 이 파일(과 가져오기.cmd)만 로컬 파일로 실행됩니다:
+# ■ ⚠️ AGENTS.md "오프라인 PC 개발 환경 가져오기 예외" — 이 파일(과 DevTools2 개발 환경 가져오기.cmd)만 로컬 파일로 실행됩니다:
 #   다른 설치 스크립트는 GitHub 에서 받아 실행하는 온라인 전용(AGENTS.md 2번)이지만, 오프라인 PC 에는 인터넷이 없어
 #   묶음 안의 파일로만 실행해야 합니다. 그래서 이 스크립트는 _common.ps1 등 온라인 공용 파일을 불러오지 않고 필요한 함수를
 #   모두 스스로 정의하며, 인터넷 접속을 하지 않습니다. 기존 설치 스크립트에는 로컬 실행 분기를 넣지 않습니다.
-#   - Windows PowerShell 5.1 은 디스크의 UTF-8(BOM 없음) 한글 스크립트를 CP949 로 잘못 읽으므로, 가져오기.cmd 가
+#   - Windows PowerShell 5.1 은 디스크의 UTF-8(BOM 없음) 한글 스크립트를 CP949 로 잘못 읽으므로, DevTools2 개발 환경 가져오기.cmd 가
 #     UTF-8 로 읽어 메모리에서 실행합니다(AGENTS.md 6번). 그래서 param() 대신 $global:DT2_BUNDLE 로 묶음 위치를 받습니다.
 #
 # ■ 하는 일 (모두 다시 실행해도 같은 상태 — 이미 된 단계는 건너뜀):
@@ -74,7 +74,7 @@ Write-Host "====================================================================
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Bad "관리자 권한이 필요합니다. '가져오기.cmd' 로 실행하세요."
+    Write-Bad "관리자 권한이 필요합니다. 'DevTools2 개발 환경 가져오기.cmd' 로 실행하세요."
     return
 }
 if (-not (Test-Path $Rootfs)) {
@@ -117,7 +117,7 @@ foreach ($feat in @("Microsoft-Windows-Subsystem-Linux", "VirtualMachinePlatform
     }
 }
 if ($needReboot) {
-    Write-Caution "WSL 기능을 처음 켰습니다. PC 를 재부팅한 뒤 '가져오기.cmd' 를 한 번 더 실행하세요."
+    Write-Caution "WSL 기능을 처음 켰습니다. PC 를 재부팅한 뒤 'DevTools2 개발 환경 가져오기.cmd' 를 한 번 더 실행하세요."
     return
 }
 
@@ -136,7 +136,7 @@ if ($installedVer -and (-not $bundleVer -or $installedVer -ge $bundleVer)) {
     if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) {
         Write-Ok "WSL 설치 완료"
         if ($p.ExitCode -eq 3010) {
-            Write-Caution "재부팅이 필요합니다. 재부팅 후 '가져오기.cmd' 를 한 번 더 실행하세요."
+            Write-Caution "재부팅이 필요합니다. 재부팅 후 'DevTools2 개발 환경 가져오기.cmd' 를 한 번 더 실행하세요."
             return
         }
     } else {
