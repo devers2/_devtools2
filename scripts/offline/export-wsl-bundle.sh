@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# DevTools2 오프라인 이전 묶음 만들기 — WSL (export-wsl-bundle.sh)
+# DevTools2 개발 환경 내보내기 (오프라인 PC 설치용) — WSL (export-wsl-bundle.sh)
 # ==============================================================================
 #
 # ■ 목적:
 #   지금 PC 의 DevTools2 개발 환경(WSL 배포판 + Windows 쪽 단축키·글꼴·터미널·VS Code·Zed)을 폴더 하나로 묶어,
-#   인터넷이 없는 PC 에서 묶음 안의 "가져오기.cmd" 하나만 실행하면 같은 환경이 구성되게 합니다.
-#   실행: 명령 팔레트(Alt + C) → 🖥️ 시스템 → 오프라인 이전 묶음 만들기 (WSL 에서만 보임)
+#   인터넷이 없는 PC 에서 묶음 안의 "DevTools2 개발 환경 가져오기.cmd" 하나만 실행하면 같은 환경이 구성되게 합니다.
+#   실행: 명령 팔레트(Alt + C) → 🖥️ 시스템 → 개발 환경 내보내기 (오프라인 PC 설치용) (WSL 에서만 보임)
 #
 # ■ 왜 설치 스크립트를 다시 돌리지 않고 배포판을 통째로 옮기나:
 #   설치 스크립트는 GitHub 에서 받아 실행하는 온라인 전용 구조이고(AGENTS.md 2번), JDK·Node·Mason 도구 등도 실행 중에
@@ -14,7 +14,7 @@
 #   파일 시스템을 tar 로 묶어(wsl --import 가 그대로 받는 rootfs 형식) 통째로 옮깁니다.
 #
 # ■ 묶음 구성 (<저장 위치>/devtools2-offline-<날짜>/):
-#   가져오기.cmd                  ← 오프라인 PC 에서 이것만 실행 (관리자 권한으로 다시 실행해 가져오기 스크립트를 띄움)
+#   DevTools2 개발 환경 가져오기.cmd  ← 오프라인 PC 에서 이것만 실행 (관리자 권한으로 다시 실행해 가져오기 스크립트를 띄움)
 #   import-devtools2-offline.ps1  ← 가져오기 본체 (scripts/offline/ 의 같은 파일)
 #   devtools2-rootfs.tar.gz       ← WSL 배포판 (wsl --import 가 gzip 을 내용으로 판별해 바로 가져옴)
 #   windows/                      ← autohotkey/ fonts/ terminal/ vscode/ zed/ wsl/(WSL 설치 파일) wslconfig.txt
@@ -32,7 +32,7 @@
 #   (선택) ~/workspaces 프로젝트 소스
 #
 # ■ 이 스크립트는 명령 팔레트처럼 $DEVTOOLS2 로컬 파일로 실행됩니다(설치 스크립트가 아님 — AGENTS.md 2번 대상 아님).
-#   오프라인 PC 에서 실행되는 가져오기 스크립트만 AGENTS.md 의 "오프라인 이전 예외"에 해당합니다.
+#   오프라인 PC 에서 실행되는 가져오기 스크립트만 AGENTS.md 의 "오프라인 PC 개발 환경 가져오기 예외"에 해당합니다.
 # ==============================================================================
 
 set -u
@@ -42,7 +42,7 @@ DEVTOOLS2="${DEVTOOLS2:-/var/opt/_devtools2}"
 source "$DEVTOOLS2/scripts/linux/dev-env/_common.sh" || { echo "❌ 공통 함수를 불러오지 못했습니다: $DEVTOOLS2/scripts/linux/dev-env/_common.sh"; exit 1; }
 
 if ! grep -qi microsoft /proc/version 2>/dev/null; then
-    print_error "WSL 에서만 실행할 수 있습니다. (리눅스 네이티브용 오프라인 이전은 아직 지원하지 않음)"
+    print_error "WSL 에서만 실행할 수 있습니다. (리눅스 네이티브용 내보내기는 아직 지원하지 않음)"
     exit 1
 fi
 
@@ -58,8 +58,8 @@ WIN_LOCAL="$WIN_HOME/AppData/Local"
 WIN_ROAMING="$WIN_HOME/AppData/Roaming"
 
 echo ""
-print_step "📦 DevTools2 오프라인 이전 묶음 만들기 (배포판: $DISTRO)"
-echo "   인터넷이 없는 PC 에서 묶음 안의 '가져오기.cmd' 하나로 같은 개발 환경을 구성합니다."
+print_step "📦 DevTools2 개발 환경 내보내기 — 오프라인 PC 설치용 (배포판: $DISTRO)"
+echo "   인터넷이 없는 PC 에서 묶음 안의 'DevTools2 개발 환경 가져오기.cmd' 하나로 같은 개발 환경을 구성합니다."
 echo ""
 
 # ── 1. 옵션 ──────────────────────────────────────────────────────────────────
@@ -232,7 +232,7 @@ fi
 # ── 5. 가져오기 스크립트 · 안내 ──────────────────────────────────────────────
 cp "$DEVTOOLS2/scripts/offline/import-devtools2-offline.ps1" "$OUT/"
 # .cmd 는 CRLF 여야 cmd.exe 가 바르게 읽음
-sed 's/\r$//; s/$/\r/' "$DEVTOOLS2/scripts/offline/import-launcher.cmd" > "$OUT/가져오기.cmd"
+sed 's/\r$//; s/$/\r/' "$DEVTOOLS2/scripts/offline/import-launcher.cmd" > "$OUT/DevTools2 개발 환경 가져오기.cmd"
 {
     echo "DevTools2 offline bundle"
     echo "created=$(date '+%Y-%m-%d %H:%M')"
@@ -245,12 +245,12 @@ sed 's/\r$//; s/$/\r/' "$DEVTOOLS2/scripts/offline/import-launcher.cmd" > "$OUT/
     echo "include_ssh_keys=$KEEP_SSH"
 } > "$OUT/manifest.txt"
 cat > "$OUT/읽어보기.txt" <<EOF
-DevTools2 오프라인 이전 묶음 ($(date '+%Y-%m-%d'))
+DevTools2 개발 환경 내보내기 — 오프라인 PC 설치용 ($(date '+%Y-%m-%d'))
 
 [오프라인 PC 에서]
 1. 이 폴더를 통째로 오프라인 PC 에 복사합니다 (개발자 드라이브가 있으면 그곳 권장).
-2. "가져오기.cmd" 를 더블클릭합니다 (관리자 권한 확인 창이 뜹니다).
-3. 안내에 따라 진행합니다. WSL 기능을 처음 켜는 PC 는 재부팅 후 "가져오기.cmd" 를 한 번 더 실행합니다.
+2. "DevTools2 개발 환경 가져오기.cmd" 를 더블클릭합니다 (관리자 권한 확인 창이 뜹니다).
+3. 안내에 따라 진행합니다. WSL 기능을 처음 켜는 PC 는 재부팅 후 "DevTools2 개발 환경 가져오기.cmd" 를 한 번 더 실행합니다.
 
 [구성되는 것]
 - WSL 배포판 "$DISTRO" (사용자 $ME) — Neovim·JDK·Node·Python·Sublime Merge·Orca 등 WSL 안의 모든 것
@@ -267,5 +267,5 @@ $( $INCLUDE_WS || echo "- 프로젝트 소스(~/workspaces)")
 EOF
 
 echo ""
-print_done "오프라인 이전 묶음을 만들었습니다: $OUT ($(du -sh "$OUT" | cut -f1))"
-echo "   오프라인 PC 에 폴더를 통째로 복사한 뒤 '가져오기.cmd' 를 실행하세요."
+print_done "개발 환경을 내보냈습니다: $OUT ($(du -sh "$OUT" | cut -f1))"
+echo "   오프라인 PC 에 폴더를 통째로 복사한 뒤 'DevTools2 개발 환경 가져오기.cmd' 를 실행하세요."
