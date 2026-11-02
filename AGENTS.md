@@ -41,6 +41,14 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tests\run-all-tests.ps1
 - 서브스크립트는 GitHub 원격 raw URL(`https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/...`)에서 직접 메모리 스트리밍(`bash <(curl ...)` 또는 `[scriptblock]::Create`)으로 실행됩니다.
 - 로컬 파일에 의존하는 하드코딩 경로 분기(`IS_LOCAL` 등)를 임의로 추가하지 마십시오.
 
+### ⚠️ 유일한 예외: 오프라인 이전 가져오기 (`scripts/offline/`)
+- **대상은 아래 두 파일뿐입니다.** 명령 팔레트의 "오프라인 이전 묶음 만들기"가 묶음 폴더에 복사해 넣는 파일로, 인터넷이 없는 PC 에서 실행되므로 묶음 안의 로컬 파일로만 동작합니다.
+  - `scripts/offline/import-devtools2-offline.ps1` (가져오기 본체)
+  - `scripts/offline/import-launcher.cmd` (묶음 안에서 `가져오기.cmd` 로 이름이 바뀌는 실행 파일)
+- 이 두 파일은 `_common.ps1` 등 온라인 공용 파일을 불러오지 않고 필요한 함수를 모두 스스로 정의하며, 인터넷 접속을 하지 않습니다.
+- PS 5.1 은 디스크의 UTF-8(NoBOM) 한글 스크립트를 CP949 로 잘못 읽으므로, `가져오기.cmd` 가 본체를 UTF-8 로 읽어 메모리에서 실행합니다(6번 원칙과 같은 방식). `.cmd` 는 ASCII 전용입니다.
+- **이 예외를 근거로 기존 설치 스크립트(`setup-devtools2*`, `dev-env/*`, `tool.setup-*`)에 로컬 실행 분기를 추가하지 마십시오.** 묶음을 만드는 `scripts/offline/export-wsl-bundle.sh` 는 명령 팔레트처럼 `$DEVTOOLS2` 로컬 도구로 실행되는 것이라 이 원칙의 대상(설치 스크립트)이 아닙니다.
+
 ---
 
 ## 3. PowerShell 5.1 & PowerShell 7 양방향 호환성

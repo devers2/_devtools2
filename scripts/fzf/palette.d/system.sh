@@ -12,6 +12,11 @@ _MENU_SYSTEM=(
     "port_kill	포트로 프로세스 종료 (Port Kill)"
     "mem_status	메모리 사용 현황 (Memory · 많이 쓰는 프로세스)"
 )
+# WSL 에서만: 지금 개발 환경(WSL 배포판 + Windows 단축키·글꼴·터미널·VS Code·Zed)을 오프라인 PC 로 옮길 묶음 만들기
+# (scripts/offline/export-wsl-bundle.sh — 묶음 안의 "가져오기.cmd" 하나로 오프라인 PC 에 같은 환경 구성)
+if grep -qi microsoft /proc/version 2>/dev/null; then
+    _MENU_SYSTEM+=("offline_export	오프라인 이전 묶음 만들기 (WSL 배포판 + 단축키·글꼴·터미널·VS Code·Zed)")
+fi
 
 # ── 1단계 메뉴 등록 · 2단계 선택 ─────────────────────────────────────────────
 cp_register_group system "🖥️ 시스템 ▸ 포트 · 프로세스 · 종료 · 메모리"
@@ -157,4 +162,10 @@ cp_run_mem_status() {
     echo "─────────────────────────────────────────"
     echo "💡 Gradle 데몬 정리: Gradle 프로젝트에서 Alt+C ▸ 🐘 Gradle ▸ 🧹 Gradle 데몬 · 종료: 🖥️ 시스템 ▸ 프로세스 종료"
     $IS_WSL && echo "💡 WSL 이 잡은 메모리를 한 번에 돌려받으려면 Windows 에서: wsl --shutdown (WSL 창이 모두 닫힘)"
+}
+
+# ── 오프라인 이전 묶음 만들기 (WSL) ──────────────────────────────────────────
+# 실제 작업은 scripts/offline/export-wsl-bundle.sh (설명·묶음 구성은 그 파일 상단 주석)
+cp_run_offline_export() {
+    bash "${DEVTOOLS2:-/var/opt/_devtools2}/scripts/offline/export-wsl-bundle.sh"
 }

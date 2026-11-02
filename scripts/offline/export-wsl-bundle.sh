@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# DevTools2 오프라인 이전 묶음 만들기 — WSL (export-wsl-bundle.sh)
+# ==============================================================================
+#
+# ■ 목적:
+#   지금 PC 의 DevTools2 개발 환경(WSL 배포판 + Windows 쪽 단축키·글꼴·터미널·VS Code·Zed)을 폴더 하나로 묶어,
+#   인터넷이 없는 PC 에서 묶음 안의 "가져오기.cmd" 하나만 실행하면 같은 환경이 구성되게 합니다.
+#   실행: 명령 팔레트(Alt + C) → 🖥️ 시스템 → 오프라인 이전 묶음 만들기 (WSL 에서만 보임)
+#
+# ■ 왜 설치 스크립트를 다시 돌리지 않고 배포판을 통째로 옮기나:
+#   설치 스크립트는 GitHub 에서 받아 실행하는 온라인 전용 구조이고(AGENTS.md 2번), JDK·Node·Mason 도구 등도 실행 중에
+#   인터넷에서 받습니다. apt 패키지(/usr)는 $DEVTOOLS2 만 복사해서는 옮겨지지 않습니다. 그래서 실행 중인 배포판의
+#   파일 시스템을 tar 로 묶어(wsl --import 가 그대로 받는 rootfs 형식) 통째로 옮깁니다.
+#
+# ■ 묶음 구성 (<저장 위치>/devtools2-offline-<날짜>/):
+#   가져오기.cmd                  ← 오프라인 PC 에서 이것만 실행 (관리자 권한으로 다시 실행해 가져오기 스크립트를 띄움)
+#   import-devtools2-offline.ps1  ← 가져오기 본체 (scripts/offline/ 의 같은 파일)
+#   devtools2-rootfs.tar.gz       ← WSL 배포판 (wsl --import 가 gzip 을 내용으로 판별해 바로 가져옴)
+#   windows/                      ← autohotkey/ fonts/ terminal/ vscode/ zed/ wsl/(WSL 설치 파일) wslconfig.txt
+#   manifest.txt · 읽어보기.txt
+#
+# ■ 인증 정보는 기본으로 빼고 묶습니다 (오프라인 PC 에서는 쓸 수 없고, 묶음을 옮기다 잃어버려도 안전하도록):
+#   GitHub 토큰(.git-credentials, gh), Bitwarden 데이터·세션, AI API 키(secrets.env), rclone 접속 정보, SSH 개인 키(선택),
+#   ~/.gradle/gradle.properties 의 비밀 값(GitHub Packages 토큰, Maven Central 비밀번호, GPG 서명 정보) —
+#   gradle.properties 는 통째로 빼지 않고 비밀 값만 지운 사본을 넣습니다(JDK 경로 org.gradle.java.installations.paths 가
+#   없으면 Gradle 이 Java 8 툴체인을 못 찾아 빌드 실패). git 사용자 이름·이메일은 비밀이 아니고 커밋에 필요해 남깁니다.
+#
+# ■ 같이 옮기지 않는 것: ~/.cache(jdtls 색인 등 다시 만들어짐), 로그, apt 내려받기 캐시, /tmp·/mnt 등 시스템 폴더,
+#   (선택) ~/workspaces 프로젝트 소스
+#
+# ■ 이 스크립트는 명령 팔레트처럼 $DEVTOOLS2 로컬 파일로 실행됩니다(설치 스크립트가 아님 — AGENTS.md 2번 대상 아님).
+#   오프라인 PC 에서 실행되는 가져오기 스크립트만 AGENTS.md 의 "오프라인 이전 예외"에 해당합니다.
+# ==============================================================================
+
+set -u
+
+DEVTOOLS2="${DEVTOOLS2:-/var/opt/_devtools2}"
+# shellcheck disable=SC1091
+source "$DEVTOOLS2/scripts/linux/dev-env/_common.sh" || { echo "❌ 공통 함수를 불러오지 못했습니다: $DEVTOOLS2/scripts/linux/dev-env/_common.sh"; exit 1; }
+
+if ! grep -qi microsoft /proc/version 2>/dev/null; then
+    print_error "WSL 에서만 실행할 수 있습니다. (리눅스 네이티브용 오프라인 이전은 아직 지원하지 않음)"
+    exit 1
+fi
+
+DISTRO="${WSL_DISTRO_NAME:-devtools2}"
+ME="$(id -un)"
+HOME_REL="${HOME#/}"   # home/<사용자> (tar 안의 경로)
+WIN_HOME="$(get_win_userprofile 2>/dev/null || true)"
+if [ -z "$WIN_HOME" ] || [ ! -d "$WIN_HOME" ]; then
+    print_error "Windows 사용자 폴더를 찾지 못했습니다 (Windows 연동이 꺼져 있으면 WSL 을 다시 시작하세요)."
+    exit 1
+fi
+WIN_LOCAL="$WIN_HOME/AppData/Local"
+WIN_ROAMING="$WIN_HOME/AppData/Roaming"
+
+echo ""
+print_step "📦 DevTools2 오프라인 이전 묶음 만들기 (배포판: $DISTRO)"
+echo "   인터넷이 없는 PC 에서 묶음 안의 '가져오기.cmd' 하나로 같은 개발 환경을 구성합니다."
+echo ""
+
+# ── 1. 옵션 ──────────────────────────────────────────────────────────────────
+DEFAULT_DEST="${DT2_OFFLINE_DEST:-$WIN_HOME/devtools2-offline}"   # DT2_OFFLINE_DEST 로 기본 저장 위치 변경 가능
+prompt_text DEST_BASE "💾 묶음을 저장할 폴더 (WSL 경로, Windows 드라이브는 /mnt/<드라이브>/...)" "$DEFAULT_DEST"
+DEST_BASE="${DEST_BASE:-$DEFAULT_DEST}"
+INCLUDE_WS=false
+if [ -d "$HOME/workspaces" ]; then
+    _ws_size=$(du -sh "$HOME/workspaces" 2>/dev/null | cut -f1)
+    prompt_confirm "📁 프로젝트 소스(~/workspaces, ${_ws_size})도 함께 넣을까요?" "N" && INCLUDE_WS=true
+fi
+KEEP_SSH=false
+if ls "$HOME"/.ssh/id_* >/dev/null 2>&1; then
+    echo "   ℹ️  오프라인 PC 가 사내망이고 그 안의 Git·개발 서버에 SSH 로 접속한다면 SSH 키를 남길 수 있습니다."
+    prompt_confirm "🔑 SSH 개인 키(~/.ssh/id_*)를 함께 넣을까요? (기본: 빼기)" "N" && KEEP_SSH=true
+fi
+
+STAMP="$(date +%Y%m%d-%H%M)"
+OUT="$DEST_BASE/devtools2-offline-$STAMP"
+mkdir -p "$OUT/windows" || { print_error "저장 폴더를 만들지 못했습니다: $OUT"; exit 1; }
+
+# 용량 안내 (배포판 사용량 기준 — 압축하면 대략 절반 이하)
+_used_kb=$(df -k --output=used / | tail -1 | tr -d ' ')
+_free_kb=$(df -k --output=avail "$OUT" | tail -1 | tr -d ' ')
+echo "   배포판 사용량 약 $((_used_kb / 1024 / 1024))GB, 저장 위치 남은 공간 약 $((_free_kb / 1024 / 1024))GB"
+if [ "$_free_kb" -lt $((_used_kb / 2)) ]; then
+    print_warn "저장 위치 공간이 부족할 수 있습니다 (압축 후 크기는 사용량의 절반 안팎)."
+    prompt_confirm "계속할까요?" "N" || exit 1
+fi
+
+print_info "배포판 전체를 읽으려면 관리자(sudo) 권한이 필요합니다."
+sudo -v || { print_error "sudo 인증에 실패했습니다."; exit 1; }
+
+# ── 2. 인증 정보 정리본 (gradle.properties 는 비밀 값만 지운 사본) ─────────────
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/dt2-offline-XXXXXX")"
+trap 'sudo rm -rf "$STAGE" 2>/dev/null' EXIT
+OVERLAY=()
+if [ -f "$HOME/.gradle/gradle.properties" ]; then
+    mkdir -p "$STAGE/$HOME_REL/.gradle"
+    # 비밀 키: gpr.*(GitHub Packages), centralUsername/centralPassword(Maven Central), signing.*(GPG) — 주석·빈 줄·그 밖의 값은 유지
+    grep -vE '^[[:space:]]*(gpr\.(user|key)|centralUsername|centralPassword|signing\.[A-Za-z0-9_.]+)[[:space:]]*=' \
+        "$HOME/.gradle/gradle.properties" > "$STAGE/$HOME_REL/.gradle/gradle.properties"
+    chmod 600 "$STAGE/$HOME_REL/.gradle/gradle.properties"
+    OVERLAY+=("$HOME_REL/.gradle/gradle.properties")
+fi
+
+# ── 3. 배포판 묶기 (rootfs tar.gz) ───────────────────────────────────────────
+EXCLUDES=(
+    ./proc ./sys ./dev ./run ./tmp ./mnt ./lost+found ./init ./swapfile
+    ./var/tmp ./var/cache/apt/archives ./var/log/journal
+    "./root/.cache" "./$HOME_REL/.cache"
+    "./$HOME_REL/.vscode-server/data/logs" "./$HOME_REL/.local/state/nvim/*.log"
+    "./var/opt/_devtools2/data/logs"
+    # 인증 정보
+    "./$HOME_REL/.git-credentials" "./$HOME_REL/.config/gh/hosts.yml"
+    "./$HOME_REL/.config/Bitwarden CLI" "./$HOME_REL/.bw_session*"
+    "./$HOME_REL/.config/devtools2/secrets.env" "./$HOME_REL/.config/rclone/rclone.conf"
+    "./$HOME_REL/.config/rclone/keys"
+    "./$HOME_REL/.gradle/gradle.properties"
+)
+$KEEP_SSH || EXCLUDES+=("./$HOME_REL/.ssh/id_*" "./$HOME_REL/.ssh/*.pem")
+$INCLUDE_WS || EXCLUDES+=("./$HOME_REL/workspaces")
+# 저장 위치가 배포판 안이면(예: ~/backup) 자기 자신을 묶지 않게
+case "$OUT" in /mnt/*) ;; *) EXCLUDES+=(".${OUT}") ;; esac
+
+TAR_ARGS=(--create --gzip --numeric-owner --preserve-permissions --xattrs --acls --one-file-system --anchored
+          --warning=no-file-changed --warning=no-file-removed --warning=no-socket)
+for e in "${EXCLUDES[@]}"; do TAR_ARGS+=("--exclude=$e"); done
+ROOTFS="$OUT/devtools2-rootfs.tar.gz"
+
+print_step "🗜️  배포판 묶는 중 (수십 분 걸릴 수 있습니다)..."
+(
+    # 진행 표시: 만들어지는 파일 크기를 주기적으로 출력
+    while sleep 10; do
+        [ -f "$ROOTFS" ] && printf '\r   진행: %s 기록됨   ' "$(du -h "$ROOTFS" 2>/dev/null | cut -f1)"
+    done
+) &
+_progress_pid=$!
+# 첫 번째 -C / 묶음은 "./경로"(--anchored 제외 대상), 두 번째 -C $STAGE 묶음은 "home/..."(제외 패턴과 겹치지 않음)
+sudo tar "${TAR_ARGS[@]}" --file="$ROOTFS" -C / . -C "$STAGE" "${OVERLAY[@]}"
+_tar_rc=$?
+kill "$_progress_pid" 2>/dev/null; wait "$_progress_pid" 2>/dev/null; echo ""
+# GNU tar: 1 = 읽는 중 바뀐 파일이 있음(실행 중인 배포판이라 정상), 2 이상 = 오류
+if [ "$_tar_rc" -gt 1 ]; then
+    print_error "배포판 묶기에 실패했습니다 (tar 종료 코드 $_tar_rc)."
+    exit 1
+fi
+sudo chown "$(id -u):$(id -g)" "$ROOTFS" 2>/dev/null
+print_done "배포판: $(du -h "$ROOTFS" | cut -f1)"
+
+# ── 4. Windows 쪽 파일 ───────────────────────────────────────────────────────
+W="$OUT/windows"
+copy_dir() {   # copy_dir <원본> <대상> <설명>
+    if [ -d "$1" ]; then
+        mkdir -p "$2" && cp -a "$1/." "$2/" 2>/dev/null
+        print_done "$3 ($(du -sh "$2" 2>/dev/null | cut -f1))"
+    else
+        print_warn "$3 — 없음, 건너뜀 ($1)"
+    fi
+}
+print_step "🪟 Windows 쪽 파일 모으는 중..."
+copy_dir "$WIN_LOCAL/_devtools2/modules/autohotkey" "$W/autohotkey" "AutoHotkey (포터블 + 단축키 스크립트)"
+mkdir -p "$W/fonts" && cp -a "$DEVTOOLS2"/assets/fonts/*.ttf "$W/fonts/" 2>/dev/null && print_done "글꼴 ($(ls "$W/fonts" | wc -l)개)"
+_wt=$(ls -d "$WIN_LOCAL"/Packages/Microsoft.WindowsTerminal_*/LocalState 2>/dev/null | head -1)
+if [ -n "$_wt" ] && [ -f "$_wt/settings.json" ]; then
+    mkdir -p "$W/terminal" && cp "$_wt/settings.json" "$W/terminal/settings.json" && print_done "Windows Terminal 설정"
+else
+    print_warn "Windows Terminal 설정 — 없음, 건너뜀"
+fi
+copy_dir "$WIN_LOCAL/Programs/Microsoft VS Code" "$W/vscode/app" "VS Code 프로그램"
+copy_dir "$WIN_HOME/.vscode/extensions" "$W/vscode/extensions" "VS Code 확장 (Windows 쪽)"
+mkdir -p "$W/vscode/user" && cp "$WIN_ROAMING/Code/User/"*.json "$W/vscode/user/" 2>/dev/null
+copy_dir "$WIN_LOCAL/Programs/Zed" "$W/zed/app" "Zed 프로그램"
+copy_dir "$WIN_LOCAL/Zed/extensions" "$W/zed/extensions" "Zed 확장 (Windows 쪽)"
+mkdir -p "$W/zed/config" && cp "$WIN_ROAMING/Zed/settings.json" "$WIN_ROAMING/Zed/keymap.json" "$W/zed/config/" 2>/dev/null
+# .wslconfig: memory 는 PC 마다 다르므로 빼고 넣음 (가져오기에서 그 PC 메모리로 계산)
+if [ -f "$WIN_HOME/.wslconfig" ]; then
+    grep -viE '^[[:space:]]*memory[[:space:]]*=' "$WIN_HOME/.wslconfig" | tr -d '\r' > "$W/wslconfig.txt"
+    print_done ".wslconfig (memory 제외)"
+fi
+
+# WSL 설치 파일: 지금 PC 와 같은 버전 (오프라인 PC 에 WSL 이 없거나 오래된 경우용)
+_wsl_ver=$(wsl.exe --version 2>/dev/null | tr -d '\0\r' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+if [ -n "$_wsl_ver" ]; then
+    _tag="${_wsl_ver%.*}"
+    _arch=x64; [ "$(uname -m)" = "aarch64" ] && _arch=arm64
+    mkdir -p "$W/wsl"
+    if curl -sSfL --max-time 600 -o "$W/wsl/wsl.${_wsl_ver}.${_arch}.msi" \
+        "https://github.com/microsoft/WSL/releases/download/${_tag}/wsl.${_wsl_ver}.${_arch}.msi"; then
+        print_done "WSL 설치 파일 (${_wsl_ver})"
+    else
+        rm -f "$W/wsl/wsl.${_wsl_ver}.${_arch}.msi"
+        print_warn "WSL 설치 파일을 받지 못했습니다. 오프라인 PC 에 WSL 이 없다면 https://github.com/microsoft/WSL/releases 에서 wsl.${_wsl_ver}.${_arch}.msi 를 받아 windows/wsl/ 에 넣으세요."
+    fi
+fi
+
+# ── 5. 가져오기 스크립트 · 안내 ──────────────────────────────────────────────
+cp "$DEVTOOLS2/scripts/offline/import-devtools2-offline.ps1" "$OUT/"
+# .cmd 는 CRLF 여야 cmd.exe 가 바르게 읽음
+sed 's/\r$//; s/$/\r/' "$DEVTOOLS2/scripts/offline/import-launcher.cmd" > "$OUT/가져오기.cmd"
+{
+    echo "DevTools2 offline bundle"
+    echo "created=$(date '+%Y-%m-%d %H:%M')"
+    echo "distro=$DISTRO"
+    echo "user=$ME"
+    echo "devtools2_commit=$(git -C "$DEVTOOLS2" rev-parse --short HEAD 2>/dev/null)"
+    echo "wsl_version=${_wsl_ver:-unknown}"
+    echo "include_workspaces=$INCLUDE_WS"
+    echo "include_ssh_keys=$KEEP_SSH"
+} > "$OUT/manifest.txt"
+cat > "$OUT/읽어보기.txt" <<EOF
+DevTools2 오프라인 이전 묶음 ($(date '+%Y-%m-%d'))
+
+[오프라인 PC 에서]
+1. 이 폴더를 통째로 오프라인 PC 에 복사합니다 (개발자 드라이브가 있으면 그곳 권장).
+2. "가져오기.cmd" 를 더블클릭합니다 (관리자 권한 확인 창이 뜹니다).
+3. 안내에 따라 진행합니다. WSL 기능을 처음 켜는 PC 는 재부팅 후 "가져오기.cmd" 를 한 번 더 실행합니다.
+
+[구성되는 것]
+- WSL 배포판 "$DISTRO" (사용자 $ME) — Neovim·JDK·Node·Python·Sublime Merge·Orca 등 WSL 안의 모든 것
+- AutoHotkey 단축키 (Ctrl+Alt+T 터미널, Ctrl+Alt+G Sublime Merge, CapsLock 리매핑, 한/영 자동 전환)
+- 글꼴, Windows Terminal 설정, VS Code, Zed (지금 PC 와 같은 버전·확장·설정)
+- .wslconfig (네트워크 설정 + 그 PC 메모리에 맞춘 WSL 메모리 상한)
+
+[빠진 것]
+- 인증 정보 (GitHub·Bitwarden·AI API 키·rclone$( $KEEP_SSH || echo '·SSH 개인 키')) — 오프라인에서는 쓸 수 없음
+$( $INCLUDE_WS || echo "- 프로젝트 소스(~/workspaces)")
+
+[오프라인에서 안 되는 것]
+- 설치·업데이트 스크립트, 처음 쓰는 언어의 도구 자동 설치, Gradle·npm·pip 새 의존성 받기
+EOF
+
+echo ""
+print_done "오프라인 이전 묶음을 만들었습니다: $OUT ($(du -sh "$OUT" | cut -f1))"
+echo "   오프라인 PC 에 폴더를 통째로 복사한 뒤 '가져오기.cmd' 를 실행하세요."
