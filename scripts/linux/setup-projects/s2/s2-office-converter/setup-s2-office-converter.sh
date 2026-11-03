@@ -61,6 +61,10 @@
 #                      --user 도 같은 뜻으로 받습니다.
 #   --rebuild          이미지를 다시 만듭니다 (보안 업데이트 반영 등).
 #   --no-chrome        Chromium(s2-chrome)과 rhwp(s2-hwp)를 빼고 설치합니다 (이미지 약 0.7GB 작아짐).
+#   --server           변환 전용 서버(s2-docflow-server)를 systemd 서비스로 설치합니다. 다른 서버의 앱이 HTTP 로 변환을 맡기므로
+#                      변환 용량을 서버 대수로 늘릴 수 있습니다 (docs/server.ko.md). 공유 비밀키는 처음 설치할 때 만들어
+#                      /etc/s2-docflow/server.env 에 둡니다. --server-jar, --server-port, --server-bind, --java 로 정합니다.
+#   --no-server        변환 서버 서비스만 제거합니다.
 #   --font-dir 폴더    고객사 글꼴 폴더(맑은 고딕·휴먼명조 등 보유 글꼴). 이미지에 넣지 않고 변환할 때마다 읽기 전용으로 연결하므로
 #                      글꼴을 바꿔도 이미지를 다시 만들 필요가 없고, 폐쇄망 설치 파일에도 들어가지 않습니다 (글꼴 라이선스 보호).
 #                      한 번 지정하면 다시 실행해도 유지되며, --no-font-dir 로 뺍니다. 변환할 때 S2_FONT_DIR 로 바꿀 수도 있습니다.
@@ -102,6 +106,15 @@ IMAGE_NAME="localhost/s2-office-converter"
 WRAPPER_PATH="/usr/local/bin/s2-soffice"
 CHROME_WRAPPER_PATH="/usr/local/bin/s2-chrome"
 HWP_WRAPPER_PATH="/usr/local/bin/s2-hwp"
+# Converter server (--server) | 변환 서버 (--server)
+SERVER_SERVICE="s2-docflow-server"
+SERVER_DIR="/opt/s2-docflow"
+SERVER_JAR_PATH="${SERVER_DIR}/s2-docflow-server.jar"
+SERVER_ENV_DIR="/etc/s2-docflow"
+SERVER_ENV="${SERVER_ENV_DIR}/server.env"
+SERVER_UNIT="/etc/systemd/system/${SERVER_SERVICE}.service"
+SERVER_CACHE="/var/cache/s2-docflow"
+SERVER_JAR_ARCHIVE="s2-docflow-server.jar"
 SCRIPT_NAME="setup-s2-office-converter.sh"
 SCRIPT_URL="https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/scripts/linux/setup-projects/s2/s2-office-converter/${SCRIPT_NAME}"
 VERSIONS_NAME="s2-office-converter-versions.toml"
@@ -141,6 +154,11 @@ usage() {
   --no-chrome          Chromium(s2-chrome)과 rhwp(s2-hwp)를 빼고 설치 (이미지 약 0.7GB 작아짐, 한글은 LibreOffice 로만)
   --font-dir 폴더      고객사 글꼴 폴더(맑은 고딕·휴먼명조 등 보유 글꼴)를 변환할 때 읽기 전용으로 연결 (다시 실행해도 유지)
   --no-font-dir        글꼴 폴더 연결을 뺌
+  --server             변환 전용 서버(s2-docflow-server)를 systemd 서비스로 설치 (다른 서버의 앱이 HTTP 로 변환을 맡김)
+    --server-jar 파일    서버 jar (s2-docflow 저장소에서 ./gradlew serverJar). 다시 실행할 때는 생략하면 설치된 jar 유지
+    --server-port 포트   수신 포트 (기본 8090)        --server-bind 주소  수신 주소 (기본 0.0.0.0)
+    --java 경로          java 실행 파일 (기본: PATH 의 java, Java 17 이상)
+  --no-server          변환 서버 서비스만 제거 (변환기는 남김)
   --uninstall          s2-soffice·s2-chrome·s2-hwp 명령과 이미지를 제거 (Podman 은 남김)
   --export [파일]      폐쇄망용 설치 파일 하나 만들기 (기본 ./setup-s2-office-converter-offline.sh, 인터넷 되는 PC에서)
                        서버에서: bash setup-s2-office-converter-offline.sh --app-user 계정
@@ -163,6 +181,12 @@ REBUILD=false
 WITH_CHROME=true
 FONT_DIR=""
 FONT_DIR_SET=false
+SERVER=false
+NO_SERVER=false
+SERVER_JAR=""
+SERVER_PORT=""
+SERVER_BIND=""
+JAVA_BIN=""
 EXPORT_FILE=""
 TARGET_DISTRO=""
 while [ $# -gt 0 ]; do
@@ -182,6 +206,50 @@ while [ $# -gt 0 ]; do
         ;;
     --uninstall)
         MODE="uninstall"
+        shift
+        ;;
+    --server)
+        SERVER=true
+        shift
+        ;;
+    --no-server)
+        NO_SERVER=true
+        shift
+        ;;
+    --server-jar)
+        [ $# -ge 2 ] || fail "--server-jar 다음에 jar 파일이 필요합니다."
+        SERVER_JAR="$2"
+        shift 2
+        ;;
+    --server-jar=*)
+        SERVER_JAR="${1#*=}"
+        shift
+        ;;
+    --server-port)
+        [ $# -ge 2 ] || fail "--server-port 다음에 포트가 필요합니다."
+        SERVER_PORT="$2"
+        shift 2
+        ;;
+    --server-port=*)
+        SERVER_PORT="${1#*=}"
+        shift
+        ;;
+    --server-bind)
+        [ $# -ge 2 ] || fail "--server-bind 다음에 주소가 필요합니다."
+        SERVER_BIND="$2"
+        shift 2
+        ;;
+    --server-bind=*)
+        SERVER_BIND="${1#*=}"
+        shift
+        ;;
+    --java)
+        [ $# -ge 2 ] || fail "--java 다음에 java 실행 파일 경로가 필요합니다."
+        JAVA_BIN="$2"
+        shift 2
+        ;;
+    --java=*)
+        JAVA_BIN="${1#*=}"
         shift
         ;;
     --font-dir)
@@ -1417,6 +1485,174 @@ verify() {
     as_target rm -rf "$web_dir"
 }
 
+# ==============================================================================
+# 변환 서버 (--server)
+# ==============================================================================
+
+# Java 17+ for the service | 서비스용 Java 17 이상
+resolve_java() {
+    local java="${JAVA_BIN:-}"
+    if [ -z "$java" ]; then
+        java="$(command -v java || true)"
+    fi
+    if [ -z "$java" ] && [ "$MODE" = "install" ]; then
+        info "Java 설치 (변환 서버용)"
+        if command -v apt-get >/dev/null 2>&1; then
+            "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openjdk-21-jre-headless >/dev/null ||
+                "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openjdk-17-jre-headless >/dev/null || true
+        elif command -v dnf >/dev/null 2>&1; then
+            "${SUDO[@]}" dnf install -y -q java-21-openjdk-headless || "${SUDO[@]}" dnf install -y -q java-17-openjdk-headless || true
+        fi
+        java="$(command -v java || true)"
+    fi
+    [ -n "$java" ] || fail "변환 서버에 Java 17 이상이 필요합니다. 설치한 뒤 다시 실행하거나 --java <경로> 로 지정하십시오."
+    java="$(readlink -f "$java")"
+    local major
+    major="$("$java" -version 2>&1 | sed -n 's/.*version "\([0-9]*\).*/\1/p' | head -1)"
+    [ "${major:-0}" -ge 17 ] || fail "Java 17 이상이 필요합니다: $java (버전 ${major:-알 수 없음})"
+    as_target test -x "$java" || fail "앱 실행 계정($TARGET_USER)이 실행할 수 없는 java 입니다: $java (--java 로 다른 경로 지정)"
+    JAVA_BIN="$java"
+}
+
+# A value of the installed env file | 설치된 설정 파일의 값
+server_env_value() {
+    "${SUDO[@]}" sed -n "s/^$1=//p" "$SERVER_ENV" 2>/dev/null | head -1
+}
+
+install_server() {
+    info "변환 서버 ($SERVER_SERVICE)"
+    [ -d /run/systemd/system ] || fail "systemd 가 없습니다. 서비스 대신 직접 실행하십시오: java -jar <s2-docflow-server.jar> (docs/server.ko.md)"
+    command -v curl >/dev/null 2>&1 || fail "curl 이 필요합니다 (서버 상태 확인용)."
+    resolve_java
+
+    # The jar: given, bundled (offline) or already installed | jar: 지정한 것, 설치 파일에 든 것, 이미 설치된 것
+    local jar="$SERVER_JAR" changed=false
+    if [ -z "$jar" ] && [ -n "${OFFLINE_SERVER_JAR:-}" ]; then
+        jar="$OFFLINE_SERVER_JAR"
+    fi
+    if [ -n "$jar" ]; then
+        [ -f "$jar" ] || fail "서버 jar 가 없습니다: $jar"
+        "$JAVA_BIN" -jar "$jar" --version >/dev/null 2>&1 || fail "실행할 수 없는 서버 jar 입니다: $jar"
+        if [ -f "$SERVER_JAR_PATH" ] && cmp -s "$jar" "$SERVER_JAR_PATH"; then
+            skip "서버 jar 가 같습니다."
+        else
+            "${SUDO[@]}" install -d -m 0755 "$SERVER_DIR"
+            "${SUDO[@]}" install -m 0644 "$jar" "$SERVER_JAR_PATH"
+            ok "설치: $SERVER_JAR_PATH ($("$JAVA_BIN" -jar "$SERVER_JAR_PATH" --version 2>/dev/null))"
+            changed=true
+        fi
+    elif [ -f "$SERVER_JAR_PATH" ]; then
+        skip "설치된 서버 jar 를 그대로 씁니다: $("$JAVA_BIN" -jar "$SERVER_JAR_PATH" --version 2>/dev/null)"
+    else
+        fail "서버 jar 를 --server-jar 로 지정하십시오 (s2-docflow 저장소에서 ./gradlew serverJar → build/libs/s2-docflow-server-<버전>.jar)."
+    fi
+
+    # Settings: created once with a new secret, kept on later runs | 설정: 처음에 새 비밀키로 만들고 이후에는 유지
+    "${SUDO[@]}" install -d -m 0755 "$SERVER_ENV_DIR"
+    if ! "${SUDO[@]}" test -f "$SERVER_ENV"; then
+        local secret env_tmp
+        secret="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 40)"
+        env_tmp="$(mktemp)"
+        CLEANUP_PATHS+=("$env_tmp")
+        cat >"$env_tmp" <<ENV
+# s2-docflow 변환 서버 설정 (setup-s2-office-converter.sh --server 가 만듦. 고친 뒤: sudo systemctl restart ${SERVER_SERVICE})
+# 설명: docs/server.ko.md (s2-docflow)
+S2_DOCFLOW_BIND=${SERVER_BIND:-0.0.0.0}
+S2_DOCFLOW_PORT=${SERVER_PORT:-8090}
+# 앱과 같은 값으로 둡니다 (앱: S2_DOCFLOW_SECRET 또는 S2RemoteConverter.builder().secret(...))
+S2_DOCFLOW_SECRET=${secret}
+S2_DOCFLOW_CACHE_DIR=${SERVER_CACHE}
+# S2_DOCFLOW_CACHE_MAX_MB=10240
+# S2_DOCFLOW_CACHE_DAYS=30
+# S2_DOCFLOW_PARALLELISM=6
+# S2_DOCFLOW_MEMORY_MB=8192
+# S2_DOCFLOW_QUEUE_SECONDS=120
+# S2_DOCFLOW_MAX_MB=200
+# 사이냅 호환 /mergePdf, /convert (쉼표 구분). 접근 IP 는 S2_DOCFLOW_ALLOW_IPS (기본 127.0.0.1,::1)
+# S2_DOCFLOW_SYNAP_ROOTS=/data/docflow/files
+# S2_DOCFLOW_SYNAP_HOSTS=
+# S2_DOCFLOW_ALLOW_IPS=127.0.0.1,::1
+ENV
+        "${SUDO[@]}" install -m 0600 "$env_tmp" "$SERVER_ENV"
+        ok "설정: $SERVER_ENV (공유 비밀키를 새로 만들었습니다. 앱에 같은 값을 설정: sudo grep SECRET $SERVER_ENV)"
+        changed=true
+    else
+        local key value
+        for key in BIND PORT; do
+            value="$([ "$key" = BIND ] && echo "$SERVER_BIND" || echo "$SERVER_PORT")"
+            if [ -n "$value" ] && [ "$(server_env_value "S2_DOCFLOW_$key")" != "$value" ]; then
+                "${SUDO[@]}" sed -i "s|^S2_DOCFLOW_$key=.*|S2_DOCFLOW_$key=$value|" "$SERVER_ENV"
+                changed=true
+            fi
+        done
+        skip "설정을 그대로 씁니다: $SERVER_ENV (비밀키 유지)"
+    fi
+    "${SUDO[@]}" install -d -m 0750 -o "$TARGET_USER" -g "$(id -gn "$TARGET_USER")" "$SERVER_CACHE"
+
+    local unit_tmp
+    unit_tmp="$(mktemp)"
+    CLEANUP_PATHS+=("$unit_tmp")
+    cat >"$unit_tmp" <<UNIT
+# s2-docflow 변환 서버 (setup-s2-office-converter.sh --server 가 설치. 직접 고치지 마십시오)
+[Unit]
+Description=s2-docflow converter server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${TARGET_USER}
+Environment=HOME=${TARGET_HOME}
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=${SERVER_ENV}
+ExecStart=${JAVA_BIN} -jar ${SERVER_JAR_PATH}
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+# Rootless Podman needs newuidmap (setuid), so NoNewPrivileges is not set | rootless Podman 이 setuid 인 newuidmap 을 쓰므로 NoNewPrivileges 는 두지 않음
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    if [ -f "$SERVER_UNIT" ] && cmp -s "$unit_tmp" "$SERVER_UNIT"; then
+        skip "서비스 파일이 같습니다."
+    else
+        "${SUDO[@]}" install -m 0644 "$unit_tmp" "$SERVER_UNIT"
+        "${SUDO[@]}" systemctl daemon-reload
+        ok "설치: $SERVER_UNIT"
+        changed=true
+    fi
+    "${SUDO[@]}" systemctl enable -q "$SERVER_SERVICE"
+    if [ "$changed" = true ] || ! systemctl is-active -q "$SERVER_SERVICE"; then
+        "${SUDO[@]}" systemctl restart "$SERVER_SERVICE"
+    fi
+
+    local port health="" i
+    port="$(server_env_value S2_DOCFLOW_PORT)"
+    for i in $(seq 1 60); do
+        health="$(curl -fsS --max-time 2 "http://127.0.0.1:${port:-8090}/health" 2>/dev/null || true)"
+        [ -z "$health" ] || break
+        sleep 0.5
+    done
+    [ -n "$health" ] || fail "변환 서버가 응답하지 않습니다. 로그: sudo journalctl -u ${SERVER_SERVICE} -n 50"
+    ok "변환 서버 동작: http://$(server_env_value S2_DOCFLOW_BIND):${port} — $health"
+}
+
+remove_server() {
+    if [ -f "$SERVER_UNIT" ]; then
+        "${SUDO[@]}" systemctl disable --now -q "$SERVER_SERVICE" 2>/dev/null || true
+        "${SUDO[@]}" rm -f "$SERVER_UNIT"
+        "${SUDO[@]}" systemctl daemon-reload
+        ok "제거: $SERVER_UNIT"
+    else
+        skip "변환 서버 서비스가 없습니다."
+    fi
+    if [ -d "$SERVER_DIR" ]; then
+        "${SUDO[@]}" rm -rf "$SERVER_DIR"
+        ok "제거: $SERVER_DIR"
+    fi
+}
+
 done_message() {
     cat <<DONE
 
@@ -1426,6 +1662,12 @@ done_message() {
 DONE
     [ "$WITH_CHROME" = false ] || echo "   웹 페이지(URL 로 받은 HTML)는 s2-chrome 으로 화면 그대로 변환합니다. 확인) sudo -u ${TARGET_USER} ${CHROME_WRAPPER_PATH} --version"
     [ "$WITH_CHROME" = false ] || echo "   한글 문서(hwp, hwpx)는 s2-hwp(rhwp)로 먼저 변환하고, 실패하면 s2-soffice 로 변환합니다. 확인) sudo -u ${TARGET_USER} ${HWP_WRAPPER_PATH} --version"
+    if [ "$SERVER" = true ]; then
+        cat <<SERVER_DONE
+   변환 서버: http://<이 서버>:$(server_env_value S2_DOCFLOW_PORT) (서비스 ${SERVER_SERVICE}, 로그: sudo journalctl -u ${SERVER_SERVICE} -f)
+     앱 설정) S2_DOCFLOW_REMOTE=http://<이 서버>:$(server_env_value S2_DOCFLOW_PORT)  S2_DOCFLOW_SECRET=<sudo grep SECRET ${SERVER_ENV}>
+SERVER_DONE
+    fi
     print_new_checksums
 }
 
@@ -1434,6 +1676,11 @@ DONE
 # ==============================================================================
 
 mode_uninstall() {
+    remove_server
+    if [ -d "$SERVER_ENV_DIR" ] || [ -d "$SERVER_CACHE" ]; then
+        "${SUDO[@]}" rm -rf "$SERVER_ENV_DIR" "$SERVER_CACHE"
+        ok "제거: $SERVER_ENV_DIR, $SERVER_CACHE"
+    fi
     local path
     for path in "$WRAPPER_PATH" "$CHROME_WRAPPER_PATH" "$HWP_WRAPPER_PATH"; do
         if [ -f "$path" ]; then
@@ -1463,6 +1710,8 @@ mode_install() {
     install_chrome_wrapper
     install_hwp_wrapper
     verify
+    [ "$SERVER" = false ] || install_server
+    [ "$NO_SERVER" = false ] || remove_server
     done_message
 }
 
@@ -1485,6 +1734,12 @@ mode_export() {
     stage="$(mktemp -d -p "$WORK_TMP" s2-office-converter-export.XXXXXX)"
     CLEANUP_PATHS+=("$stage")
     mkdir -p "$stage/payload/podman-packages"
+
+    if [ -n "$SERVER_JAR" ]; then
+        [ -f "$SERVER_JAR" ] || fail "서버 jar 가 없습니다: $SERVER_JAR"
+        cp -f "$SERVER_JAR" "$stage/payload/$SERVER_JAR_ARCHIVE"
+        ok "변환 서버 jar 포함: $SERVER_JAR (서버에서 --server 로 설치)"
+    fi
 
     info "변환기 이미지 저장"
     podman_target save -o "$stage/payload/$IMAGE_ARCHIVE" "$IMAGE"
@@ -1518,6 +1773,7 @@ BUNDLE_IMAGE=${IMAGE}
 BUNDLE_CHROME=${WITH_CHROME}
 BUNDLE_H2ORESTART=${H2ORESTART_VERSION}
 BUNDLE_RHWP=${RHWP_VERSION}
+BUNDLE_SERVER_JAR=$([ -n "$SERVER_JAR" ] && echo true || echo false)
 BUNDLE_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 MANIFEST
 
@@ -1622,6 +1878,12 @@ mode_offline() {
     install_chrome_wrapper
     install_hwp_wrapper
     verify
+    if [ -f "$dir/$SERVER_JAR_ARCHIVE" ]; then
+        OFFLINE_SERVER_JAR="$dir/$SERVER_JAR_ARCHIVE"
+        chmod 644 "$OFFLINE_SERVER_JAR"
+    fi
+    [ "$SERVER" = false ] || install_server
+    [ "$NO_SERVER" = false ] || remove_server
     done_message
 }
 
