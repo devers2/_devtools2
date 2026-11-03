@@ -56,9 +56,10 @@ curl -fsSL <주소> | bash
 1. Podman 확인 (없으면 설치)
 2. 앱 실행 계정 준비 (rootless Podman 용 subuid/subgid)
 3. 구성 요소 버전 확인 ([버전 관리](#버전-관리))
-4. 변환기 이미지 만들기 (LibreOffice + H2Orestart + Chromium + Node.js·rhwp + 한글·MS 호환 폰트, 약 1.6GB)
-5. `/usr/local/bin/s2-soffice`, `/usr/local/bin/s2-chrome`, `/usr/local/bin/s2-hwp` 설치
-6. 실제 변환으로 동작 확인 (문서, 한글 확장, 한글 조판, 웹 페이지)
+4. 변환기 이미지 만들기 (LibreOffice + H2Orestart + Chromium + Node.js·rhwp + qpdf + 한글·MS 호환 무료 글꼴, 약 1.6GB)
+5. 고객사 글꼴 폴더 확인 (`--font-dir` 를 지정했거나 이전에 지정한 경우)
+6. `/usr/local/bin/s2-soffice`, `/usr/local/bin/s2-chrome`, `/usr/local/bin/s2-hwp` 설치
+7. 실제 변환으로 동작 확인 (문서, 한글 확장, 고객사 글꼴 인식 수, 한글 조판, 웹 페이지)
 
 웹 페이지 변환이 필요 없으면 `--no-chrome` 을 붙입니다 (Chromium 을 빼서 이미지 약 0.9GB, `s2-chrome`·`s2-hwp` 설치 안 함 →
 한글 문서는 LibreOffice + H2Orestart 로만 변환).
@@ -90,6 +91,7 @@ bash setup-s2-office-converter-offline.sh --app-user appuser
 - 서버에 Podman 이 없으면 파일에 든 패키지로 설치합니다 (이때 배포판도 맞아야 함). 이미 있으면 건너뜁니다.
 - 설치 중에 `/var/tmp` 에 잠시 압축을 풀었다가 지웁니다. 공간이 부족하면 `TMPDIR=<폴더> bash setup-s2-office-converter-offline.sh ...`.
 - 옵션은 원래 스크립트와 같습니다 (`--rebuild` 는 이미지를 다시 등록, `--uninstall` 은 제거).
+- 고객사 글꼴은 설치 파일에 들어가지 않습니다. 서버에 글꼴 폴더를 따로 옮긴 뒤 `--font-dir <폴더>` 를 붙여 실행합니다.
 
 `--target` 에 쓸 수 있는 배포판: `ubuntu:<버전>`, `debian:<버전>`, `rockylinux:<버전>`, `almalinux:<버전>`,
 `rhel:<버전>` (AlmaLinux 패키지로 받음, 바이너리 호환), `fedora:<버전>`
@@ -101,6 +103,10 @@ bash setup-s2-office-converter-offline.sh --app-user appuser
 sudo -u appuser s2-soffice --version
 sudo -u appuser s2-chrome --version
 sudo -u appuser s2-hwp --version
+
+# 고객사 글꼴 폴더 연결 / 빼기 (이미지는 다시 만들지 않음, 한 번 지정하면 유지)
+curl -fsSL <주소> | bash -s -- --app-user appuser --font-dir /opt/s2-fonts
+curl -fsSL <주소> | bash -s -- --app-user appuser --no-font-dir
 
 # 다시 만들기 (보안 업데이트 반영 등)
 curl -fsSL <주소> | bash -s -- --app-user appuser --rebuild

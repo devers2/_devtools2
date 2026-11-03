@@ -22,6 +22,9 @@
 #   #    (폐쇄망 서버) 그 파일을 옮겨 실행
 #   bash setup-s2-office-converter-offline.sh --app-user appuser
 #
+#   # 고객사 보유 글꼴(맑은 고딕·휴먼명조 등) 폴더 연결 — 한 번 지정하면 다시 실행해도 유지
+#   curl -fsSL <위 주소> | bash -s -- --app-user appuser --font-dir /opt/s2-fonts
+#
 #   # 이미지 다시 만들기 / 제거
 #   curl -fsSL <위 주소> | bash -s -- --app-user appuser --rebuild
 #   curl -fsSL <위 주소> | bash -s -- --app-user appuser --uninstall
@@ -35,6 +38,7 @@
 #   - 설치가 끝나면 앱을 다시 시작할 필요 없이 S2OfficeConverter 가 s2-soffice 를 자동으로 찾습니다.
 #   - 확인: sudo -u appuser s2-soffice --version, sudo -u appuser s2-chrome --version
 #   - 웹 페이지 변환(Chromium)과 rhwp 한글 조판(s2-hwp)이 필요 없으면 --no-chrome (이미지 약 0.7GB 작아짐, 한글은 LibreOffice 로만 변환)
+#   - 글꼴은 이미지에 넣지 않습니다. 보유 글꼴은 --font-dir 로 연결하고, 폐쇄망 서버에는 글꼴 폴더를 따로 옮겨 지정합니다.
 #
 # [하는 일]
 # S2DocumentMerger·S2OfficeConverter(s2-docflow)가 docx·xlsx·pptx·hwp·hwpx 등을 PDF 로 변환·병합할 수 있도록
@@ -73,6 +77,7 @@
 #   - 대상 계정의 subuid/subgid: 없으면 추가 (rootless Podman 필요 조건)
 #   - 이미지: 같은 버전(태그)이 있으면 건너뜀. 버전을 올리면(업데이트에 동의하면) 새로 만들고 이전 버전은 정리
 #   - /usr/local/bin/s2-soffice, s2-chrome, s2-hwp: 내용이 다를 때만 교체 (--no-chrome 이면 s2-chrome·s2-hwp 제거)
+#   - 고객사 글꼴 폴더(--font-dir): 지정하지 않으면 설치된 명령의 값을 그대로 유지 (--no-font-dir 로 뺌)
 #   - 마지막에 실제 변환으로 동작을 확인
 #
 # 라이선스: 이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(MIT), rhwp(MIT), Node.js(MIT), qpdf(Apache 2.0), Chromium(BSD 3-Clause 등),
