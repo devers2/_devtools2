@@ -180,9 +180,15 @@ WebAssembly)가 쪽을 SVG 로 조판하고 Chromium 이 인쇄합니다.
 - 격리, 제한 시간(기본 180초, `S2_HWP_TIMEOUT`), SIGTERM 처리, 자원 상한(`S2_HWP_MEMORY`, `S2_HWP_CPUS`)은 `s2-soffice` 와 같습니다.
 - 종료 코드: 0 성공, 2 사용법 오류, 3 암호가 걸린 문서, 4 읽을 수 없는 문서.
 - `--no-chrome` 으로 설치하면 두지 않습니다.
+- **큰 문서:** 쪽을 50쪽씩(`S2_HWP_CHUNK`) 나눠 인쇄하고 qpdf 로 합칩니다. Chromium 메모리가 쪽 수와 상관없이 약 2GB 안팎입니다 (381쪽을
+  한 번에 인쇄하면 약 4GB). 시간은 쪽 수에 비례합니다 (초당 약 7~8쪽, 381쪽 48초).
+  - `--max-pages N`: 앞 N쪽과 "이하 M쪽은 넣지 않았습니다 (전체 T쪽)" 안내 쪽만 만듭니다 (381쪽 문서 100쪽 한도 16초). 앱에서는
+    `PdfExportOptions.hwpPageBudget(n)`.
+  - `S2_HWP_PARALLEL=3`: 묶음 3개를 동시에 인쇄 (381쪽 26초). 메모리도 그만큼 더 씁니다.
 
 ```sh
-s2-hwp --outdir /tmp/out 보고서.hwp     # → /tmp/out/보고서.pdf
+s2-hwp --outdir /tmp/out 보고서.hwp                   # → /tmp/out/보고서.pdf
+s2-hwp --outdir /tmp/out --max-pages 100 편람.hwp     # 앞 100쪽 + 생략 안내 쪽
 ```
 
 ## s2-soffice
@@ -220,7 +226,7 @@ s2-soffice --headless --convert-to pdf --outdir /tmp/out 보고서.hwp
 
 ## 라이선스
 
-이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(MIT), rhwp(MIT), Node.js(MIT), Chromium(BSD 3-Clause 등), 폰트(SIL OFL 1.1 등),
+이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(MIT), rhwp(MIT), Node.js(MIT), qpdf(Apache 2.0), Chromium(BSD 3-Clause 등), 폰트(SIL OFL 1.1 등),
 Podman(Apache 2.0)을 각 배포처에서 받아
 설치할 뿐 재배포하지 않습니다. 각 소프트웨어는 자체 라이선스를 따릅니다. 폐쇄망 설치 파일을 다른 조직에 전달하면 그 안의
 소프트웨어를 배포하는 것이 되므로 각 라이선스를 확인하십시오.

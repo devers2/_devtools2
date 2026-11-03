@@ -72,7 +72,7 @@
 #   - /usr/local/bin/s2-soffice, s2-chrome, s2-hwp: 내용이 다를 때만 교체 (--no-chrome 이면 s2-chrome·s2-hwp 제거)
 #   - 마지막에 실제 변환으로 동작을 확인
 #
-# 라이선스: 이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(MIT), rhwp(MIT), Node.js(MIT), Chromium(BSD 3-Clause 등),
+# 라이선스: 이 스크립트는 LibreOffice(MPL 2.0), H2Orestart(MIT), rhwp(MIT), Node.js(MIT), qpdf(Apache 2.0), Chromium(BSD 3-Clause 등),
 # 폰트(SIL OFL 1.1 등), Podman(Apache 2.0)을
 # 각 배포처에서 받아 설치할 뿐, 재배포하지 않습니다. 각 소프트웨어는 자체 라이선스를 따릅니다.
 # (폐쇄망 설치 파일을 다른 조직에 전달하면 그 안의 소프트웨어를 배포하는 것이 되므로 각 라이선스를 확인하십시오.)
@@ -88,7 +88,7 @@ set -euo pipefail
 DEFAULT_H2ORESTART_VERSION="0.8.0"
 DEFAULT_RHWP_VERSION="0.8.7"
 # 이미지 만드는 방법(아래 Containerfile)을 바꾸면 올립니다. 다음 실행 때 같은 구성 요소 버전으로 이미지를 다시 만듭니다.
-IMAGE_REVISION="4"
+IMAGE_REVISION="5"
 BASE_IMAGE="docker.io/library/debian:trixie-slim"
 IMAGE_NAME="localhost/s2-office-converter"
 WRAPPER_PATH="/usr/local/bin/s2-soffice"
@@ -590,21 +590,39 @@ ensure_subids() {
 # Files that go into the image for s2-hwp | s2-hwp 용으로 이미지에 넣는 파일
 write_hwp_files() {
     cat >"$1/s2-hwp-render.mjs" <<'RENDER'
-// s2-hwp-render (s2-office-converter): HWP/HWPX -> one HTML page per document page, laid out by rhwp as SVG, for
-// Chromium to print. Installed by setup-s2-office-converter.sh; do not edit inside the image.
-// | rhwp 가 SVG 로 조판한 쪽들을 Chromium 이 인쇄할 HTML 한 장으로 모은다.
+// s2-hwp-render (s2-office-converter): HWP/HWPX -> HTML files of laid-out pages (rhwp SVG), for Chromium to print.
+// Installed by setup-s2-office-converter.sh; do not edit inside the image.
+// | rhwp 가 SVG 로 조판한 쪽을 Chromium 이 인쇄할 HTML 파일들로 모은다.
 //
-//   node s2-hwp-render.mjs <rhwp folder> <input .hwp|.hwpx> <output .html>
+//   node s2-hwp-render.mjs <rhwp folder> <input .hwp|.hwpx> <output folder> [--chunk N] [--max-pages N]
 //   node s2-hwp-render.mjs <rhwp folder> --version
 //
+// Writes <output folder>/part-0001.html, part-0002.html ... (at most N pages each, default 50) and prints one line
+// "pages=<all> rendered=<written> parts=<files>". With --max-pages only the first N pages are written, followed by a
+// notice page | 쪽을 N쪽씩(기본 50) part-0001.html ... 로 나눠 쓰고, --max-pages 면 앞 N쪽과 안내 쪽만 쓴다.
+//
 // Exit codes | 종료 코드: 0 ok, 2 usage, 3 password protected (암호 문서), 4 unreadable or empty (읽을 수 없음)
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const [pkg, input, output] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const option = (name, fallback) => {
+    const i = args.indexOf(name);
+    if (i < 0) return fallback;
+    const value = Number(args[i + 1]);
+    args.splice(i, 2);
+    if (!Number.isInteger(value) || value < 1) {
+        console.error(`s2-hwp-render: ${name} needs a positive number`);
+        process.exit(2);
+    }
+    return value;
+};
+const chunk = option('--chunk', 50);
+const maxPages = option('--max-pages', 0);
+const [pkg, input, output] = args;
 if (!pkg || !input || (input !== '--version' && !output)) {
-    console.error('usage: s2-hwp-render <rhwp folder> <input> <output.html> | <rhwp folder> --version');
+    console.error('usage: s2-hwp-render <rhwp folder> <input> <output folder> [--chunk N] [--max-pages N] | <rhwp folder> --version');
     process.exit(2);
 }
 const rhwp = await import(pathToFileURL(join(pkg, 'rhwp.js')).href);
@@ -641,71 +659,140 @@ function size(svg) {
     return w && h ? [Number(w[1]), Number(h[1])] : [793.7, 1122.5];
 }
 
+function escapeHtml(text) {
+    return text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+}
+
 const count = doc.pageCount();
 if (!count) {
     console.error('s2-hwp-render: no pages');
     process.exit(4);
 }
-const sizes = new Map(); // "WxH" -> named @page, so portrait and landscape pages keep their own size
-const pages = [];
-for (let i = 0; i < count; i++) {
-    const svg = scopeIds(doc.renderPageSvg(i).replace(/^<\?xml[^>]*>\s*/, ''), 'p' + i + '-');
-    const [w, h] = size(svg);
+const rendered = maxPages > 0 ? Math.min(count, maxPages) : count;
+mkdirSync(output, { recursive: true });
+
+let part = 0;
+let pages = [];
+let sizes = new Map(); // "WxH" -> named @page, so portrait and landscape pages keep their own size
+let lastSize = [793.7, 1122.5];
+
+function addPage(html, w, h) {
     const key = w.toFixed(2) + 'x' + h.toFixed(2);
     if (!sizes.has(key)) sizes.set(key, { name: 's' + sizes.size, w, h });
-    pages.push('<div class="page ' + sizes.get(key).name + '">' + svg + '</div>');
+    pages.push('<div class="page ' + sizes.get(key).name + '">' + html + '</div>');
 }
-doc.free();
 
-const css = [...sizes.values()]
-    .map((s) => `@page ${s.name} { size: ${s.w}px ${s.h}px; margin: 0 }\n.${s.name} { page: ${s.name}; width: ${s.w}px; height: ${s.h}px }`)
-    .join('\n');
-writeFileSync(output, `<!doctype html>
+function flush() {
+    if (pages.length === 0) return;
+    part++;
+    const css = [...sizes.values()]
+        .map((s) => `@page ${s.name} { size: ${s.w}px ${s.h}px; margin: 0 }\n.${s.name} { page: ${s.name}; width: ${s.w}px; height: ${s.h}px }`)
+        .join('\n');
+    writeFileSync(join(output, 'part-' + String(part).padStart(4, '0') + '.html'), `<!doctype html>
 <html><head><meta charset="utf-8">
 <style>
 @page { margin: 0 }
 html, body { margin: 0; padding: 0 }
-.page { overflow: hidden; break-after: page }
+.page { overflow: hidden; break-after: page; position: relative }
 .page:last-child { break-after: auto }
 .page > svg { display: block }
+.notice { position: absolute; left: 10%; right: 10%; top: 40%; font: 16px/1.6 'Nanum Gothic', 'Noto Sans CJK KR', sans-serif; text-align: center }
 ${css}
 </style></head>
 <body>
 ${pages.join('\n')}
 </body></html>
 `);
-console.log(count);
+    pages = [];
+    sizes = new Map();
+}
+
+for (let i = 0; i < rendered; i++) {
+    const svg = scopeIds(doc.renderPageSvg(i).replace(/^<\?xml[^>]*>\s*/, ''), 'p' + i + '-');
+    lastSize = size(svg);
+    addPage(svg, lastSize[0], lastSize[1]);
+    if (pages.length >= chunk) flush();
+}
+doc.free();
+if (rendered < count) {
+    // A page that says what was left out, the size of the last page | 생략 안내 쪽 (마지막 쪽과 같은 크기)
+    const notice = `※ 변환 한도(${rendered.toLocaleString('en-US')}쪽)를 넘어 이하 ${(count - rendered).toLocaleString('en-US')}쪽은 PDF 에 넣지 않았습니다.<br>전체 내용은 원본 파일에서 확인하십시오. (전체 ${count.toLocaleString('en-US')}쪽)`;
+    addPage('<div class="notice">' + escapeHtml(notice).replace(/&lt;br&gt;/g, '<br>') + '</div>', lastSize[0], lastSize[1]);
+}
+flush();
+console.log(`pages=${count} rendered=${rendered} parts=${part}`);
 RENDER
     cat >"$1/s2-hwp-convert.sh" <<'CONVERT'
 #!/bin/sh
-# s2-hwp-convert (s2-office-converter): HWP/HWPX -> PDF inside the container. rhwp lays the pages out as SVG and
-# Chromium prints them. Installed by setup-s2-office-converter.sh; do not edit inside the image.
-# | 컨테이너 안에서 HWP/HWPX → PDF. rhwp 가 쪽을 SVG 로 조판하고 Chromium 이 인쇄한다.
+# s2-hwp-convert (s2-office-converter): HWP/HWPX -> PDF inside the container. rhwp lays the pages out as SVG, Chromium
+# prints them in parts of S2_HWP_CHUNK pages (default 50) and qpdf joins the parts. Installed by
+# setup-s2-office-converter.sh; do not edit inside the image.
+# | 컨테이너 안에서 HWP/HWPX → PDF. rhwp 가 쪽을 SVG 로 조판하고, Chromium 이 S2_HWP_CHUNK 쪽씩(기본 50) 나눠 인쇄하고, qpdf 가 합친다.
 #
-#   s2-hwp-convert <input .hwp|.hwpx> <output .pdf>
+#   s2-hwp-convert <input .hwp|.hwpx> <output .pdf> [--max-pages N]
 #   s2-hwp-convert --version
 #
-# Exit codes are those of s2-hwp-render (3: password protected) or 1 when printing fails | 종료 코드: 3 암호 문서, 1 인쇄 실패
+# Printing in parts keeps Chromium's memory near 2 GB whatever the page count (a 381-page document printed at once
+# took about 4 GB); the time stays proportional to the pages (about 7 per second). S2_HWP_PARALLEL prints that many
+# parts at once: faster, with that much more memory | 나눠 인쇄하면 쪽 수와 상관없이 메모리가 약 2GB 안팎 (381쪽을 한 번에
+# 인쇄하면 약 4GB). 시간은 쪽 수에 비례 (초당 약 7쪽). S2_HWP_PARALLEL 은 동시에 인쇄할 묶음 수 (빠르지만 메모리도 그만큼 더 씀)
+#
+# Exit codes are those of s2-hwp-render (2 usage, 3 password protected, 4 unreadable) or 1 when printing fails
+# | 종료 코드: 2 사용법, 3 암호 문서, 4 읽을 수 없음, 1 인쇄 실패
 set -eu
 if [ "${1:-}" = "--version" ]; then
     exec node /opt/s2-hwp/s2-hwp-render.mjs /opt/rhwp --version
 fi
-[ $# -eq 2 ] || {
-    echo "사용법: s2-hwp-convert <입력 .hwp|.hwpx> <출력 .pdf>" >&2
+[ $# -eq 2 ] || [ $# -eq 4 ] || {
+    echo "사용법: s2-hwp-convert <입력 .hwp|.hwpx> <출력 .pdf> [--max-pages N]" >&2
     exit 2
 }
+input="$1"
+output="$2"
+limit=""
+[ $# -eq 2 ] || limit="$3 $4"
 work=/tmp/s2-hwp
-mkdir -p "$work"
-node /opt/s2-hwp/s2-hwp-render.mjs /opt/rhwp "$1" "$work/page.html" >/dev/null
-# The page has no scripts, so no time budget is needed; Chromium's own D-Bus noise goes to a file shown only on failure
-# | 스크립트가 없는 페이지라 대기 시간 불필요. Chromium 의 D-Bus 경고는 파일로 받아 실패할 때만 보여 줌
-if ! chromium --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run --no-default-browser-check \
-    --disable-extensions --disable-background-networking --disable-sync --disable-crash-reporter --mute-audio \
-    --hide-scrollbars --no-pdf-header-footer --user-data-dir="$work/chrome" \
-    --print-to-pdf="$2" "file://$work/page.html" >"$work/chrome.log" 2>&1 || [ ! -s "$2" ]; then
-    grep -v 'dbus' "$work/chrome.log" | tail -20 >&2
-    exit 1
+mkdir -p "$work/html" "$work/pdf"
+# shellcheck disable=SC2086 # limit is "--max-pages N" or empty | limit 은 "--max-pages N" 또는 빈 값
+node /opt/s2-hwp/s2-hwp-render.mjs /opt/rhwp "$input" "$work/html" --chunk "${S2_HWP_CHUNK:-50}" $limit >"$work/render.txt"
+
+# The pages have no scripts, so no time budget is needed; Chromium's own D-Bus noise goes to a file shown only on
+# failure | 스크립트가 없는 쪽이라 대기 시간 불필요. Chromium 의 D-Bus 경고는 파일로 받아 실패할 때만 보여 줌
+print_part() {
+    part="$(basename "$1" .html)"
+    chromium --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run --no-default-browser-check \
+        --disable-extensions --disable-background-networking --disable-sync --disable-crash-reporter --mute-audio \
+        --hide-scrollbars --no-pdf-header-footer --user-data-dir="$work/chrome-$part" \
+        --print-to-pdf="$work/pdf/$part.pdf" "file://$1" >"$work/$part.log" 2>&1 || true
+    [ -s "$work/pdf/$part.pdf" ] || {
+        grep -v 'dbus' "$work/$part.log" | tail -20 >&2
+        return 1
+    }
+}
+parallel="${S2_HWP_PARALLEL:-1}"
+if [ "$parallel" -gt 1 ] 2>/dev/null; then
+    # POSIX sh has no exported functions: run each part through a small sh -c | POSIX sh 는 함수를 넘길 수 없어 sh -c 로 실행
+    ls "$work"/html/part-*.html | xargs -P "$parallel" -I{} sh -c '
+        part="$(basename "$1" .html)"
+        chromium --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --no-first-run --no-default-browser-check \
+            --disable-extensions --disable-background-networking --disable-sync --disable-crash-reporter --mute-audio \
+            --hide-scrollbars --no-pdf-header-footer --user-data-dir="'"$work"'/chrome-$part" \
+            --print-to-pdf="'"$work"'/pdf/$part.pdf" "file://$1" >"'"$work"'/$part.log" 2>&1 || true
+        [ -s "'"$work"'/pdf/$part.pdf" ] || { grep -v dbus "'"$work"'/$part.log" | tail -20 >&2; exit 1; }' sh {} || exit 1
+else
+    for html in "$work"/html/part-*.html; do
+        print_part "$html" || exit 1
+    done
 fi
+
+set -- "$work"/pdf/part-*.pdf
+if [ $# -eq 1 ]; then
+    mv -f "$1" "$output"
+else
+    qpdf --empty --pages "$@" -- "$output"
+fi
+[ -s "$output" ] || exit 1
+cat "$work/render.txt"
 CONVERT
 }
 
@@ -723,7 +810,7 @@ build_image() {
     if [ "$WITH_CHROME" = true ]; then
         # Chromium prints web pages and the HWP pages rhwp lays out; Node.js runs rhwp (WebAssembly)
         # | Chromium 은 웹 페이지와 rhwp 가 그린 HWP 쪽을 인쇄하고, Node.js 는 rhwp(WebAssembly)를 실행
-        chrome_packages="chromium nodejs"
+        chrome_packages="chromium nodejs qpdf"
         local rhwp_sha512
         rhwp_sha512="$(printf '%s' "${RHWP_INTEGRITY#sha512-}" | base64 -d | od -An -v -tx1 | tr -d ' \n')"
         [ ${#rhwp_sha512} -eq 128 ] || fail "rhwp ${RHWP_VERSION} 의 검증값 형식이 올바르지 않습니다: ${RHWP_INTEGRITY}"
@@ -1055,7 +1142,8 @@ install_hwp_wrapper() {
 # _devtools2/scripts/linux/setup-projects/s2/s2-office-converter/setup-s2-office-converter.sh 가 설치합니다.
 # 직접 고치지 마십시오 (다시 실행하면 덮어씀).
 #
-#   s2-hwp --outdir <출력 폴더> <입력 .hwp|.hwpx>    → <출력 폴더>/<입력 이름>.pdf
+#   s2-hwp --outdir <출력 폴더> [--max-pages N] <입력 .hwp|.hwpx>    → <출력 폴더>/<입력 이름>.pdf
+#     --max-pages N  앞 N쪽과 "이하 M쪽 생략" 안내 쪽만 만듦 (아주 큰 문서의 변환 시간을 묶어 둠)
 #   s2-hwp --version
 #
 # 종료 코드: 0 성공, 2 사용법 오류, 3 암호가 걸린 문서, 4 읽을 수 없는 문서, 그 밖 변환 실패
@@ -1064,6 +1152,8 @@ install_hwp_wrapper() {
 #   S2_HWP_TIMEOUT  변환 제한 시간(초, 기본 180)
 #   S2_HWP_MEMORY   컨테이너 메모리 상한 (예: 1g, 지정할 때만. cgroup v2 위임이 있어야 함)
 #   S2_HWP_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
+#   S2_HWP_CHUNK    한 번에 인쇄할 쪽 수 (기본 50). 쪽을 나눠 인쇄해 Chromium 메모리를 약 2GB 안팎으로 유지 (381쪽을 한 번에 인쇄하면 약 4GB)
+#   S2_HWP_PARALLEL 동시에 인쇄할 묶음 수 (기본 1). 2~3 이면 큰 문서가 그만큼 빨라지지만 메모리도 그만큼 더 씀
 set -euo pipefail
 
 IMAGE="@IMAGE@"
@@ -1084,10 +1174,21 @@ fi
 
 outdir=""
 input=""
+max_pages=()
 while [ $# -gt 0 ]; do
     case "$1" in
     --outdir)
         outdir="${2:?--outdir 다음에 폴더가 필요합니다}"
+        shift 2
+        ;;
+    --max-pages)
+        case "${2:-}" in
+        '' | *[!0-9]* | 0)
+            echo "s2-hwp: --max-pages 다음에 1 이상의 숫자가 필요합니다." >&2
+            exit 2
+            ;;
+        esac
+        max_pages=(--max-pages "$2")
         shift 2
         ;;
     -*)
@@ -1140,7 +1241,9 @@ set +e
     --cap-drop=ALL --security-opt=no-new-privileges \
     --userns=keep-id \
     -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
-    "$IMAGE" timeout --kill-after=5 "$TIMEOUT" /opt/s2-hwp/s2-hwp-convert.sh "/work/in/document.$extension" /work/out/document.pdf &
+    -e S2_HWP_CHUNK="${S2_HWP_CHUNK:-50}" -e S2_HWP_PARALLEL="${S2_HWP_PARALLEL:-1}" \
+    "$IMAGE" timeout --kill-after=5 "$TIMEOUT" /opt/s2-hwp/s2-hwp-convert.sh "/work/in/document.$extension" /work/out/document.pdf \
+    ${max_pages[@]+"${max_pages[@]}"} &
 wait "$!"
 status=$?
 set -e
