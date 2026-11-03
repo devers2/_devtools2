@@ -174,6 +174,27 @@ URL 로 받은 웹 페이지를 변환할 때 씁니다 (페이지의 이미지�
 s2-chrome --print-to-pdf /tmp/out.pdf page.html
 ```
 
+## 변환 서버 (`--server`)
+
+다른 서버의 앱이 HTTP 로 변환을 맡기는 변환 전용 서버(s2-docflow-server)를 systemd 서비스로 설치합니다. 변환기와 같은 계정으로 돕니다.
+
+```sh
+bash setup-s2-office-converter.sh --app-user s2conv --server --server-jar ./s2-docflow-server-1.0.0.jar [--server-port 8090] [--server-bind 0.0.0.0] [--java <경로>]
+bash setup-s2-office-converter.sh --app-user s2conv --no-server     # 서버만 제거
+```
+
+| 항목 | 위치 |
+|---|---|
+| 서버 jar | `/opt/s2-docflow/s2-docflow-server.jar` (s2-docflow 저장소에서 `./gradlew serverJar`) |
+| 설정 (공유 비밀키 포함, 권한 600) | `/etc/s2-docflow/server.env` — 처음 설치할 때 비밀키를 만들고 이후 유지 |
+| 캐시 | `/var/cache/s2-docflow` |
+| 서비스 | `s2-docflow-server` (`systemctl status`, `journalctl -u s2-docflow-server`) |
+
+- Java 17 이상이 필요합니다 (없으면 apt/dnf 로 설치, 폐쇄망은 미리 설치). 폐쇄망 설치 파일은 `--export ... --server-jar <jar>` 로 jar 를 함께 담습니다.
+- 다시 실행해도 안전합니다: `--server-jar` 를 빼면 설치된 jar, 설정·비밀키는 그대로이며 바뀐 것이 있을 때만 재시작합니다.
+- `--uninstall` 은 서버 설정·캐시까지 지웁니다.
+- 앱 설정·API·보안·증설: s2-docflow 의 [docs/server.ko.md](https://github.com/devers2/s2-docflow/blob/main/docs/server.ko.md)
+
 ## s2-hwp
 
 한글 문서(hwp, hwpx)를 PDF 로 만드는 명령입니다. 컨테이너 안에서 [rhwp](https://github.com/edwardkim/rhwp)(MIT, Rust +
