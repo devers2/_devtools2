@@ -57,6 +57,9 @@
 #                      --user 도 같은 뜻으로 받습니다.
 #   --rebuild          이미지를 다시 만듭니다 (보안 업데이트 반영 등).
 #   --no-chrome        Chromium(s2-chrome)과 rhwp(s2-hwp)를 빼고 설치합니다 (이미지 약 0.7GB 작아짐).
+#   --font-dir 폴더    고객사 글꼴 폴더(맑은 고딕·휴먼명조 등 보유 글꼴). 이미지에 넣지 않고 변환할 때마다 읽기 전용으로 연결하므로
+#                      글꼴을 바꿔도 이미지를 다시 만들 필요가 없고, 폐쇄망 설치 파일에도 들어가지 않습니다 (글꼴 라이선스 보호).
+#                      한 번 지정하면 다시 실행해도 유지되며, --no-font-dir 로 뺍니다. 변환할 때 S2_FONT_DIR 로 바꿀 수도 있습니다.
 #                      (HTML-to-PDF 및 SVG 변환 기능이 비활성화됩니다)
 #   --uninstall        s2-soffice·s2-chrome·s2-hwp 명령과 이미지를 제거합니다 (Podman 자체는 남김).
 #   --export [파일]    폐쇄망용 설치 파일 하나를 만듭니다 (기본 ./setup-s2-office-converter-offline.sh).
@@ -88,7 +91,7 @@ set -euo pipefail
 DEFAULT_H2ORESTART_VERSION="0.8.0"
 DEFAULT_RHWP_VERSION="0.8.7"
 # 이미지 만드는 방법(아래 Containerfile)을 바꾸면 올립니다. 다음 실행 때 같은 구성 요소 버전으로 이미지를 다시 만듭니다.
-IMAGE_REVISION="5"
+IMAGE_REVISION="6"
 BASE_IMAGE="docker.io/library/debian:trixie-slim"
 IMAGE_NAME="localhost/s2-office-converter"
 WRAPPER_PATH="/usr/local/bin/s2-soffice"
@@ -131,6 +134,8 @@ usage() {
                        확인: ps -eo user,cmd | grep -i java (첫 칸)
   --rebuild            이미지를 다시 만듦 (보안 업데이트 반영 등)
   --no-chrome          Chromium(s2-chrome)과 rhwp(s2-hwp)를 빼고 설치 (이미지 약 0.7GB 작아짐, 한글은 LibreOffice 로만)
+  --font-dir 폴더      고객사 글꼴 폴더(맑은 고딕·휴먼명조 등 보유 글꼴)를 변환할 때 읽기 전용으로 연결 (다시 실행해도 유지)
+  --no-font-dir        글꼴 폴더 연결을 뺌
   --uninstall          s2-soffice·s2-chrome·s2-hwp 명령과 이미지를 제거 (Podman 은 남김)
   --export [파일]      폐쇄망용 설치 파일 하나 만들기 (기본 ./setup-s2-office-converter-offline.sh, 인터넷 되는 PC에서)
                        서버에서: bash setup-s2-office-converter-offline.sh --app-user 계정
@@ -151,6 +156,8 @@ TARGET_USER="${SUDO_USER:-$(id -un)}"
 MODE="install"
 REBUILD=false
 WITH_CHROME=true
+FONT_DIR=""
+FONT_DIR_SET=false
 EXPORT_FILE=""
 TARGET_DISTRO=""
 while [ $# -gt 0 ]; do
@@ -170,6 +177,22 @@ while [ $# -gt 0 ]; do
         ;;
     --uninstall)
         MODE="uninstall"
+        shift
+        ;;
+    --font-dir)
+        [ $# -ge 2 ] || fail "--font-dir 다음에 글꼴 폴더가 필요합니다."
+        FONT_DIR="$2"
+        FONT_DIR_SET=true
+        shift 2
+        ;;
+    --font-dir=*)
+        FONT_DIR="${1#*=}"
+        FONT_DIR_SET=true
+        shift
+        ;;
+    --no-font-dir)
+        FONT_DIR=""
+        FONT_DIR_SET=true
         shift
         ;;
     --no-chrome)
@@ -602,6 +625,7 @@ write_hwp_files() {
 // notice page | 쪽을 N쪽씩(기본 50) part-0001.html ... 로 나눠 쓰고, --max-pages 면 앞 N쪽과 안내 쪽만 쓴다.
 //
 // Exit codes | 종료 코드: 0 ok, 2 usage, 3 password protected (암호 문서), 4 unreadable or empty (읽을 수 없음)
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -707,8 +731,27 @@ ${pages.join('\n')}
     sizes = new Map();
 }
 
+// Fonts the document asks for. rhwp writes each font-family as the document's font, its aliases (한양중고딕 → HY중고딕)
+// and then a common fallback tail (Batang, Nanum Myeongjo, Noto ...); the font counts as present when it or one of
+// its aliases is installed | 문서가 요구하는 글꼴. rhwp 의 font-family 는 문서 글꼴, 별칭(한양중고딕 → HY중고딕), 공통 대체 목록(바탕·나눔명조·
+// Noto 등) 순서이며, 문서 글꼴이나 별칭 중 하나가 있으면 있는 것으로 본다
+const FALLBACK_TAIL = new Set(['Batang', '바탕', 'Nanum Myeongjo', 'AppleMyungjo', 'Noto Serif KR', 'Noto Serif CJK KR', 'HCR Batang',
+    'HCR Batang Ext', '함초롬바탕 확장', 'HCR Batang ExtB', '함초롬바탕 확장B', 'Source Han Serif K Old Hangul', 'Malgun Gothic',
+    '맑은 고딕', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Pretendard', 'Nanum Gothic', 'Noto Sans CJK KR', 'HCR Dotum', '함초롬돋움']);
+const wanted = new Map(); // document font -> its aliases | 문서 글꼴 -> 별칭
 for (let i = 0; i < rendered; i++) {
     const svg = scopeIds(doc.renderPageSvg(i).replace(/^<\?xml[^>]*>\s*/, ''), 'p' + i + '-');
+    for (const m of svg.matchAll(/font-family="([^"]*)"/g)) {
+        const names = m[1].replace(/&apos;|&#39;|&quot;/g, "'").split(',').map((n) => n.trim().replace(/^'|'$/g, '')).filter(Boolean);
+        const first = names[0];
+        if (!first || wanted.has(first) || /^(serif|sans-serif|monospace|cursive|fantasy)$/i.test(first)) continue;
+        const aliases = [];
+        for (const n of names.slice(1)) {
+            if (FALLBACK_TAIL.has(n) || /^(serif|sans-serif|monospace)$/i.test(n)) break;
+            aliases.push(n);
+        }
+        wanted.set(first, aliases);
+    }
     lastSize = size(svg);
     addPage(svg, lastSize[0], lastSize[1]);
     if (pages.length >= chunk) flush();
@@ -721,6 +764,15 @@ if (rendered < count) {
 }
 flush();
 console.log(`pages=${count} rendered=${rendered} parts=${part}`);
+// Fonts asked for but not installed (customer fonts: setup --font-dir) | 요구했지만 없는 글꼴 (고객사 글꼴: 설치 --font-dir)
+try {
+    const installed = new Set(execFileSync('fc-list', [':', 'family'], { encoding: 'utf8' }).split(/[\n,]/).map((f) => f.trim()).filter(Boolean));
+    const missing = [...wanted].filter(([font, aliases]) => !installed.has(font) && !aliases.some((a) => installed.has(a)))
+        .map(([font]) => font).sort();
+    console.log('missing-fonts=' + missing.join(','));
+} catch {
+    // fc-list unavailable: say nothing | fc-list 가 없으면 알리지 않음
+}
 RENDER
     cat >"$1/s2-hwp-convert.sh" <<'CONVERT'
 #!/bin/sh
@@ -886,6 +938,36 @@ remove_old_images() {
     done
 }
 
+# 래퍼의 자리 표시를 채움 (이미지, 글꼴 폴더)
+fill_wrapper() {
+    local escaped
+    escaped="$(printf '%s' "$FONT_DIR" | sed 's/[|&\\]/\\&/g')"
+    sed -i -e "s|@IMAGE@|${IMAGE}|" -e "s|@FONT_DIR@|${escaped}|" "$1"
+}
+
+# 고객사 글꼴 폴더 정하기: --font-dir > 설치된 래퍼의 값(다시 실행해도 유지) > 없음. --no-font-dir 이면 뺌
+resolve_font_dir() {
+    info "고객사 글꼴 폴더"
+    if [ "$FONT_DIR_SET" = false ] && [ -f "$WRAPPER_PATH" ]; then
+        FONT_DIR="$(sed -n 's/^FONT_DIR="\${S2_FONT_DIR-\(.*\)}"$/\1/p' "$WRAPPER_PATH" | head -1)"
+    fi
+    if [ -z "$FONT_DIR" ]; then
+        skip "지정하지 않았습니다 (이미지에 든 나눔·Noto 글꼴로 대체). 지정: --font-dir <폴더>"
+        return
+    fi
+    FONT_DIR="$(cd "$FONT_DIR" 2>/dev/null && pwd)" || fail "글꼴 폴더가 없습니다: $FONT_DIR"
+    case "$FONT_DIR" in
+    / | /usr | /usr/* | /etc | /etc/* | /bin | /sbin | /lib* | /var | /home | /root | /tmp)
+        fail "글꼴만 둔 전용 폴더를 지정하십시오 (예: /opt/s2-fonts): $FONT_DIR" ;;
+    esac
+    local count
+    count="$(find "$FONT_DIR" -type f \( -iname '*.ttf' -o -iname '*.ttc' -o -iname '*.otf' -o -iname '*.otc' \) 2>/dev/null | wc -l)"
+    [ "$count" -gt 0 ] || fail "글꼴 파일(.ttf, .ttc, .otf)이 없습니다: $FONT_DIR"
+    # The app account must be able to read them | 앱 실행 계정이 읽을 수 있어야 함
+    as_target test -r "$FONT_DIR" || fail "앱 실행 계정($TARGET_USER)이 읽을 수 없습니다: $FONT_DIR (예: sudo chmod -R a+rX $FONT_DIR)"
+    ok "$FONT_DIR (글꼴 파일 ${count}개, 변환할 때 읽기 전용으로 연결)"
+}
+
 # s2-soffice 명령
 install_wrapper() {
     info "s2-soffice 명령 ($WRAPPER_PATH)"
@@ -909,6 +991,10 @@ install_wrapper() {
 set -euo pipefail
 
 IMAGE="@IMAGE@"
+# Customer fonts, mounted read-only (setup --font-dir; S2_FONT_DIR overrides) | 고객사 글꼴 폴더 (읽기 전용 연결)
+FONT_DIR="${S2_FONT_DIR-@FONT_DIR@}"
+fonts=()
+[ -z "$FONT_DIR" ] || [ ! -d "$FONT_DIR" ] || fonts=(-v "$FONT_DIR:/usr/share/fonts/s2-custom:ro")
 TIMEOUT="${S2_SOFFICE_TIMEOUT:-180}"
 # Optional resource limits; rootless accounts without cgroup delegation cannot use them, so they are opt-in
 # | 선택 자원 상한. cgroup 위임이 없는 rootless 계정은 쓸 수 없으므로 지정할 때만 적용
@@ -997,6 +1083,7 @@ trap '"${podman_cmd[@]}" kill "$container" >/dev/null 2>&1 || true; exit 143' TE
     --cap-drop=ALL --security-opt=no-new-privileges \
     --userns=keep-id \
     -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
+    ${fonts[@]+"${fonts[@]}"} \
     "$IMAGE" timeout --kill-after=5 "$TIMEOUT" "${args[@]}" &
 wait "$!"
 
@@ -1010,7 +1097,7 @@ for result in "${results[@]}"; do
     mv -f -- "$result" "$outdir/"
 done
 WRAPPER
-    sed -i "s|@IMAGE@|${IMAGE}|" "$wrapper_tmp"
+    fill_wrapper "$wrapper_tmp"
     if [ -f "$WRAPPER_PATH" ] && cmp -s "$wrapper_tmp" "$WRAPPER_PATH"; then
         skip "s2-soffice 가 최신입니다."
     else
@@ -1054,6 +1141,10 @@ install_chrome_wrapper() {
 set -euo pipefail
 
 IMAGE="@IMAGE@"
+# Customer fonts, mounted read-only (setup --font-dir; S2_FONT_DIR overrides) | 고객사 글꼴 폴더 (읽기 전용 연결)
+FONT_DIR="${S2_FONT_DIR-@FONT_DIR@}"
+fonts=()
+[ -z "$FONT_DIR" ] || [ ! -d "$FONT_DIR" ] || fonts=(-v "$FONT_DIR:/usr/share/fonts/s2-custom:ro")
 TIMEOUT="${S2_CHROME_TIMEOUT:-60}"
 limits=()
 [ -z "${S2_CHROME_MEMORY:-}" ] || limits+=(--memory "$S2_CHROME_MEMORY" --memory-swap "$S2_CHROME_MEMORY")
@@ -1096,6 +1187,7 @@ trap '"${podman_cmd[@]}" kill "$container" >/dev/null 2>&1 || true; exit 143' TE
     --cap-drop=ALL --security-opt=no-new-privileges \
     --userns=keep-id \
     -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
+    ${fonts[@]+"${fonts[@]}"} \
     "$IMAGE" timeout --kill-after=5 "$TIMEOUT" chromium --headless --no-sandbox --disable-gpu \
     --disable-dev-shm-usage --no-first-run --no-default-browser-check --disable-extensions \
     --disable-background-networking --disable-sync --disable-crash-reporter --mute-audio --hide-scrollbars \
@@ -1109,7 +1201,7 @@ wait "$!"
 }
 mv -f -- "$work/out/page.pdf" "$output"
 WRAPPER
-    sed -i "s|@IMAGE@|${IMAGE}|" "$wrapper_tmp"
+    fill_wrapper "$wrapper_tmp"
     if [ -f "$CHROME_WRAPPER_PATH" ] && cmp -s "$wrapper_tmp" "$CHROME_WRAPPER_PATH"; then
         skip "s2-chrome 이 최신입니다."
     else
@@ -1157,6 +1249,10 @@ install_hwp_wrapper() {
 set -euo pipefail
 
 IMAGE="@IMAGE@"
+# Customer fonts, mounted read-only (setup --font-dir; S2_FONT_DIR overrides) | 고객사 글꼴 폴더 (읽기 전용 연결)
+FONT_DIR="${S2_FONT_DIR-@FONT_DIR@}"
+fonts=()
+[ -z "$FONT_DIR" ] || [ ! -d "$FONT_DIR" ] || fonts=(-v "$FONT_DIR:/usr/share/fonts/s2-custom:ro")
 TIMEOUT="${S2_HWP_TIMEOUT:-180}"
 limits=()
 [ -z "${S2_HWP_MEMORY:-}" ] || limits+=(--memory "$S2_HWP_MEMORY" --memory-swap "$S2_HWP_MEMORY")
@@ -1169,7 +1265,7 @@ export XDG_RUNTIME_DIR="$runtime_dir"
 podman_cmd=(podman --cgroup-manager=cgroupfs --events-backend=file)
 
 if [ "${1:-}" = "--version" ]; then
-    exec "${podman_cmd[@]}" run --rm --network=none --read-only --userns=keep-id "$IMAGE" /opt/s2-hwp/s2-hwp-convert.sh --version
+    exec "${podman_cmd[@]}" run --rm --network=none --read-only --userns=keep-id ${fonts[@]+"${fonts[@]}"} "$IMAGE" /opt/s2-hwp/s2-hwp-convert.sh --version
 fi
 
 outdir=""
@@ -1242,6 +1338,7 @@ set +e
     --userns=keep-id \
     -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
     -e S2_HWP_CHUNK="${S2_HWP_CHUNK:-50}" -e S2_HWP_PARALLEL="${S2_HWP_PARALLEL:-1}" \
+    ${fonts[@]+"${fonts[@]}"} \
     "$IMAGE" timeout --kill-after=5 "$TIMEOUT" /opt/s2-hwp/s2-hwp-convert.sh "/work/in/document.$extension" /work/out/document.pdf \
     ${max_pages[@]+"${max_pages[@]}"} &
 wait "$!"
@@ -1254,7 +1351,7 @@ set -e
 }
 mv -f -- "$work/out/document.pdf" "$outdir/${name%.*}.pdf"
 WRAPPER
-    sed -i "s|@IMAGE@|${IMAGE}|" "$wrapper_tmp"
+    fill_wrapper "$wrapper_tmp"
     if [ -f "$HWP_WRAPPER_PATH" ] && cmp -s "$wrapper_tmp" "$HWP_WRAPPER_PATH"; then
         skip "s2-hwp 가 최신입니다."
     else
@@ -1285,6 +1382,15 @@ verify() {
         ok "한글(hwp, hwpx) 확장: H2Orestart ${H2ORESTART_VERSION}"
     else
         warn "H2Orestart 가 확인되지 않습니다. --rebuild 로 이미지를 다시 만드십시오."
+    fi
+    if [ -n "$FONT_DIR" ]; then
+        local seen
+        seen="$(podman_target run --rm --network=none -v "$FONT_DIR:/usr/share/fonts/s2-custom:ro" "$IMAGE" sh -c 'fc-list : file | grep -c /usr/share/fonts/s2-custom/' 2>/dev/null || echo 0)"
+        if [ "${seen:-0}" -gt 0 ]; then
+            ok "고객사 글꼴: ${seen}개 인식 ($FONT_DIR)"
+        else
+            warn "고객사 글꼴을 변환기가 인식하지 못했습니다: $FONT_DIR (파일 권한·형식을 확인하십시오)"
+        fi
     fi
     [ "$WITH_CHROME" = true ] || return 0
     local hwp_version
@@ -1347,6 +1453,7 @@ mode_install() {
     ensure_subids
     select_versions
     build_image
+    resolve_font_dir
     install_wrapper
     install_chrome_wrapper
     install_hwp_wrapper
@@ -1505,6 +1612,7 @@ mode_offline() {
         remove_old_images
     fi
 
+    resolve_font_dir
     install_wrapper
     install_chrome_wrapper
     install_hwp_wrapper
