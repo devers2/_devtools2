@@ -34,7 +34,7 @@
 #   - 여러 번 실행해도 안전합니다. 이미 설치된 것은 건너뛰고 빠진 것만 채웁니다.
 #   - 설치가 끝나면 앱을 다시 시작할 필요 없이 S2OfficeConverter 가 s2-soffice 를 자동으로 찾습니다.
 #   - 확인: sudo -u appuser s2-soffice --version, sudo -u appuser s2-chrome --version
-#   - 웹 페이지 변환(Chromium)이 필요 없으면 --no-chrome (이미지 약 0.7GB 작아짐)
+#   - 웹 페이지 변환(Chromium)과 rhwp 한글 조판(s2-hwp)이 필요 없으면 --no-chrome (이미지 약 0.7GB 작아짐, 한글은 LibreOffice 로만 변환)
 #
 # [하는 일]
 # S2DocumentMerger·S2OfficeConverter(s2-docflow)가 docx·xlsx·pptx·hwp·hwpx 등을 PDF 로 변환·병합할 수 있도록
@@ -56,9 +56,9 @@
 #   --app-user 계정    앱 실행 계정(웹 애플리케이션을 실행하는 리눅스 계정). 기본: 이 스크립트를 실행한 계정.
 #                      --user 도 같은 뜻으로 받습니다.
 #   --rebuild          이미지를 다시 만듭니다 (보안 업데이트 반영 등).
-#   --no-chrome        웹 페이지 변환용 Chromium(s2-chrome)을 빼고 설치합니다 (이미지 약 0.7GB 작아짐).
+#   --no-chrome        Chromium(s2-chrome)과 rhwp(s2-hwp)를 빼고 설치합니다 (이미지 약 0.7GB 작아짐).
 #                      (HTML-to-PDF 및 SVG 변환 기능이 비활성화됩니다)
-#   --uninstall        s2-soffice 명령과 이미지를 제거합니다 (Podman 자체는 남김).
+#   --uninstall        s2-soffice·s2-chrome·s2-hwp 명령과 이미지를 제거합니다 (Podman 자체는 남김).
 #   --export [파일]    폐쇄망용 설치 파일 하나를 만듭니다 (기본 ./setup-s2-office-converter-offline.sh).
 #                      인터넷 되는 PC에서 실행. 이 스크립트 뒤에 변환기 이미지와 Podman 설치 파일을 붙인 파일로,
 #                      서버에서 그대로 실행하면 인터넷 접속 없이 설치합니다 (옵션은 이 스크립트와 같음).
@@ -130,8 +130,8 @@ usage() {
   --app-user 계정      앱 실행 계정(웹 애플리케이션을 실행하는 리눅스 계정)용으로 설치. --user 도 같은 뜻.
                        확인: ps -eo user,cmd | grep -i java (첫 칸)
   --rebuild            이미지를 다시 만듦 (보안 업데이트 반영 등)
-  --no-chrome          웹 페이지 변환용 Chromium(s2-chrome)을 빼고 설치 (이미지 약 0.7GB 작아짐)
-  --uninstall          s2-soffice 명령과 이미지를 제거 (Podman 은 남김)
+  --no-chrome          Chromium(s2-chrome)과 rhwp(s2-hwp)를 빼고 설치 (이미지 약 0.7GB 작아짐, 한글은 LibreOffice 로만)
+  --uninstall          s2-soffice·s2-chrome·s2-hwp 명령과 이미지를 제거 (Podman 은 남김)
   --export [파일]      폐쇄망용 설치 파일 하나 만들기 (기본 ./setup-s2-office-converter-offline.sh, 인터넷 되는 PC에서)
                        서버에서: bash setup-s2-office-converter-offline.sh --app-user 계정
   --target 배포판      --export 에서 서버 배포판:버전 (예: ubuntu:22.04, debian:12, rockylinux:9). 기본: 이 PC 와 같음
