@@ -98,6 +98,25 @@ bash setup-s2-office-converter-offline.sh --app-user appuser
   uid 분리도 준비합니다. 같은 설치 파일을 다시 실행하면 건너뛰고, 새로 만든 설치 파일이면 이미지를 자동으로 바꿉니다 ([최신화](#최신화-보안-업데이트)).
   `--uninstall` 은 제거.
 - 고객사 글꼴은 설치 파일에 들어가지 않습니다. 서버에 글꼴 폴더를 따로 옮긴 뒤 `--font-dir <폴더>` 를 붙여 실행합니다.
+- **설치 파일은 서버에 남겨 둡니다** (예: `/opt/s2/setup-s2-office-converter-offline.sh`). 글꼴을 추가하거나 설정을 바꿀 때 같은 파일을 다시
+  실행합니다. 다시 실행하면 이미지는 이미 있으니 건너뛰고(압축 풀기 포함 1분 안팎), 글꼴 폴더·변환 몫·재사용 설정은 설치된 명령과
+  `/etc/s2-docflow/converter.env` 에서 그대로 이어받습니다.
+
+**폐쇄망 서버에서 할 일 정리**
+
+| 상황 | 인터넷 되는 PC | 폐쇄망 서버 |
+|---|---|---|
+| 처음 설치 | `--export --target <배포판:버전>` → 파일을 서버로 | `bash setup-s2-office-converter-offline.sh --app-user appuser [--dedicated \| --share 40] [--font-dir /opt/s2-fonts]` |
+| **글꼴 추가·교체** | 없음 | ① 글꼴 파일을 글꼴 폴더에 복사 (`sudo cp *.ttf /opt/s2-fonts/ && sudo chmod -R a+rX /opt/s2-fonts`) ② `bash setup-s2-office-converter-offline.sh --app-user appuser` |
+| 처음으로 글꼴 폴더 지정 | 없음 | 글꼴 폴더를 옮긴 뒤 `bash setup-s2-office-converter-offline.sh --app-user appuser --font-dir /opt/s2-fonts` |
+| 보안 업데이트 (이미지, 30일마다 권장) | `--export --rebuild --target <배포판:버전>` → 새 파일을 서버로 | 새 파일로 `bash setup-s2-office-converter-offline.sh --app-user appuser` (이미지 id 가 달라 자동으로 바꿈) |
+| 변환 몫·재사용 바꾸기 | 없음 | `bash setup-s2-office-converter-offline.sh --app-user appuser --share 40` (또는 `--dedicated`, `--warm`, `--no-warm`) |
+| 변환 서버(`--server`)를 쓰는 서버 | (위와 같음) | 위 명령에 `--app-user` 를 서버 실행 계정(예: `s2conv`)으로. `--server` 를 빼도 서비스는 그대로이고, 명령 파일은 변환할 때마다 읽으므로 서비스 재시작이 필요 없음 |
+| 제거 | 없음 | `bash setup-s2-office-converter-offline.sh --app-user appuser --uninstall` |
+
+글꼴을 추가한 뒤 다시 실행하는 이유: 새 변환에는 글꼴이 바로 쓰이지만, s2-docflow 변환 캐시에 대체 글꼴로 만든 예전 결과가 남아 있습니다.
+다시 실행하면 명령 파일의 글꼴 폴더 지문이 바뀌어 그 뒤 요청부터 새로 변환합니다 ([s2-hwp](#s2-hwp) 의 고객사 글꼴 항목). 이 지문을 적는 기능은
+**2026-11-04 이후에 만든 설치 파일**에만 있으므로, 그 전에 만든 설치 파일을 쓰고 있다면 한 번 `--export` 로 다시 만들어 서버에 옮깁니다.
 
 `--target` 에 쓸 수 있는 배포판: `ubuntu:<버전>`, `debian:<버전>`, `rockylinux:<버전>`, `almalinux:<버전>`,
 `rhel:<버전>` (AlmaLinux 패키지로 받음, 바이너리 호환), `fedora:<버전>`
@@ -152,7 +171,7 @@ curl -fsSL <주소> | bash -s -- --app-user appuser --uninstall
 **폐쇄망 서버:** 인터넷 되는 PC에서 `--export --rebuild --target <배포판:버전>` 으로 설치 파일을 새로 만들어 서버에서 실행합니다. 서버의 이미지와
 설치 파일의 이미지가 다르면(이미지 id 비교) **자동으로 바꾸고**, 같으면 건너뜁니다 (`--rebuild` 를 붙이지 않아도 됨). 서버에서 불러온 이미지가
 30일이 지났으면 새 설치 파일을 만들라고 알려 줍니다. 설정(몫·글꼴·`--warm`·uid 분리)은 서버의 `/etc/s2-docflow/converter.env` 와 설치된 명령에서
-그대로 이어집니다.
+그대로 이어집니다. 글꼴 추가 등 폐쇄망 서버에서 할 일은 [2. 폐쇄망 설치](#2-폐쇄망-설치-서버가-인터넷에-접속할-수-없을-때)의 표에 정리했습니다.
 
 **호스트 패치는 스크립트가 하지 않습니다** (운영체제 정책의 몫). 컨테이너 탈출은 대부분 커널·crun·Podman 취약점이므로 자동 보안 업데이트를 켜 둡니다.
 
@@ -329,7 +348,8 @@ WebAssembly)가 쪽을 SVG 로 조판하고 Chromium 이 인쇄합니다.
   - **글꼴을 추가·교체한 뒤에는 설치 스크립트를 다시 실행**합니다. 새 변환에는 바로 쓰이지만, s2-docflow 변환 캐시에는 대체 글꼴로 만든
     예전 결과가 남아 있기 때문입니다. 다시 실행하면 명령 파일에 적는 글꼴 폴더 지문(`S2_FONT_FINGERPRINT`: 글꼴 파일 이름·크기·시각)이 바뀌고,
     s2-docflow 는 명령 파일의 해시를 캐시 키에 넣으므로 그 뒤 요청부터 새로 변환합니다 (바로 전부 비우려면 앱에서
-    `S2DocumentMerger.clearConversionCache()`).
+    `S2DocumentMerger.clearConversionCache()`). 폐쇄망 서버는 서버에 남겨 둔 설치 파일을 다시 실행합니다
+    (`bash setup-s2-office-converter-offline.sh --app-user appuser`, [2. 폐쇄망 설치](#2-폐쇄망-설치-서버가-인터넷에-접속할-수-없을-때)의 표).
 - **큰 문서:** 쪽을 50쪽씩(`S2_HWP_CHUNK`) 나눠 인쇄하고 qpdf 로 합칩니다. Chromium 메모리가 쪽 수와 상관없이 약 2GB 안팎입니다 (381쪽을
   한 번에 인쇄하면 약 4GB). 시간은 쪽 수에 비례합니다 (초당 약 7~8쪽, 381쪽 48초).
   - `--max-pages N`: 앞 N쪽과 "이하 M쪽은 넣지 않았습니다 (전체 T쪽)" 안내 쪽만 만듭니다 (381쪽 문서 100쪽 한도 16초). 앱에서는
