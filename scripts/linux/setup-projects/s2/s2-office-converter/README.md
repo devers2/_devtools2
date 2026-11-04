@@ -24,6 +24,7 @@ s2-docflow 의 `S2OfficeConverter`·`S2DocumentMerger` 가 **오피스·한글 �
 | `setup-s2-office-converter.sh` | 설치 스크립트. 이 파일 하나로 온라인 설치, 폐쇄망 설치 파일 만들기(`--export`), 다시 만들기, 제거를 모두 합니다. |
 | `s2-office-converter-versions.toml` | H2Orestart·rhwp **버전 정책과 이력** (Git 관리). 버전을 올리거나 되돌릴 때 이 파일의 `[track]` 을 바꿉니다. |
 | `README.md` | 이 안내문 |
+| `tests/setup-s2-office-converter.test.sh` | 설치 스크립트 시험 (sudo·네트워크 없이, s2-docflow 의 `./gradlew check` 가 실행. s2-docflow 저장소에만 있음) |
 
 스크립트는 옆의 버전 파일을 읽고, GitHub 에서 바로 실행하면 같은 경로의 GitHub 원본을 읽습니다. 둘 다 읽지 못하면 스크립트에 적힌
 기본 버전으로 설치하므로, 스크립트 파일 하나만 복사해 실행해도 동작합니다.
