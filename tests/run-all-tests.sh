@@ -1026,6 +1026,57 @@ else
   assert_test "0.setup-wsl.ps1 의 .wslconfig·메모리·배포판 정보 단계가 기존 배포판 재설치에서도 실행되는가" 1 "$wsl_block_bad"
 fi
 
+# 6-8. 오프라인 가져오기(scripts/offline/)가 묶음 안의 파일만으로 동작하는가 (AGENTS.md 2번 "유일한 예외")
+#   인터넷이 없는 PC 에서 실행되므로 온라인 공용 파일(_common.ps1)이나 네트워크 명령에 기대면 그 PC 에서만 실패합니다.
+#   ● 2-3 은 저장소 전체의 function 정의를 합쳐서 보므로, 가져오기 본체가 _common.ps1 의 함수를 부르면 통과해 버립니다
+#     → 이 항목은 본체 파일 하나만 넘겨 "스스로 정의했는가"를 봅니다(같은 tests/lib/Find-UndefinedPsCommands.ps1 사용).
+#   ● 주석을 뺀 줄에 네트워크 명령(Invoke-WebRequest·irm·curl·http(s)://·raw.githubusercontent)과 _common.ps1 이 없어야 합니다.
+#   ● 실행 파일(.cmd)은 ASCII 전용(cmd.exe 가 OEM 코드 페이지로 읽음)이고, 본체 파일 이름을 그대로 가리켜야 합니다.
+offline_bad=$(
+  python3 - "$REPO_ROOT" <<'EOF'
+import re, sys, os
+repo = sys.argv[1]
+d = os.path.join(repo, 'scripts', 'offline')
+imp, cmd = os.path.join(d, 'import-devtools2-offline.ps1'), os.path.join(d, 'import-launcher.cmd')
+bad = []
+net = re.compile(r'Invoke-WebRequest|Invoke-RestMethod|\b(irm|iwr|curl|wget)\b|Start-BitsTransfer|WebClient|https?://|raw\.githubusercontent|_common\.ps1', re.I)
+for path, comment in ((imp, '#'), (cmd, None)):
+    if not os.path.isfile(path):
+        bad.append(os.path.basename(path) + ' 없음'); continue
+    for i, line in enumerate(open(path, encoding='utf-8', errors='replace'), 1):
+        t = line.strip()
+        if (comment and t.startswith(comment)) or (not comment and re.match(r'(?i)^(rem\b|::)', t)):
+            continue
+        if net.search(t):
+            bad.append('%s:%d 네트워크/온라인 공용 파일 사용' % (os.path.basename(path), i))
+if os.path.isfile(cmd):
+    raw = open(cmd, 'rb').read()
+    if any(b > 0x7f for b in raw):
+        bad.append('import-launcher.cmd 에 ASCII 가 아닌 문자')
+    if b'import-devtools2-offline.ps1' not in raw:
+        bad.append('import-launcher.cmd 가 import-devtools2-offline.ps1 을 가리키지 않음')
+print('; '.join(bad))
+EOF
+)
+offline_imp="$REPO_ROOT/scripts/offline/import-devtools2-offline.ps1"
+if [ -z "$offline_bad" ] && [ "$ps_parser" = "powershell.exe" ] && [ -f "$offline_imp" ]; then
+  offline_out=$(powershell.exe -NoProfile -Command "
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(\$false)
+        & ([scriptblock]::Create([System.IO.File]::ReadAllText('${undef_checker//\'/\'\'}', [System.Text.Encoding]::UTF8))) -Files @('$(wslpath -w "$offline_imp")')
+    " 2>/dev/null | tr -d '\r' || true)
+  if ! printf '%s\n' "$offline_out" | grep -q '^DT2_UNDEF='; then
+    offline_bad="함수 정의 검사 실행 실패"
+  else
+    offline_undef=$(printf '%s\n' "$offline_out" | sed -n 's/^DT2_UNDEF=//p')
+    [ -n "$offline_undef" ] && offline_bad="가져오기 본체에 정의 없는 함수: $offline_undef"
+  fi
+fi
+if [ -z "$offline_bad" ]; then
+  assert_test "오프라인 가져오기가 묶음 안의 파일만으로 동작하는가 (네트워크·공용 파일 없음, 함수 자체 정의)" 0
+else
+  assert_test "오프라인 가져오기가 묶음 안의 파일만으로 동작하는가 (네트워크·공용 파일 없음, 함수 자체 정의)" 1 "$offline_bad"
+fi
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================

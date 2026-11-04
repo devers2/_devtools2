@@ -705,6 +705,51 @@ if ($null -ne $newInstallFn) {
 Assert-Test "0.setup-wsl.ps1 의 .wslconfig·메모리·배포판 정보 단계가 기존 배포판 재설치에서도 실행되는가" ($wslBlockBad.Count -eq 0) `
     ($wslBlockBad -join "; ")
 
+# --- 6-8. 오프라인 가져오기(scripts\offline\)가 묶음 안의 파일만으로 동작하는가 (AGENTS.md 2번 "유일한 예외")
+#     인터넷이 없는 PC 에서 실행되므로 온라인 공용 파일(_common.ps1)이나 네트워크 명령에 기대면 그 PC 에서만 실패합니다.
+#     ● 2-3 은 저장소 전체의 function 정의를 합쳐서 보므로, 가져오기 본체가 _common.ps1 의 함수를 부르면 통과해 버립니다
+#       → 이 항목은 본체 파일 하나만 넘겨 "스스로 정의했는가"를 봅니다(같은 tests\lib\Find-UndefinedPsCommands.ps1 사용).
+#     ● 주석을 뺀 줄에 네트워크 명령(Invoke-WebRequest·irm·curl·http(s)://·raw.githubusercontent)과 _common.ps1 이 없어야 합니다.
+#     ● 실행 파일(.cmd)은 ASCII 전용(cmd.exe 가 OEM 코드 페이지로 읽음)이고, 본체 파일 이름을 그대로 가리켜야 합니다.
+$offlineBad = @()
+$offlineImp = Join-Path $repoRootPath "scripts\offline\import-devtools2-offline.ps1"
+$offlineCmd = Join-Path $repoRootPath "scripts\offline\import-launcher.cmd"
+$offlineNet = '(?i)Invoke-WebRequest|Invoke-RestMethod|\b(irm|iwr|curl|wget)\b|Start-BitsTransfer|WebClient|https?://|raw\.githubusercontent|_common\.ps1'
+foreach ($pair in @(@($offlineImp, '^#'), @($offlineCmd, '(?i)^(rem\b|::)'))) {
+    $fileName = [System.IO.Path]::GetFileName($pair[0])
+    if (-not (Test-Path $pair[0])) { $offlineBad += "$fileName 없음"; continue }
+    $lineNo = 0
+    foreach ($line in ([System.IO.File]::ReadAllText($pair[0], [System.Text.Encoding]::UTF8) -split "`r?`n")) {
+        $lineNo++
+        $t = $line.Trim()
+        if ($t -match $pair[1]) { continue }
+        if ($t -match $offlineNet) { $offlineBad += "${fileName}:$lineNo 네트워크/온라인 공용 파일 사용" }
+    }
+}
+if (Test-Path $offlineCmd) {
+    $cmdBytes = [System.IO.File]::ReadAllBytes($offlineCmd)
+    if (@($cmdBytes | Where-Object { $_ -gt 0x7f }).Count -gt 0) { $offlineBad += "import-launcher.cmd 에 ASCII 가 아닌 문자" }
+    if (-not ([System.Text.Encoding]::ASCII.GetString($cmdBytes)).Contains('import-devtools2-offline.ps1')) { $offlineBad += "import-launcher.cmd 가 import-devtools2-offline.ps1 을 가리키지 않음" }
+}
+if ($offlineBad.Count -eq 0 -and (Test-Path $offlineImp)) {
+    $offlineOut = @()
+    if ($PSVersionTable.PSVersion.Major -ge 6 -and $ps51) {
+        $offlineScript = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(`$false); " +
+            "& ([scriptblock]::Create([System.IO.File]::ReadAllText('" + ($undefChecker -replace "'", "''") + "', [System.Text.Encoding]::UTF8))) -Files @('" + ($offlineImp -replace "'", "''") + "')"
+        $offlineOut = @(& $ps51.Source -NoProfile -Command $offlineScript 2>$null) | ForEach-Object { [string]$_ }
+    } else {
+        $offlineOut = @(& ([scriptblock]::Create([System.IO.File]::ReadAllText($undefChecker, [System.Text.Encoding]::UTF8))) -Files @($offlineImp)) | ForEach-Object { [string]$_ }
+    }
+    $offlineUndefLine = $offlineOut | Where-Object { $_ -like 'DT2_UNDEF=*' } | Select-Object -Last 1
+    if ($null -eq $offlineUndefLine) {
+        $offlineBad += "함수 정의 검사 실행 실패"
+    } elseif ($offlineUndefLine.Length -gt 'DT2_UNDEF='.Length) {
+        $offlineBad += "가져오기 본체에 정의 없는 함수: " + $offlineUndefLine.Substring('DT2_UNDEF='.Length)
+    }
+}
+Assert-Test "오프라인 가져오기가 묶음 안의 파일만으로 동작하는가 (네트워크·공용 파일 없음, 함수 자체 정의)" ($offlineBad.Count -eq 0) `
+    ($offlineBad -join "; ")
+
 # ==============================================================================
 # [최종 요약 결과]
 # ==============================================================================
