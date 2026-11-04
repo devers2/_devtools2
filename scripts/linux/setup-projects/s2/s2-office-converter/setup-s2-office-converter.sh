@@ -165,6 +165,8 @@ usage() {
   --dedicated          이 서버를 변환 전용으로 씀 (CPU 전체, 메모리는 OS·서버 몫 3GB를 뺀 나머지)
   --share 퍼센트       앱과 함께 쓰는 서버에서 변환에 줄 몫 (10~90, 예: --share 40)
                        둘 다 없으면 처음 설치할 때 물어보고(무인 실행은 묻지 않음), 다시 실행하면 정한 값을 유지
+  --warm               성능 우선: 끝난 컨테이너를 다음 변환에 다시 씀 (작은 문서 건당 0.3~0.5초 빠름, 격리는 한 단계 약함)
+  --no-warm            변환마다 새 컨테이너 (기본, 격리 우선). 한 번 정하면 다시 실행해도 유지
   --uninstall          s2-soffice·s2-chrome·s2-hwp 명령과 이미지를 제거 (Podman 은 남김)
   --export [파일]      폐쇄망용 설치 파일 하나 만들기 (기본 ./setup-s2-office-converter-offline.sh, 인터넷 되는 PC에서)
                        서버에서: bash setup-s2-office-converter-offline.sh --app-user 계정
@@ -196,6 +198,7 @@ JAVA_BIN=""
 EXPORT_FILE=""
 TARGET_DISTRO=""
 SHARE=""
+WARM=""
 while [ $# -gt 0 ]; do
     case "$1" in
     --app-user | --user)
@@ -281,6 +284,14 @@ while [ $# -gt 0 ]; do
         ;;
     --dedicated)
         SHARE="dedicated"
+        shift
+        ;;
+    --warm)
+        WARM=1
+        shift
+        ;;
+    --no-warm)
+        WARM=0
         shift
         ;;
     --share)
@@ -1052,21 +1063,23 @@ fill_wrapper() {
 write_runtime() {
     cat >"$1" <<'RUNTIME'
 # ---- Container runtime shared by s2-soffice, s2-chrome and s2-hwp ------------------------------------------------
-# Each job runs in a container with no network, a read-only root, no capabilities and the caller's uid. By default an
-# idle container of this account's pool is reused (podman exec, about 1 s less per small document than podman run).
-# A container runs one job at a time; when the job ends, every process it left is killed and /tmp is emptied, so the
-# next job starts clean (LibreOffice starts from a copy of a read-only, prepared profile). A container is removed
-# after S2_CONVERTER_IDLE_SECONDS without work (default 600), after S2_CONVERTER_WARM_USES jobs (default 200), or when
-# a job times out or is cancelled. At most S2_CONVERTER_WARM_MAX containers (default: S2_DOCFLOW_PARALLELISM from
-# /etc/s2-docflow/converter.env, else the CPU count). Beyond that, with S2_CONVERTER_WARM=0, or with resource limits
-# (S2_*_MEMORY, S2_*_CPUS), a fresh container is started for the job and removed after it.
+# Each job runs in a container with no network, a read-only root, no capabilities and the caller's uid. By default a
+# fresh container is started for every job and removed after it (LibreOffice starts from a copy of a read-only profile
+# prepared once per account, which saves about 0.65 s). Performance first: S2_CONVERTER_WARM=1 (or setup --warm)
+# reuses idle containers of this account's pool (podman exec, about 0.3 s less per small document, more for Chromium).
+# A pool container runs one job at a time; when the job ends, every process it left is killed and /tmp is emptied.
+# Isolation is one step weaker than a fresh container: a job that broke out of its process through a kernel or
+# container runtime flaw could affect the next job in the same container. A pool container is removed after
+# S2_CONVERTER_IDLE_SECONDS without work (default 600), after S2_CONVERTER_WARM_USES jobs (default 200), or when a job
+# times out or is cancelled; at most S2_CONVERTER_WARM_MAX (default: S2_DOCFLOW_PARALLELISM from converter.env, else
+# the CPU count), and with resource limits (S2_*_MEMORY, S2_*_CPUS) a fresh container is always used.
 # | 변환기 컨테이너 실행 (s2-soffice, s2-chrome, s2-hwp 공통). 네트워크 없음, 읽기 전용 루트, 권한 없음, 호출자 uid.
-# 기본은 이 계정의 대기 컨테이너를 다시 씀 (podman exec, 작은 문서 기준 podman run 보다 건당 약 1초 빠름). 컨테이너 하나는 한 번에
-# 작업 하나만 하고, 작업이 끝나면 남은 프로세스를 모두 끝내고 /tmp 를 비워 다음 작업이 깨끗하게 시작한다 (LibreOffice 는 읽기 전용으로
-# 준비해 둔 프로필의 사본으로 시작). S2_CONVERTER_IDLE_SECONDS(기본 600) 동안 일이 없거나, S2_CONVERTER_WARM_USES(기본 200)건을
-# 처리했거나, 작업이 시간 초과·취소되면 컨테이너를 지운다. 최대 S2_CONVERTER_WARM_MAX 개 (기본: /etc/s2-docflow/converter.env 의
-# S2_DOCFLOW_PARALLELISM, 없으면 CPU 수). 그보다 많거나 S2_CONVERTER_WARM=0 이거나 자원 상한(S2_*_MEMORY, S2_*_CPUS)을 지정하면
-# 작업마다 새 컨테이너를 띄우고 끝나면 지운다.
+# 기본은 작업마다 새 컨테이너를 띄우고 끝나면 지운다 (LibreOffice 는 계정마다 한 번 만들어 둔 읽기 전용 프로필의 사본으로 시작해 약 0.65초 단축).
+# 성능 우선: S2_CONVERTER_WARM=1 (또는 설치 --warm) 이면 이 계정의 대기 컨테이너를 다시 쓴다 (podman exec). 대기 컨테이너는 한 번에 작업
+# 하나만 하고, 작업이 끝나면 남은 프로세스를 모두 끝내고 /tmp 를 비운다. 격리는 새 컨테이너보다 한 단계 약하다: 커널·컨테이너 런타임 취약점으로
+# 프로세스를 벗어난 작업은 같은 컨테이너의 다음 작업에 영향을 줄 수 있다. S2_CONVERTER_IDLE_SECONDS(기본 600) 동안 일이 없거나,
+# S2_CONVERTER_WARM_USES(기본 200)건을 처리했거나, 시간 초과·취소되면 지운다. 최대 S2_CONVERTER_WARM_MAX 개 (기본: converter.env 의
+# S2_DOCFLOW_PARALLELISM, 없으면 CPU 수). 자원 상한(S2_*_MEMORY, S2_*_CPUS)을 지정하면 항상 새 컨테이너.
 S2_SETTINGS_FILE="/etc/s2-docflow/converter.env"
 s2_setting() {
     local value="${!1:-}"
@@ -1115,7 +1128,7 @@ s2_run() {
         shift
     done
     shift
-    if [ "$(s2_setting S2_CONVERTER_WARM 1)" != 0 ] && [ ${#limits[@]} -eq 0 ] && command -v flock >/dev/null 2>&1; then
+    if [ "$(s2_setting S2_CONVERTER_WARM 0)" = 1 ] && [ ${#limits[@]} -eq 0 ] && command -v flock >/dev/null 2>&1; then
         s2_warm_run "$@"
         rc=$?
         [ "$rc" = 200 ] || return "$rc"
@@ -1256,7 +1269,7 @@ install_wrapper() {
 #   S2_SOFFICE_TIMEOUT  변환 제한 시간(초, 기본 180)
 #   S2_SOFFICE_MEMORY   컨테이너 메모리 상한 (예: 1g, 지정할 때만. cgroup v2 위임이 있어야 함)
 #   S2_SOFFICE_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
-#   S2_CONVERTER_WARM   0 이면 대기 컨테이너를 쓰지 않고 작업마다 새 컨테이너 (그 밖의 설정: 아래 "Container runtime" 부분)
+#   S2_CONVERTER_WARM   1 이면 대기 컨테이너를 다시 씀 (성능 우선, 격리는 한 단계 약함. 기본 0: 작업마다 새 컨테이너. 아래 "Container runtime" 부분)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
@@ -1396,7 +1409,7 @@ install_chrome_wrapper() {
 #   S2_CHROME_TIMEOUT  인쇄 제한 시간(초, 기본 60)
 #   S2_CHROME_MEMORY   컨테이너 메모리 상한 (예: 1g, 지정할 때만. cgroup v2 위임이 있어야 함)
 #   S2_CHROME_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
-#   S2_CONVERTER_WARM   0 이면 대기 컨테이너를 쓰지 않고 작업마다 새 컨테이너 (그 밖의 설정: 아래 "Container runtime" 부분)
+#   S2_CONVERTER_WARM   1 이면 대기 컨테이너를 다시 씀 (성능 우선, 격리는 한 단계 약함. 기본 0: 작업마다 새 컨테이너. 아래 "Container runtime" 부분)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
@@ -1494,7 +1507,7 @@ install_hwp_wrapper() {
 #   S2_HWP_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
 #   S2_HWP_CHUNK    한 번에 인쇄할 쪽 수 (기본 50). 쪽을 나눠 인쇄해 Chromium 메모리를 약 2GB 안팎으로 유지 (381쪽을 한 번에 인쇄하면 약 4GB)
 #   S2_HWP_PARALLEL 동시에 인쇄할 묶음 수 (기본 1). 2~3 이면 큰 문서가 그만큼 빨라지지만 메모리도 그만큼 더 씀
-#   S2_CONVERTER_WARM   0 이면 대기 컨테이너를 쓰지 않고 작업마다 새 컨테이너 (그 밖의 설정: 아래 "Container runtime" 부분)
+#   S2_CONVERTER_WARM   1 이면 대기 컨테이너를 다시 씀 (성능 우선, 격리는 한 단계 약함. 기본 0: 작업마다 새 컨테이너. 아래 "Container runtime" 부분)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
@@ -1605,12 +1618,11 @@ WRAPPER
 # 변환 몫과 규모 안내
 # ==============================================================================
 
-# Planning figures. A conversion slot finishes an ordinary document in about 2-2.5 s with reused containers (small
-# documents 0.7-1.8 s plus the conversion itself); planned at 0.2 conversions a second per slot to leave headroom.
-# Users: 10 conversions not in the cache per user a day, an 8-hour day, the busiest moment 3 times the average, so
-# users = conversions a second x 960 | 계획 기준. 대기 컨테이너를 쓰면 한 자리가 보통 문서를 약 2~2.5초에 처리하며(작은 문서 0.7~1.8초 +
-# 변환 자체), 여유를 두어 자리당 초당 0.2건으로 잡음. 사용자: 1인당 하루 캐시에 없는 변환 10건, 업무 8시간, 가장 몰릴 때 평균의 3배
-# → 사용자 수 = 초당 변환 수 x 960
+# Planning figures. Measured with 8 slots and small mixed documents: 0.43 conversions a second per slot (0.45-0.5 with
+# --warm); planned at 0.2 per slot to leave room for larger documents and peaks. Users: 10 conversions not in the cache
+# per user a day, an 8-hour day, the busiest moment 3 times the average, so users = conversions a second x 960
+# | 계획 기준. 8자리·작은 문서 섞음 실측: 자리당 초당 0.43건(--warm 0.45~0.5건). 큰 문서와 몰림을 고려해 자리당 초당 0.2건으로 잡음.
+# 사용자: 1인당 하루 캐시에 없는 변환 10건, 업무 8시간, 가장 몰릴 때 평균의 3배 → 사용자 수 = 초당 변환 수 x 960
 PLAN_RATE_PER_SLOT_X100=20
 USERS_PER_RATE=960
 # Memory planned per concurrent conversion and kept for the OS and the server JVM on a dedicated server
@@ -1620,7 +1632,8 @@ DEDICATED_RESERVE_MB=3072
 CAPACITY_SUMMARY=""
 
 converter_env_value() {
-    sed -n "s/^$1=//p" "$CONVERTER_ENV" 2>/dev/null | head -1
+    [ -r "$CONVERTER_ENV" ] || return 0
+    sed -n "s/^$1=//p" "$CONVERTER_ENV" | head -1
 }
 ask_no() {
     local answer=""
@@ -1632,7 +1645,9 @@ ask_no() {
 # Decides the share, writes converter.env and estimates the number of users | 몫을 정해 converter.env 를 쓰고 사용자 규모를 안내
 configure_capacity() {
     info "변환에 쓰는 몫 (동시 변환 수·메모리)"
-    local cores mem_mb conv_cores conv_mem slots rate_x100 users label answer
+    local cores mem_mb conv_cores conv_mem slots rate_x100 users label answer warm
+    warm="${WARM:-$(converter_env_value S2_CONVERTER_WARM)}"
+    warm="${warm:-0}"
     cores="$(nproc 2>/dev/null || echo 2)"
     mem_mb="$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || echo 4096)"
     if [ -z "$SHARE" ]; then
@@ -1650,6 +1665,7 @@ configure_capacity() {
                 [[ "$SHARE" =~ ^[0-9]+$ ]] && [ "$SHARE" -ge 10 ] && [ "$SHARE" -le 90 ] || fail "10~90 사이 숫자를 입력하십시오: $SHARE"
             fi
         else
+            [ -z "$WARM" ] || fail "처음 설치할 때 --warm/--no-warm 은 --dedicated 또는 --share 퍼센트와 함께 씁니다."
             skip "정하지 않았습니다 (무인 실행). 앱 기본값: 동시 변환 min(CPU, 4), 메모리 예산 물리 메모리의 절반. 정하기: --dedicated 또는 --share 퍼센트"
             return 0
         fi
@@ -1680,6 +1696,8 @@ configure_capacity() {
 S2_CONVERTER_SHARE=${SHARE}
 S2_DOCFLOW_PARALLELISM=${slots}
 S2_DOCFLOW_MEMORY_MB=${conv_mem}
+# 대기 컨테이너 재사용. 0: 변환마다 새 컨테이너 (기본, 격리 우선) / 1: 끝난 컨테이너를 다시 씀 (성능 우선, 격리는 한 단계 약함). 바꾸기: --warm / --no-warm
+S2_CONVERTER_WARM=${warm}
 ENV
     "${SUDO[@]}" mkdir -p "$SERVER_ENV_DIR"
     if [ -f "$CONVERTER_ENV" ] && "${SUDO[@]}" cmp -s "$env_tmp" "$CONVERTER_ENV"; then
@@ -1690,6 +1708,12 @@ ENV
     fi
     CAPACITY_SUMMARY="몫 ${label}: 동시 변환 ${slots}건, 메모리 예산 ${conv_mem}MB (CPU ${cores}코어, 메모리 ${mem_mb}MB 중)"
     ok "$CAPACITY_SUMMARY"
+    if [ "$warm" = 1 ]; then
+        warn "대기 컨테이너를 다시 씁니다 (--warm, 성능 우선). 앞 작업이 남긴 프로세스와 /tmp 는 지우지만, 커널·컨테이너 런타임 취약점을 이용한 문서는 같은 컨테이너의 다음 작업에 영향을 줄 수 있습니다. 민감한 문서를 다루면 --no-warm"
+        CAPACITY_SUMMARY="${CAPACITY_SUMMARY}, 대기 컨테이너 재사용 (성능 우선)"
+    else
+        CAPACITY_SUMMARY="${CAPACITY_SUMMARY}, 변환마다 새 컨테이너 (격리 우선. 성능 우선은 --warm)"
+    fi
     CAPACITY_SUMMARY="${CAPACITY_SUMMARY}
      규모: 일반적인 사용이면 약 ${users}명까지 (1인당 하루 캐시에 없는 변환 10건, 업무 8시간, 가장 몰릴 때 평균의 3배,
            보통 문서 기준 초당 약 $((rate_x100 / 100)).$(printf '%02d' $((rate_x100 % 100)))건으로 계획). 업로드 때 미리 변환(prepare)·캐시가 잘 맞으면 더 많이.
