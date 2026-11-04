@@ -93,7 +93,9 @@ bash setup-s2-office-converter-offline.sh --app-user appuser
 - 손상 여부(체크섬), CPU 종류를 먼저 확인하고, 맞지 않으면 무엇을 다시 해야 하는지 알려 주고 멈춥니다.
 - 서버에 Podman 이 없으면 파일에 든 패키지로 설치합니다 (이때 배포판도 맞아야 함). 이미 있으면 건너뜁니다.
 - 설치 중에 `/var/tmp` 에 잠시 압축을 풀었다가 지웁니다. 공간이 부족하면 `TMPDIR=<폴더> bash setup-s2-office-converter-offline.sh ...`.
-- 옵션은 원래 스크립트와 같습니다 (`--rebuild` 는 이미지를 다시 등록, `--uninstall` 은 제거).
+- 옵션과 진행은 원래 스크립트와 같습니다. 처음 설치할 때 **변환 전용인지·몫(%)을 묻고**(`--dedicated`·`--share 퍼센트`·`--warm` 도 그대로),
+  uid 분리도 준비합니다. 같은 설치 파일을 다시 실행하면 건너뛰고, 새로 만든 설치 파일이면 이미지를 자동으로 바꿉니다 ([최신화](#최신화-보안-업데이트)).
+  `--uninstall` 은 제거.
 - 고객사 글꼴은 설치 파일에 들어가지 않습니다. 서버에 글꼴 폴더를 따로 옮긴 뒤 `--font-dir <폴더>` 를 붙여 실행합니다.
 
 `--target` 에 쓸 수 있는 배포판: `ubuntu:<버전>`, `debian:<버전>`, `rockylinux:<버전>`, `almalinux:<버전>`,
@@ -128,6 +130,39 @@ curl -fsSL <주소> | bash -s -- --app-user appuser --uninstall
 - 여러 번 실행해도 안전합니다. 이미 있는 것은 건너뛰고 빠진 것만 채웁니다.
 - 구성 요소 버전을 바꾸면(업데이트에 동의하면) 새 이미지를 만들고 이전 이미지는 정리합니다.
 - 한 서버에서 여러 계정이 쓰면(예: 앱 계정과 배치 계정) 계정마다 한 번씩 실행합니다. `s2-soffice` 명령은 서버에 하나만 설치됩니다.
+
+### 최신화 (보안 업데이트)
+
+변환기의 보안 업데이트는 **이미지 안**(LibreOffice·Chromium·Debian 패키지)과 **호스트**(커널·Podman·crun) 두 곳에 있습니다. 스크립트는 몇 번을
+실행해도 안전하며(멱등), 이미지 쪽은 다음처럼 최신화합니다.
+
+| 상황 | 하는 일 |
+|---|---|
+| 그냥 다시 실행 | 설치된 이미지를 유지. 다만 **만든 지 30일**(`S2_CONVERTER_MAX_AGE_DAYS`)이 지났으면 다시 만들지 묻습니다. 설정(몫·글꼴·`--warm`)은 그대로 |
+| `--rebuild` | 바로 다시 만듦. 기반 이미지를 새로 받고(`--pull=newer`) **캐시 없이** 패키지를 새로 설치하므로 그날까지의 보안 업데이트가 들어갑니다 |
+| 무인 실행 (cron 등) | 묻지 않음. `S2_CONVERTER_UPDATE=y` 면 30일이 지난 이미지를 다시 만들고 새 구성 요소 버전도 받음, `n` 이면 유지 |
+| 다시 만든 뒤 | 이름 없이 남은 예전 이미지를 지우고, 대기 컨테이너를 정리하고, uid 분리용 준비를 다시 함. 서비스 재시작은 필요 없음 (변환마다 새 이미지로 컨테이너를 띄움) |
+
+```sh
+# 예: 매달 1일 새벽 3시에 자동으로 (root 의 crontab, 인터넷 되는 서버)
+0 3 1 * * S2_CONVERTER_UPDATE=y bash /opt/s2/setup-s2-office-converter.sh --app-user appuser >>/var/log/s2-converter-update.log 2>&1
+```
+
+**폐쇄망 서버:** 인터넷 되는 PC에서 `--export --rebuild --target <배포판:버전>` 으로 설치 파일을 새로 만들어 서버에서 실행합니다. 서버의 이미지와
+설치 파일의 이미지가 다르면(이미지 id 비교) **자동으로 바꾸고**, 같으면 건너뜁니다 (`--rebuild` 를 붙이지 않아도 됨). 서버에서 불러온 이미지가
+30일이 지났으면 새 설치 파일을 만들라고 알려 줍니다. 설정(몫·글꼴·`--warm`·uid 분리)은 서버의 `/etc/s2-docflow/converter.env` 와 설치된 명령에서
+그대로 이어집니다.
+
+**호스트 패치는 스크립트가 하지 않습니다** (운영체제 정책의 몫). 컨테이너 탈출은 대부분 커널·crun·Podman 취약점이므로 자동 보안 업데이트를 켜 둡니다.
+
+```sh
+# Ubuntu/Debian
+sudo apt-get install -y unattended-upgrades && sudo dpkg-reconfigure -plow unattended-upgrades
+# RHEL/Rocky/Alma
+sudo dnf install -y dnf-automatic && sudo sed -i 's/^upgrade_type.*/upgrade_type = security/; s/^apply_updates.*/apply_updates = yes/' /etc/dnf/automatic.conf && sudo systemctl enable --now dnf-automatic.timer
+```
+
+폐쇄망 서버는 사내 저장소(미러)로 같은 방식의 정기 패치를 합니다. 커널 업데이트는 재부팅해야 적용됩니다.
 
 ### 버전 관리
 

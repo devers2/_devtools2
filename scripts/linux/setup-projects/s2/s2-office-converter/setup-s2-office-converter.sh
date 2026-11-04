@@ -960,6 +960,7 @@ CONVERT
 # 변환기 이미지 빌드 (온라인)
 build_image() {
     info "변환기 이미지 ($IMAGE)"
+    [ "$REBUILD" = true ] || check_image_age
     if [ "$REBUILD" = false ] && podman_target image exists "$IMAGE" 2>/dev/null; then
         skip "이미지가 이미 있습니다 ($TARGET_USER)."
         remove_old_images
@@ -1033,18 +1034,59 @@ CONTAINERFILE
     chmod 644 "$build_dir/Containerfile"
     [ "$WITH_CHROME" = false ] || chmod 644 "$build_dir/s2-hwp-render.mjs" "$build_dir/s2-hwp-convert.sh"
     info "이미지를 만듭니다. 처음에는 LibreOffice 를 받느라 몇 분 걸립니다..."
-    podman_target build --pull=newer -t "$IMAGE" "$build_dir"
+    # No layer cache: a cached "apt-get install" layer would keep the old packages and miss security updates
+    # | 계층 캐시를 쓰지 않음: 캐시된 apt-get install 계층을 쓰면 예전 패키지가 남아 보안 업데이트가 빠짐
+    podman_target build --pull=newer --no-cache -t "$IMAGE" "$build_dir"
     ok "이미지 생성: $IMAGE ($TARGET_USER)"
     remove_old_images
 }
 
 # 이전 버전 이미지 정리
 remove_old_images() {
-    local image old_images
+    local image old_images dangling
     mapfile -t old_images < <(podman_target images --format '{{.Repository}}:{{.Tag}}' | grep "^${IMAGE_NAME}:" | grep -vx "$IMAGE" || true)
     for image in "${old_images[@]+"${old_images[@]}"}"; do
         podman_target rmi -f "$image" >/dev/null && ok "이전 이미지 정리: $image"
     done
+    # Images replaced by a rebuild under the same tag are left without a name | 같은 태그로 다시 만들면 예전 이미지는 이름 없이 남음
+    mapfile -t dangling < <(podman_target images -q -f dangling=true -f "label=org.opencontainers.image.title=s2-office-converter" 2>/dev/null | sort -u || true)
+    for image in "${dangling[@]+"${dangling[@]}"}"; do
+        podman_target rmi -f "$image" >/dev/null 2>&1 && ok "이전 이미지 정리: $image (이름 없음)"
+    done
+}
+
+# Days since the installed image was made | 설치된 이미지를 만든 지 며칠
+image_age_days() {
+    local created
+    created="$(podman_target image inspect --format '{{.Created.Unix}}' "$IMAGE" 2>/dev/null || echo)"
+    [ -n "$created" ] || return 1
+    echo $((($(date +%s) - created) / 86400))
+}
+
+# Security updates live in the image (LibreOffice, Chromium, Debian packages), so an old image is rebuilt with consent:
+# asked on a terminal, S2_CONVERTER_UPDATE=y|n when unattended | 보안 업데이트는 이미지 안에 있으므로(LibreOffice·Chromium·Debian 패키지)
+# 오래된 이미지는 동의를 받아 다시 만듦: 터미널이면 묻고, 무인 실행은 S2_CONVERTER_UPDATE=y|n
+IMAGE_MAX_AGE_DAYS="${S2_CONVERTER_MAX_AGE_DAYS:-30}"
+check_image_age() {
+    local age
+    age="$(image_age_days)" || return 0
+    [ "$age" -gt "$IMAGE_MAX_AGE_DAYS" ] || return 0
+    case "${S2_CONVERTER_UPDATE:-}" in
+    [Yy]*)
+        REBUILD=true
+        info "이미지를 만든 지 ${age}일 → 보안 업데이트를 반영해 다시 만듭니다 (S2_CONVERTER_UPDATE=y)."
+        return 0
+        ;;
+    [Nn]*)
+        skip "이미지를 만든 지 ${age}일이지만 유지합니다 (S2_CONVERTER_UPDATE=n)."
+        return 0
+        ;;
+    esac
+    if can_ask && ask_yes "이미지를 만든 지 ${age}일 지났습니다. 보안 업데이트(LibreOffice·Chromium·Debian 패키지)를 반영해 다시 만들까요? (몇 분 걸림)"; then
+        REBUILD=true
+    else
+        warn "이미지를 만든 지 ${age}일 지났습니다. 보안 업데이트 반영: --rebuild (무인 실행은 S2_CONVERTER_UPDATE=y)"
+    fi
 }
 
 # 래퍼의 자리 표시를 채움 (이미지, 글꼴 폴더)
@@ -1857,6 +1899,9 @@ forget_ids_check() {
 # 동작 확인 (대상 계정으로 실제 변환)
 verify() {
     info "동작 확인 ($TARGET_USER)"
+    local made
+    made="$(podman_target image inspect --format '{{.Created.Format "2006-01-02"}}' "$IMAGE" 2>/dev/null || true)"
+    [ -z "$made" ] || ok "이미지를 만든 날: ${made} ($(image_age_days || echo '?')일 전, ${IMAGE_MAX_AGE_DAYS}일이 지나면 다시 만들지 물어봄)"
     local check_dir
     check_dir="$(as_target mktemp -d)"
     as_target sh -c 'printf "s2-office-converter 확인 한글 ABC\n" > "$1/check.txt"' sh "$check_dir"
@@ -2289,16 +2334,26 @@ mode_offline() {
     ensure_subids
 
     info "변환기 이미지 ($IMAGE)"
-    if [ "$REBUILD" = false ] && podman_target image exists "$IMAGE" 2>/dev/null; then
+    # Same tag but a newer build (--export --rebuild on the internet PC): replace it. The image id is in the archive
+    # | 같은 태그라도 새로 만든 이미지(인터넷 PC 의 --export --rebuild)면 바꿈. 이미지 id 는 설치 파일 안에 있음
+    local archive_id installed_id
+    archive_id="$(tar -xOf "$dir/$IMAGE_ARCHIVE" manifest.json 2>/dev/null | grep -o '"Config":"[0-9a-f]*' | head -1 | sed 's/.*"//')"
+    installed_id="$(podman_target image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
+    if [ "$REBUILD" = false ] && [ -n "$installed_id" ] && { [ -z "$archive_id" ] || [ "$archive_id" = "$installed_id" ]; }; then
         skip "이미지가 이미 있습니다 ($TARGET_USER)."
         remove_old_images
     else
+        [ -z "$installed_id" ] || info "설치 파일의 이미지가 다릅니다 (새로 만든 이미지) → 바꿉니다."
         # The app account must be able to read the extracted image | 앱 실행 계정이 풀어 놓은 이미지를 읽을 수 있어야 함
         chmod 755 "$dir"
         chmod 644 "$dir/$IMAGE_ARCHIVE"
         podman_target load -i "$dir/$IMAGE_ARCHIVE" >/dev/null
         ok "이미지 등록: $IMAGE ($TARGET_USER)"
         remove_old_images
+    fi
+    local age
+    if age="$(image_age_days)" && [ "$age" -gt "$IMAGE_MAX_AGE_DAYS" ]; then
+        warn "이 설치 파일의 이미지는 만든 지 ${age}일 지났습니다. 보안 업데이트 반영: 인터넷 되는 PC에서 --export --rebuild 로 설치 파일을 새로 만들어 이 서버에서 다시 실행하십시오."
     fi
 
     resolve_font_dir
