@@ -100,7 +100,7 @@ set -euo pipefail
 DEFAULT_H2ORESTART_VERSION="0.8.0"
 DEFAULT_RHWP_VERSION="0.8.7"
 # 이미지 만드는 방법(아래 Containerfile)을 바꾸면 올립니다. 다음 실행 때 같은 구성 요소 버전으로 이미지를 다시 만듭니다.
-IMAGE_REVISION="6"
+IMAGE_REVISION="7"
 BASE_IMAGE="docker.io/library/debian:trixie-slim"
 IMAGE_NAME="localhost/s2-office-converter"
 WRAPPER_PATH="/usr/local/bin/s2-soffice"
@@ -785,6 +785,15 @@ function scopeIds(svg, prefix) {
     return svg.replace(any, (_, lead, id) => lead + prefix + id);
 }
 
+// Picture brightness/contrast filters are computed in sRGB, as Hancom shows them. rhwp (0.8.7) leaves the attribute
+// out, so browsers use linearRGB and contrast darkens grey (measured: grey 128 with contrast +55 printed as 69 instead
+// of 128, an emblem turned black). Added only when missing, so a later rhwp that writes it is left as is
+// | 그림 밝기·대비 필터는 한컴처럼 sRGB 로 계산. rhwp(0.8.7)가 속성을 빼서 브라우저가 linearRGB 로 계산해 대비가 회색을 어둡게 만듦
+// (실측: 회색 128 에 대비 +55 → 128 대신 69, 엠블럼이 검게 찍힘). 속성이 없을 때만 붙이므로 나중에 rhwp 가 넣으면 그대로 둠
+function srgbFilters(svg) {
+    return svg.replace(/<filter\b(?![^>]*\bcolor-interpolation-filters=)(?=[^>]*\bid="[^"]*img-bc[^"]*")/g, '<filter color-interpolation-filters="sRGB"');
+}
+
 // Page size in CSS px (96 per inch), the unit of the SVG width and height | 쪽 크기 (CSS px, SVG 너비·높이 단위)
 function size(svg) {
     const w = /<svg\b[^>]*?\swidth="([\d.]+)"/.exec(svg);
@@ -849,7 +858,7 @@ const FALLBACK_TAIL = new Set(['Batang', '바탕', 'Nanum Myeongjo', 'AppleMyung
     '맑은 고딕', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Pretendard', 'Nanum Gothic', 'Noto Sans CJK KR', 'HCR Dotum', '함초롬돋움']);
 const wanted = new Map(); // document font -> its aliases | 문서 글꼴 -> 별칭
 for (let i = 0; i < rendered; i++) {
-    const svg = scopeIds(doc.renderPageSvg(i).replace(/^<\?xml[^>]*>\s*/, ''), 'p' + i + '-');
+    const svg = scopeIds(srgbFilters(doc.renderPageSvg(i).replace(/^<\?xml[^>]*>\s*/, '')), 'p' + i + '-');
     for (const m of svg.matchAll(/font-family="([^"]*)"/g)) {
         const names = m[1].replace(/&apos;|&#39;|&quot;/g, "'").split(',').map((n) => n.trim().replace(/^'|'$/g, '')).filter(Boolean);
         const first = names[0];
