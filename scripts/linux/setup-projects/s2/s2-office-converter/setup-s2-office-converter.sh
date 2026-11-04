@@ -1775,6 +1775,10 @@ USERS_PER_RATE=960
 # | 동시 변환 한 건에 잡는 메모리, 전용 서버에서 OS·서버 JVM 몫으로 남기는 메모리
 MB_PER_SLOT=1024
 DEDICATED_RESERVE_MB=3072
+# Conversion cache limit as a share of its disk: a dedicated server gives the disk to it, keeping room for temporary
+# files, logs and image rebuilds | 변환 결과 캐시 상한(디스크 비율): 전용 서버는 디스크를 캐시에 주되 임시 파일·로그·이미지 다시 만들기 공간을 남김
+CACHE_PERCENT_DEDICATED=50
+CACHE_PERCENT_SHARED=10
 # Read for the memory size (scripts/tests set another file) | 메모리 크기를 읽는 파일 (scripts/tests 가 바꿈)
 MEMINFO_FILE="/proc/meminfo"
 CAPACITY_SUMMARY=""
@@ -1793,7 +1797,7 @@ ask_no() {
 # Decides the share, writes converter.env and estimates the number of users | 몫을 정해 converter.env 를 쓰고 사용자 규모를 안내
 configure_capacity() {
     info "변환에 쓰는 몫 (동시 변환 수·메모리)"
-    local cores mem_mb conv_cores conv_mem slots rate_x100 users label answer warm
+    local cores mem_mb conv_cores conv_mem slots rate_x100 users label answer warm cache_percent
     warm="${WARM:-$(converter_env_value S2_CONVERTER_WARM)}"
     warm="${warm:-0}"
     cores="$(nproc 2>/dev/null || echo 2)"
@@ -1822,11 +1826,13 @@ configure_capacity() {
         conv_cores="$cores"
         conv_mem=$((mem_mb - DEDICATED_RESERVE_MB))
         [ "$conv_mem" -ge 1024 ] || conv_mem=1024
+        cache_percent="$CACHE_PERCENT_DEDICATED"
         label="전용"
     else
         conv_cores=$((cores * SHARE / 100))
         conv_mem=$((mem_mb * SHARE / 100))
         [ "$conv_cores" -ge 1 ] || conv_cores=1
+        cache_percent="$CACHE_PERCENT_SHARED"
         label="${SHARE}% (앱과 함께 씀)"
     fi
     slots=$((conv_mem / MB_PER_SLOT))
@@ -1844,6 +1850,8 @@ configure_capacity() {
 S2_CONVERTER_SHARE=${SHARE}
 S2_DOCFLOW_PARALLELISM=${slots}
 S2_DOCFLOW_MEMORY_MB=${conv_mem}
+# 변환 결과 캐시 상한: 캐시 폴더가 있는 디스크의 이 비율(%). 보관 기간은 상한과 하루 저장량으로 자동(8~90일)
+S2_DOCFLOW_CACHE_PERCENT=${cache_percent}
 # 대기 컨테이너 재사용. 0: 변환마다 새 컨테이너 (기본, 격리 우선) / 1: 끝난 컨테이너를 다시 씀 (성능 우선, 격리는 한 단계 약함). 바꾸기: --warm / --no-warm
 S2_CONVERTER_WARM=${warm}
 ENV
@@ -1854,7 +1862,7 @@ ENV
         "${SUDO[@]}" install -m 0644 "$env_tmp" "$CONVERTER_ENV"
         ok "설정: $CONVERTER_ENV"
     fi
-    CAPACITY_SUMMARY="몫 ${label}: 동시 변환 ${slots}건, 메모리 예산 ${conv_mem}MB (CPU ${cores}코어, 메모리 ${mem_mb}MB 중)"
+    CAPACITY_SUMMARY="몫 ${label}: 동시 변환 ${slots}건, 메모리 예산 ${conv_mem}MB (CPU ${cores}코어, 메모리 ${mem_mb}MB 중), 캐시 디스크의 ${cache_percent}%"
     ok "$CAPACITY_SUMMARY"
     if [ "$warm" = 1 ]; then
         warn "대기 컨테이너를 다시 씁니다 (--warm, 성능 우선). 앞 작업이 남긴 프로세스와 /tmp 는 지우지만, 커널·컨테이너 런타임 취약점을 이용한 문서는 같은 컨테이너의 다음 작업에 영향을 줄 수 있습니다. 민감한 문서를 다루면 --no-warm"
@@ -2035,6 +2043,7 @@ S2_DOCFLOW_PORT=${SERVER_PORT:-8090}
 # 앱과 같은 값으로 둡니다 (앱: S2_DOCFLOW_SECRET 또는 S2RemoteConverter.builder().secret(...))
 S2_DOCFLOW_SECRET=${secret}
 S2_DOCFLOW_CACHE_DIR=${SERVER_CACHE}
+# 캐시 상한(MB, 기본: 캐시 디스크의 S2_DOCFLOW_CACHE_PERCENT% — converter.env)·보관 기간(일, 기본: 자동 8~90일)
 # S2_DOCFLOW_CACHE_MAX_MB=10240
 # S2_DOCFLOW_CACHE_DAYS=30
 # S2_DOCFLOW_PARALLELISM=6

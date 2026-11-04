@@ -195,7 +195,9 @@ H2Orestart 와 rhwp 는 `s2-office-converter-versions.toml` 의 정책을 따릅
 
 - 처음 설치할 때 둘 다 없으면 물어봅니다 (무인 실행은 묻지 않고 앱 기본값: 동시 min(CPU, 4), 메모리 예산 물리 메모리의 절반). 다시 실행하면
   정한 값을 유지하고, 바꾸려면 옵션을 붙여 다시 실행합니다.
-- 결과는 `/etc/s2-docflow/converter.env` (`S2_DOCFLOW_PARALLELISM`, `S2_DOCFLOW_MEMORY_MB`) 에 쓰고, **변환 명령, 앱의
+- 변환 결과 캐시 상한도 함께 정합니다: 전용이면 캐시 디스크의 **50%**, 앱과 함께 쓰면 **10%** (`S2_DOCFLOW_CACHE_PERCENT`). 보관 기간은 그 상한의
+  80% 가 찰 만큼 자동으로 정합니다 (최근 하루 평균 저장량 기준, 8~90일).
+- 결과는 `/etc/s2-docflow/converter.env` (`S2_DOCFLOW_PARALLELISM`, `S2_DOCFLOW_MEMORY_MB`, `S2_DOCFLOW_CACHE_PERCENT`) 에 쓰고, **변환 명령, 앱의
   S2DocFlow, 변환 서버(`--server`)가 함께 읽습니다.** 앱 코드(`setConversionParallelism`, `setMemoryBudget`)나 `server.env` 의 값이 우선합니다.
 - 규모 안내: 자리 하나를 초당 0.2건으로 계획하고(실측 0.43~0.5건의 절반 이하, 큰 문서·여유 고려), 1인당 하루 캐시에 없는 변환 10건·업무
   8시간·가장 몰릴 때 평균의 3배로 사용자 수를 셉니다 (사용자 ≈ 동시 변환 수 × 190). 예: 전용 8코어·16GB → 동시 8건, 약 1,500명.
