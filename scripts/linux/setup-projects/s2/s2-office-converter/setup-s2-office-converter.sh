@@ -1096,9 +1096,12 @@ check_image_age() {
 
 # 래퍼의 자리 표시를 채움 (이미지, 글꼴 폴더)
 fill_wrapper() {
-    local escaped
+    local escaped image_id fingerprint
     escaped="$(printf '%s' "$FONT_DIR" | sed 's/[|&\\]/\\&/g')"
-    sed -i -e "s|@IMAGE@|${IMAGE}|" -e "s|@FONT_DIR@|${escaped}|" "$1"
+    image_id="$(podman_target image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
+    fingerprint="$(font_fingerprint "$FONT_DIR")"
+    sed -i -e "s|@IMAGE@|${IMAGE}|" -e "s|@FONT_DIR@|${escaped}|" \
+        -e "s|@IMAGE_ID@|${image_id:-unknown}|" -e "s|@FONT_FINGERPRINT@|${fingerprint}|" "$1"
     local runtime
     runtime="$(mktemp)"
     CLEANUP_PATHS+=("$runtime")
@@ -1364,6 +1367,18 @@ s2_warm_run() {
 RUNTIME
 }
 
+# Fingerprint of a font folder: names, sizes and times of its font files ("none" without a folder)
+# | 글꼴 폴더 지문: 글꼴 파일의 이름·크기·시각 ("none" 이면 폴더 없음)
+font_fingerprint() {
+    if [ -z "$1" ] || [ ! -d "$1" ]; then
+        echo none
+        return
+    fi
+    # An unreadable file must not stop the install (pipefail) | 읽을 수 없는 파일이 있어도 설치를 멈추지 않음 (pipefail)
+    { find "$1" -type f \( -iname '*.ttf' -o -iname '*.ttc' -o -iname '*.otf' -o -iname '*.otc' \) -printf '%P %s %T@\n' 2>/dev/null || true; } |
+        LC_ALL=C sort | sha256sum | cut -c1-16
+}
+
 # 고객사 글꼴 폴더 정하기: --font-dir > 설치된 래퍼의 값(다시 실행해도 유지) > 없음. --no-font-dir 이면 뺌
 resolve_font_dir() {
     info "고객사 글꼴 폴더"
@@ -1417,6 +1432,12 @@ install_wrapper() {
 set -euo pipefail
 
 IMAGE="@IMAGE@"
+# What this command converts with, written at install: s2-docflow puts a hash of this file in its conversion cache key,
+# so results made before a rebuild of the image or a change of the fonts are not reused (rerun the setup script after
+# adding fonts) | 설치할 때 적는 변환 환경: s2-docflow 는 이 파일의 해시를 변환 캐시 키에 넣으므로, 이미지를 다시 만들거나 글꼴을
+# 바꾸기 전의 결과는 다시 쓰지 않는다 (글꼴을 추가하면 설치 스크립트를 다시 실행)
+S2_IMAGE_ID="@IMAGE_ID@"
+S2_FONT_FINGERPRINT="@FONT_FINGERPRINT@"
 # Customer fonts, mounted read-only (setup --font-dir; S2_FONT_DIR overrides) | 고객사 글꼴 폴더 (읽기 전용 연결)
 FONT_DIR="${S2_FONT_DIR-@FONT_DIR@}"
 fonts=()
@@ -1558,6 +1579,12 @@ install_chrome_wrapper() {
 set -euo pipefail
 
 IMAGE="@IMAGE@"
+# What this command converts with, written at install: s2-docflow puts a hash of this file in its conversion cache key,
+# so results made before a rebuild of the image or a change of the fonts are not reused (rerun the setup script after
+# adding fonts) | 설치할 때 적는 변환 환경: s2-docflow 는 이 파일의 해시를 변환 캐시 키에 넣으므로, 이미지를 다시 만들거나 글꼴을
+# 바꾸기 전의 결과는 다시 쓰지 않는다 (글꼴을 추가하면 설치 스크립트를 다시 실행)
+S2_IMAGE_ID="@IMAGE_ID@"
+S2_FONT_FINGERPRINT="@FONT_FINGERPRINT@"
 # Customer fonts, mounted read-only (setup --font-dir; S2_FONT_DIR overrides) | 고객사 글꼴 폴더 (읽기 전용 연결)
 FONT_DIR="${S2_FONT_DIR-@FONT_DIR@}"
 fonts=()
@@ -1657,6 +1684,12 @@ install_hwp_wrapper() {
 set -euo pipefail
 
 IMAGE="@IMAGE@"
+# What this command converts with, written at install: s2-docflow puts a hash of this file in its conversion cache key,
+# so results made before a rebuild of the image or a change of the fonts are not reused (rerun the setup script after
+# adding fonts) | 설치할 때 적는 변환 환경: s2-docflow 는 이 파일의 해시를 변환 캐시 키에 넣으므로, 이미지를 다시 만들거나 글꼴을
+# 바꾸기 전의 결과는 다시 쓰지 않는다 (글꼴을 추가하면 설치 스크립트를 다시 실행)
+S2_IMAGE_ID="@IMAGE_ID@"
+S2_FONT_FINGERPRINT="@FONT_FINGERPRINT@"
 # Customer fonts, mounted read-only (setup --font-dir; S2_FONT_DIR overrides) | 고객사 글꼴 폴더 (읽기 전용 연결)
 FONT_DIR="${S2_FONT_DIR-@FONT_DIR@}"
 fonts=()
