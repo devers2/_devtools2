@@ -1055,6 +1055,11 @@ remove_old_images() {
     done
 }
 
+# Image id in an archive made by podman save (manifest.json "Config") | podman save 로 만든 파일 안의 이미지 id
+archive_image_id() {
+    tar -xOf "$1" manifest.json 2>/dev/null | grep -o '"Config":"[0-9a-f]*' | head -1 | sed 's/.*"//' || true
+}
+
 # Days since the installed image was made | 설치된 이미지를 만든 지 며칠
 image_age_days() {
     local created
@@ -1770,6 +1775,8 @@ USERS_PER_RATE=960
 # | 동시 변환 한 건에 잡는 메모리, 전용 서버에서 OS·서버 JVM 몫으로 남기는 메모리
 MB_PER_SLOT=1024
 DEDICATED_RESERVE_MB=3072
+# Read for the memory size (scripts/tests set another file) | 메모리 크기를 읽는 파일 (scripts/tests 가 바꿈)
+MEMINFO_FILE="/proc/meminfo"
 CAPACITY_SUMMARY=""
 
 converter_env_value() {
@@ -1790,7 +1797,7 @@ configure_capacity() {
     warm="${WARM:-$(converter_env_value S2_CONVERTER_WARM)}"
     warm="${warm:-0}"
     cores="$(nproc 2>/dev/null || echo 2)"
-    mem_mb="$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || echo 4096)"
+    mem_mb="$(awk '/^MemTotal:/ { print int($2 / 1024) }' "$MEMINFO_FILE" 2>/dev/null || echo 4096)"
     if [ -z "$SHARE" ]; then
         SHARE="$(converter_env_value S2_CONVERTER_SHARE)"
         if [ -n "$SHARE" ]; then
@@ -2337,7 +2344,7 @@ mode_offline() {
     # Same tag but a newer build (--export --rebuild on the internet PC): replace it. The image id is in the archive
     # | 같은 태그라도 새로 만든 이미지(인터넷 PC 의 --export --rebuild)면 바꿈. 이미지 id 는 설치 파일 안에 있음
     local archive_id installed_id
-    archive_id="$(tar -xOf "$dir/$IMAGE_ARCHIVE" manifest.json 2>/dev/null | grep -o '"Config":"[0-9a-f]*' | head -1 | sed 's/.*"//')"
+    archive_id="$(archive_image_id "$dir/$IMAGE_ARCHIVE")"
     installed_id="$(podman_target image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
     if [ "$REBUILD" = false ] && [ -n "$installed_id" ] && { [ -z "$archive_id" ] || [ "$archive_id" = "$installed_id" ]; }; then
         skip "이미지가 이미 있습니다 ($TARGET_USER)."
