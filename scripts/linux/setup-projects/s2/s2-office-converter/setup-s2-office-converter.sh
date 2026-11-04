@@ -112,6 +112,9 @@ SERVER_DIR="/opt/s2-docflow"
 SERVER_JAR_PATH="${SERVER_DIR}/s2-docflow-server.jar"
 SERVER_ENV_DIR="/etc/s2-docflow"
 SERVER_ENV="${SERVER_ENV_DIR}/server.env"
+# Share of this server for conversions (--dedicated, --share), read by the commands, the app and the server
+# | 이 서버에서 변환에 쓰는 몫 (--dedicated, --share). 변환 명령·앱·변환 서버가 함께 읽음
+CONVERTER_ENV="${SERVER_ENV_DIR}/converter.env"
 SERVER_UNIT="/etc/systemd/system/${SERVER_SERVICE}.service"
 SERVER_CACHE="/var/cache/s2-docflow"
 SERVER_JAR_ARCHIVE="s2-docflow-server.jar"
@@ -159,6 +162,9 @@ usage() {
     --server-port 포트   수신 포트 (기본 8090)        --server-bind 주소  수신 주소 (기본 0.0.0.0)
     --java 경로          java 실행 파일 (기본: PATH 의 java, Java 17 이상)
   --no-server          변환 서버 서비스만 제거 (변환기는 남김)
+  --dedicated          이 서버를 변환 전용으로 씀 (CPU 전체, 메모리는 OS·서버 몫 3GB를 뺀 나머지)
+  --share 퍼센트       앱과 함께 쓰는 서버에서 변환에 줄 몫 (10~90, 예: --share 40)
+                       둘 다 없으면 처음 설치할 때 물어보고(무인 실행은 묻지 않음), 다시 실행하면 정한 값을 유지
   --uninstall          s2-soffice·s2-chrome·s2-hwp 명령과 이미지를 제거 (Podman 은 남김)
   --export [파일]      폐쇄망용 설치 파일 하나 만들기 (기본 ./setup-s2-office-converter-offline.sh, 인터넷 되는 PC에서)
                        서버에서: bash setup-s2-office-converter-offline.sh --app-user 계정
@@ -189,6 +195,7 @@ SERVER_BIND=""
 JAVA_BIN=""
 EXPORT_FILE=""
 TARGET_DISTRO=""
+SHARE=""
 while [ $# -gt 0 ]; do
     case "$1" in
     --app-user | --user)
@@ -272,6 +279,20 @@ while [ $# -gt 0 ]; do
         WITH_CHROME=false
         shift
         ;;
+    --dedicated)
+        SHARE="dedicated"
+        shift
+        ;;
+    --share)
+        [ $# -ge 2 ] || fail "--share 다음에 퍼센트가 필요합니다 (예: --share 40)."
+        SHARE="${2%\%}"
+        shift 2
+        ;;
+    --share=*)
+        SHARE="${1#*=}"
+        SHARE="${SHARE%\%}"
+        shift
+        ;;
     --export)
         MODE="export"
         if [ $# -ge 2 ] && [ "${2#--}" = "$2" ]; then
@@ -302,6 +323,10 @@ while [ $# -gt 0 ]; do
     *) fail "알 수 없는 옵션입니다: $1 (--help 참고)" ;;
     esac
 done
+case "$SHARE" in
+"" | dedicated) ;;
+*) [[ "$SHARE" =~ ^[0-9]+$ ]] && [ "$SHARE" -ge 10 ] && [ "$SHARE" -le 90 ] || fail "--share 는 10~90 사이 퍼센트입니다 (전용이면 --dedicated): $SHARE" ;;
+esac
 if [ -n "$TARGET_DISTRO" ] && [ "$MODE" != "export" ]; then
     fail "--target 은 --export 와 함께 씁니다."
 fi
@@ -1016,6 +1041,176 @@ fill_wrapper() {
     local escaped
     escaped="$(printf '%s' "$FONT_DIR" | sed 's/[|&\\]/\\&/g')"
     sed -i -e "s|@IMAGE@|${IMAGE}|" -e "s|@FONT_DIR@|${escaped}|" "$1"
+    local runtime
+    runtime="$(mktemp)"
+    CLEANUP_PATHS+=("$runtime")
+    write_runtime "$runtime"
+    sed -i -e "/^@RUNTIME@\$/{r $runtime" -e 'd}' "$1"
+}
+
+# Container runtime shared by the three commands (reuses idle containers) | 세 명령이 함께 쓰는 컨테이너 실행 부분 (대기 컨테이너 재사용)
+write_runtime() {
+    cat >"$1" <<'RUNTIME'
+# ---- Container runtime shared by s2-soffice, s2-chrome and s2-hwp ------------------------------------------------
+# Each job runs in a container with no network, a read-only root, no capabilities and the caller's uid. By default an
+# idle container of this account's pool is reused (podman exec, about 1 s less per small document than podman run).
+# A container runs one job at a time; when the job ends, every process it left is killed and /tmp is emptied, so the
+# next job starts clean (LibreOffice starts from a copy of a read-only, prepared profile). A container is removed
+# after S2_CONVERTER_IDLE_SECONDS without work (default 600), after S2_CONVERTER_WARM_USES jobs (default 200), or when
+# a job times out or is cancelled. At most S2_CONVERTER_WARM_MAX containers (default: S2_DOCFLOW_PARALLELISM from
+# /etc/s2-docflow/converter.env, else the CPU count). Beyond that, with S2_CONVERTER_WARM=0, or with resource limits
+# (S2_*_MEMORY, S2_*_CPUS), a fresh container is started for the job and removed after it.
+# | 변환기 컨테이너 실행 (s2-soffice, s2-chrome, s2-hwp 공통). 네트워크 없음, 읽기 전용 루트, 권한 없음, 호출자 uid.
+# 기본은 이 계정의 대기 컨테이너를 다시 씀 (podman exec, 작은 문서 기준 podman run 보다 건당 약 1초 빠름). 컨테이너 하나는 한 번에
+# 작업 하나만 하고, 작업이 끝나면 남은 프로세스를 모두 끝내고 /tmp 를 비워 다음 작업이 깨끗하게 시작한다 (LibreOffice 는 읽기 전용으로
+# 준비해 둔 프로필의 사본으로 시작). S2_CONVERTER_IDLE_SECONDS(기본 600) 동안 일이 없거나, S2_CONVERTER_WARM_USES(기본 200)건을
+# 처리했거나, 작업이 시간 초과·취소되면 컨테이너를 지운다. 최대 S2_CONVERTER_WARM_MAX 개 (기본: /etc/s2-docflow/converter.env 의
+# S2_DOCFLOW_PARALLELISM, 없으면 CPU 수). 그보다 많거나 S2_CONVERTER_WARM=0 이거나 자원 상한(S2_*_MEMORY, S2_*_CPUS)을 지정하면
+# 작업마다 새 컨테이너를 띄우고 끝나면 지운다.
+S2_SETTINGS_FILE="/etc/s2-docflow/converter.env"
+s2_setting() {
+    local value="${!1:-}"
+    if [ -z "$value" ] && [ -r "$S2_SETTINGS_FILE" ]; then
+        value="$(sed -n "s/^$1=\([0-9A-Za-z_.-]*\).*/\1/p" "$S2_SETTINGS_FILE" | tail -n 1)"
+    fi
+    printf '%s' "${value:-$2}"
+}
+s2_pool="$XDG_RUNTIME_DIR/s2-converter-pool/$(printf '%s|%s' "$IMAGE" "$FONT_DIR" | cksum | cut -d ' ' -f 1)"
+s2_isolation=(--network=none --read-only --cap-drop=ALL --security-opt=no-new-privileges --userns=keep-id)
+# In the container: copy the prepared profile when mounted, run the job, then kill what it left and empty /tmp
+# | 컨테이너 안: 준비된 프로필이 있으면 복사, 작업 실행, 남은 프로세스를 끝내고 /tmp 를 비움
+s2_job='[ ! -d /opt/s2-profile ] || cp -a /opt/s2-profile /tmp/s2-profile; "$@"; rc=$?; kill -9 -1 2>/dev/null; find /tmp -mindepth 1 -delete 2>/dev/null; exit $rc'
+# Main process of a pool container: exits after $0 seconds without a job (a "busy" mark older than an hour is stale)
+# | 대기 컨테이너의 주 프로세스: 작업 없이 $0 초가 지나면 끝남 (한 시간 넘은 busy 표시는 무시)
+s2_idle='trap "exit 0" TERM; while :; do sleep 5 & wait $!; now=$(date +%s); busy=$(stat -c %Y /work/state/busy 2>/dev/null || echo 0); [ $((now - busy)) -gt 3600 ] || continue; last=$(stat -c %Y /work/state/last 2>/dev/null || echo 0); [ $((now - last)) -lt "$0" ] || exit 0; done'
+
+# LibreOffice profile made once per account and image: creating it took about 0.65 s of every conversion
+# | 계정·이미지마다 한 번 만드는 LibreOffice 프로필 (만들기가 변환마다 약 0.65초를 차지했음)
+s2_profile() {
+    local dir="$s2_pool/profile"
+    if [ ! -d "$dir/user" ]; then
+        mkdir -p "$s2_pool" || return 1
+        (
+            flock 9
+            [ ! -d "$dir/user" ] || exit 0
+            rm -rf "$s2_pool/profile.new" && mkdir -p "$s2_pool/profile.new" || exit 1
+            printf 's2\n' >"$s2_pool/profile.new/a.txt"
+            "${podman_cmd[@]}" run --rm "${s2_isolation[@]}" -v "$s2_pool/profile.new:/b:rw,Z" "$IMAGE" \
+                soffice --headless --norestore --nolockcheck -env:UserInstallation=file:///b/p --convert-to pdf --outdir /b /b/a.txt \
+                >/dev/null 2>&1 || true
+            [ ! -d "$s2_pool/profile.new/p/user" ] || { rm -rf "$dir" && mv "$s2_pool/profile.new/p" "$dir"; }
+            rm -rf "$s2_pool/profile.new"
+        ) 9>"$s2_pool/profile.lock"
+    fi
+    [ -d "$dir/user" ]
+}
+
+# s2_run [NAME=VALUE ...] -- command [args]: runs the command (time limit $TIMEOUT) with $work/in at /work/in (read-only)
+# and $work/out at /work/out; returns its exit status | 명령을 실행하고($TIMEOUT 제한) 종료 코드를 돌려줌
+s2_run() {
+    local - rc envs=()
+    set +e
+    while [ "$1" != "--" ]; do
+        envs+=(-e "$1")
+        shift
+    done
+    shift
+    if [ "$(s2_setting S2_CONVERTER_WARM 1)" != 0 ] && [ ${#limits[@]} -eq 0 ] && command -v flock >/dev/null 2>&1; then
+        s2_warm_run "$@"
+        rc=$?
+        [ "$rc" = 200 ] || return "$rc"
+    fi
+    local profile=()
+    [ "${s2_kind:-}" != soffice ] || ! s2_profile || profile=(-v "$s2_pool/profile:/opt/s2-profile:ro,z")
+    s2_container="s2-${s2_kind:-run}-$$-${RANDOM}"
+    trap '"${podman_cmd[@]}" kill "$s2_container" >/dev/null 2>&1 || true; exit 143' TERM INT
+    "${podman_cmd[@]}" run --rm --name "$s2_container" ${limits[@]+"${limits[@]}"} "${s2_isolation[@]}" \
+        -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
+        ${fonts[@]+"${fonts[@]}"} ${profile[@]+"${profile[@]}"} ${envs[@]+"${envs[@]}"} \
+        "$IMAGE" sh -c "$s2_job" sh timeout --kill-after=5 "$TIMEOUT" "$@" &
+    wait "$!"
+    rc=$?
+    trap - TERM INT
+    return "$rc"
+}
+
+# Starts the pool container of a slot. Podman must not inherit the slot lock ({fd}>&-): the container would hold it
+# for its whole life | 자리의 대기 컨테이너를 띄움. Podman 이 자리 잠금을 물려받으면 컨테이너가 사는 동안 잠겨 있으므로 넘기지 않음
+s2_start() {
+    local profile=()
+    ! s2_profile || profile=(-v "$s2_pool/profile:/opt/s2-profile:ro,z")
+    "${podman_cmd[@]}" rm -f -t 0 "$s2_container" >/dev/null 2>&1
+    touch "$1/state/last"
+    "${podman_cmd[@]}" run -d --rm --name "$s2_container" --label s2-office-converter-pool=1 "${s2_isolation[@]}" \
+        -v "$1/in:/work/in:ro,Z" -v "$1/out:/work/out:rw,Z" -v "$1/state:/work/state:ro,Z" \
+        ${fonts[@]+"${fonts[@]}"} ${profile[@]+"${profile[@]}"} \
+        "$IMAGE" sh -c "$s2_idle" "$(s2_setting S2_CONVERTER_IDLE_SECONDS 600)" >/dev/null 2>&1 {fd}>&-
+}
+
+# Runs the job in a pool container; 200 means no container was free (the caller starts a fresh one)
+# | 대기 컨테이너에서 실행. 200 이면 빈 컨테이너가 없음 (호출자가 새 컨테이너로 실행)
+s2_warm_run() {
+    local max dir slot="" fd="" pool_fd count=0 n rc=200 uses attempt
+    max="$(s2_setting S2_CONVERTER_WARM_MAX "$(s2_setting S2_DOCFLOW_PARALLELISM "$(nproc 2>/dev/null || echo 4)")")"
+    mkdir -p "$s2_pool" 2>/dev/null || return 200
+    exec {pool_fd}>"$s2_pool/pool.lock" || return 200
+    flock "$pool_fd"
+    for dir in "$s2_pool"/slot-*; do
+        [ -d "$dir" ] || continue
+        count=$((count + 1))
+        exec {fd}>"$dir/lock"
+        if flock -n "$fd"; then
+            slot="$dir"
+            break
+        fi
+        exec {fd}>&-
+        fd=""
+    done
+    if [ -z "$slot" ] && [ "$count" -lt "$max" ]; then
+        n=1
+        while [ -e "$s2_pool/slot-$n" ]; do n=$((n + 1)); done
+        slot="$s2_pool/slot-$n"
+        mkdir -p "$slot/in" "$slot/out" "$slot/state"
+        exec {fd}>"$slot/lock"
+        flock -n "$fd"
+    fi
+    exec {pool_fd}>&-
+    [ -n "$slot" ] || return 200
+    s2_container="s2-pool-${s2_pool##*/}-${slot##*/}"
+    touch "$slot/state/busy"
+    find "$slot/in" "$slot/out" -mindepth 1 -delete
+    cp -a "$work/in/." "$slot/in/"
+    trap '"${podman_cmd[@]}" rm -f -t 0 "$s2_container" >/dev/null 2>&1 || true; exit 143' TERM INT
+    for attempt in 1 2; do
+        "${podman_cmd[@]}" exec ${envs[@]+"${envs[@]}"} "$s2_container" sh -c "$s2_job" sh timeout --kill-after=5 "$TIMEOUT" "$@" {fd}>&- &
+        wait "$!"
+        rc=$?
+        # 125: the container is not running (first use, or it went idle) | 컨테이너가 없음 (처음이거나 쉬다가 끝남)
+        [ "$rc" = 125 ] && [ "$attempt" = 1 ] || break
+        echo 0 >"$slot/uses"
+        s2_start "$slot" || { rc=200; break; }
+    done
+    [ "$rc" != 125 ] || rc=200
+    trap - TERM INT
+    rm -f "$slot/state/busy"
+    touch "$slot/state/last"
+    if [ "$rc" != 200 ]; then
+        find "$slot/out" -mindepth 1 -maxdepth 1 -exec mv -f -t "$work/out/" -- {} +
+        uses=$(($(cat "$slot/uses" 2>/dev/null || echo 0) + 1))
+        echo "$uses" >"$slot/uses"
+        # Remove after a timeout or cancellation, or when worn; the remover holds the slot until it is gone
+        # | 시간 초과·취소 뒤나 많이 쓴 뒤에는 지움. 지우는 동안 그 자리는 잠김
+        if [ "$rc" = 124 ] || [ "$rc" = 137 ] || [ "$rc" = 143 ] || [ "$uses" -ge "$(s2_setting S2_CONVERTER_WARM_USES 200)" ]; then
+            echo 0 >"$slot/uses"
+            ("${podman_cmd[@]}" rm -f -t 0 "$s2_container" >/dev/null 2>&1) </dev/null >/dev/null 2>&1 &
+        fi
+    fi
+    find "$slot/in" -mindepth 1 -delete 2>/dev/null
+    exec {fd}>&-
+    return "$rc"
+}
+# ---- end of the container runtime ---------------------------------------------------------------------------------
+RUNTIME
 }
 
 # 고객사 글꼴 폴더 정하기: --font-dir > 설치된 래퍼의 값(다시 실행해도 유지) > 없음. --no-font-dir 이면 뺌
@@ -1061,6 +1256,7 @@ install_wrapper() {
 #   S2_SOFFICE_TIMEOUT  변환 제한 시간(초, 기본 180)
 #   S2_SOFFICE_MEMORY   컨테이너 메모리 상한 (예: 1g, 지정할 때만. cgroup v2 위임이 있어야 함)
 #   S2_SOFFICE_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
+#   S2_CONVERTER_WARM   0 이면 대기 컨테이너를 쓰지 않고 작업마다 새 컨테이너 (그 밖의 설정: 아래 "Container runtime" 부분)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
@@ -1092,7 +1288,7 @@ input=""
 while [ $# -gt 0 ]; do
     case "$1" in
     --headless | --norestore | --nologo | --nodefault | --nolockcheck | --invisible) shift ;;
-    -env:*) shift ;; # Each conversion runs in a fresh container, so no profile option is needed | 매번 새 컨테이너라 프로필 옵션 불필요
+    -env:*) shift ;; # The wrapper gives each job its own profile in the container | 래퍼가 작업마다 컨테이너 안의 전용 프로필을 줌
     --convert-to)
         convert_to="${2:?--convert-to 다음에 형식이 필요합니다}"
         shift 2
@@ -1137,7 +1333,7 @@ mkdir -p "$work/in" "$work/out"
 name="$(basename "$input")"
 cp -- "$input" "$work/in/$name"
 
-args=(soffice --headless --norestore --nolockcheck --convert-to "$convert_to" --outdir /work/out)
+args=(soffice --headless --norestore --nolockcheck -env:UserInstallation=file:///tmp/s2-profile --convert-to "$convert_to" --outdir /work/out)
 [ -z "$infilter" ] || args+=("$infilter")
 args+=("/work/in/$name")
 
@@ -1145,20 +1341,9 @@ args+=("/work/in/$name")
 # caller), time limit. Memory/CPU limits only when S2_SOFFICE_MEMORY/S2_SOFFICE_CPUS are set (cgroup delegation needed)
 # | 네트워크 없음, 읽기 전용 루트(/tmp 는 쓰기 가능), 권한 없음, 호출자 uid(결과 파일 소유자 유지), 시간 제한.
 # 메모리·CPU 상한은 S2_SOFFICE_MEMORY / S2_SOFFICE_CPUS 를 지정할 때만 (cgroup 위임 필요)
-# Stop the container when the caller gives up (S2DocFlow sends SIGTERM on its time limit). Bash runs a trap only
-# after a foreground command ends, so the container runs in the background and the script waits for it
-# | 호출자가 포기하면(S2DocFlow 는 제한 시간에 SIGTERM) 컨테이너를 멈춘다. bash 는 전면 명령이 끝나야 trap 을 실행하므로
-# 컨테이너는 백그라운드로 돌리고 기다린다
-container="s2-soffice-$$-${RANDOM}"
-trap '"${podman_cmd[@]}" kill "$container" >/dev/null 2>&1 || true; exit 143' TERM INT
-"${podman_cmd[@]}" run --rm --name "$container" ${limits[@]+"${limits[@]}"} \
-    --network=none --read-only \
-    --cap-drop=ALL --security-opt=no-new-privileges \
-    --userns=keep-id \
-    -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
-    ${fonts[@]+"${fonts[@]}"} \
-    "$IMAGE" timeout --kill-after=5 "$TIMEOUT" "${args[@]}" &
-wait "$!"
+@RUNTIME@
+s2_kind=soffice
+s2_run -- "${args[@]}"
 
 shopt -s nullglob
 results=("$work/out/"*)
@@ -1211,6 +1396,7 @@ install_chrome_wrapper() {
 #   S2_CHROME_TIMEOUT  인쇄 제한 시간(초, 기본 60)
 #   S2_CHROME_MEMORY   컨테이너 메모리 상한 (예: 1g, 지정할 때만. cgroup v2 위임이 있어야 함)
 #   S2_CHROME_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
+#   S2_CONVERTER_WARM   0 이면 대기 컨테이너를 쓰지 않고 작업마다 새 컨테이너 (그 밖의 설정: 아래 "Container runtime" 부분)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
@@ -1249,24 +1435,13 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/in" "$work/out"
 cp -- "$input" "$work/in/page.html"
 
-# Stop the container when the caller gives up (S2DocFlow sends SIGTERM on its time limit). Bash runs a trap only
-# after a foreground command ends, so the container runs in the background and the script waits for it
-# | 호출자가 포기하면(S2DocFlow 는 제한 시간에 SIGTERM) 컨테이너를 멈춘다. bash 는 전면 명령이 끝나야 trap 을 실행하므로
-# 컨테이너는 백그라운드로 돌리고 기다린다
-container="s2-chrome-$$-${RANDOM}"
-trap '"${podman_cmd[@]}" kill "$container" >/dev/null 2>&1 || true; exit 143' TERM INT
-"${podman_cmd[@]}" run --rm --name "$container" ${limits[@]+"${limits[@]}"} \
-    --network=none --read-only \
-    --cap-drop=ALL --security-opt=no-new-privileges \
-    --userns=keep-id \
-    -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
-    ${fonts[@]+"${fonts[@]}"} \
-    "$IMAGE" timeout --kill-after=5 "$TIMEOUT" chromium --headless --no-sandbox --disable-gpu \
+@RUNTIME@
+s2_kind=chrome
+s2_run -- chromium --headless --no-sandbox --disable-gpu \
     --disable-dev-shm-usage --no-first-run --no-default-browser-check --disable-extensions \
     --disable-background-networking --disable-sync --disable-crash-reporter --mute-audio --hide-scrollbars \
     --no-pdf-header-footer --user-data-dir=/tmp/chrome --virtual-time-budget=10000 \
-    --print-to-pdf=/work/out/page.pdf file:///work/in/page.html >&2 &
-wait "$!"
+    --print-to-pdf=/work/out/page.pdf file:///work/in/page.html >&2
 
 [ -s "$work/out/page.pdf" ] || {
     echo "s2-chrome: 인쇄 결과가 없습니다." >&2
@@ -1319,6 +1494,7 @@ install_hwp_wrapper() {
 #   S2_HWP_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
 #   S2_HWP_CHUNK    한 번에 인쇄할 쪽 수 (기본 50). 쪽을 나눠 인쇄해 Chromium 메모리를 약 2GB 안팎으로 유지 (381쪽을 한 번에 인쇄하면 약 4GB)
 #   S2_HWP_PARALLEL 동시에 인쇄할 묶음 수 (기본 1). 2~3 이면 큰 문서가 그만큼 빨라지지만 메모리도 그만큼 더 씀
+#   S2_CONVERTER_WARM   0 이면 대기 컨테이너를 쓰지 않고 작업마다 새 컨테이너 (그 밖의 설정: 아래 "Container runtime" 부분)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
@@ -1402,19 +1578,11 @@ cp -- "$input" "$work/in/document.$extension"
 
 # Same isolation as s2-soffice: no network, read-only root (/tmp stays writable), no capabilities, the caller's uid,
 # time limit; stop the container when the caller gives up (SIGTERM) | s2-soffice 와 같은 격리. 호출자가 포기하면 컨테이너를 멈춤
-container="s2-hwp-$$-${RANDOM}"
-trap '"${podman_cmd[@]}" kill "$container" >/dev/null 2>&1 || true; exit 143' TERM INT
+@RUNTIME@
+s2_kind=hwp
 set +e
-"${podman_cmd[@]}" run --rm --name "$container" ${limits[@]+"${limits[@]}"} \
-    --network=none --read-only \
-    --cap-drop=ALL --security-opt=no-new-privileges \
-    --userns=keep-id \
-    -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
-    -e S2_HWP_CHUNK="${S2_HWP_CHUNK:-50}" -e S2_HWP_PARALLEL="${S2_HWP_PARALLEL:-1}" \
-    ${fonts[@]+"${fonts[@]}"} \
-    "$IMAGE" timeout --kill-after=5 "$TIMEOUT" /opt/s2-hwp/s2-hwp-convert.sh "/work/in/document.$extension" /work/out/document.pdf \
-    ${max_pages[@]+"${max_pages[@]}"} &
-wait "$!"
+s2_run S2_HWP_CHUNK="${S2_HWP_CHUNK:-50}" S2_HWP_PARALLEL="${S2_HWP_PARALLEL:-1}" -- /opt/s2-hwp/s2-hwp-convert.sh "/work/in/document.$extension" /work/out/document.pdf \
+    ${max_pages[@]+"${max_pages[@]}"}
 status=$?
 set -e
 [ "$status" -eq 0 ] || exit "$status"
@@ -1431,6 +1599,114 @@ WRAPPER
         "${SUDO[@]}" install -m 0755 "$wrapper_tmp" "$HWP_WRAPPER_PATH"
         ok "설치: $HWP_WRAPPER_PATH"
     fi
+}
+
+# ==============================================================================
+# 변환 몫과 규모 안내
+# ==============================================================================
+
+# Planning figures. A conversion slot finishes an ordinary document in about 2-2.5 s with reused containers (small
+# documents 0.7-1.8 s plus the conversion itself); planned at 0.2 conversions a second per slot to leave headroom.
+# Users: 10 conversions not in the cache per user a day, an 8-hour day, the busiest moment 3 times the average, so
+# users = conversions a second x 960 | 계획 기준. 대기 컨테이너를 쓰면 한 자리가 보통 문서를 약 2~2.5초에 처리하며(작은 문서 0.7~1.8초 +
+# 변환 자체), 여유를 두어 자리당 초당 0.2건으로 잡음. 사용자: 1인당 하루 캐시에 없는 변환 10건, 업무 8시간, 가장 몰릴 때 평균의 3배
+# → 사용자 수 = 초당 변환 수 x 960
+PLAN_RATE_PER_SLOT_X100=20
+USERS_PER_RATE=960
+# Memory planned per concurrent conversion and kept for the OS and the server JVM on a dedicated server
+# | 동시 변환 한 건에 잡는 메모리, 전용 서버에서 OS·서버 JVM 몫으로 남기는 메모리
+MB_PER_SLOT=1024
+DEDICATED_RESERVE_MB=3072
+CAPACITY_SUMMARY=""
+
+converter_env_value() {
+    sed -n "s/^$1=//p" "$CONVERTER_ENV" 2>/dev/null | head -1
+}
+ask_no() {
+    local answer=""
+    printf '%s [y/N]: ' "$1" >/dev/tty
+    read -r answer </dev/tty || answer=""
+    case "${answer:-N}" in [Yy]*) return 0 ;; *) return 1 ;; esac
+}
+
+# Decides the share, writes converter.env and estimates the number of users | 몫을 정해 converter.env 를 쓰고 사용자 규모를 안내
+configure_capacity() {
+    info "변환에 쓰는 몫 (동시 변환 수·메모리)"
+    local cores mem_mb conv_cores conv_mem slots rate_x100 users label answer
+    cores="$(nproc 2>/dev/null || echo 2)"
+    mem_mb="$(awk '/^MemTotal:/ { print int($2 / 1024) }' /proc/meminfo 2>/dev/null || echo 4096)"
+    if [ -z "$SHARE" ]; then
+        SHARE="$(converter_env_value S2_CONVERTER_SHARE)"
+        if [ -n "$SHARE" ]; then
+            skip "설치된 값을 유지합니다 ($CONVERTER_ENV). 바꾸려면 --dedicated 또는 --share 퍼센트"
+        elif can_ask; then
+            if ask_no "이 서버를 문서 변환 전용으로 쓰나요? (앱은 다른 서버에서 실행)"; then
+                SHARE="dedicated"
+            else
+                printf '앱과 함께 쓰는 서버입니다. 변환에 줄 몫(%%, 10~90) [50]: ' >/dev/tty
+                read -r answer </dev/tty || answer=""
+                answer="${answer%\%}"
+                SHARE="${answer:-50}"
+                [[ "$SHARE" =~ ^[0-9]+$ ]] && [ "$SHARE" -ge 10 ] && [ "$SHARE" -le 90 ] || fail "10~90 사이 숫자를 입력하십시오: $SHARE"
+            fi
+        else
+            skip "정하지 않았습니다 (무인 실행). 앱 기본값: 동시 변환 min(CPU, 4), 메모리 예산 물리 메모리의 절반. 정하기: --dedicated 또는 --share 퍼센트"
+            return 0
+        fi
+    fi
+    if [ "$SHARE" = dedicated ]; then
+        conv_cores="$cores"
+        conv_mem=$((mem_mb - DEDICATED_RESERVE_MB))
+        [ "$conv_mem" -ge 1024 ] || conv_mem=1024
+        label="전용"
+    else
+        conv_cores=$((cores * SHARE / 100))
+        conv_mem=$((mem_mb * SHARE / 100))
+        [ "$conv_cores" -ge 1 ] || conv_cores=1
+        label="${SHARE}% (앱과 함께 씀)"
+    fi
+    slots=$((conv_mem / MB_PER_SLOT))
+    [ "$slots" -le "$conv_cores" ] || slots="$conv_cores"
+    [ "$slots" -ge 1 ] || slots=1
+    rate_x100=$((slots * PLAN_RATE_PER_SLOT_X100))
+    users=$((rate_x100 * USERS_PER_RATE / 100 / 50 * 50))
+    local env_tmp
+    env_tmp="$(mktemp)"
+    CLEANUP_PATHS+=("$env_tmp")
+    cat >"$env_tmp" <<ENV
+# 이 서버에서 문서 변환에 쓰는 몫. setup-s2-office-converter.sh 가 만듭니다 (바꾸기: --dedicated 또는 --share 퍼센트로 다시 실행).
+# 변환 명령(대기 컨테이너 수), 앱의 S2DocFlow(동시 변환 수·메모리 예산), 변환 서버가 함께 읽습니다. 앱 코드나 server.env 의 값이 우선합니다.
+# 서버: CPU ${cores}코어, 메모리 ${mem_mb}MB / 몫: ${label}
+S2_CONVERTER_SHARE=${SHARE}
+S2_DOCFLOW_PARALLELISM=${slots}
+S2_DOCFLOW_MEMORY_MB=${conv_mem}
+ENV
+    "${SUDO[@]}" mkdir -p "$SERVER_ENV_DIR"
+    if [ -f "$CONVERTER_ENV" ] && "${SUDO[@]}" cmp -s "$env_tmp" "$CONVERTER_ENV"; then
+        skip "$CONVERTER_ENV 가 최신입니다."
+    else
+        "${SUDO[@]}" install -m 0644 "$env_tmp" "$CONVERTER_ENV"
+        ok "설정: $CONVERTER_ENV"
+    fi
+    CAPACITY_SUMMARY="몫 ${label}: 동시 변환 ${slots}건, 메모리 예산 ${conv_mem}MB (CPU ${cores}코어, 메모리 ${mem_mb}MB 중)"
+    ok "$CAPACITY_SUMMARY"
+    CAPACITY_SUMMARY="${CAPACITY_SUMMARY}
+     규모: 일반적인 사용이면 약 ${users}명까지 (1인당 하루 캐시에 없는 변환 10건, 업무 8시간, 가장 몰릴 때 평균의 3배,
+           보통 문서 기준 초당 약 $((rate_x100 / 100)).$(printf '%02d' $((rate_x100 % 100)))건으로 계획). 업로드 때 미리 변환(prepare)·캐시가 잘 맞으면 더 많이.
+           큰 HWP·엑셀이 많거나 동시에 몰리면 적게 잡고, 운영 중에는 통계(waiting, busyRejections)로 다시 맞춥니다."
+    printf '   %s\n' "규모: 일반적인 사용이면 약 ${users}명까지 (자세한 가정은 완료 안내)"
+}
+
+# Removes this account's idle converter containers so the new commands and settings apply
+# | 새 명령·설정이 적용되도록 이 계정의 대기 컨테이너를 지움
+reset_pool() {
+    command -v podman >/dev/null 2>&1 || return 0
+    local ids
+    ids="$(podman_target ps -aq --filter label=s2-office-converter-pool=1 2>/dev/null || true)"
+    [ -n "$ids" ] || return 0
+    # shellcheck disable=SC2086 # one id per word | id 를 단어별로 넘김
+    podman_target rm -f -t 0 $ids >/dev/null 2>&1 || true
+    ok "대기 컨테이너 정리 ($(wc -w <<<"$ids")개, 다음 변환부터 새 설정)"
 }
 
 # 동작 확인 (대상 계정으로 실제 변환)
@@ -1604,6 +1880,7 @@ Type=simple
 User=${TARGET_USER}
 Environment=HOME=${TARGET_HOME}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-${CONVERTER_ENV}
 EnvironmentFile=${SERVER_ENV}
 ExecStart=${JAVA_BIN} -jar ${SERVER_JAR_PATH}
 Restart=on-failure
@@ -1660,6 +1937,7 @@ done_message() {
    예) S2DocumentMerger.merge(List.of(PdfSource.ofDocument(Path.of("보고서.hwp")), ...));
    확인) sudo -u ${TARGET_USER} ${WRAPPER_PATH} --version
 DONE
+    [ -z "$CAPACITY_SUMMARY" ] || echo "   ${CAPACITY_SUMMARY}"
     [ "$WITH_CHROME" = false ] || echo "   웹 페이지(URL 로 받은 HTML)는 s2-chrome 으로 화면 그대로 변환합니다. 확인) sudo -u ${TARGET_USER} ${CHROME_WRAPPER_PATH} --version"
     [ "$WITH_CHROME" = false ] || echo "   한글 문서(hwp, hwpx)는 s2-hwp(rhwp)로 먼저 변환하고, 실패하면 s2-soffice 로 변환합니다. 확인) sudo -u ${TARGET_USER} ${HWP_WRAPPER_PATH} --version"
     if [ "$SERVER" = true ]; then
@@ -1677,6 +1955,7 @@ SERVER_DONE
 
 mode_uninstall() {
     remove_server
+    reset_pool
     if [ -d "$SERVER_ENV_DIR" ] || [ -d "$SERVER_CACHE" ]; then
         "${SUDO[@]}" rm -rf "$SERVER_ENV_DIR" "$SERVER_CACHE"
         ok "제거: $SERVER_ENV_DIR, $SERVER_CACHE"
@@ -1709,6 +1988,8 @@ mode_install() {
     install_wrapper
     install_chrome_wrapper
     install_hwp_wrapper
+    configure_capacity
+    reset_pool
     verify
     [ "$SERVER" = false ] || install_server
     [ "$NO_SERVER" = false ] || remove_server
@@ -1877,6 +2158,8 @@ mode_offline() {
     install_wrapper
     install_chrome_wrapper
     install_hwp_wrapper
+    configure_capacity
+    reset_pool
     verify
     if [ -f "$dir/$SERVER_JAR_ARCHIVE" ]; then
         OFFLINE_SERVER_JAR="$dir/$SERVER_JAR_ARCHIVE"

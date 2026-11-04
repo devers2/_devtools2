@@ -59,7 +59,9 @@ curl -fsSL <주소> | bash
 4. 변환기 이미지 만들기 (LibreOffice + H2Orestart + Chromium + Node.js·rhwp + qpdf + 한글·MS 호환 무료 글꼴, 약 1.6GB)
 5. 고객사 글꼴 폴더 확인 (`--font-dir` 를 지정했거나 이전에 지정한 경우)
 6. `/usr/local/bin/s2-soffice`, `/usr/local/bin/s2-chrome`, `/usr/local/bin/s2-hwp` 설치
-7. 실제 변환으로 동작 확인 (문서, 한글 확장, 고객사 글꼴 인식 수, 한글 조판, 웹 페이지)
+7. 변환에 쓰는 몫 정하기: 처음 설치할 때 **변환 전용 서버인지** 묻고, 아니면 **변환에 줄 몫(%)** 을 묻습니다. 그 값으로 동시 변환 수와 메모리
+   예산을 정해 `/etc/s2-docflow/converter.env` 에 쓰고, **일반적인 사용 기준 몇 명까지 쓸 수 있는지** 알려 줍니다 ([변환 몫과 대기 컨테이너](#변환-몫과-대기-컨테이너))
+8. 실제 변환으로 동작 확인 (문서, 한글 확장, 고객사 글꼴 인식 수, 한글 조판, 웹 페이지)
 
 웹 페이지 변환이 필요 없으면 `--no-chrome` 을 붙입니다 (Chromium 을 빼서 이미지 약 0.9GB, `s2-chrome`·`s2-hwp` 설치 안 함 →
 한글 문서는 LibreOffice + H2Orestart 로만 변환).
@@ -104,6 +106,10 @@ sudo -u appuser s2-soffice --version
 sudo -u appuser s2-chrome --version
 sudo -u appuser s2-hwp --version
 
+# 변환 몫 바꾸기 (전용 / 앱과 함께 쓰는 서버에서 40%). 묻지 않고 정하려면 처음 설치할 때도 이 옵션을 붙임
+curl -fsSL <주소> | bash -s -- --app-user appuser --dedicated
+curl -fsSL <주소> | bash -s -- --app-user appuser --share 40
+
 # 고객사 글꼴 폴더 연결 / 빼기 (이미지는 다시 만들지 않음, 한 번 지정하면 유지)
 curl -fsSL <주소> | bash -s -- --app-user appuser --font-dir /opt/s2-fonts
 curl -fsSL <주소> | bash -s -- --app-user appuser --no-font-dir
@@ -137,6 +143,50 @@ H2Orestart 와 rhwp 는 `s2-office-converter-versions.toml` 의 정책을 따릅
 - **롤백:** 문제가 생기면 `[track]` 을 이전 전체 버전(예: `h2orestart = "0.7.14"`)으로 고정하고 스크립트를 다시 실행해 되돌리기에 동의합니다
   (무인 실행이면 `S2_CONVERTER_UPDATE=y`).
 - LibreOffice·Chromium·Node.js·폰트는 Debian 패키지라 이미지를 만들 때의 최신 보안 업데이트가 들어갑니다 (`--rebuild` 로 다시 반영).
+
+## 변환 몫과 대기 컨테이너
+
+### 변환 몫 (`--dedicated`, `--share`)
+
+| 선택 | 동시 변환 수 | 메모리 예산 |
+|---|---|---|
+| 전용 (`--dedicated`) | CPU 코어 수와 (메모리 − 3GB) ÷ 1GB 중 작은 값 | 메모리 − 3GB (운영체제·변환 서버 몫) |
+| 앱과 함께 (`--share 퍼센트`, 10~90) | CPU × 몫과 (메모리 × 몫) ÷ 1GB 중 작은 값 | 메모리 × 몫 |
+
+- 처음 설치할 때 둘 다 없으면 물어봅니다 (무인 실행은 묻지 않고 앱 기본값: 동시 min(CPU, 4), 메모리 예산 물리 메모리의 절반). 다시 실행하면
+  정한 값을 유지하고, 바꾸려면 옵션을 붙여 다시 실행합니다.
+- 결과는 `/etc/s2-docflow/converter.env` (`S2_DOCFLOW_PARALLELISM`, `S2_DOCFLOW_MEMORY_MB`) 에 쓰고, **변환 명령(대기 컨테이너 수), 앱의
+  S2DocFlow, 변환 서버(`--server`)가 함께 읽습니다.** 앱 코드(`setConversionParallelism`, `setMemoryBudget`)나 `server.env` 의 값이 우선합니다.
+- 규모 안내: 자리 하나를 초당 0.2건으로 계획하고(실측 0.45~0.5건의 절반 이하, 큰 문서·여유 고려), 1인당 하루 캐시에 없는 변환 10건·업무
+  8시간·가장 몰릴 때 평균의 3배로 사용자 수를 셉니다 (사용자 ≈ 동시 변환 수 × 190). 예: 전용 8코어·16GB → 동시 8건, 약 1,500명.
+  업로드 때 미리 변환(`prepare`)·캐시 적중이 많으면 더 많이, 큰 HWP·시트가 많으면 적게 잡습니다.
+
+### 대기 컨테이너 (컨테이너 재사용)
+
+변환 명령은 작업이 끝난 컨테이너를 바로 지우지 않고 **잠시 남겨 두었다가 다음 작업에 다시 씁니다** (`podman exec`). LibreOffice·Chromium 은
+상주시키지 않고 작업마다 새로 띄우며, 작업이 끝나면 그 작업이 남긴 **프로세스를 모두 끝내고 `/tmp` 를 비웁니다.** 그래서 문서끼리 섞이지 않고,
+쉬는 컨테이너는 메모리를 거의 쓰지 않습니다. LibreOffice 는 계정마다 한 번 만들어 둔 프로필(읽기 전용)의 사본으로 시작합니다.
+
+| 작은 문서 1건 (실측) | 새 컨테이너 (이전) | 대기 컨테이너 |
+|---|---|---|
+| 문서 (LibreOffice) | 1.60초 | 0.70초 (재사용을 꺼도 준비된 프로필 덕분에 0.96초) |
+| 웹 페이지 (Chromium) | 1.20초 | 0.75초 |
+| 한글 (rhwp) | 2.20초 | 1.75초 |
+
+동시 8건이 계속 몰릴 때는 변환 자체의 CPU 가 병목이라 처리량은 약 10~20% 늘어납니다 (초당 3.4건 → 3.6~4.1건, 문서 종류 섞음).
+
+| 환경 변수 (또는 `converter.env`) | 기본 | 뜻 |
+|---|---|---|
+| `S2_CONVERTER_WARM` | `1` | `0` 이면 쓰지 않음 (작업마다 새 컨테이너) |
+| `S2_CONVERTER_IDLE_SECONDS` | `600` | 이 시간 동안 일이 없으면 컨테이너가 스스로 끝남 |
+| `S2_CONVERTER_WARM_MAX` | `S2_DOCFLOW_PARALLELISM`, 없으면 CPU 수 | 최대 대기 컨테이너 수. 넘는 요청은 새 컨테이너로 처리 |
+| `S2_CONVERTER_WARM_USES` | `200` | 이만큼 쓴 컨테이너는 새로 바꿈 |
+
+- 시간 초과(124)·취소(143)가 난 컨테이너는 바로 지웁니다. 컨테이너가 사라졌으면(쉬다가 끝남 등) 다음 요청이 새로 띄웁니다.
+- 자원 상한(`S2_SOFFICE_MEMORY`·`S2_*_CPUS` 등)을 지정하면 그 명령은 작업마다 새 컨테이너를 씁니다 (상한이 컨테이너 단위이므로).
+- 확인: `sudo -u appuser podman ps --filter label=s2-office-converter-pool=1`. 설치 스크립트를 다시 실행하면 대기 컨테이너를 정리해 새 설정을 적용합니다.
+- 상태 파일: `$XDG_RUNTIME_DIR/s2-converter-pool/` (계정별, 재부팅하면 사라지고 다시 만듦).
+- 남은 위험과 판단 근거: s2-docflow 의 [AGENTS.md](../AGENTS.md) 6장.
 
 ## 앱(S2OfficeConverter, S2DocumentMerger)에서 찾는 순서
 
