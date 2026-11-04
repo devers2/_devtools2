@@ -93,7 +93,9 @@ bash setup-s2-office-converter-offline.sh --app-user appuser
 
 - 손상 여부(체크섬), CPU 종류를 먼저 확인하고, 맞지 않으면 무엇을 다시 해야 하는지 알려 주고 멈춥니다.
 - 서버에 Podman 이 없으면 파일에 든 패키지로 설치합니다 (이때 배포판도 맞아야 함). 이미 있으면 건너뜁니다.
-- 설치 중에 `/var/tmp` 에 잠시 압축을 풀었다가 지웁니다. 공간이 부족하면 `TMPDIR=<폴더> bash setup-s2-office-converter-offline.sh ...`.
+- 설치 중에 `/var/tmp` 에 잠시 압축을 풀었다가 지웁니다. 풀기 전에 여유 공간(설치 파일 크기의 약 2배)을 확인해, 모자라면 아무것도 풀지 않고
+  멈춥니다. 다른 위치: `TMPDIR=<폴더> bash setup-s2-office-converter-offline.sh ...`.
+- 설치가 끝나면 화면의 마지막 안내(변환 몫, 확인 명령, 변환 서버 주소·앱 설정)를 `/etc/s2-docflow/install-report.txt` 에도 남깁니다.
 - 옵션과 진행은 원래 스크립트와 같습니다. 처음 설치할 때 **변환 전용인지·몫(%)을 묻고**(`--dedicated`·`--share 퍼센트`·`--warm` 도 그대로),
   uid 분리도 준비합니다. 같은 설치 파일을 다시 실행하면 건너뛰고, 새로 만든 설치 파일이면 이미지를 자동으로 바꿉니다 ([최신화](#최신화-보안-업데이트)).
   `--uninstall` 은 제거.

@@ -115,6 +115,8 @@ SERVER_ENV="${SERVER_ENV_DIR}/server.env"
 # Share of this server for conversions (--dedicated, --share), read by the commands, the app and the server
 # | 이 서버에서 변환에 쓰는 몫 (--dedicated, --share). 변환 명령·앱·변환 서버가 함께 읽음
 CONVERTER_ENV="${SERVER_ENV_DIR}/converter.env"
+# What the end of the install printed, kept because a hand-run install scrolls it away | 설치 끝 안내를 남김 (화면은 지나가므로)
+INSTALL_REPORT="${SERVER_ENV_DIR}/install-report.txt"
 SERVER_UNIT="/etc/systemd/system/${SERVER_SERVICE}.service"
 SERVER_CACHE="/var/cache/s2-docflow"
 SERVER_JAR_ARCHIVE="s2-docflow-server.jar"
@@ -2178,7 +2180,23 @@ remove_server() {
     fi
 }
 
+# Prints the end-of-install notes and keeps them in INSTALL_REPORT | 설치 끝 안내를 보여 주고 INSTALL_REPORT 에 남김
 done_message() {
+    local text
+    text="$(done_text)"
+    printf '%s\n' "$text"
+    local report_tmp
+    report_tmp="$(mktemp)"
+    CLEANUP_PATHS+=("$report_tmp")
+    { printf '# %s 설치 (%s, 계정 %s)\n' "$(basename "${SELF:-setup-s2-office-converter.sh}")" "$(date '+%Y-%m-%d %H:%M:%S')" "$TARGET_USER"; printf '%s\n' "$text"; } >"$report_tmp"
+    if "${SUDO[@]}" install -d -m 0755 "$SERVER_ENV_DIR" 2>/dev/null && "${SUDO[@]}" install -m 0644 "$report_tmp" "$INSTALL_REPORT" 2>/dev/null; then
+        printf '\n   이 안내는 %s 에 저장했습니다.\n' "$INSTALL_REPORT"
+    else
+        warn "안내를 $INSTALL_REPORT 에 저장하지 못했습니다 (위 내용을 따로 남겨 두십시오)."
+    fi
+}
+
+done_text() {
     cat <<DONE
 
 🎉 완료. 계정 ${TARGET_USER} 로 실행하는 앱에서 S2OfficeConverter 가 s2-soffice 를 자동으로 찾습니다.
@@ -2338,6 +2356,17 @@ DONE
 }
 
 # 첨부 데이터 (경계 줄 다음부터 끝까지)
+# Stops before unpacking when the folder cannot hold it: about twice the file (images barely compress), so a full disk
+# never leaves a half-extracted payload | 풀 공간이 모자라면 풀기 전에 멈춤: 파일 크기의 약 2배 (이미지는 거의 압축되지 않음).
+# 디스크를 채우다 반쯤 풀린 채로 끝나지 않게
+check_tmp_space() { # FILE_BYTES DIR
+    local need_kb free_kb
+    need_kb=$(($1 / 1024 * 2))
+    free_kb="$(df -Pk "$2" | awk 'NR == 2 { print $4 }')"
+    [ "$free_kb" -ge "$need_kb" ] ||
+        fail "$2 의 여유 공간이 모자랍니다: $((free_kb / 1024))MB (필요 약 $((need_kb / 1024))MB). 다른 위치: TMPDIR=<폴더> bash $(basename "${SELF:-설치파일}") ..."
+}
+
 payload_stream() {
     tail -n +"$((PAYLOAD_LINE + 1))" "$SELF"
 }
@@ -2349,6 +2378,7 @@ mode_offline() {
         fail "설치 파일이 손상되었습니다 (체크섬 불일치). 파일을 다시 옮기십시오."
     ok "체크섬 확인"
 
+    check_tmp_space "$(stat -c %s "$SELF")" "$WORK_TMP"
     local dir
     dir="$(mktemp -d -p "$WORK_TMP" s2-office-converter.XXXXXX)"
     CLEANUP_PATHS+=("$dir")
