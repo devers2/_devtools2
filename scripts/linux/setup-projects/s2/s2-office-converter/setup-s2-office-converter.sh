@@ -1063,7 +1063,8 @@ fill_wrapper() {
 write_runtime() {
     cat >"$1" <<'RUNTIME'
 # ---- Container runtime shared by s2-soffice, s2-chrome and s2-hwp ------------------------------------------------
-# Each job runs in a container with no network, a read-only root, no capabilities and the caller's uid. By default a
+# Each job runs in a container with no network, a read-only root, no capabilities and its own subordinate uids (see
+# s2_auto_ids below). By default a
 # fresh container is started for every job and removed after it (LibreOffice starts from a copy of a read-only profile
 # prepared once per account, which saves about 0.65 s). Performance first: S2_CONVERTER_WARM=1 (or setup --warm)
 # reuses idle containers of this account's pool (podman exec, about 0.3 s less per small document, more for Chromium).
@@ -1073,7 +1074,7 @@ write_runtime() {
 # S2_CONVERTER_IDLE_SECONDS without work (default 600), after S2_CONVERTER_WARM_USES jobs (default 200), or when a job
 # times out or is cancelled; at most S2_CONVERTER_WARM_MAX (default: S2_DOCFLOW_PARALLELISM from converter.env, else
 # the CPU count), and with resource limits (S2_*_MEMORY, S2_*_CPUS) a fresh container is always used.
-# | 변환기 컨테이너 실행 (s2-soffice, s2-chrome, s2-hwp 공통). 네트워크 없음, 읽기 전용 루트, 권한 없음, 호출자 uid.
+# | 변환기 컨테이너 실행 (s2-soffice, s2-chrome, s2-hwp 공통). 네트워크 없음, 읽기 전용 루트, 권한 없음, 자기만의 하위 uid (아래 s2_auto_ids).
 # 기본은 작업마다 새 컨테이너를 띄우고 끝나면 지운다 (LibreOffice 는 계정마다 한 번 만들어 둔 읽기 전용 프로필의 사본으로 시작해 약 0.65초 단축).
 # 성능 우선: S2_CONVERTER_WARM=1 (또는 설치 --warm) 이면 이 계정의 대기 컨테이너를 다시 쓴다 (podman exec). 대기 컨테이너는 한 번에 작업
 # 하나만 하고, 작업이 끝나면 남은 프로세스를 모두 끝내고 /tmp 를 비운다. 격리는 새 컨테이너보다 한 단계 약하다: 커널·컨테이너 런타임 취약점으로
@@ -1089,7 +1090,64 @@ s2_setting() {
     printf '%s' "${value:-$2}"
 }
 s2_pool="$XDG_RUNTIME_DIR/s2-converter-pool/$(printf '%s|%s' "$IMAGE" "$FONT_DIR" | cksum | cut -d ' ' -f 1)"
-s2_isolation=(--network=none --read-only --cap-drop=ALL --security-opt=no-new-privileges --userns=keep-id)
+s2_isolation=(--network=none --read-only --cap-drop=ALL --security-opt=no-new-privileges)
+# Separate ids (default): the container runs as uid 1000 mapped to the account's subordinate ids (container ids
+# 0-1023 -> subordinate ids 1-1024), so a process that broke out of it is not the caller's account and cannot touch
+# the caller's files. Every container uses the same fixed range: Podman keeps one copy of the image per id mapping
+# (about 1.6 GB once; a range per container, --userns=auto, made 63 copies, 89 GB, when measured). Falls back to the
+# caller's uid (keep-id) when Podman cannot (probed once, kept in the pool folder) or with S2_CONVERTER_USERNS=keep-id
+# | uid 분리(기본): 컨테이너를 계정의 하위 uid 로 매핑한 uid 1000 으로 돌려(컨테이너 0~1023 -> 하위 uid 1~1024), 컨테이너를 벗어난 프로세스도
+# 호출자 계정이 아니라 호출자 파일에 닿지 못함. 모든 컨테이너가 같은 고정 범위를 씀: Podman 은 uid 매핑마다 이미지 사본을 하나씩 두므로(한 번 약
+# 1.6GB. 컨테이너마다 범위를 주는 --userns=auto 는 실측 63벌, 89GB). Podman 이 못 하면(한 번 확인해 대기 폴더에 기록) 또는
+# S2_CONVERTER_USERNS=keep-id 이면 호출자 uid(keep-id)로 실행
+s2_auto_ids=(--uidmap 0:1:1024 --gidmap 0:1:1024 --user 1000:1000 -e HOME=/tmp)
+s2_keep_ids=(--userns=keep-id)
+s2_ids_mode() {
+    local mode
+    mode="$(s2_setting S2_CONVERTER_USERNS "")"
+    if [ -z "$mode" ]; then
+        mode="$(cat "$s2_pool/userns" 2>/dev/null)"
+        if [ -z "$mode" ]; then
+            mkdir -p "$s2_pool"
+            if "${podman_cmd[@]}" run --rm "${s2_isolation[@]}" "${s2_auto_ids[@]}" "$IMAGE" true >/dev/null 2>&1; then
+                mode=auto
+            else
+                mode=keep-id
+            fi
+            echo "$mode" >"$s2_pool/userns"
+        fi
+    fi
+    printf '%s' "$mode"
+}
+# Only regular files leave the container: a symbolic link (for example a.pdf -> a file of the host) would make the
+# caller read something else as the result | 결과는 일반 파일만 넘김: 심볼릭 링크(예: a.pdf -> 호스트의 파일)를 넘기면 호출자가 다른 파일을
+# 결과로 읽게 됨
+s2_results() {
+    find "$1" -mindepth 1 ! -type f ! -type d -delete 2>/dev/null
+    [ "$s2_ids" != auto ] || s2_own "$1"
+}
+# The container's own uid writes the results: copy them so the caller owns them (and can remove the folders)
+# | 결과는 컨테이너의 uid 가 쓰므로 복사해 호출자 소유로 바꿈 (폴더도 지울 수 있게)
+s2_own() {
+    local item
+    for item in "$1"/* "$1"/.[!.]*; do
+        [ -e "$item" ] && [ ! -O "$item" ] || continue
+        if [ -f "$item" ] && [ ! -L "$item" ]; then
+            cp -- "$item" "$item.s2-own" && mv -f -- "$item.s2-own" "$item"
+        else
+            "${podman_cmd[@]}" unshare chown -R 0:0 -- "$item" >/dev/null 2>&1
+        fi
+    done
+}
+# Empties a folder, including what the container's uid left | 폴더를 비움 (컨테이너 uid 가 남긴 것 포함)
+s2_wipe() {
+    find "$1" -mindepth 1 -delete 2>/dev/null || "${podman_cmd[@]}" unshare find "$1" -mindepth 1 -delete >/dev/null 2>&1
+}
+# The container's uid reads the input and writes the output (the parent folder stays private to the caller)
+# | 컨테이너 uid 가 입력을 읽고 결과를 쓸 수 있게 함 (상위 폴더는 호출자 전용 그대로)
+s2_open() {
+    chmod 755 "$1/in" && chmod -R a+rX "$1/in" && chmod 777 "$1/out"
+}
 # In the container: copy the prepared profile when mounted, run the job, then kill what it left and empty /tmp
 # | 컨테이너 안: 준비된 프로필이 있으면 복사, 작업 실행, 남은 프로세스를 끝내고 /tmp 를 비움
 s2_job='[ ! -d /opt/s2-profile ] || cp -a /opt/s2-profile /tmp/s2-profile; "$@"; rc=$?; kill -9 -1 2>/dev/null; find /tmp -mindepth 1 -delete 2>/dev/null; exit $rc'
@@ -1097,37 +1155,54 @@ s2_job='[ ! -d /opt/s2-profile ] || cp -a /opt/s2-profile /tmp/s2-profile; "$@";
 # | 대기 컨테이너의 주 프로세스: 작업 없이 $0 초가 지나면 끝남 (한 시간 넘은 busy 표시는 무시)
 s2_idle='trap "exit 0" TERM; while :; do sleep 5 & wait $!; now=$(date +%s); busy=$(stat -c %Y /work/state/busy 2>/dev/null || echo 0); [ $((now - busy)) -gt 3600 ] || continue; last=$(stat -c %Y /work/state/last 2>/dev/null || echo 0); [ $((now - last)) -lt "$0" ] || exit 0; done'
 
-# LibreOffice profile made once per account and image: creating it took about 0.65 s of every conversion
-# | 계정·이미지마다 한 번 만드는 LibreOffice 프로필 (만들기가 변환마다 약 0.65초를 차지했음)
+# LibreOffice profile made once per account and image (creating it took about 0.65 s of every conversion) from a fixed
+# text file, with the same ids as the conversions (no second image copy), then copied so the caller owns it and every
+# container can read it | 계정·이미지마다 한 번 만드는 LibreOffice 프로필 (만들기가 변환마다 약 0.65초를 차지했음). 고정된 텍스트 파일로,
+# 변환과 같은 uid 로 만들고(이미지 사본을 하나 더 만들지 않음), 호출자 소유로 복사해 모든 컨테이너가 읽게 둠
 s2_profile() {
     local dir="$s2_pool/profile"
-    if [ ! -d "$dir/user" ]; then
+    if [ ! -e "$dir/.s2-shared" ]; then
         mkdir -p "$s2_pool" || return 1
         (
             flock 9
-            [ ! -d "$dir/user" ] || exit 0
-            rm -rf "$s2_pool/profile.new" && mkdir -p "$s2_pool/profile.new" || exit 1
+            [ ! -e "$dir/.s2-shared" ] || exit 0
+            # Made by an earlier version: only make it readable | 이전 버전이 만든 것: 읽을 수 있게만
+            if [ -d "$dir/user" ]; then
+                chmod -R a+rX "$dir" && touch "$dir/.s2-shared"
+                exit 0
+            fi
+            local ids=("${s2_keep_ids[@]}")
+            [ "${s2_ids:-}" != auto ] || ids=("${s2_auto_ids[@]}")
+            s2_wipe "$s2_pool/profile.new"
+            mkdir -p "$s2_pool/profile.new" && chmod 777 "$s2_pool/profile.new" || exit 1
             printf 's2\n' >"$s2_pool/profile.new/a.txt"
-            "${podman_cmd[@]}" run --rm "${s2_isolation[@]}" -v "$s2_pool/profile.new:/b:rw,Z" "$IMAGE" \
-                soffice --headless --norestore --nolockcheck -env:UserInstallation=file:///b/p --convert-to pdf --outdir /b /b/a.txt \
+            "${podman_cmd[@]}" run --rm "${s2_isolation[@]}" "${ids[@]}" -v "$s2_pool/profile.new:/b:rw,Z" "$IMAGE" \
+                sh -c 'soffice --headless --norestore --nolockcheck -env:UserInstallation=file:///b/p --convert-to pdf --outdir /b /b/a.txt; chmod -R a+rX /b/p' \
                 >/dev/null 2>&1 || true
-            [ ! -d "$s2_pool/profile.new/p/user" ] || { rm -rf "$dir" && mv "$s2_pool/profile.new/p" "$dir"; }
+            if [ -d "$s2_pool/profile.new/p/user" ]; then
+                s2_wipe "$s2_pool/profile.copy"
+                rm -rf "$s2_pool/profile.copy" && cp -R "$s2_pool/profile.new/p" "$s2_pool/profile.copy" &&
+                    chmod -R a+rX "$s2_pool/profile.copy" && touch "$s2_pool/profile.copy/.s2-shared" &&
+                    rm -rf "$dir" && mv "$s2_pool/profile.copy" "$dir"
+            fi
+            s2_wipe "$s2_pool/profile.new"
             rm -rf "$s2_pool/profile.new"
         ) 9>"$s2_pool/profile.lock"
     fi
-    [ -d "$dir/user" ]
+    [ -e "$dir/.s2-shared" ]
 }
 
 # s2_run [NAME=VALUE ...] -- command [args]: runs the command (time limit $TIMEOUT) with $work/in at /work/in (read-only)
 # and $work/out at /work/out; returns its exit status | 명령을 실행하고($TIMEOUT 제한) 종료 코드를 돌려줌
 s2_run() {
-    local - rc envs=()
+    local - rc envs=() ids=() attempt
     set +e
     while [ "$1" != "--" ]; do
         envs+=(-e "$1")
         shift
     done
     shift
+    s2_ids="$(s2_ids_mode)"
     if [ "$(s2_setting S2_CONVERTER_WARM 0)" = 1 ] && [ ${#limits[@]} -eq 0 ] && command -v flock >/dev/null 2>&1; then
         s2_warm_run "$@"
         rc=$?
@@ -1135,26 +1210,36 @@ s2_run() {
     fi
     local profile=()
     [ "${s2_kind:-}" != soffice ] || ! s2_profile || profile=(-v "$s2_pool/profile:/opt/s2-profile:ro,z")
-    s2_container="s2-${s2_kind:-run}-$$-${RANDOM}"
+    [ "$s2_ids" != auto ] || s2_open "$work"
     trap '"${podman_cmd[@]}" kill "$s2_container" >/dev/null 2>&1 || true; exit 143' TERM INT
-    "${podman_cmd[@]}" run --rm --name "$s2_container" ${limits[@]+"${limits[@]}"} "${s2_isolation[@]}" \
-        -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
-        ${fonts[@]+"${fonts[@]}"} ${profile[@]+"${profile[@]}"} ${envs[@]+"${envs[@]}"} \
-        "$IMAGE" sh -c "$s2_job" sh timeout --kill-after=5 "$TIMEOUT" "$@" &
-    wait "$!"
-    rc=$?
+    for attempt in "$s2_ids" keep-id; do
+        if [ "$attempt" = auto ]; then ids=("${s2_auto_ids[@]}"); else ids=("${s2_keep_ids[@]}"); fi
+        s2_container="s2-${s2_kind:-run}-$$-${RANDOM}"
+        "${podman_cmd[@]}" run --rm --name "$s2_container" ${limits[@]+"${limits[@]}"} "${s2_isolation[@]}" "${ids[@]}" \
+            -v "$work/in:/work/in:ro,Z" -v "$work/out:/work/out:rw,Z" \
+            ${fonts[@]+"${fonts[@]}"} ${profile[@]+"${profile[@]}"} ${envs[@]+"${envs[@]}"} \
+            "$IMAGE" sh -c "$s2_job" sh timeout --kill-after=5 "$TIMEOUT" "$@" &
+        wait "$!"
+        rc=$?
+        # 125/126: Podman or the OCI runtime could not start it with separate ids: once more with the caller's uid
+        # | 125/126: Podman·OCI 런타임이 uid 분리로 띄우지 못함 → 호출자 uid 로 한 번 더
+        { [ "$rc" = 125 ] || [ "$rc" = 126 ]; } && [ "$attempt" = auto ] || break
+    done
     trap - TERM INT
+    s2_results "$work/out"
     return "$rc"
 }
 
 # Starts the pool container of a slot. Podman must not inherit the slot lock ({fd}>&-): the container would hold it
 # for its whole life | 자리의 대기 컨테이너를 띄움. Podman 이 자리 잠금을 물려받으면 컨테이너가 사는 동안 잠겨 있으므로 넘기지 않음
 s2_start() {
-    local profile=()
+    local profile=() ids=("${s2_keep_ids[@]}")
+    [ "$s2_ids" != auto ] || ids=("${s2_auto_ids[@]}")
     ! s2_profile || profile=(-v "$s2_pool/profile:/opt/s2-profile:ro,z")
     "${podman_cmd[@]}" rm -f -t 0 "$s2_container" >/dev/null 2>&1
     touch "$1/state/last"
-    "${podman_cmd[@]}" run -d --rm --name "$s2_container" --label s2-office-converter-pool=1 "${s2_isolation[@]}" \
+    chmod 755 "$1/in" "$1/state" && chmod 777 "$1/out"
+    "${podman_cmd[@]}" run -d --rm --name "$s2_container" --label s2-office-converter-pool=1 "${s2_isolation[@]}" "${ids[@]}" \
         -v "$1/in:/work/in:ro,Z" -v "$1/out:/work/out:rw,Z" -v "$1/state:/work/state:ro,Z" \
         ${fonts[@]+"${fonts[@]}"} ${profile[@]+"${profile[@]}"} \
         "$IMAGE" sh -c "$s2_idle" "$(s2_setting S2_CONVERTER_IDLE_SECONDS 600)" >/dev/null 2>&1 {fd}>&-
@@ -1191,8 +1276,10 @@ s2_warm_run() {
     [ -n "$slot" ] || return 200
     s2_container="s2-pool-${s2_pool##*/}-${slot##*/}"
     touch "$slot/state/busy"
-    find "$slot/in" "$slot/out" -mindepth 1 -delete
+    s2_wipe "$slot/in"
+    s2_wipe "$slot/out"
     cp -a "$work/in/." "$slot/in/"
+    [ "$s2_ids" != auto ] || chmod -R a+rX "$slot/in"
     trap '"${podman_cmd[@]}" rm -f -t 0 "$s2_container" >/dev/null 2>&1 || true; exit 143' TERM INT
     for attempt in 1 2; do
         "${podman_cmd[@]}" exec ${envs[@]+"${envs[@]}"} "$s2_container" sh -c "$s2_job" sh timeout --kill-after=5 "$TIMEOUT" "$@" {fd}>&- &
@@ -1208,7 +1295,10 @@ s2_warm_run() {
     rm -f "$slot/state/busy"
     touch "$slot/state/last"
     if [ "$rc" != 200 ]; then
+        # A copy across file systems (the pool lives in the runtime folder) leaves the results owned by the caller
+        # | 다른 파일 시스템으로 옮기므로(대기 폴더는 런타임 폴더) 결과는 호출자 소유가 됨
         find "$slot/out" -mindepth 1 -maxdepth 1 -exec mv -f -t "$work/out/" -- {} +
+        s2_results "$work/out"
         uses=$(($(cat "$slot/uses" 2>/dev/null || echo 0) + 1))
         echo "$uses" >"$slot/uses"
         # Remove after a timeout or cancellation, or when worn; the remover holds the slot until it is gone
@@ -1218,7 +1308,8 @@ s2_warm_run() {
             ("${podman_cmd[@]}" rm -f -t 0 "$s2_container" >/dev/null 2>&1) </dev/null >/dev/null 2>&1 &
         fi
     fi
-    find "$slot/in" -mindepth 1 -delete 2>/dev/null
+    s2_wipe "$slot/in"
+    s2_wipe "$slot/out"
     exec {fd}>&-
     return "$rc"
 }
@@ -1244,6 +1335,11 @@ resolve_font_dir() {
     local count
     count="$(find "$FONT_DIR" -type f \( -iname '*.ttf' -o -iname '*.ttc' -o -iname '*.otf' -o -iname '*.otc' \) 2>/dev/null | wc -l)"
     [ "$count" -gt 0 ] || fail "글꼴 파일(.ttf, .ttc, .otf)이 없습니다: $FONT_DIR"
+    # Converters run under subordinate uids (uid separation) and read the fonts as "others"
+    # | 변환기는 자기 uid(uid 분리)로 돌며 글꼴을 "그 밖의 사용자"로 읽음
+    if [ -n "$(find "$FONT_DIR" \( -type f ! -perm -o+r \) -o \( -type d ! -perm -o+rx \) 2>/dev/null | head -1)" ]; then
+        warn "글꼴 폴더에 다른 사용자가 읽을 수 없는 파일이 있어 변환기가 그 글꼴을 못 씁니다. 고치기: sudo chmod -R a+rX $FONT_DIR"
+    fi
     # The app account must be able to read them | 앱 실행 계정이 읽을 수 있어야 함
     as_target test -r "$FONT_DIR" || fail "앱 실행 계정($TARGET_USER)이 읽을 수 없습니다: $FONT_DIR (예: sudo chmod -R a+rX $FONT_DIR)"
     ok "$FONT_DIR (글꼴 파일 ${count}개, 변환할 때 읽기 전용으로 연결)"
@@ -1270,6 +1366,7 @@ install_wrapper() {
 #   S2_SOFFICE_MEMORY   컨테이너 메모리 상한 (예: 1g, 지정할 때만. cgroup v2 위임이 있어야 함)
 #   S2_SOFFICE_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
 #   S2_CONVERTER_WARM   1 이면 대기 컨테이너를 다시 씀 (성능 우선, 격리는 한 단계 약함. 기본 0: 작업마다 새 컨테이너. 아래 "Container runtime" 부분)
+#   S2_CONVERTER_USERNS keep-id 이면 앱 계정 uid 로 실행 (기본: 앱 계정이 아닌 하위 uid 로 실행하는 uid 분리)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
@@ -1350,9 +1447,9 @@ args=(soffice --headless --norestore --nolockcheck -env:UserInstallation=file://
 [ -z "$infilter" ] || args+=("$infilter")
 args+=("/work/in/$name")
 
-# No network, read-only root (/tmp stays writable), no capabilities, the caller's uid (results stay owned by the
-# caller), time limit. Memory/CPU limits only when S2_SOFFICE_MEMORY/S2_SOFFICE_CPUS are set (cgroup delegation needed)
-# | 네트워크 없음, 읽기 전용 루트(/tmp 는 쓰기 가능), 권한 없음, 호출자 uid(결과 파일 소유자 유지), 시간 제한.
+# No network, read-only root (/tmp stays writable), no capabilities, separate subordinate uids (results are handed
+# back owned by the caller), time limit. Memory/CPU limits only when S2_SOFFICE_MEMORY/S2_SOFFICE_CPUS are set (cgroup delegation needed)
+# | 네트워크 없음, 읽기 전용 루트(/tmp 는 쓰기 가능), 권한 없음, 분리된 하위 uid(결과는 호출자 소유로 넘김), 시간 제한.
 # 메모리·CPU 상한은 S2_SOFFICE_MEMORY / S2_SOFFICE_CPUS 를 지정할 때만 (cgroup 위임 필요)
 @RUNTIME@
 s2_kind=soffice
@@ -1403,13 +1500,14 @@ install_chrome_wrapper() {
 #
 # 네트워크가 없는 컨테이너에서 실행하므로 페이지의 JavaScript 도 밖(내부망 포함)에 접속하지 못합니다.
 # Chromium 자체 샌드박스는 rootless 컨테이너 안에서 쓸 수 없어 끄고(--no-sandbox), 컨테이너(네트워크 없음, 읽기 전용,
-# 권한 없음, 호출자 uid)가 격리를 맡습니다.
+# 권한 없음, 분리된 하위 uid)가 격리를 맡습니다.
 #
 # 환경 변수:
 #   S2_CHROME_TIMEOUT  인쇄 제한 시간(초, 기본 60)
 #   S2_CHROME_MEMORY   컨테이너 메모리 상한 (예: 1g, 지정할 때만. cgroup v2 위임이 있어야 함)
 #   S2_CHROME_CPUS     컨테이너 CPU 상한 (예: 1.5, 지정할 때만)
 #   S2_CONVERTER_WARM   1 이면 대기 컨테이너를 다시 씀 (성능 우선, 격리는 한 단계 약함. 기본 0: 작업마다 새 컨테이너. 아래 "Container runtime" 부분)
+#   S2_CONVERTER_USERNS keep-id 이면 앱 계정 uid 로 실행 (기본: 앱 계정이 아닌 하위 uid 로 실행하는 uid 분리)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
@@ -1508,6 +1606,7 @@ install_hwp_wrapper() {
 #   S2_HWP_CHUNK    한 번에 인쇄할 쪽 수 (기본 50). 쪽을 나눠 인쇄해 Chromium 메모리를 약 2GB 안팎으로 유지 (381쪽을 한 번에 인쇄하면 약 4GB)
 #   S2_HWP_PARALLEL 동시에 인쇄할 묶음 수 (기본 1). 2~3 이면 큰 문서가 그만큼 빨라지지만 메모리도 그만큼 더 씀
 #   S2_CONVERTER_WARM   1 이면 대기 컨테이너를 다시 씀 (성능 우선, 격리는 한 단계 약함. 기본 0: 작업마다 새 컨테이너. 아래 "Container runtime" 부분)
+#   S2_CONVERTER_USERNS keep-id 이면 앱 계정 uid 로 실행 (기본: 앱 계정이 아닌 하위 uid 로 실행하는 uid 분리)
 set -euo pipefail
 
 IMAGE="@IMAGE@"
@@ -1589,7 +1688,7 @@ mkdir -p "$work/in" "$work/out"
 extension="$(printf '%s' "${name##*.}" | tr 'A-Z' 'a-z')"
 cp -- "$input" "$work/in/document.$extension"
 
-# Same isolation as s2-soffice: no network, read-only root (/tmp stays writable), no capabilities, the caller's uid,
+# Same isolation as s2-soffice: no network, read-only root (/tmp stays writable), no capabilities, separate uids,
 # time limit; stop the container when the caller gives up (SIGTERM) | s2-soffice 와 같은 격리. 호출자가 포기하면 컨테이너를 멈춤
 @RUNTIME@
 s2_kind=hwp
@@ -1721,6 +1820,22 @@ ENV
     printf '   %s\n' "규모: 일반적인 사용이면 약 ${users}명까지 (자세한 가정은 완료 안내)"
 }
 
+# Separate ids: checks support and prepares the image for the fixed id range now (the first use copies the image for
+# that mapping, about 1.6 GB and a few seconds), not on the first conversion
+# | uid 분리: 지원 여부를 확인하고 고정 uid 범위용 이미지 준비를 지금 함 (처음 쓸 때 그 매핑용 이미지 사본을 만듦, 약 1.6GB·수 초)
+prepare_ids() {
+    info "uid 분리 (컨테이너를 앱 계정이 아닌 하위 uid 로 실행)"
+    if [ "$(converter_env_value S2_CONVERTER_USERNS)" = keep-id ]; then
+        skip "쓰지 않습니다 (S2_CONVERTER_USERNS=keep-id)."
+        return 0
+    fi
+    if podman_target run --rm --network=none --read-only --uidmap 0:1:1024 --gidmap 0:1:1024 --user 1000:1000 "$IMAGE" true >/dev/null 2>&1; then
+        ok "컨테이너를 앱 계정이 아닌 하위 uid 로 실행합니다 (이미지 사본 약 1.6GB 추가). 끄기: converter.env 에 S2_CONVERTER_USERNS=keep-id"
+    else
+        warn "이 서버의 Podman 이 uid 분리를 하지 못해 변환을 앱 계정 uid 로 실행합니다 (네트워크 없음·읽기 전용 등 다른 격리는 그대로). /etc/subuid·/etc/subgid 에 $TARGET_USER 의 범위(1025개 이상)가 있는지 확인하십시오."
+    fi
+}
+
 # Removes this account's idle converter containers so the new commands and settings apply
 # | 새 명령·설정이 적용되도록 이 계정의 대기 컨테이너를 지움
 reset_pool() {
@@ -1731,6 +1846,12 @@ reset_pool() {
     # shellcheck disable=SC2086 # one id per word | id 를 단어별로 넘김
     podman_target rm -f -t 0 $ids >/dev/null 2>&1 || true
     ok "대기 컨테이너 정리 ($(wc -w <<<"$ids")개, 다음 변환부터 새 설정)"
+}
+
+# Forgets the commands' cached uid separation check, so the next conversion checks again
+# | 변환 명령이 기억해 둔 uid 분리 확인 결과를 지워 다음 변환이 다시 확인하게 함
+forget_ids_check() {
+    as_target sh -c 'rm -f "$XDG_RUNTIME_DIR"/s2-converter-pool/*/userns' 2>/dev/null || true
 }
 
 # 동작 확인 (대상 계정으로 실제 변환)
@@ -2014,6 +2135,8 @@ mode_install() {
     install_hwp_wrapper
     configure_capacity
     reset_pool
+    forget_ids_check
+    prepare_ids
     verify
     [ "$SERVER" = false ] || install_server
     [ "$NO_SERVER" = false ] || remove_server
@@ -2184,6 +2307,8 @@ mode_offline() {
     install_hwp_wrapper
     configure_capacity
     reset_pool
+    forget_ids_check
+    prepare_ids
     verify
     if [ -f "$dir/$SERVER_JAR_ARCHIVE" ]; then
         OFFLINE_SERVER_JAR="$dir/$SERVER_JAR_ARCHIVE"
