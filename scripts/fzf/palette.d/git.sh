@@ -6,20 +6,23 @@
 # "그룹 파일 불러오기" 주석을 보세요. 이 파일 = 1단계 메뉴 그룹 "🌿 Git · 프로젝트" (그룹 ID: git)
 
 # Git · 프로젝트 — lazygit·브랜치·PR 은 Git 저장소 안에서만, PR 은 gh 가 있을 때만
+# 1단계 키워드(_GIT_KW)는 실제로 보이는 항목에서 만든다 — 저장소 밖에서 열면 lazygit·브랜치·PR 이 빠짐(AI·외부 도구 그룹과 같은 방식)
 _MENU_GIT=()
+_GIT_KW=()
 if [ -n "$_GIT_ROOT" ]; then
-    command -v lazygit >/dev/null 2>&1 && _MENU_GIT+=("git_lazygit	lazygit 열기 (커밋 · 스테이징 · 로그 화면)")
-    _MENU_GIT+=("git_branch	브랜치 전환 · 새 브랜치 (로컬 · 원격)")
-    command -v gh >/dev/null 2>&1 && _MENU_GIT+=("git_pr_checkout	PR 체크아웃 (GitHub Pull Request 받아서 전환)")
+    command -v lazygit >/dev/null 2>&1 && _MENU_GIT+=("git_lazygit	lazygit 열기 (커밋 · 스테이징 · 로그 화면)") && _GIT_KW+=("lazygit")
+    _MENU_GIT+=("git_branch	브랜치 전환 · 새 브랜치 (로컬 · 원격)") && _GIT_KW+=("브랜치")
+    command -v gh >/dev/null 2>&1 && _MENU_GIT+=("git_pr_checkout	PR 체크아웃 (GitHub Pull Request 받아서 전환)") && _GIT_KW+=("PR")
 fi
 _MENU_GIT+=(
     "git_clone	Git Clone (Bitwarden 인증 자동)"
     "project_setup	프로젝트 설정 (Git Clone & 초기화)"
 )
+_GIT_KW+=("Clone" "프로젝트 설정")
 
 
 # ── 1단계 메뉴 등록 · 2단계 선택 ─────────────────────────────────────────────
-cp_register_group git "🌿 Git · 프로젝트 ▸ lazygit · 브랜치 · PR · Clone · 프로젝트 설정"
+cp_register_group git "🌿 Git · 프로젝트 ▸ $(_cp_join_kw "${_GIT_KW[@]}")"
 cp_group_git() {
     CHOICE_ID=$(_pick_leaf "🌿 Git · 프로젝트 > " "${_MENU_GIT[@]}")
 }

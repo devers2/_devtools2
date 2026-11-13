@@ -792,7 +792,11 @@ PYEOF
 # ── 1단계 메뉴 등록 · 2단계 선택 (Gradle 프로젝트에서만) ─────────────────────────────
 # 2단계는 _gt_menu(⭐ 빠른 실행 · 🕘 최근 · 📦 모듈 › 📂 그룹 › 🔧 작업). 작업을 바로 실행했으면 그 종료 코드로 끝내고,
 # ⭐ 빠른 실행 항목을 골랐으면 그 항목 ID 의 실행 함수(cp_run_<ID>)로 넘어갑니다.
-$GRADLEW_EXISTS && cp_register_group gradle "🐘 Gradle ▸ 실행 · 빌드 · 배포 · 테스트 · 작업(Tasks)"
+# 1단계 키워드는 실제로 보이는 빠른 실행 항목에 맞춤(배포는 Maven 중앙 저장소 배포 설정이 있을 때만 — _gt_menu 와 같은 조건)
+_GRADLE_KW=("실행" "빌드")
+$CENTRAL_PORTAL_EXISTS && _GRADLE_KW+=("배포")
+_GRADLE_KW+=("테스트" "데몬 정리" "작업(Tasks)")
+$GRADLEW_EXISTS && cp_register_group gradle "🐘 Gradle ▸ $(_cp_join_kw "${_GRADLE_KW[@]}")"
 cp_group_gradle() {
     _gt_menu
     case "$_GT_RESULT" in
