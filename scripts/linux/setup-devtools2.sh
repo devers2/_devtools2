@@ -19,6 +19,12 @@
 
 set -euo pipefail
 
+# 지원 환경 확인 — DevTools2 는 WSL·리눅스 네이티브 전용(AGENTS.md 7장). 설치를 시작하기 전에 멈춘다.
+if [[ "${OSTYPE:-}" == darwin* ]] || [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
+    echo "❌ macOS 는 지원하지 않습니다. DevTools2 는 WSL(Windows)·리눅스 전용입니다." >&2
+    exit 1
+fi
+
 # 컬러 출력 헬퍼
 print_banner() {
     echo ""

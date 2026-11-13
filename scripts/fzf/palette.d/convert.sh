@@ -50,7 +50,7 @@ cp_run_base64_encode() {
         echo "   Bitwarden 항목의 '사용자 지정 필드' 값에 그대로 붙여넣으세요."
     else
         echo "⚠️  사용 가능한 클립보드 도구를 찾지 못해 아래에 직접 출력합니다."
-        echo "   (clip.exe / pbcopy / wl-copy / xclip / xsel 중 하나가 필요합니다)"
+        echo "   (clip.exe / wl-copy / xclip / xsel 중 하나가 필요합니다)"
         echo ""
         echo "$_B64_OUT"
     fi
@@ -83,7 +83,7 @@ cp_run_base64_decode() {
 
     _B64_IN=$(paste_from_clipboard)
     if [ $? -ne 0 ]; then
-        echo "⚠️  사용 가능한 클립보드 도구를 찾지 못했습니다 (clip.exe/pbpaste/wl-paste/xclip/xsel)."
+        echo "⚠️  사용 가능한 클립보드 도구를 찾지 못했습니다 (powershell.exe/wl-paste/xclip/xsel)."
         prompt_text _B64_IN "📋 Base64 문자열을 직접 붙여넣어주세요"
         if [ -z "$_B64_IN" ]; then
             echo "❌ Base64 문자열이 입력되지 않았습니다."
@@ -102,9 +102,7 @@ cp_run_base64_decode() {
     # (대상에 바로 쓰고 실패 시 지우면, 덮어쓰기에 동의한 기존 파일까지 사라짐)
     _B64_TMP=$(mktemp "$(dirname "$_B64_DST")/.b64restore.XXXXXX")
     _B64_DECODE_OK=false
-    if $IS_MAC && printf '%s' "$_B64_IN" | base64 -D >"$_B64_TMP" 2>/dev/null; then
-        _B64_DECODE_OK=true
-    elif printf '%s' "$_B64_IN" | base64 -d >"$_B64_TMP" 2>/dev/null; then
+    if printf '%s' "$_B64_IN" | base64 -d >"$_B64_TMP" 2>/dev/null; then
         _B64_DECODE_OK=true
     fi
 

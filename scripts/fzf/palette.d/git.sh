@@ -107,8 +107,6 @@ cp_run_git_clone() {
             echo "   sudo apt update && sudo apt install -y git"
         elif [[ -f /etc/redhat-release ]] || [[ -f /etc/fedora-release ]]; then
             echo "   sudo dnf install -y git"
-        elif [[ "$OSTYPE" == "darwin"* ]]; then
-            echo "   brew install git  또는  xcode-select --install"
         else
             echo "   패키지 매니저로 git 을 설치해주세요."
         fi

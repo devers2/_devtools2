@@ -156,7 +156,7 @@ _GT_JAVA_ARGS=()
 _gt_java_home=$(get_state "gradle_build" "java_home")
 [ -n "$_gt_java_home" ] && _GT_JAVA_ARGS=("-Dorg.gradle.java.home=$_gt_java_home")
 
-# 빌드 설정 파일들의 경로·수정 시각·크기로 만든 서명 (macOS 도 지원하도록 find -printf 대신 Python)
+# 빌드 설정 파일들의 경로·수정 시각·크기로 만든 서명 (find -printf 대신 Python)
 _gt_signature() {
     python3 - "$CWD" <<'PYSIG'
 import hashlib, os, re, sys

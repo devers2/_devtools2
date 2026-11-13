@@ -35,16 +35,11 @@ cp_run_port_check() {
         if ! is_port_in_use "$PORT"; then
             echo "  (해당 포트를 사용하는 프로세스 없음)"
         else
-            if $IS_MAC; then
-                # macOS: lsof -i :PORT
-                lsof -i :"$PORT" 2>/dev/null || echo "  (포트 $PORT 점유 중)"
-            else
-                # Linux / WSL2: 안전한 소켓 상태 + Java/Gradle 프로세스 정보 표시
-                echo "  ✅ 포트 $PORT 가 활성화(LISTEN) 상태입니다."
-                echo ""
-                echo "  [관련 실행 중 프로세스 목록]"
-                ps aux 2>/dev/null | grep -iE 'java|bootRun|gradle' | grep -v grep | head -5 | awk '{print "  PID: "$2"  |  명령어: "$11" "$12" "$13" "$14}'
-            fi
+            # Linux / WSL2: 안전한 소켓 상태 + Java/Gradle 프로세스 정보 표시
+            echo "  ✅ 포트 $PORT 가 활성화(LISTEN) 상태입니다."
+            echo ""
+            echo "  [관련 실행 중 프로세스 목록]"
+            ps aux 2>/dev/null | grep -iE 'java|bootRun|gradle' | grep -v grep | head -5 | awk '{print "  PID: "$2"  |  명령어: "$11" "$12" "$13" "$14}'
         fi
         echo "─────────────────────────────────────────"
     fi
@@ -56,7 +51,7 @@ cp_run_proc_check() {
     if [[ -n "$KWD" ]]; then
         echo "📋 '$KWD' 관련 프로세스 목록:"
         echo "─────────────────────────────────────────"
-        # Linux / macOS / WSL 공통: ps aux
+        # Linux / WSL 공통: ps aux
         ps aux | grep -i "$KWD" | grep -v grep
         echo "─────────────────────────────────────────"
     fi
@@ -107,10 +102,7 @@ cp_run_port_kill() {
         kill_pids "$target_pids"
     else
         # get_pids_by_port 로 PID를 직접 특정하지 못한 경우의 폴백
-        if $IS_MAC; then
-            mac_pids=$(lsof -nP -ti tcp:"$PORT" -sTCP:LISTEN 2>/dev/null)
-            [[ -n "$mac_pids" ]] && kill_pids "$mac_pids"
-        elif command -v fuser &>/dev/null; then
+        if command -v fuser &>/dev/null; then
             fuser -k -9 "$PORT/tcp" &>/dev/null || true
         fi
     fi
@@ -121,20 +113,16 @@ cp_run_port_kill() {
 
 # ── 메모리 사용 현황 (Memory) ─────────────────────────────────────────────────
 # PC 가 느려지거나 멈출 때 무엇이 메모리를 쓰는지 한눈에 보기 위한 항목입니다.
-#   ● 전체: Linux·WSL 은 free, macOS 는 top 의 PhysMem. WSL 의 전체 메모리는 .wslconfig 의 memory 상한입니다.
+#   ● 전체: free. WSL 의 전체 메모리는 .wslconfig 의 memory 상한입니다.
 #   ● 개발 도구별: 이 사용자의 프로세스를 jdtls·Gradle 데몬·VS Code 서버 등으로 묶어 RSS 를 합칩니다
 #     (RSS 합계라 여러 프로세스가 함께 쓰는 메모리는 중복으로 더해질 수 있어 대략적인 값입니다).
 #   ● ps 출력을 먼저 변수에 받아 두고 나서 awk 로 묶습니다(awk 자신의 명령줄이 패턴에 걸리지 않게).
 cp_run_mem_status() {
     echo "🧠 메모리 사용 현황"
     echo "─────────────────────────────────────────"
-    if $IS_MAC; then
-        top -l 1 -s 0 2>/dev/null | grep -E '^PhysMem' | sed 's/^/  /'
-    else
-        free -h 2>/dev/null | sed 's/^/  /'
-        if $IS_WSL; then
-            echo "  ℹ️  WSL 전체(total) = .wslconfig 의 memory 상한(없으면 PC 메모리의 절반). 남는 캐시는 WSL 이 Windows 로 차츰 돌려줍니다."
-        fi
+    free -h 2>/dev/null | sed 's/^/  /'
+    if $IS_WSL; then
+        echo "  ℹ️  WSL 전체(total) = .wslconfig 의 memory 상한(없으면 PC 메모리의 절반). 남는 캐시는 WSL 이 Windows 로 차츰 돌려줍니다."
     fi
     _MEM_PS=$(ps -u "$(id -u)" -o pid=,rss=,args= 2>/dev/null)
     echo ""

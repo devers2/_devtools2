@@ -97,7 +97,7 @@ cp_run_jdk_switch() {
         echo ""
     fi
 
-    # Linux (WSL 포함) / macOS 공통
+    # Linux (WSL 포함)
     JDK_SWITCH_SCRIPT="$DEV_ROOT/scripts/linux/cmd/jdk_switch.sh"
     if [[ -f "$JDK_SWITCH_SCRIPT" ]]; then
         source "$JDK_SWITCH_SCRIPT" "$JDK_CHOICE"
@@ -149,7 +149,7 @@ cp_run_python_switch() {
         exit 0
     fi
 
-    # Linux (WSL 포함) / macOS 공통
+    # Linux (WSL 포함)
     PY_SWITCH_SCRIPT="$DEV_ROOT/scripts/linux/cmd/py_switch.sh"
     if [[ -f "$PY_SWITCH_SCRIPT" ]]; then
         source "$PY_SWITCH_SCRIPT" "$PY_CHOICE"

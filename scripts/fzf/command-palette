@@ -65,15 +65,17 @@ trap '_cp_kill_bg_jobs; _restore_tty; echo ""; echo "⛔ Ctrl+C 로 중단했습
 trap '_cp_kill_bg_jobs; _restore_tty; exit 143' TERM
 normalize_tty
 
-# 1. 현재 작업 환경 분석 및 OS 판별 (IS_MAC, IS_WSL)
-# ⚠️ Windows 네이티브(Git Bash 등)는 지원하지 않습니다(WSL·리눅스·macOS 전용).
+# 1. 현재 작업 환경 분석 및 OS 판별 (IS_WSL)
+# ⚠️ WSL·리눅스 네이티브 전용입니다. Windows 네이티브(Git Bash 등)·macOS 는 지원하지 않습니다(AGENTS.md 7장).
 CWD=$(pwd)
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "win32" ]]; then
     echo "❌ Windows 네이티브(Git Bash 등)는 지원하지 않습니다. WSL 터미널에서 실행해 주세요." >&2
     exit 1
 fi
-IS_MAC=false
-[[ "$OSTYPE" == "darwin"* ]] && IS_MAC=true
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "❌ macOS 는 지원하지 않습니다(DevTools2 는 WSL·리눅스 전용)." >&2
+    exit 1
+fi
 if [ -z "${IS_WSL+x}" ]; then
     IS_WSL=false
     if [[ "$OSTYPE" == linux-gnu* ]] && grep -qi microsoft /proc/version 2>/dev/null; then

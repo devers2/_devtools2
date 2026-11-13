@@ -45,7 +45,7 @@ save_state() {
 }
 
 # ==============================================================================
-# OS 공통 클립보드 유틸리티 함수 (Windows / WSL / macOS / Linux)
+# OS 공통 클립보드 유틸리티 함수 (WSL / Linux)
 # ==============================================================================
 
 # 표준 입력을 클립보드에 복사 (개행 없이 그대로)
@@ -59,10 +59,6 @@ cp_copy_stdin_to_clipboard() {
             clip.exe
             return 0
         fi
-    fi
-    if $IS_MAC && command -v pbcopy &>/dev/null; then
-        pbcopy
-        return 0
     fi
     # 순수 Linux(WSL 제외): 디스플레이 서버별 클립보드 도구 순차 시도
     if command -v wl-copy &>/dev/null; then
@@ -86,10 +82,6 @@ paste_from_clipboard() {
             powershell.exe -NoProfile -Command "[Console]::Out.Write((Get-Clipboard -Raw))" 2>/dev/null | tr -d '\r\n'
             return 0
         fi
-    fi
-    if $IS_MAC && command -v pbpaste &>/dev/null; then
-        pbpaste | tr -d '\r\n'
-        return 0
     fi
     if command -v wl-paste &>/dev/null; then
         wl-paste | tr -d '\r\n'
@@ -118,33 +110,24 @@ port_to_hex() {
 is_port_in_use() {
     local port="$1"
 
-    if $IS_MAC; then
-        # macOS (BSD): lsof 비블로킹 LISTEN 검사 (macOS 표준)
-        if command -v lsof &>/dev/null; then
-            lsof -n -iTCP:"$port" -sTCP:LISTEN &>/dev/null
-        else
-            netstat -an -p tcp 2>/dev/null | grep -qE "\.${port}[[:space:]].*LISTEN" &>/dev/null
+    # Linux / WSL2: 커널 /proc/net/tcp 텍스트 직접 조회 (외부 커맨드 0개, 멈춤 0%)
+    local hex_port
+    hex_port=$(port_to_hex "$port")
+
+    # 로컬 주소(2번째 칸)의 포트와 상태(4번째 칸, 0A = LISTEN)를 정확히 비교합니다.
+    # (줄 전체에서 ":포트 ... 0A" 를 찾으면 그 포트로 "접속한" 클라이언트 연결이나 다른 칸의 0A 도 걸림)
+    local _f
+    for _f in /proc/net/tcp /proc/net/tcp6; do
+        if [[ -f "$_f" ]] && awk -v p=":${hex_port}" 'toupper(substr($2, length($2)-4)) == p && $4 == "0A" { found=1; exit } END { exit !found }' "$_f" 2>/dev/null; then
+            return 0
         fi
+    done
+
+    # /proc 접근 불가 시 Linux 폴백
+    if command -v ss &>/dev/null; then
+        ss -tln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" &>/dev/null
     else
-        # Linux / WSL2: 커널 /proc/net/tcp 텍스트 직접 조회 (외부 커맨드 0개, 멈춤 0%)
-        local hex_port
-        hex_port=$(port_to_hex "$port")
-
-        # 로컬 주소(2번째 칸)의 포트와 상태(4번째 칸, 0A = LISTEN)를 정확히 비교합니다.
-        # (줄 전체에서 ":포트 ... 0A" 를 찾으면 그 포트로 "접속한" 클라이언트 연결이나 다른 칸의 0A 도 걸림)
-        local _f
-        for _f in /proc/net/tcp /proc/net/tcp6; do
-            if [[ -f "$_f" ]] && awk -v p=":${hex_port}" 'toupper(substr($2, length($2)-4)) == p && $4 == "0A" { found=1; exit } END { exit !found }' "$_f" 2>/dev/null; then
-                return 0
-            fi
-        done
-
-        # /proc 접근 불가 시 Linux 폴백
-        if command -v ss &>/dev/null; then
-            ss -tln 2>/dev/null | grep -qE ":${port}([[:space:]]|$)" &>/dev/null
-        else
-            return 1
-        fi
+        return 1
     fi
 }
 
@@ -153,21 +136,15 @@ get_pids_by_port() {
     local port="$1"
     local pids=""
 
-    if $IS_MAC; then
-        if command -v lsof &>/dev/null; then
-            pids=$(lsof -nP -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
-        fi
-    else
-        # Linux / WSL2: lsof, ss, fuser 순차 시도
-        # ⚠️ 반드시 LISTEN 소켓만 봅니다. "lsof -ti :PORT" 는 로컬/원격 포트를 모두 매칭해서
-        #    그 포트로 "접속한 클라이언트"(예: 8080 백엔드로 프록시하는 vite 개발 서버)까지 종료합니다.
-        if command -v lsof &>/dev/null; then
-            pids=$(lsof -nP -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
-        elif command -v ss &>/dev/null; then
-            pids=$(ss -ltnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u)
-        elif command -v fuser &>/dev/null; then
-            pids=$(fuser "$port/tcp" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' | sort -u)
-        fi
+    # Linux / WSL2: lsof, ss, fuser 순차 시도
+    # ⚠️ 반드시 LISTEN 소켓만 봅니다. "lsof -ti :PORT" 는 로컬/원격 포트를 모두 매칭해서
+    #    그 포트로 "접속한 클라이언트"(예: 8080 백엔드로 프록시하는 vite 개발 서버)까지 종료합니다.
+    if command -v lsof &>/dev/null; then
+        pids=$(lsof -nP -ti tcp:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+    elif command -v ss &>/dev/null; then
+        pids=$(ss -ltnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | sort -u)
+    elif command -v fuser &>/dev/null; then
+        pids=$(fuser "$port/tcp" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' | sort -u)
     fi
 
     echo "$pids"
