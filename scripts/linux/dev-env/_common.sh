@@ -190,6 +190,22 @@ prompt_key() {
     done
 }
 
+# 터미널 키 신호 제거 — strip_term_escapes <변수 이름>
+# 비밀번호처럼 화면에 안 보이게(read -s) 받은 입력에서 ESC(0x1B)로 시작하는 키 신호를 지운다.
+# Esc 를 눌러 영문으로 바꾸는 설정(Windows AutoHotkey 의 ~Esc — 원래 Esc 도 그대로 전달, Linux keyd 의 esc + Ctrl+Alt+Shift+F11)은
+# 입력 중에 누르면 ESC·`ESC[23;8~` 같은 문자열이 입력값에 섞여, 비영문 검사에 걸리거나 비밀번호가 틀린다.
+# 비밀번호에 ESC 가 들어갈 일은 없으므로 지워도 안전하다. 값이 프로세스 인자로 노출되지 않게 bash 안에서만 처리한다.
+strip_term_escapes() {
+    local LC_ALL=C _s="${!1}" _old
+    _old=$(shopt -p extglob)
+    shopt -s extglob
+    _s="${_s//$'\e'\[*([0-9;?])[@-~]/}"   # CSI: ESC [ 숫자·; 끝문자(기능키·방향키 등)
+    _s="${_s//$'\e'O[@-~]/}"              # SS3: ESC O 끝문자(F1~F4 등)
+    _s="${_s//$'\e'/}"                    # 남은 ESC(Esc 키 단독)
+    eval "$_old"
+    printf -v "$1" '%s' "$_s"
+}
+
 # ── 비밀번호 입력 프롬프트 헬퍼 (비영문/다국어 입력 방지 및 재입력 유도) ──
 # prompt_password <varname> [prompt_message]
 # - 비밀번호 입력 시 터미널 에코를 끄고(-s) 안전하게 입력받습니다.
@@ -206,6 +222,7 @@ prompt_password() {
         printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$_msg"
         IFS= read -rsp "" _input </dev/tty || true
         echo ""
+        strip_term_escapes _input   # 입력 중 누른 Esc(영문 전환 키)가 섞인 것 제거
 
         if [ -z "$_input" ]; then
             print_warn "비밀번호가 입력되지 않았습니다. 다시 입력해 주세요."
