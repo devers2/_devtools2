@@ -102,17 +102,19 @@ PROJ_KEY=$(echo -n "$NORM_CWD" | md5sum | awk '{print $1}')
 # [설계 원칙 / Rationale]
 #   ● 2,500줄 넘게 커진 팔레트를 1단계 메뉴 그룹마다 파일 하나로 나눴습니다(파일 이름 = 그룹 ID). 메뉴에서 보이는
 #     구조와 파일 구조가 같아 항목을 더할 때 어느 파일을 고칠지 바로 알 수 있습니다.
-#       gradle(🐘 Gradle) · git(🌿 Git · 프로젝트) · tools(🧰 외부 도구) · ai(🤖 AI) · system(🖥️ 시스템)
+#       gradle(🐘 Gradle) · git(🌿 Git · 프로젝트) · ai(🤖 AI) · tools(🧰 외부 도구) · system(🖥️ 시스템)
 #       · runtime(☕ 런타임 · SDK) · convert(🔤 변환)
 #   ● 두 그룹 이상이 쓰는 함수·값(포트·프로세스, 저장값, 클립보드, GUI 앱 실행, Git 저장소 위치, 메뉴 공용)은 _lib.sh,
 #     한 그룹만 쓰는 것은 그 그룹 파일에 둡니다. 나중에 다른 그룹도 쓰게 되면 그때 _lib.sh 로 옮깁니다.
 #   ● 그룹 파일은 메뉴 항목(_MENU_<그룹>), 1단계 등록(cp_register_group — 보일 조건 포함), 2단계 선택(cp_group_<그룹 ID>),
 #     항목 실행 함수(cp_run_<항목 ID>)를 정의합니다. 아래 _CP_GROUP_FILES 순서가 1단계 메뉴 순서입니다.
+#     순서 기준은 사용 빈도: 저장소 작업(Gradle·Git) → AI(이 팔레트에서만 하는 설정·Orca·스킬) → 외부 도구(다른 방법으로도 열 수 있음)
+#     → 시스템 · 런타임 · 변환(가끔).
 #   ● 실행 함수는 palette.d 파일 안에서 정의되므로 BASH_SOURCE[0] 이 그 파일을 가리킵니다. 팔레트 위치가 필요하면
 #     $_CP_SCRIPT_DIR 을 씁니다(테스트 6-5 가 palette.d 의 BASH_SOURCE 사용을 막음).
 #   ● 팔레트는 이 PC 의 저장소에서 실행되는 도구라(Alt+C → $DEVTOOLS2/scripts/fzf/command-palette) 옆 폴더의 파일을 읽습니다.
 _CP_D="$_CP_SCRIPT_DIR/palette.d"
-_CP_GROUP_FILES=(gradle git tools ai system runtime convert)
+_CP_GROUP_FILES=(gradle git ai tools system runtime convert)
 for _cp_f in _lib "${_CP_GROUP_FILES[@]}"; do
     if [ ! -f "$_CP_D/$_cp_f.sh" ]; then
         echo "❌ 명령 팔레트 파일이 없습니다: $_CP_D/$_cp_f.sh (DevTools2 저장소를 git pull 로 갱신해 주세요)" >&2

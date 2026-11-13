@@ -14,7 +14,7 @@ if [ -n "$_GIT_ROOT" ]; then
 fi
 _MENU_GIT+=(
     "git_clone	Git Clone (Bitwarden 인증 자동)"
-    "project_setup	프로젝트 설정 (Clone & 초기화)"
+    "project_setup	프로젝트 설정 (Git Clone & 초기화)"
 )
 
 

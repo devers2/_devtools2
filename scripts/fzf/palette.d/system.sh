@@ -5,21 +5,23 @@
 # command-palette 가 source 로 불러오는 파일입니다(단독 실행 X). 구조 설명은 command-palette 의
 # "그룹 파일 불러오기" 주석을 보세요. 이 파일 = 1단계 메뉴 그룹 "🖥️ 시스템" (그룹 ID: system)
 
+_SYSTEM_KW="포트 · 프로세스 · 종료 · 메모리"
 _MENU_SYSTEM=(
     "port_check	포트 확인 (Port Check)"
+    "port_kill	포트로 프로세스 종료 (Port Kill)"
     "proc_check	프로세스 확인 (Process Check)"
     "proc_kill	프로세스 종료 (Process Kill)"
-    "port_kill	포트로 프로세스 종료 (Port Kill)"
     "mem_status	메모리 사용 현황 (Memory · 많이 쓰는 프로세스)"
 )
 # WSL 에서만: 지금 개발 환경(WSL 배포판 + Windows 단축키·글꼴·터미널·VS Code·Zed)을 오프라인 PC 로 옮길 묶음 만들기
 # (scripts/offline/export-wsl-bundle.sh — 묶음 안의 "DevTools2 개발 환경 가져오기.cmd" 하나로 오프라인 PC 에 같은 환경 구성)
 if grep -qi microsoft /proc/version 2>/dev/null; then
+    _SYSTEM_KW+=" · 내보내기"
     _MENU_SYSTEM+=("offline_export	개발 환경 내보내기 (오프라인 PC 설치용 · WSL 배포판 + 단축키·글꼴·터미널·VS Code·Zed)")
 fi
 
 # ── 1단계 메뉴 등록 · 2단계 선택 ─────────────────────────────────────────────
-cp_register_group system "🖥️ 시스템 ▸ 포트 · 프로세스 · 종료 · 메모리"
+cp_register_group system "🖥️ 시스템 ▸ $_SYSTEM_KW"
 cp_group_system() {
     CHOICE_ID=$(_pick_leaf "🖥️ 시스템 > " "${_MENU_SYSTEM[@]}")
 }

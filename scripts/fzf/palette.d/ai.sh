@@ -39,8 +39,8 @@ if [ -x "$_ORCA_DIR/orca" ] && { $IS_WSL || $_HAS_DESKTOP; }; then
 fi
 if [ -f "$_AGENT_SKILLS" ]; then
     _MENU_AI+=(
-        "skills_import	스킬 가져오기 (에이전트 폴더 → DevTools2 저장소, Orca 에서 받은 스킬 등)"
-        "skills_status	스킬 연결 상태 · 다시 연결 (Claude · Codex · Antigravity)"
+        "skills_import	스킬 가져오기 (Orca 등에서 받은 스킬 → 저장소)"
+        "skills_status	스킬 연결 상태 · 다시 연결"
     )
     _AI_KW+=("스킬 가져오기" "스킬 연결 상태")
 fi
