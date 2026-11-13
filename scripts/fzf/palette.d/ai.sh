@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # ==============================================================================
-# [명령 팔레트] 🤖 AI — 공용 작업 노트(agent-notes) · Orca 열기 · 에이전트 스킬 가져오기 · 스킬 연결 상태
+# [명령 팔레트] 🤖 AI — AI 공통 설정(규칙·작업 노트) · Orca 열기 · 에이전트 스킬 가져오기 · 스킬 연결 상태
 # ==============================================================================
 # command-palette 가 source 로 불러오는 파일입니다(단독 실행 X). 구조 설명은 command-palette 의
 # "그룹 파일 불러오기" 주석을 보세요. 이 파일 = 1단계 메뉴 그룹 "🤖 AI" (그룹 ID: ai)
@@ -14,20 +14,20 @@ _ORCA_DIR="${DEVTOOLS2:-/var/opt/_devtools2}/modules/orca"
 #   ● 스킬 항목은 Orca 없이도 동작하므로(에이전트 폴더 ↔ 저장소 링크) Orca 가 없는 PC 에서도 보입니다.
 #     Orca 공유 링크로 받은 스킬은 Orca 앱에서 "이 컴퓨터 · 전역"으로 설치하면 ~/.agents/skills 에 생기고,
 #     "스킬 가져오기"로 저장소에 넣습니다(Orca CLI 에는 공유 링크로 설치하는 명령이 없어 설치는 앱 화면에서).
-#   ● 공용 작업 노트(agent-notes)는 모든 에이전트가 쓰는 가장 기본 설정이라 맨 위에 둡니다(git 만 있으면 보임).
-#     저장소(github.com/devers2/agent-notes, 비공개)를 받거나 갱신한 뒤, 저장소의 scripts/setup.sh 로 에이전트별 설정
-#     (Claude Code·Codex·Antigravity·Grok Build·Cursor 의 지시 블록·hook, Codex hook 신뢰 기록)을 맞춥니다. 설정 로직은 노트 저장소가 가지고,
+#   ● AI 공통 설정은 모든 에이전트가 쓰는 가장 기본 설정이라 맨 위에 둡니다(git 만 있으면 보임).
+#     공용 작업 노트 저장소(github.com/devers2/agent-notes, 비공개)를 받거나 갱신한 뒤, 저장소의 scripts/setup.sh 로 에이전트별 설정
+#     (Claude Code·Codex·Antigravity·Grok Build·Cursor 의 지시 블록 = 공통 규칙(언어·주석 보존 등) + 작업 노트 안내, hook, Codex hook 신뢰 기록)을 맞춥니다. 설정 로직은 노트 저장소가 가지고,
 #     팔레트는 받기·로그인 안내·실행만 합니다(노트 쪽 설정이 바뀌어도 팔레트를 고칠 필요가 없게).
 #     메뉴 이름은 저장소 유무와 상관없이 "설정" 하나 — 없으면 받고(clone) 있으면 업데이트(pull)한 뒤 설정하는 멱등 동작이라,
-#     첫 설치·장비 추가·노트 규칙(안내 블록)이 바뀐 뒤 반영 모두 이 항목 하나로 합니다.
+#     첫 설치·장비 추가·공통 규칙이나 노트 안내(블록)가 바뀐 뒤 반영 모두 이 항목 하나로 합니다.
 _AGENT_SKILLS="$_CP_SCRIPT_DIR/../linux/cmd/agent-skills.sh"
 _AGENT_NOTES_DIR="${AGENT_NOTES_DIR:-$HOME/agent-notes}"
 _AGENT_NOTES_URL="https://github.com/devers2/agent-notes.git"
 _MENU_AI=()
 _AI_KW=()
 if command -v git >/dev/null 2>&1; then
-    _MENU_AI+=("agent_notes	AI 공용 작업 노트 설정 (agent-notes)")
-    _AI_KW+=("작업 노트")
+    _MENU_AI+=("agent_notes	AI 공통 설정 (규칙·작업 노트)")
+    _AI_KW+=("공통 설정")
 fi
 if [ -x "$_ORCA_DIR/orca" ] && { $IS_WSL || $_HAS_DESKTOP; }; then
     if [ -n "$_GIT_ROOT" ]; then
@@ -52,8 +52,8 @@ cp_group_ai() {
     CHOICE_ID=$(_pick_leaf "🤖 AI > " "${_MENU_AI[@]}")
 }
 
-# ── [AI] AI 공용 작업 노트 설정 (agent-notes 받기·업데이트 + 에이전트별 설정) ──────────
-# 여러 AI·여러 장비가 함께 쓰는 작업 노트 저장소를 이 PC 에 맞춥니다. 다시 실행해도 안전합니다(멱등).
+# ── [AI] AI 공통 설정 (규칙·작업 노트) — agent-notes 받기·업데이트 + 에이전트별 설정 ──────────
+# 여러 AI·여러 장비가 함께 쓰는 공통 규칙·작업 노트 저장소를 이 PC 에 맞춥니다. 다시 실행해도 안전합니다(멱등).
 #   ● 없으면 clone, 있으면 pull(--rebase --autostash — 작성 중인 노트는 보존)한 뒤 저장소의 scripts/setup.sh 를 실행합니다.
 #     setup.sh 가 설치된 에이전트(Claude Code·Codex·Antigravity·Grok Build·Cursor)의 지시 블록·hook 을 맞추고,
 #     git 계정·원격 접근을 점검합니다(기존 설정·다른 hook 은 그대로 둠).
