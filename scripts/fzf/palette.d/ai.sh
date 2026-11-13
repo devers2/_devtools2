@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # ==============================================================================
-# [명령 팔레트] 🤖 AI — Orca 열기 · 에이전트 스킬 가져오기 · 스킬 연결 상태
+# [명령 팔레트] 🤖 AI — 공용 작업 노트(agent-notes) · Orca 열기 · 에이전트 스킬 가져오기 · 스킬 연결 상태
 # ==============================================================================
 # command-palette 가 source 로 불러오는 파일입니다(단독 실행 X). 구조 설명은 command-palette 의
 # "그룹 파일 불러오기" 주석을 보세요. 이 파일 = 1단계 메뉴 그룹 "🤖 AI" (그룹 ID: ai)
@@ -14,9 +14,23 @@ _ORCA_DIR="${DEVTOOLS2:-/var/opt/_devtools2}/modules/orca"
 #   ● 스킬 항목은 Orca 없이도 동작하므로(에이전트 폴더 ↔ 저장소 링크) Orca 가 없는 PC 에서도 보입니다.
 #     Orca 공유 링크로 받은 스킬은 Orca 앱에서 "이 컴퓨터 · 전역"으로 설치하면 ~/.agents/skills 에 생기고,
 #     "스킬 가져오기"로 저장소에 넣습니다(Orca CLI 에는 공유 링크로 설치하는 명령이 없어 설치는 앱 화면에서).
+#   ● 공용 작업 노트(agent-notes)는 모든 에이전트가 쓰는 가장 기본 설정이라 맨 위에 둡니다(git 만 있으면 보임).
+#     저장소(github.com/devers2/agent-notes, 비공개)를 받거나 갱신한 뒤, 저장소의 scripts/setup.sh 로 에이전트별 설정
+#     (Claude Code·Codex·Antigravity·Grok Build·Cursor 의 지시 블록·hook, Codex hook 신뢰 기록)을 맞춥니다. 설정 로직은 노트 저장소가 가지고,
+#     팔레트는 받기·로그인 안내·실행만 합니다(노트 쪽 설정이 바뀌어도 팔레트를 고칠 필요가 없게).
 _AGENT_SKILLS="$_CP_SCRIPT_DIR/../linux/cmd/agent-skills.sh"
+_AGENT_NOTES_DIR="${AGENT_NOTES_DIR:-$HOME/agent-notes}"
+_AGENT_NOTES_URL="https://github.com/devers2/agent-notes.git"
 _MENU_AI=()
 _AI_KW=()
+if command -v git >/dev/null 2>&1; then
+    if [ -d "$_AGENT_NOTES_DIR/.git" ]; then
+        _MENU_AI+=("agent_notes	공용 작업 노트(agent-notes) 갱신 + AI 설정 (Claude · Codex · Antigravity · Grok · Cursor)")
+    else
+        _MENU_AI+=("agent_notes	공용 작업 노트(agent-notes) 받기 + AI 설정 (Claude · Codex · Antigravity · Grok · Cursor)")
+    fi
+    _AI_KW+=("작업 노트")
+fi
 if [ -x "$_ORCA_DIR/orca" ] && { $IS_WSL || $_HAS_DESKTOP; }; then
     if [ -n "$_GIT_ROOT" ]; then
         _MENU_AI+=("open_orca	Orca 열기 + 현재 저장소를 프로젝트로 추가")
@@ -38,6 +52,47 @@ fi
 [ "${#_MENU_AI[@]}" -gt 0 ] && cp_register_group ai "🤖 AI ▸ $(_cp_join_kw "${_AI_KW[@]}")"
 cp_group_ai() {
     CHOICE_ID=$(_pick_leaf "🤖 AI > " "${_MENU_AI[@]}")
+}
+
+# ── [AI] 공용 작업 노트(agent-notes) 받기·갱신 + 에이전트별 설정 ──────────────────
+# 여러 AI·여러 장비가 함께 쓰는 작업 노트 저장소를 이 PC 에 맞춥니다. 다시 실행해도 안전합니다(멱등).
+#   ● 없으면 clone, 있으면 pull(--rebase --autostash — 작성 중인 노트는 보존)한 뒤 저장소의 scripts/setup.sh 를 실행합니다.
+#     setup.sh 가 설치된 에이전트(Claude Code·Codex·Antigravity·Grok Build·Cursor)의 지시 블록·hook 을 맞추고,
+#     git 계정·원격 접근을 점검합니다(기존 설정·다른 hook 은 그대로 둠).
+#   ● 비공개 저장소라 GitHub 로그인이 필요합니다. 접근이 안 되면 PR 체크아웃과 같은 방식(Bitwarden 의 PAT)으로 로그인할지 묻고,
+#     그래도 안 되면 gh auth login 을 안내합니다.
+#   ● git user.name/email 이 없으면 커밋(노트 자동 push)이 실패하므로 먼저 물어 설정합니다.
+cp_run_agent_notes() {
+    if ! git ls-remote -q "$_AGENT_NOTES_URL" >/dev/null 2>&1; then
+        echo "⚠️  agent-notes 저장소($_AGENT_NOTES_URL)에 접근할 수 없습니다(비공개 — GitHub 로그인 필요)."
+        if declare -f bw_setup_github_auth >/dev/null 2>&1 && prompt_confirm "🔑 Bitwarden 에 저장된 PAT 로 로그인할까요?" "Y"; then
+            bw_setup_github_auth || exit 1
+        fi
+        if ! git ls-remote -q "$_AGENT_NOTES_URL" >/dev/null 2>&1; then
+            echo "❌ GitHub 로그인 후 다시 시도하세요: gh auth login (저장소가 아직 없다면 먼저 만들어야 합니다)"
+            exit 1
+        fi
+    fi
+    for _key in user.name user.email; do
+        if [ -z "$(git config --global "$_key")" ]; then
+            read -r -p "✏️  git $_key 를 입력하세요: " _val
+            [ -z "$_val" ] && { echo "❌ git $_key 가 필요합니다."; exit 1; }
+            git config --global "$_key" "$_val"
+        fi
+    done
+    if [ -d "$_AGENT_NOTES_DIR/.git" ]; then
+        echo "⏳ agent-notes 갱신: $_AGENT_NOTES_DIR"
+        if ! git -C "$_AGENT_NOTES_DIR" pull --rebase --autostash; then
+            git -C "$_AGENT_NOTES_DIR" rebase --abort >/dev/null 2>&1 || true
+            echo "❌ pull 에 실패했습니다(충돌 가능). $_AGENT_NOTES_DIR 에서 git status 로 확인하세요."
+            exit 1
+        fi
+    else
+        echo "⏳ agent-notes 받기: $_AGENT_NOTES_URL → $_AGENT_NOTES_DIR"
+        git clone "$_AGENT_NOTES_URL" "$_AGENT_NOTES_DIR" || exit 1
+    fi
+    echo ""
+    bash "$_AGENT_NOTES_DIR/scripts/setup.sh"
 }
 
 # ── [AI] Orca (+ 현재 저장소를 프로젝트로 추가) ─────────────────────────────────
