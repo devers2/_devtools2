@@ -18,17 +18,15 @@ _ORCA_DIR="${DEVTOOLS2:-/var/opt/_devtools2}/modules/orca"
 #     저장소(github.com/devers2/agent-notes, 비공개)를 받거나 갱신한 뒤, 저장소의 scripts/setup.sh 로 에이전트별 설정
 #     (Claude Code·Codex·Antigravity·Grok Build·Cursor 의 지시 블록·hook, Codex hook 신뢰 기록)을 맞춥니다. 설정 로직은 노트 저장소가 가지고,
 #     팔레트는 받기·로그인 안내·실행만 합니다(노트 쪽 설정이 바뀌어도 팔레트를 고칠 필요가 없게).
+#     메뉴 이름은 저장소 유무와 상관없이 "설정" 하나 — 없으면 받고(clone) 있으면 업데이트(pull)한 뒤 설정하는 멱등 동작이라,
+#     첫 설치·장비 추가·노트 규칙(안내 블록)이 바뀐 뒤 반영 모두 이 항목 하나로 합니다.
 _AGENT_SKILLS="$_CP_SCRIPT_DIR/../linux/cmd/agent-skills.sh"
 _AGENT_NOTES_DIR="${AGENT_NOTES_DIR:-$HOME/agent-notes}"
 _AGENT_NOTES_URL="https://github.com/devers2/agent-notes.git"
 _MENU_AI=()
 _AI_KW=()
 if command -v git >/dev/null 2>&1; then
-    if [ -d "$_AGENT_NOTES_DIR/.git" ]; then
-        _MENU_AI+=("agent_notes	공용 작업 노트(agent-notes) 갱신 + AI 설정 (Claude · Codex · Antigravity · Grok · Cursor)")
-    else
-        _MENU_AI+=("agent_notes	공용 작업 노트(agent-notes) 받기 + AI 설정 (Claude · Codex · Antigravity · Grok · Cursor)")
-    fi
+    _MENU_AI+=("agent_notes	AI 공용 작업 노트 설정 (agent-notes)")
     _AI_KW+=("작업 노트")
 fi
 if [ -x "$_ORCA_DIR/orca" ] && { $IS_WSL || $_HAS_DESKTOP; }; then
@@ -54,7 +52,7 @@ cp_group_ai() {
     CHOICE_ID=$(_pick_leaf "🤖 AI > " "${_MENU_AI[@]}")
 }
 
-# ── [AI] 공용 작업 노트(agent-notes) 받기·갱신 + 에이전트별 설정 ──────────────────
+# ── [AI] AI 공용 작업 노트 설정 (agent-notes 받기·업데이트 + 에이전트별 설정) ──────────
 # 여러 AI·여러 장비가 함께 쓰는 작업 노트 저장소를 이 PC 에 맞춥니다. 다시 실행해도 안전합니다(멱등).
 #   ● 없으면 clone, 있으면 pull(--rebase --autostash — 작성 중인 노트는 보존)한 뒤 저장소의 scripts/setup.sh 를 실행합니다.
 #     setup.sh 가 설치된 에이전트(Claude Code·Codex·Antigravity·Grok Build·Cursor)의 지시 블록·hook 을 맞추고,
