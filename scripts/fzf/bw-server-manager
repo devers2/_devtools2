@@ -41,7 +41,12 @@ _restore_tty() {
         fi
     fi
 }
-trap '_restore_tty' EXIT INT TERM
+# [Ctrl+C = 중단] INT 를 EXIT 와 같은 trap('_restore_tty' 만 실행)으로 걸면 bash 는 종료하지 않고 다음 줄로 계속 진행해,
+#   비밀번호 입력 중 Ctrl+C 가 빈 입력으로 처리돼 같은 질문이 반복됐습니다(나갈 방법 없음). command-palette 와 같은 방식으로
+#   EXIT 는 정리만, INT·TERM 은 정리 후 종료합니다(종료하면 EXIT trap 이 다시 정리 — 두 번 실행돼도 안전).
+trap '_restore_tty' EXIT
+trap '_restore_tty; echo ""; echo "⛔ Ctrl+C 로 중단했습니다."; exit 130' INT
+trap '_restore_tty; exit 143' TERM
 normalize_tty
 
 # ── OS 판별 및 copy_to_clipboard 는 bw-lib 에서 제공하는 공용 함수를 사용합니다.
@@ -133,7 +138,7 @@ if [ "$HAS_KEY" = "KEY" ]; then
         TMP_KEY_PATH=$(umask 077 && mktemp "/tmp/bw_key_${ITEM_ID}_XXXXXX")
         printf "%s\n" "$NOTES_CONTENT" > "$TMP_KEY_PATH"
         chmod 600 "$TMP_KEY_PATH" 2>/dev/null || true
-        trap 'rm -f "$TMP_KEY_PATH"; _restore_tty' EXIT INT TERM
+        trap 'rm -f "$TMP_KEY_PATH"; _restore_tty' EXIT   # INT·TERM 은 위의 종료 trap 이 exit → 이 EXIT trap 이 키 파일 삭제
         SSH_KEY_OPT="-i $TMP_KEY_PATH"
     fi
 fi

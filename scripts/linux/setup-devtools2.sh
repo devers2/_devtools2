@@ -142,7 +142,12 @@ cleanup_temp_sudoers() {
         echo "[정리] 설치 중단 감지: 임시 passwordless sudo 권한($_DT2_SUDO_TARGET)을 회수했습니다." >&2
     fi
 }
-trap cleanup_temp_sudoers EXIT INT TERM HUP
+# 정리(임시 sudo 권한 회수)는 EXIT 에서 한 번. INT·TERM·HUP 은 종료만 한다 — 예전처럼 INT 에도 정리 함수만 걸면
+# bash 는 Ctrl+C 뒤에도 다음 줄로 계속 진행해, 권한을 회수한 채 설치가 이어지고 비밀번호 질문 중 Ctrl+C 로 나갈 수 없었다.
+trap cleanup_temp_sudoers EXIT
+trap 'echo ""; echo "⛔ Ctrl+C 로 설치를 중단했습니다."; exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 run_remote_script_sudo "$RAW_BASE/0.init-devtools2.sh" DT2_GRANT_TEMP_SUDO=1
 print_done "[Step 0] 초기화 완료."

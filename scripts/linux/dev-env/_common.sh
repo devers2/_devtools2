@@ -220,6 +220,8 @@ prompt_password() {
 
     while true; do
         printf "${_C_YELLOW}${_C_BOLD}%s${_C_RESET} " "$_msg"
+        # Ctrl+C 로 나가기는 부르는 스크립트의 INT trap 이 맡는다(trap 이 없으면 bash 기본 동작으로 종료).
+        # bash 5.2 는 INT trap 이 걸려 있으면 trap 만 실행하고 read 는 계속 기다리므로, INT trap 은 반드시 종료(exit)해야 한다.
         IFS= read -rsp "" _input </dev/tty || true
         echo ""
         strip_term_escapes _input   # 입력 중 누른 Esc(영문 전환 키)가 섞인 것 제거

@@ -719,7 +719,10 @@ bw_save_git_credentials() {
     local _tmp_creds
     _tmp_creds=$(umask 077 && mktemp /tmp/bw_cred_XXXXXX 2>/dev/null || mktemp)
     _bw_trap_save
-    trap 'rm -f "$_tmp_creds"' EXIT INT TERM
+    # INT·TERM 도 정리 후 종료(정리만 하고 계속 진행하면 Ctrl+C 가 무시됨 — bw-server-manager·command-palette 와 같은 원칙)
+    trap 'rm -f "$_tmp_creds"' EXIT
+    trap 'rm -f "$_tmp_creds"; echo ""; echo "⛔ Ctrl+C 로 중단했습니다."; exit 130' INT
+    trap 'rm -f "$_tmp_creds"; exit 143' TERM
     (umask 077 && touch ~/.git-credentials)
     chmod 600 ~/.git-credentials 2>/dev/null || true
     grep -v -E "@${_cred_host}(/|:|$)" ~/.git-credentials > "$_tmp_creds" 2>/dev/null || true
@@ -1021,7 +1024,10 @@ case "$1" in
 esac
 ASKEOF
     _bw_trap_save
-    trap 'rm -f "$_ASKPASS"' EXIT INT TERM
+    # INT·TERM 도 정리 후 종료(정리만 하고 계속 진행하면 Ctrl+C 가 무시됨)
+    trap 'rm -f "$_ASKPASS"' EXIT
+    trap 'rm -f "$_ASKPASS"; echo ""; echo "⛔ Ctrl+C 로 중단했습니다."; exit 130' INT
+    trap 'rm -f "$_ASKPASS"; exit 143' TERM
 
     echo "🚀 저장소 클론 중: $_REPO_URL -> $_TARGET_DIR"
     BW_ASKPASS_USER="$_GIT_USERNAME" \
