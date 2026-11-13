@@ -22,6 +22,9 @@
 #   ● 설치된 에이전트에만 연결합니다. 특정 에이전트에서 뺄 스킬은 저장소의 targets.conf 에 적습니다(SKILL.md 는
 #     세 에이전트 공통 형식 그대로 — name·description 만 쓰고 에이전트 전용 항목은 넣지 않는 것을 권장).
 #   ● 같은 이름의 다른 스킬(실제 폴더나 다른 곳을 가리키는 링크)이 이미 있으면 덮어쓰지 않고 충돌로 알립니다.
+#   ● 스킬 원본 폴더는 두 곳입니다: ① 이 저장소(공개) ② 공용 작업 노트 저장소 ~/agent-notes/skills(비공개, 있을 때만).
+#     회사 업무 절차처럼 공개하면 안 되는 스킬은 ②에 둡니다(내부 서버 주소·고객사 브랜치 등). 연결 방식은 같고,
+#     이름이 겹치면 ①이 우선이며 ②는 충돌로 알립니다. 가져오기(import)는 ①(공개)로만 합니다.
 # ==============================================================================
 
 shopt -s nullglob
@@ -29,6 +32,8 @@ shopt -s nullglob
 _AS_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _AS_REPO="${DEVTOOLS2:-$(cd "$_AS_SELF_DIR/../../.." && pwd)}"
 REPO_SKILLS="$_AS_REPO/.config/agents/skills"
+PRIVATE_SKILLS="${AGENT_NOTES_DIR:-$HOME/agent-notes}/skills"   # 비공개 스킬(공용 작업 노트 저장소)
+SKILL_SOURCES=("$REPO_SKILLS" "$PRIVATE_SKILLS")
 TARGETS_CONF="$REPO_SKILLS/targets.conf"
 _AS_STATE_DIR="${HOME}/.devtools2"
 _AS_CONFLICT_STAMP="$_AS_STATE_DIR/agent-skills.conflicts"
@@ -64,12 +69,34 @@ _agent_installed() {
     esac
 }
 
-# 저장소의 스킬 이름 목록 (SKILL.md 가 있는 하위 폴더)
-_repo_skills() {
-    local _d
-    for _d in "$REPO_SKILLS"/*/; do
-        [ -f "${_d}SKILL.md" ] && basename "$_d"
+# 스킬 이름 → 원본 폴더 (SKILL.md 가 있는 하위 폴더, 원본 폴더 순서대로 — 이름이 겹치면 먼저 나온 것)
+declare -A _AS_SRC=()
+_AS_DUP=()
+_load_skills() {
+    local _src _d _n
+    _AS_SRC=()
+    _AS_DUP=()
+    for _src in "${SKILL_SOURCES[@]}"; do
+        for _d in "$_src"/*/; do
+            [ -f "${_d}SKILL.md" ] || continue
+            _n=$(basename "$_d")
+            if [ -n "${_AS_SRC[$_n]+x}" ]; then
+                _AS_DUP+=("$_n — ${_src/#$HOME/\~} 의 것은 연결하지 않음 (${_AS_SRC[$_n]/#$HOME/\~} 이 우선)")
+            else
+                _AS_SRC[$_n]="$_src/$_n"
+            fi
+        done
     done
+}
+_repo_skills() { printf '%s\n' "${!_AS_SRC[@]}" | sort | grep .; }
+
+# 링크 대상이 스킬 원본 폴더 안이면 0 (이 도구가 만든 링크)
+_is_source_link() {
+    local _cur="$1" _src
+    for _src in "${SKILL_SOURCES[@]}"; do
+        [[ "$_cur" == "$_src/"* ]] && return 0
+    done
+    return 1
 }
 
 # targets.conf 읽기 — "스킬 = claude, codex" 형식. 적지 않은 스킬은 모든 에이전트.
@@ -101,7 +128,9 @@ _do_sync() {
     _AS_LINKED=0
     _AS_REMOVED=0
     _AS_CONFLICTS=()
-    [ -d "$REPO_SKILLS" ] || return 0
+    _load_skills
+    local _dup
+    for _dup in "${_AS_DUP[@]}"; do _AS_CONFLICTS+=("스킬 원본 이름 겹침: $_dup"); done
     local _skills
     mapfile -t _skills < <(_repo_skills)
     for _agent in "${AGENTS[@]}"; do
@@ -111,13 +140,13 @@ _do_sync() {
         for _skill in "${_skills[@]}"; do
             _skill_allowed "$_skill" "$_agent" || continue
             _link="$_dir/$_skill"
-            _want="$REPO_SKILLS/$_skill"
+            _want="${_AS_SRC[$_skill]}"
             if [ -L "$_link" ]; then
                 _cur=$(readlink "$_link")
                 [ "$_cur" = "$_want" ] && continue
                 # 끊어진 링크, 예전 저장소 위치를 가리키는 링크, 결국 같은 스킬로 이어지는 링크(가져오기 후 Orca 의
                 # ~/.claude/skills/x → ~/.agents/skills/x → 저장소 연결 등)는 저장소로 바로 연결하도록 고칩니다.
-                if [ ! -e "$_link" ] || [[ "$_cur" == "$REPO_SKILLS/"* ]] || [ "$(readlink -f "$_link")" = "$(readlink -f "$_want")" ]; then
+                if [ ! -e "$_link" ] || _is_source_link "$_cur" || [ "$(readlink -f "$_link")" = "$(readlink -f "$_want")" ]; then
                     ln -sfn "$_want" "$_link" && _AS_LINKED=$((_AS_LINKED + 1))
                     [ "$_verbose" = true ] && echo "   🔗 $(_agent_label "$_agent"): $_skill (링크 고침)"
                 else
@@ -134,9 +163,9 @@ _do_sync() {
         for _link in "$_dir"/*; do
             [ -L "$_link" ] || continue
             _cur=$(readlink "$_link")
-            [[ "$_cur" == "$REPO_SKILLS/"* ]] || continue
-            _skill="${_cur#"$REPO_SKILLS"/}"
-            if [ ! -f "$REPO_SKILLS/$_skill/SKILL.md" ] || ! _skill_allowed "$_skill" "$_agent" || [ "$(basename "$_link")" != "$_skill" ]; then
+            _is_source_link "$_cur" || continue
+            _skill="$(basename "$_cur")"
+            if [ "${_AS_SRC[$_skill]:-}" != "$_cur" ] || [ ! -f "$_cur/SKILL.md" ] || ! _skill_allowed "$_skill" "$_agent" || [ "$(basename "$_link")" != "$_skill" ]; then
                 rm -f "$_link" && _AS_REMOVED=$((_AS_REMOVED + 1))
                 [ "$_verbose" = true ] && echo "   🧹 $(_agent_label "$_agent"): $(basename "$_link") (저장소에 없거나 이 에이전트에서 뺀 스킬)"
             fi
@@ -204,7 +233,7 @@ _import_candidates() {
             [ -L "$_d" ] && continue
             [ -f "$_d/SKILL.md" ] || continue
             _name=$(basename "$_d")
-            [ -e "$REPO_SKILLS/$_name" ] && continue
+            [ -e "$REPO_SKILLS/$_name" ] || [ -e "$PRIVATE_SKILLS/$_name" ] && continue
             [[ "$_orca_names" == *" $_name "* ]] && continue
             [ -n "${_seen[$_d]+x}" ] && continue
             _seen[$_d]=1
@@ -216,9 +245,10 @@ _import_candidates() {
 # ── status ───────────────────────────────────────────────────────────────────
 cmd_status() {
     _load_targets
+    _load_skills
     local _skills _agent _dir _skill _link _mark
     mapfile -t _skills < <(_repo_skills)
-    echo "🧩 에이전트 스킬 (저장소: ${REPO_SKILLS/#$HOME/\~})"
+    echo "🧩 에이전트 스킬 (원본: ${REPO_SKILLS/#$HOME/\~} · 비공개 ${PRIVATE_SKILLS/#$HOME/\~})"
     echo "─────────────────────────────────────────"
     if [ "${#_skills[@]}" -eq 0 ]; then
         echo "  저장소에 스킬이 아직 없습니다. 스킬 폴더(<이름>/SKILL.md)를 만들거나 '스킬 가져오기'를 쓰세요."
@@ -234,8 +264,9 @@ cmd_status() {
             _link="$_dir/$_skill"
             if ! _skill_allowed "$_skill" "$_agent"; then
                 _mark="➖ targets.conf 에서 뺌"
-            elif [ -L "$_link" ] && [ "$(readlink "$_link")" = "$REPO_SKILLS/$_skill" ]; then
+            elif [ -L "$_link" ] && [ "$(readlink "$_link")" = "${_AS_SRC[$_skill]}" ]; then
                 _mark="✅ 연결됨"
+                [[ "${_AS_SRC[$_skill]}" == "$PRIVATE_SKILLS/"* ]] && _mark+=" (비공개)"
             elif [ -e "$_link" ] || [ -L "$_link" ]; then
                 _mark="⚠️  같은 이름의 다른 스킬이 있음"
             else

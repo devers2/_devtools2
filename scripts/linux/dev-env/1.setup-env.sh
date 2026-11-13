@@ -412,7 +412,7 @@ BIND_EOF
 print_done "~/.bashrc 에 readline 단축키 바인딩을 등록했습니다 (Alt+c, Alt+h)."
 
 # ── AI 에이전트 스킬 링크 자동 맞춤 (대화형 셸을 열 때) ──────────────────────────
-# 스킬 원본은 저장소 .config/agents/skills 한 곳이고, 에이전트 폴더에는 스킬마다 링크만 겁니다(agent-skills.sh 설명 참고).
+# 스킬 원본은 저장소 .config/agents/skills(공개)와 ~/agent-notes/skills(비공개, 있을 때만)이고, 에이전트 폴더에는 스킬마다 링크만 겁니다(agent-skills.sh 설명 참고).
 # 스킬 내용 수정은 링크라 git pull 만으로 반영되지만, 새 스킬·삭제된 스킬·나중에 설치한 에이전트는 링크를 새로 맞춰야 해서
 # 셸을 열 때 sync --quiet 를 실행합니다. 바뀐 것이 없으면 아무것도 출력하지 않고, 폴더 몇 개만 확인해 셸 시작이 느려지지 않습니다.
 _SKILLS_BLOCK_START='# === DEVTOOLS2 에이전트 스킬 링크 시작 ==='
@@ -523,7 +523,7 @@ else
 fi
 
 # --- AI 에이전트 스킬 (Claude · Codex · Antigravity 공용) ---
-# 스킬 원본은 저장소 .config/agents/skills/<스킬>/SKILL.md 한 곳에만 두고, 설치된 에이전트의 스킬 폴더
+# 스킬 원본은 저장소 .config/agents/skills/<스킬>/SKILL.md(공개)와 ~/agent-notes/skills(비공개, 있을 때만)에 두고, 설치된 에이전트의 스킬 폴더
 # (~/.claude/skills · ~/.agents/skills · ~/.gemini/config/skills)에 스킬마다 링크합니다(자세한 이유는 agent-skills.sh 머리말).
 # 스킬은 이 PC 의 저장소에 있는 파일이라 원격 스트리밍 대상이 아니며, 저장소가 없으면 연결할 스킬도 없어 건너뜁니다.
 # 아직 설치되지 않은 에이전트(Orca 단계에서 설치되는 CLI 등)는 설치 뒤 새 셸을 열 때 ~/.bashrc 의 sync --quiet 가 연결합니다.

@@ -91,6 +91,12 @@ cp_run_agent_notes() {
     fi
     echo ""
     bash "$_AGENT_NOTES_DIR/scripts/setup.sh"
+    # 비공개 스킬(~/agent-notes/skills)도 에이전트 스킬 폴더에 바로 연결 (평소에는 셸을 열 때 sync --quiet 가 맞춤)
+    if [ -f "$_AGENT_SKILLS" ]; then
+        echo ""
+        echo "== 에이전트 스킬 연결"
+        bash "$_AGENT_SKILLS" sync
+    fi
 }
 
 # ── [AI] Orca (+ 현재 저장소를 프로젝트로 추가) ─────────────────────────────────
