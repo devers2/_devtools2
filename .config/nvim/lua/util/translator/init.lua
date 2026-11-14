@@ -811,12 +811,29 @@ function M.setup()
     end
     vim._unified_notify_wrapped = true
     local orig_notify = vim.notify
-    vim.notify = function(msg, level, notify_opts)
+    local wrapper
+    wrapper = function(msg, level, notify_opts)
+      -- fast 이벤트(콜백 안)에서는 다음 틱으로 미룹니다. 그대로 넘기면 noice 가 스스로 다시 미뤄 부르면서
+      -- (noice.source.notify 의 M.notify) 이 래퍼를 한 번 더 거쳐 같은 메시지가 두 번 번역됩니다.
+      if vim.in_fast_event() then
+        vim.schedule(function()
+          wrapper(msg, level, notify_opts)
+        end)
+        return
+      end
       if M.enabled and type(msg) == 'string' and msg ~= '' then
         local translated_msg = M.translate_message(msg)
         return orig_notify(translated_msg, level, notify_opts)
       end
       return orig_notify(msg, level, notify_opts)
+    end
+    vim.notify = wrapper
+    -- noice 는 vim.notify 가 require('noice.source.notify').notify 와 같은지 주기적으로 확인하고, 다르면
+    -- "`vim.notify` has been overwritten by another plugin?" 오류를 냅니다(noice/health.lua). noice 가 vim.notify 를
+    -- 맡고 있었다면 그 모듈의 notify 도 같은 래퍼로 바꿔 점검을 통과시킵니다(래퍼는 원래 noice 함수를 그대로 부름).
+    local noice_notify = package.loaded['noice.source.notify']
+    if type(noice_notify) == 'table' and noice_notify.notify == orig_notify then
+      noice_notify.notify = wrapper
     end
   end
 
