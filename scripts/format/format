@@ -35,6 +35,13 @@
 
 TOOL="${1:-}"
 FILE="${2:-}"
+# 상대 경로는 절대 경로로 바꿉니다: 아래 위쪽 폴더 탐색 루프가 dirname 을 반복하는데 dirname "." 은 "." 이라
+# 상대 경로(저장 안 한 버퍼 등)가 들어오면 끝나지 않았습니다(실측: format prettier a.js → 무한 루프).
+# 빈 값은 그대로 두고, 루프마다 "dirname 이 더 이상 바뀌지 않으면 멈춤" 조건을 함께 둡니다.
+case "$FILE" in
+    ""|/*) ;;
+    *) FILE="$PWD/$FILE" ;;
+esac
 DEVTOOLS2="${DEVTOOLS2:-/var/opt/_devtools2}"
 MASON_BIN="$DEVTOOLS2/data/nvim/mason/bin"
 
@@ -75,6 +82,7 @@ case "$TOOL" in
         d="$(dirname "$FILE")"
         while [ -n "$d" ] && [ "$d" != "/" ]; do
             if [ -x "$d/node_modules/.bin/prettier" ]; then PRETTIER="$d/node_modules/.bin/prettier"; break; fi
+            [ "$d" = "$(dirname "$d")" ] && break
             d="$(dirname "$d")"
         done
         [ -n "$PRETTIER" ] || PRETTIER="$DEVTOOLS2/data/.npm-packages/bin/prettier"
@@ -95,6 +103,7 @@ case "$TOOL" in
                 HAS_LOCAL=true; break
             fi
             [ "$d" = "/" ] && break
+            [ "$d" = "$(dirname "$d")" ] && break
             d="$(dirname "$d")"
         done
         if $HAS_LOCAL; then
@@ -132,6 +141,7 @@ case "$TOOL" in
         while [ -n "$d" ]; do
             if [ -e "$d/stylua.toml" ] || [ -e "$d/.stylua.toml" ]; then HAS_STYLUA=true; break; fi
             [ "$d" = "/" ] && break
+            [ "$d" = "$(dirname "$d")" ] && break
             d="$(dirname "$d")"
         done
         $HAS_STYLUA || STYLUA_CFG=(--config-path "$DEVTOOLS2/.config/nvim/stylua.toml")
