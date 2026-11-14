@@ -576,12 +576,12 @@ return {
           -- [파라미터/인자]
           ['aa'] = { '@parameter.outer', '파라미터 선택 (outer, 콤마 포함)' },
           ['ia'] = { '@parameter.inner', '파라미터 선택 (inner)' },
-          -- [조건문]
+          -- [조건문] (Snacks scope 의 들여쓰기 범위 선택 ai/ii 를 대신함 — 의도된 선택)
           ['ai'] = { '@conditional.outer', 'if/else 블록 전체 선택' },
           ['ii'] = { '@conditional.inner', 'if/else 본문 선택' },
-          -- [반복문]
-          ['al'] = { '@loop.outer', 'loop 블록 전체 선택' },
-          ['il'] = { '@loop.inner', 'loop 본문 선택' },
+          -- [반복문] al/il 은 두지 않습니다: mini.ai 의 기본 접두키(around_last=al, inside_last=il)와 겹쳐
+          --   실제로는 동작하지 않았습니다(최종 소유자 mini.ai, 실측). 반복문 선택은 LazyVim mini.ai 의
+          --   ao/io(블록·조건문·반복문, @loop 포함)를 쓰세요.
           -- [블록 (중괄호 등)]
           ['ab'] = { '@block.outer', '블록 전체 선택' },
           ['ib'] = { '@block.inner', '블록 본문 선택' },
@@ -633,24 +633,12 @@ return {
         end), { desc = '현재 파라미터를 이전과 교환 (Swap Prev Param)' })
 
         -- -----------------------------------------------------------------------
-        -- [Move 반복 이동 지원] ; 와 , 로 마지막 이동 반복 (f/t 와 동일한 UX)
-        -- (f/F/t/T 단일 문자 검색 및 점프는 flash.nvim 전담하여 상호 충돌 원천 차단)
+        -- [; 와 , 는 매핑하지 않음] flash.nvim 의 f/F/t/T 반복(char 모드 기본 키에 ; , 포함)에 맡깁니다.
+        --   예전에는 여기서 textobjects 의 repeat_last_move 로 ; , 를 전역 매핑했는데, 이 함수는 f/t 를 모르기 때문에
+        --   (builtin_f_expr 를 연결해야 함) 로드 순서상 이쪽이 이기면 f x 뒤의 ; 가 아무 일도 하지 않습니다
+        --   (최종 소유자가 repeatable_move 인 것은 실측, ; 동작은 소스 판단 — last_move 가 없으면 아무것도 안 함). 반대로 flash 가 이기면 textobject 반복이 죽어, 어느 쪽이든 하나가 깨졌습니다.
+        --   textobject 이동(]f [c 등)은 같은 키를 다시 누르면 됩니다.
         -- -----------------------------------------------------------------------
-        local ok_repeat, ts_repeat = pcall(require, 'nvim-treesitter-textobjects.repeatable_move')
-        if not ok_repeat then
-          ok_repeat, ts_repeat = pcall(require, 'nvim-treesitter.textobjects.repeatable_move')
-        end
-
-        if ok_repeat and ts_repeat then
-          local next_move = ts_repeat.repeat_last_move_next or ts_repeat.repeat_last_move
-          local prev_move = ts_repeat.repeat_last_move_previous or ts_repeat.repeat_last_move_opposite
-          if next_move then
-            vim.keymap.set({ 'n', 'x', 'o' }, ';', next_move, { desc = '마지막 textobject 이동 반복 (전방)' })
-          end
-          if prev_move then
-            vim.keymap.set({ 'n', 'x', 'o' }, ',', prev_move, { desc = '마지막 textobject 이동 반복 (후방)' })
-          end
-        end
       end)
     end,
   },
