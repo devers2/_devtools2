@@ -674,13 +674,17 @@ PYEOF
 }
 
 # ── 아키텍처별 tar.gz 아카이브 다운로드 및 폴더 정리 설치 공용 함수 ─────────
-# 사용법: install_tool <URL_TEMPLATE> <X64_ARCH> <ARM_ARCH> <TARGET_DIR>
+# 사용법: install_tool <URL_TEMPLATE> <X64_ARCH> <ARM_ARCH> <TARGET_DIR> [EXPECTED_SHA256]
 # URL_TEMPLATE 내 '{ARCH}' 문자열이 현재 아키텍처 식별자로 치환됩니다.
+# EXPECTED_SHA256 을 주면 압축을 풀기 전에 내려받은 파일을 검증하고, 다르면 기존 설치를 건드리지 않고 실패합니다.
+# 기존 TARGET_DIR 은 압축을 다 푼 뒤에만 교체하므로, 내려받기·검증·압축 해제가 실패해도 기존 설치가 남습니다
+# (호출부에서 미리 rm -rf 하지 말 것).
 install_tool() {
     local URL_TEMPLATE="$1"
     local X64_ARCH="$2"
     local ARM_ARCH="$3"
     local TARGET_DIR="$4"
+    local EXPECTED_SHA256="${5:-}"
     local SELECTED_ARCH
     local DOWNLOAD_URL
     local FILE_NAME
@@ -700,6 +704,17 @@ install_tool() {
         echo "   ❌ $TARGET_DIR 다운로드 실패 ($DOWNLOAD_URL)" >&2
         rm -f "$FILE_NAME"
         return 1
+    fi
+
+    if [ -n "$EXPECTED_SHA256" ]; then
+        local _actual_sha
+        _actual_sha=$(sha256sum "$FILE_NAME" 2>/dev/null | cut -d' ' -f1)
+        if [ "$_actual_sha" != "$EXPECTED_SHA256" ]; then
+            echo "   ❌ $FILE_NAME SHA256 불일치 — 설치하지 않습니다 (기대: $EXPECTED_SHA256, 실제: ${_actual_sha:-계산 실패})" >&2
+            rm -f "$FILE_NAME"
+            return 1
+        fi
+        echo "   🔒 SHA256 검증 완료"
     fi
 
     echo -n "   📦 $TARGET_DIR 압축 해제 중..."

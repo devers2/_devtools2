@@ -636,19 +636,35 @@ if [ "$_nodejs_action" = "skip" ] && [ "$NODEJS_INSTALLED" = true ] && [ "$(_res
 fi
 
 # ── 설치 실행 ─────────────────────────────────────────────────────
+# ⚠️ 업데이트라도 기존 current 를 미리 지우지 않습니다: install_tool 이 압축을 다 푼 뒤에 교체하므로,
+#    예전처럼 먼저 rm -rf 하면 내려받기·압축 해제가 실패했을 때 Node.js 가 아예 사라졌습니다(다른 핵심 도구와 같은 방식).
+# 🔒 nodejs.org 가 버전마다 제공하는 SHASUMS256.txt 로 검증합니다(핵심 도구 중 Node 만 무검증이었음).
 if [ "$_nodejs_action" != "skip" ]; then
-    if [ "$_nodejs_action" = "update" ]; then
-        echo "   🗑️  기존 Node.js(current) 디렉토리 삭제 중..."
-        rm -rf "$DEVTOOLS2/modules/nodejs/current"
-    fi
     echo "   📦 Node.js $NODEJS_VERSION 설치..."
-    install_tool \
+    _node_arch=$([ "$IS_ARM64" = true ] && echo 'arm64' || echo 'x64')
+    _node_file="node-${NODEJS_VERSION}-linux-${_node_arch}.tar.xz"
+    _node_sha=$(curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 \
+        "https://nodejs.org/dist/${NODEJS_VERSION}/SHASUMS256.txt" 2>/dev/null | awk -v f="$_node_file" '$2 == f { print $1 }') || true
+    _node_ok=false
+    if [ -z "$_node_sha" ]; then
+        print_error "Node.js $NODEJS_VERSION 의 SHA256 검증값(SHASUMS256.txt)을 받지 못했습니다."
+    elif install_tool \
         "https://nodejs.org/dist/${NODEJS_VERSION}/node-${NODEJS_VERSION}-linux-{ARCH}.tar.xz" \
-        'x64' 'arm64' 'current'
-    # 마지막 설치 버전과 다르면 이 PC 의 설치 이력(data/state) 업데이트
-    if [ "$NODEJS_VERSION" != "$NODEJS_PINNED" ]; then
-        update_pinned_version "nodejs" "$NODEJS_VERSION"
+        'x64' 'arm64' 'current' "$_node_sha"; then
+        _node_ok=true
     fi
+    if [ "$_node_ok" = true ]; then
+        # 마지막 설치 버전과 다르면 이 PC 의 설치 이력(data/state) 업데이트
+        if [ "$NODEJS_VERSION" != "$NODEJS_PINNED" ]; then
+            update_pinned_version "nodejs" "$NODEJS_VERSION"
+        fi
+    elif [ -x "$DEVTOOLS2/modules/nodejs/current/bin/node" ]; then
+        print_warn "Node.js $NODEJS_VERSION 설치에 실패해 기존 버전($("$DEVTOOLS2/modules/nodejs/current/bin/node" --version 2>/dev/null))을 그대로 씁니다."
+    else
+        print_error "Node.js 설치에 실패했습니다. 네트워크를 확인한 뒤 다시 실행하세요."
+        exit 1
+    fi
+    unset _node_arch _node_file _node_sha _node_ok
 fi
 # 예전 이름(node-v24)으로 참조하던 곳을 위한 호환 링크
 _dt2_migrate_dir "$DEVTOOLS2/modules/nodejs/node-v24" "$DEVTOOLS2/modules/nodejs/current"
