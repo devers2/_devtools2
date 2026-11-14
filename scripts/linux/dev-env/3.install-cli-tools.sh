@@ -56,10 +56,18 @@ if [ ! -d "$DEVTOOLS2" ]; then
         sudo chown -R "$USER" "$DEVTOOLS2" 2>/dev/null || true
     fi
 fi
-if [ ! -w "$DEVTOOLS2" ] && [ "$(id -u)" -ne 0 ]; then
-    sudo chown -R "$USER" "$DEVTOOLS2" 2>/dev/null || true
-    sudo chmod -R u+w "$DEVTOOLS2" 2>/dev/null || true
-fi
+# ⚠️ 쓰기 권한이 없다고 "sudo chown -R $USER" 로 저장소 전체 소유자를 바꾸지 않습니다
+#    (2.install-core-tools.sh 와 같은 이유 — 그룹 공유 저장소를 두 번째 사용자가 통째로 가져가 다른 사용자의 접근이 깨짐).
+#    저장소 루트는 0.init 이 750(그룹 쓰기 없음)으로 두므로 루트가 아니라 이 단계가 실제로 쓰는 modules·data 만 검사합니다.
+for _dt2_dir in "$DEVTOOLS2/modules" "$DEVTOOLS2/data"; do
+    if [ -d "$_dt2_dir" ] && [ ! -w "$_dt2_dir" ] && [ "$(id -u)" -ne 0 ]; then
+        print_error "$_dt2_dir 에 쓰기 권한이 없습니다 (소유자: $(stat -c '%U:%G' "$_dt2_dir" 2>/dev/null))."
+        print_info "  그룹(devers)에 추가된 직후라면 다시 로그인하거나 'newgrp devers' 후 다시 실행하세요."
+        print_info "  그룹에 없다면 관리자가 실행: sudo $DEVTOOLS2/scripts/linux/dev-env/add-devtools2-user.sh $USER"
+        exit 1
+    fi
+done
+unset _dt2_dir
 
 # _ensure_pkg() 는 _install-utils.sh 에서 로드됨 (2.install-core-tools.sh 와 공유)
 _ensure_pkg unzip
