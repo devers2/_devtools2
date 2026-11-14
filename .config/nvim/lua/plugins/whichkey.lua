@@ -371,10 +371,12 @@ return {
         { '<leader>br', desc = '오른쪽 버퍼 모두 닫기 (Delete Buffers to the Right)' },
 
         -- ── 창 관리 그룹 (<leader>w) ──
+        -- ws·wv·ww 는 실제 동작(<c-w>…)을 함께 적습니다: LazyVim 은 <leader>wd 만 매핑하고 나머지는 proxy('<c-w>')에
+        -- 맡기는데, 설명만 있는 항목이 그 키를 차지해 눌러도 아무 일도 일어나지 않았습니다(실측: 창 분할 안 됨).
         { '<leader>wd', desc = '현재 창 닫기 (Close Window)' },
-        { '<leader>ws', desc = '창 아래로 분할 (Split Below)' },
-        { '<leader>wv', desc = '창 오른쪽 분할 (Split Right)' },
-        { '<leader>ww', desc = '다른 창으로 이동 (Other Window)' },
+        { '<leader>ws', '<c-w>s', desc = '창 아래로 분할 (Split Below)' },
+        { '<leader>wv', '<c-w>v', desc = '창 오른쪽 분할 (Split Right)' },
+        { '<leader>ww', '<c-w>w', desc = '다른 창으로 이동 (Other Window)' },
 
         -- ── 진단/퀵픽스 그룹 (<leader>x) ──
         { '<leader>xl', desc = '위치 목록 (Location List)' },
