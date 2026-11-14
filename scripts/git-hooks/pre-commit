@@ -6,7 +6,8 @@
 # 링크되어 있어 도구가 만든 파일이 실수로 커밋될 수 있습니다. 커밋 직전에 아래 두 가지를 검사해
 # 하나라도 걸리면 커밋을 막습니다.
 #   1) 파일 이름: .env, *.pem, id_rsa, auth.json, rclone.conf, .claude/ 같은 인증 파일
-#   2) 추가되는 내용: Anthropic/OpenAI/Gemini/GitHub/AWS/npm 키, 개인키, 평문 비밀번호, Orca 페어링 코드 등
+#   2) 추가되는 내용: Anthropic/OpenAI/Gemini/GitHub/AWS/npm/xAI/Stripe/GitLab 키, JWT, 개인키, 평문 비밀번호
+#      (설정 파일은 따옴표 없는 값도), URL 안의 사용자:비밀번호, Bitwarden 세션, Orca 페어링 코드 등
 #
 # 활성화: 1.setup-env.sh 가 git config core.hooksPath scripts/git-hooks 를 설정합니다.
 # 오탐일 때: 해당 줄에 "dt2-allow-secret" 주석을 붙이거나, 정말 의도한 경우에만
@@ -18,19 +19,33 @@ set -uo pipefail
 name_re='(^|/)(\.env(\.[^/]+)?|[^/]+\.env|secrets\.[^/]+|[^/]+\.(pem|key|p12|pfx|jks|keystore|secret|secrets|token)|id_(rsa|ecdsa|ed25519)[^/]*|\.netrc|\.git-credentials|\.pypirc|[^/]*credentials[^/]*\.json|client_secret[^/]*\.json|service-account[^/]*\.json|auth\.json|oauth_creds\.json|token\.json|\.bw_session[^/]*|rclone\.conf|\.claude\.json|orca-pairing-link\.txt)$|(^|/)\.(claude|codex|gemini|anthropic|openai)/'
 name_allow_re='(^|/)\.env\.(example|sample|template)$'
 
-# 키·토큰 형식 (각 서비스의 실제 키 접두어 기준)
-content_re='sk-ant-[A-Za-z0-9_-]{20,}'
-content_re+='|sk-(proj-|svcacct-)?[A-Za-z0-9_-]{32,}'
+# 키·토큰 형식 (각 서비스의 실제 키 접두어 기준) — 대소문자를 구분합니다.
+#   예전에는 아래 변수 이름 규칙 때문에 grep -i 를 전체에 걸어, "Akia…" 같은 일반 단어와 단어 중간의 "sk-"
+#   (예: task-management-overview…)까지 차단했습니다(오탐). 접두어 앞에는 단어 경계를 둡니다.
+b='(^|[^A-Za-z0-9_-])'
+content_re="${b}sk-ant-[A-Za-z0-9_-]{20,}"
+content_re+="|${b}sk-(proj-|svcacct-)?[A-Za-z0-9_-]{32,}"
 content_re+='|AIza[0-9A-Za-z_-]{35}'
 content_re+='|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}'
 content_re+='|xox[abprs]-[A-Za-z0-9-]{10,}'
-content_re+='|AKIA[0-9A-Z]{16}'
+content_re+="|${b}AKIA[0-9A-Z]{16}"
 content_re+='|npm_[A-Za-z0-9]{36}|_authToken=[A-Za-z0-9_.-]{16,}'
 content_re+='|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 content_re+='|orca://pair\?code=[A-Za-z0-9]'
 content_re+='|<password>[^<$]{4,}</password>'
-# 이름이 키/비밀번호인 변수에 따옴표로 직접 넣은 16자 이상 값 ($변수·{템플릿}은 제외)
-content_re+="|(api[_-]?key|secret|token|passw(or)?d)[A-Za-z0-9_]*[\"']?[[:space:]]*[:=][[:space:]]*[\"'][^\"'\$<{[:space:]]{16,}[\"']"
+content_re+="|${b}xai-[A-Za-z0-9]{40,}"                       # xAI (Grok)
+content_re+="|${b}[sr]k_live_[A-Za-z0-9]{20,}"                 # Stripe
+content_re+="|${b}glpat-[A-Za-z0-9_-]{20,}"                    # GitLab
+content_re+='|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'   # JWT
+content_re+='|://[^/:@[:space:]"'"'"']+:[^/@[:space:]"'"'"'$<{]{8,}@'               # URL 안의 사용자:비밀번호@
+content_re+='|BW_SESSION=["'"'"']?[A-Za-z0-9+/=]{20,}'                               # Bitwarden 세션
+
+# 이름이 키/비밀번호인 변수에 따옴표로 직접 넣은 16자 이상 값 ($변수·{템플릿}은 제외) — 대소문자 무시
+name_value_re="(api[_-]?key|secret|token|passw(or)?d)[A-Za-z0-9_]*[\"']?[[:space:]]*[:=][[:space:]]*[\"'][^\"'\$<{[:space:]]{16,}[\"']"
+# 설정 파일(.properties·.env·YAML 등)의 따옴표 없는 값 — 대소문자 무시.
+#   코드 파일에 적용하면 password = request.getParameter(…) 같은 줄이 걸리므로 설정 파일 형식에만 씁니다.
+config_file_re='(\.(properties|env|ya?ml|conf|cfg|ini)$|(^|/)\.env(\.[^/]+)?$)'
+config_value_re="(^|[[:space:]])[A-Za-z0-9_.-]*(passw(or)?d|secret|token|api[_-]?key)[A-Za-z0-9_.-]*[[:space:]]*[:=][[:space:]]*[^\"'\$<{[:space:]#(][^[:space:]#]{11,}"
 
 found=0
 
@@ -43,9 +58,13 @@ done < <(git diff --cached --name-only -z --diff-filter=ACMR)
 
 while IFS= read -r -d '' file; do
     # 추가되는 줄만 검사합니다(삭제되는 줄은 유출이 아님). 허용 표시가 있는 줄은 건너뜁니다.
-    hits=$(git diff --cached -U0 --no-color -- "$file" \
-        | grep -E '^\+' | grep -vE '^\+\+\+ ' | grep -v 'dt2-allow-secret' \
-        | grep -oE -i -- "$content_re" || true)
+    added=$(git diff --cached -U0 --no-color -- "$file" \
+        | grep -E '^\+' | grep -vE '^\+\+\+ ' | grep -v 'dt2-allow-secret' | sed 's/^+//' || true)
+    [ -n "$added" ] || continue
+    hits=$( { printf '%s\n' "$added" | grep -oE -- "$content_re"
+              printf '%s\n' "$added" | grep -oE -i -- "$name_value_re"
+              if [[ "$file" =~ $config_file_re ]]; then printf '%s\n' "$added" | grep -oE -i -- "$config_value_re"; fi
+            } | sed 's/^[[:space:]]*//' || true)
     if [ -n "$hits" ]; then
         while IFS= read -r h; do
             # 화면에도 값 전체를 남기지 않도록 앞 10자만 보여 줍니다.
