@@ -264,6 +264,12 @@ function Wait-ProcessWithSpinner {
         [System.Diagnostics.Process]$Process,
         [string]$Message
     )
+    # Start-Process 가 실패하면(실행 파일 없음 등) $null 이 넘어오는데, 그대로 두면 $null.HasExited 가
+    # 항상 비어 있어 아래 루프가 영원히 돕니다(실측) → 바로 돌아갑니다. 호출부는 ExitCode 로 실패를 판정합니다.
+    if ($null -eq $Process) {
+        Write-Host "`r  [실패] $Message - 프로세스를 시작하지 못했습니다.        " -ForegroundColor Yellow
+        return
+    }
     $spinner = $global:DT2_SPINNER_FRAMES
     $spinIdx = 0
     while (-not $Process.HasExited) {
@@ -838,6 +844,11 @@ function Register-WslInterop {
 #    동기화하여 후속 단계에서 새로 설치된 CLI 명령을 즉시 인식할 수 있도록 합니다.
 # 4. Success Code Resilience: 0 외에도 3010(재부팅 대기), -1978335189(이미 최신),
 #    -1978335212(이미 설치됨) 등을 정상 완료로 간주합니다.
+# 5. Check Is Read-Only: "최신 버전 확인"은 조회 명령(winget list --upgrade-available)으로 합니다.
+#    예전에 쓰던 "winget upgrade --id X" 는 조회가 아니라 그 자리에서 업그레이드를 실행하는 명령이라
+#    --silent·약관 동의 없이 설치가 돌고(출력은 로그로 가서 화면엔 스피너만), 실제 업그레이드는 그 뒤에 한 번 더 했습니다.
+# 6. No winget: winget 이 없는 PC(Windows 10 LTSC·회사 정책 차단 등)에서는 경고 후 건너뜁니다
+#    (Start-Process 가 $null 을 돌려줘 스피너가 끝나지 않던 문제 방지).
 # ==============================================================================
 function Install-OrUpdateWingetPackage {
     param(
@@ -859,32 +870,45 @@ function Install-OrUpdateWingetPackage {
 
     $successCodes = @(0, 3010, -1978335189, -1978335212)
 
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Warn "winget 을 찾지 못해 ${DisplayName} 설치·업데이트를 건너뜁니다. (Microsoft Store 의 '앱 설치 관리자'를 설치하거나 직접 설치하세요)"
+        return $IsInstalled
+    }
+
     if ($IsInstalled) {
         $upgradeNeeded = $false
         try {
             $safeId = $PackageId -replace '[^a-zA-Z0-9]', '_'
             $chkLog = "$env:TEMP\${safeId}_chk.log"
             $chkErr = "$env:TEMP\${safeId}_chk_err.log"
-            $pChk = Start-Process winget -ArgumentList "upgrade --id $PackageId" -NoNewWindow -PassThru -RedirectStandardOutput $chkLog -RedirectStandardError $chkErr -ErrorAction SilentlyContinue
-            $null = $pChk.Handle
+            # 조회 전용: 업데이트가 있으면 표에 패키지 ID 가 나오고, 없으면 "No installed package found…" 만 나옵니다(둘 다 종료 코드 0, 실측 winget 1.29)
+            $pChk = Start-Process winget -ArgumentList "list --id $PackageId --exact --upgrade-available --accept-source-agreements --disable-interactivity" -NoNewWindow -PassThru -RedirectStandardOutput $chkLog -RedirectStandardError $chkErr -ErrorAction SilentlyContinue
+            if ($null -ne $pChk) { $null = $pChk.Handle }
             Wait-ProcessWithSpinner -Process $pChk -Message "${DisplayName} 최신 버전 확인 중"
-            if (Test-Path $chkLog) {
+            if ($null -ne $pChk -and (Test-Path $chkLog)) {
                 $upgradeOutput = Get-Content $chkLog -Raw -ErrorAction SilentlyContinue
-                if ($pChk.ExitCode -eq 0 -and $upgradeOutput -match $PackageId) {
+                if ($pChk.ExitCode -eq 0 -and $upgradeOutput -match [regex]::Escape($PackageId)) {
                     $upgradeNeeded = $true
                 }
-                Remove-Item $chkLog, $chkErr -Force -ErrorAction SilentlyContinue
             }
+            Remove-Item $chkLog, $chkErr -Force -ErrorAction SilentlyContinue
         } catch {}
+
+        # Windows Terminal 안에서 Windows Terminal 을 업그레이드하면 실행 중인 이 설치 창이 닫힐 수 있습니다
+        # (창이 닫히면 마스터의 finally 가 못 돌아 임시 sudo 가 남음) → 다음에 다른 창에서 하도록 안내만 합니다.
+        if ($upgradeNeeded -and $PackageId -eq 'Microsoft.WindowsTerminal' -and $env:WT_SESSION) {
+            Write-Skip "${DisplayName} 새 버전이 있지만, 지금 Windows Terminal 안에서 실행 중이라 업데이트를 건너뜁니다. (나중에 실행: winget upgrade --id $PackageId)"
+            return $true
+        }
 
         if ($upgradeNeeded) {
             Write-Info "${DisplayName} 최신 버전이 있습니다. 업데이트를 진행합니다..."
             $safeId = $PackageId -replace '[^a-zA-Z0-9]', '_'
             $p = Start-Process winget -ArgumentList "upgrade --id $PackageId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\${safeId}_upgrade.log" -RedirectStandardError "$env:TEMP\${safeId}_upgrade_err.log" -ErrorAction SilentlyContinue
-            $null = $p.Handle
+            if ($null -ne $p) { $null = $p.Handle }
             Wait-ProcessWithSpinner -Process $p -Message "${DisplayName} 업데이트 진행 중"
             Remove-Item "$env:TEMP\${safeId}_upgrade.log", "$env:TEMP\${safeId}_upgrade_err.log" -Force -ErrorAction SilentlyContinue
-            if ($successCodes -contains $p.ExitCode) {
+            if ($null -ne $p -and $successCodes -contains $p.ExitCode) {
                 Write-Success "${DisplayName} 업데이트 완료"
                 $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
                 return $true
@@ -907,10 +931,10 @@ function Install-OrUpdateWingetPackage {
         Write-Host "  ${DisplayName} 을(를) winget으로 설치합니다..." -ForegroundColor White
         $safeId = $PackageId -replace '[^a-zA-Z0-9]', '_'
         $p = Start-Process winget -ArgumentList "install --id $PackageId --silent --accept-source-agreements --accept-package-agreements" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\${safeId}_install.log" -RedirectStandardError "$env:TEMP\${safeId}_install_err.log" -ErrorAction SilentlyContinue
-        $null = $p.Handle
+        if ($null -ne $p) { $null = $p.Handle }
         Wait-ProcessWithSpinner -Process $p -Message "${DisplayName} 설치 진행 중"
         Remove-Item "$env:TEMP\${safeId}_install.log", "$env:TEMP\${safeId}_install_err.log" -Force -ErrorAction SilentlyContinue
-        if ($successCodes -contains $p.ExitCode) {
+        if ($null -ne $p -and $successCodes -contains $p.ExitCode) {
             Write-Success "${DisplayName} 설치 완료"
             $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
             return $true
