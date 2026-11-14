@@ -670,14 +670,14 @@ $wslGradleProps = "$wslUncRoot\home\$wslUser\.gradle\gradle.properties"
 $winGradleProps = "$winGradleDir\gradle.properties"
 
 if (Test-Path $wslGradleProps) {
-    # dangling symlink 포함 기존 항목 안전 제거 후 재생성 (멱등성 보장)
-    Remove-FileOrSymlink -Path $winGradleProps | Out-Null
+    # 기존 항목이 일반 파일이면 .bak.<시각> 으로 백업한 뒤 링크합니다 (Backup-AndLink — _common.ps1).
+    # 예전에는 Remove-FileOrSymlink 로 그냥 지워서 Windows 쪽에만 있던 프록시·서명 키·계정 설정이 사라졌습니다.
+    # 링크 생성에 실패하면 백업을 되돌리고, 이미 같은 대상을 가리키는 링크면 그대로 둡니다 (멱등성 보장).
     Write-Info "Gradle gradle.properties 윈도우 ↔ WSL2 심볼릭 링크 연동 중..."
-    $result = cmd.exe /c "mklink `"$winGradleProps`" `"$wslGradleProps`"" 2>&1
-    if ($LASTEXITCODE -eq 0) {
+    if (Backup-AndLink -LinkPath $winGradleProps -TargetPath $wslGradleProps -Description "Gradle gradle.properties") {
         Write-Success "Gradle gradle.properties 연동 완료:`n    $wslGradleProps -> $winGradleProps"
     } else {
-        Write-Warn "Gradle gradle.properties 심볼릭 링크 생성 실패 (수동으로 확인해 주세요): $result"
+        Write-Warn "Gradle gradle.properties 심볼릭 링크 생성 실패 (수동으로 확인해 주세요): $winGradleProps"
     }
 } else {
     Write-Warn "WSL2 경로에 gradle.properties 파일이 존재하지 않아 연동을 건너뜁니다: $wslGradleProps"

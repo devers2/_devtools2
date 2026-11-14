@@ -773,25 +773,45 @@ function Backup-AndLink {
     )
     $label = if ($Description) { $Description } else { Split-Path $LinkPath -Leaf }
 
+    # ⚠️ 순서가 중요합니다: 대상 확인 → (일반 파일이면) 백업 → 링크 → 실패하면 백업 되돌리기.
+    #    예전에는 기존 파일을 먼저 지우고(.bak 이 이미 있으면 백업 없이 삭제) 그 뒤에 대상 확인·mklink 를 해서,
+    #    두 번째 실행부터 사용자 설정이 사라지거나 링크 실패 시 설정 파일이 아예 없는 상태로 끝날 수 있었습니다.
+    if (-not (Test-Path -LiteralPath $TargetPath)) {
+        Write-Warn "$label 대상 경로가 존재하지 않아 기존 파일을 그대로 두고 링크를 건너뜁니다: $TargetPath"
+        return $false
+    }
+
+    $backupPath = $null
     $item = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
     if ($null -ne $item) {
         $isLink = $item.Attributes -band [System.IO.FileAttributes]::ReparsePoint
-        if (-not $isLink) {
-            $backupPath = "$LinkPath.bak"
-            if (-not (Test-Path $backupPath)) {
-                Move-Item -LiteralPath $LinkPath -Destination $backupPath -Force
-                Write-Info "기존 $label 을(를) $(Split-Path $backupPath -Leaf)으로 백업했습니다."
-            } else {
-                Remove-Item -LiteralPath $LinkPath -Force
+        if ($isLink) {
+            # 이미 같은 대상을 가리키는 링크면 다시 만들지 않습니다 (멱등).
+            $curTarget = @($item.Target) | Select-Object -First 1
+            if ($curTarget -and ([string]$curTarget).TrimEnd('\') -ieq ([string]$TargetPath).TrimEnd('\')) {
+                Write-Info "$label 은(는) 이미 연결되어 있습니다: $LinkPath -> $TargetPath"
+                return $true
             }
-        } else {
+            # 링크 자체에는 사용자 데이터가 없으므로 지우고 다시 만듭니다.
             Remove-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+        } else {
+            # 일반 파일은 실행마다 시각을 붙여 백업합니다 (이전 백업을 덮거나 지우지 않음).
+            $backupPath = "$LinkPath.bak.$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Move-Item -LiteralPath $LinkPath -Destination $backupPath -Force -ErrorAction Stop
+            Write-Info "기존 $label 을(를) $(Split-Path $backupPath -Leaf) 으로 백업했습니다."
         }
     } else {
+        # Get-Item 이 못 잡는 끊어진(dangling) 링크 정리
         Remove-FileOrSymlink -Path $LinkPath | Out-Null
     }
 
-    return New-SymlinkIdempotent -LinkPath $LinkPath -TargetPath $TargetPath -Description $label
+    $ok = New-SymlinkIdempotent -LinkPath $LinkPath -TargetPath $TargetPath -Description $label
+    if (-not $ok -and $backupPath -and (Test-Path -LiteralPath $backupPath)) {
+        Remove-FileOrSymlink -Path $LinkPath | Out-Null
+        Move-Item -LiteralPath $backupPath -Destination $LinkPath -Force -ErrorAction SilentlyContinue
+        Write-Warn "$label 링크 생성에 실패해 백업했던 원래 파일을 되돌렸습니다: $LinkPath"
+    }
+    return $ok
 }
 
 # ==============================================================================
