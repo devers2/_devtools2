@@ -269,6 +269,12 @@ if vim.fn.has('wsl') == 1 then
       return vim.system({ 'rundll32.exe', 'url.dll,FileProtocolHandler', path }, { text = true, detach = true }), nil
     end
     local abs = vim.fn.fnamemodify(vim.fs.normalize(path), ':p')
+    -- URL 이 아닌 단어 위의 gx 는 그 단어를 파일 이름으로 넘깁니다 → 없는 경로를 explorer 에 넘기면
+    -- 아무 반응이 없거나 엉뚱한 폴더가 열리므로 경고만 냅니다.
+    if not vim.uv.fs_stat(abs) then
+      vim.notify('열 파일·폴더가 없습니다: ' .. path .. ' (URL 은 https:// 로 시작해야 열 수 있습니다)', vim.log.levels.WARN)
+      return nil, nil
+    end
     local res = vim.system({ 'wslpath', '-w', abs }, { text = true }):wait()
     local win_path = vim.trim(res.stdout or '')
     if res.code ~= 0 or win_path == '' then
