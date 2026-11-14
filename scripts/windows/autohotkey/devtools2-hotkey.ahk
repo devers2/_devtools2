@@ -76,6 +76,14 @@ _MarkUsed(ih := 0, vk := 0, sc := 0) {
 }
 
 _ih.OnKeyDown := _MarkUsed
+; ⚠️ OnKeyDown 은 KeyOpt 의 "N"(또는 NotifyNonText)으로 알림을 켠 키에만 호출됩니다(공식 문서:
+;    "Key-down notifications must first be enabled by KeyOpt or NotifyNonText", 기본은 꺼짐).
+;    예전에는 이 설정이 없어 _MarkUsed 가 불리지 않았고, CapsLock+키(Ctrl 조합) 뒤에 CapsLock 을 떼면
+;    Esc + 영문 전환이 추가로 나갔습니다. 모든 키에 알림을 켜고, 수정 키와 CapsLock 자체(길게 누를 때의 반복 입력)는 뺍니다.
+;    수정 키를 빼는 이유: 스크립트가 보내는 {LCtrl down} 은 SendInput 이라 보통 무시되지만, 다른 스크립트가 키보드 훅을
+;    쓰고 있으면 AHK 가 SendEvent 로 바꿔 보내 InputHook 에 잡힙니다(실측) → 수정 키가 "사용됨"으로 세어지지 않게.
+_ih.KeyOpt("{All}", "N")
+_ih.KeyOpt("{LCtrl}{RCtrl}{LAlt}{RAlt}{LShift}{RShift}{LWin}{RWin}{CapsLock}", "-N")
 
 OnExit(_CleanupOnExit)
 _CleanupOnExit(reason, code) {
