@@ -44,10 +44,23 @@ _SetImeToEnglish() {
         imeWnd := DllCall("imm32\ImmGetDefaultIMEWnd", "Ptr", hwnd, "Ptr")
         if !imeWnd
             return
-        convMode := DllCall("SendMessage", "Ptr", imeWnd, "UInt", 0x0283, "Ptr", 0x0001, "Ptr", 0, "Ptr")
-        if (convMode & 1)
-            DllCall("SendMessage", "Ptr", imeWnd, "UInt", 0x0283, "Ptr", 0x0002, "Ptr", 0, "Ptr")
+        convMode := 0
+        if !_ImeControl(imeWnd, 0x0001, &convMode)
+            return
+        if (convMode & 1) {
+            unused := 0
+            _ImeControl(imeWnd, 0x0002, &unused)
+        }
     }
+}
+
+; WM_IME_CONTROL 을 시간 제한을 두고 보냅니다 (성공하면 0 이 아닌 값, 결과는 result 로).
+; ⚠️ 그냥 SendMessage 는 대상 창이 응답 없음 상태면 끝없이 기다려, AHK 스레드가 멈추고
+;    모든 단축키(CapsLock 리매핑 포함)가 먹통이 됩니다. SMTO_ABORTIFHUNG(0x2) + 100ms 로 포기하게 합니다.
+_ImeControl(imeWnd, wParam, &result) {
+    result := 0
+    return DllCall("SendMessageTimeoutW", "Ptr", imeWnd, "UInt", 0x0283, "Ptr", wParam, "Ptr", 0
+        , "UInt", 0x0002, "UInt", 100, "UPtr*", &result, "Ptr")
 }
 
 ; ------------------------------------------------------------------------------
