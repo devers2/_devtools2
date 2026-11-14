@@ -251,12 +251,19 @@ vim.opt.clipboard = 'unnamedplus'
 --   URL·이미지를 열면 끝나지 않고, 탐색기 대신 Sublime Merge 가 뜰 수 있었습니다(실측).
 --   ● URL: rundll32 url.dll,FileProtocolHandler (cmd /c start 와 달리 URL 안의 & 가 깨지지 않음)
 --   ● 파일·폴더: wslpath -w 로 Windows 경로로 바꿔 explorer.exe (폴더는 탐색기, 파일은 Windows 기본 앱)
+--   ● 빈 경로(커서 아래에 대상이 없을 때 gx 가 넘김): 오류 대신 경고만 냅니다.
+--   ⚠️ gx 는 돌려받은 프로세스를 기다려 종료 코드가 0 이 아니면 "command failed" 오류를 띄우는데,
+--      explorer.exe 는 정상적으로 열어도 1 을 돌려주므로 sh 로 감싸 0 으로 맞춥니다.
 --   리눅스 네이티브는 Neovim 기본 동작 그대로입니다.
 if vim.fn.has('wsl') == 1 then
   local orig_ui_open = vim.ui.open
   vim.ui.open = function(path, opt)
-    if (opt and opt.cmd) or type(path) ~= 'string' or path == '' then
+    if opt and opt.cmd then
       return orig_ui_open(path, opt)
+    end
+    if type(path) ~= 'string' or vim.trim(path) == '' then
+      vim.notify('열 대상이 없습니다 (커서 아래에 URL·파일 경로가 없음)', vim.log.levels.WARN)
+      return nil, nil
     end
     if path:match('^%w+:') then
       return vim.system({ 'rundll32.exe', 'url.dll,FileProtocolHandler', path }, { text = true, detach = true }), nil
@@ -267,7 +274,7 @@ if vim.fn.has('wsl') == 1 then
     if res.code ~= 0 or win_path == '' then
       return orig_ui_open(path, opt)
     end
-    return vim.system({ 'explorer.exe', win_path }, { text = true, detach = true }), nil
+    return vim.system({ 'sh', '-c', 'explorer.exe "$1"; exit 0', 'sh', win_path }, { text = true, detach = true }), nil
   end
 end
 
