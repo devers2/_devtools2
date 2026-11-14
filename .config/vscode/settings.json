@@ -80,6 +80,9 @@
   "java.format.settings.profile": "Standard-s2", // Java 코드 스타일 프로필 이름
   "java.format.enabled": true,
   "java.format.comments.enabled": false,
+  // import 정리 순서 — Neovim(java.lua)·Zed 와 같은 목록. 세 편집기 모두 저장할 때 import 를 정리하므로
+  // 순서가 다르면 편집기를 바꿔 저장할 때마다 import 줄이 뒤바뀐 diff 가 생깁니다. (Spring Boot 3+ 기준 jakarta 우선)
+  "java.completion.importOrder": ["java", "jakarta", "javax", "com", "org"],
 
   /* [Python 인터프리터 전역 기본값]
    * - 프로젝트별 venv(.vscode/settings.json 의 python.defaultInterpreterPath)가 있으면 그쪽이 우선 적용된다.

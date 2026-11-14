@@ -227,11 +227,13 @@
               ]
             },
             "completion": {
+              // Neovim(java.lua)·VS Code 와 같은 목록 — 다르면 편집기를 바꿔 저장할 때마다 import 순서 diff 가 생김
               "importOrder": [
                 "java",
+                "jakarta",
                 "javax",
-                "org",
-                "com"
+                "com",
+                "org"
               ]
             }
           }
