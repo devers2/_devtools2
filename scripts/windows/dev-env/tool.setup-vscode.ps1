@@ -241,7 +241,11 @@ Write-Step "[Step 5] WSL Remote ($WslDistro) 확장 동기화"
 
 Write-Info "WSL Remote ($WslDistro): VS Code 확장 프로그램 동기화 중..."
 $rawLinuxVscode = "https://raw.githubusercontent.com/devers2/_devtools2/$_dt2Ref/scripts/linux/dev-env/tool.setup-vscode.sh"
-wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxVscode' -o /tmp/_dt2_vsc.sh && DT2_REF='$_dt2Ref' DT2_VSCODE_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 stdbuf -oL -eL bash /tmp/_dt2_vsc.sh; rm -f /tmp/_dt2_vsc.sh 2>/dev/null"
+wsl -d $WslDistro -- bash -c "curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' '$rawLinuxVscode' -o /tmp/_dt2_vsc.sh && DT2_REF='$_dt2Ref' DT2_VSCODE_CHOICE=y DEVTOOLS2=/var/opt/_devtools2 stdbuf -oL -eL bash /tmp/_dt2_vsc.sh && { rm -f /tmp/_dt2_vsc.sh; true; } || { rm -f /tmp/_dt2_vsc.sh 2>/dev/null; exit 1; }"
+# ↑ 실패하면 임시 파일을 지운 뒤 1 로 끝냅니다. 예전에는 "…; rm -f …" 로 끝나 마지막 rm 의 0 이 그대로 나와
+#   내려받기·스크립트가 실패해도 아래 경고가 절대 뜨지 않았습니다.
+#   ⚠️ "_rc=$?; …; exit $_rc" 처럼 $ 를 쓰면 안 됩니다: wsl -- 는 명령을 기본 셸에 한 번 넘겨 실행하므로
+#      그 셸이 $? 를 먼저 풀어 버립니다(실측: rc 가 빈 값, 종료 코드 0).
 if ($LASTEXITCODE -ne 0) {
     Write-Warn "WSL Remote 확장 동기화 중 오류가 발생했습니다 (종료 코드: $LASTEXITCODE)"
 }
