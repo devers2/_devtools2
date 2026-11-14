@@ -719,8 +719,38 @@ function M.ensure_launch_json(on_ready)
     return
   end
 
-  local cwd = vim.fn.getcwd()
-  local launch_path = cwd .. '/.vscode/launch.json'
+  -- 쓰는 위치는 위에서 찾은 위치(find_file)와 같은 기준인 프로젝트 루트입니다.
+  -- 예전에는 cwd 에 써서, cwd 가 저장소 루트이고 현재 파일이 그 안의 독립 프로젝트일 때
+  -- 루트의 기존 launch.json 을 덮어썼고, 쓴 뒤에도 find_file 이 못 찾아 누를 때마다 다시 덮어썼습니다.
+  -- (구성 안의 ${workspaceFolder} 경로는 nvim-dap 이 cwd 로 풀기 때문에 추천값 탐색은 cwd 기준 그대로입니다)
+  local root = pcfg.get_project_root()
+  if not root or root == '' then
+    root = vim.fn.getcwd()
+  end
+  root = (root:gsub('/+$', ''))
+  local launch_dir = root .. '/.vscode'
+  local launch_path = launch_dir .. '/launch.json'
+
+  -- 내용이 있는 기존 파일은 절대 덮어쓰지 않습니다 (AGENTS.md 5장).
+  -- 여기 오는 경우: 비어 있는 .nvim/launch.json 이 먼저 발견되어 .vscode/launch.json 을 가리고 있을 때.
+  local function has_content(p)
+    return (vim.fn.getfsize(p) or -1) > 5
+  end
+  local function refuse_overwrite()
+    vim.notify(
+      string.format(
+        '기존 %s 를 덮어쓰지 않았습니다.\n비어 있는 .nvim/launch.json 이 우선 적용되어 이 파일을 가리고 있다면, 빈 파일을 지우거나 내용을 채운 뒤 다시 실행하세요.',
+        vim.fn.fnamemodify(launch_path, ':~:.')
+      ),
+      vim.log.levels.WARN,
+      { title = 'DAP Scaffold' }
+    )
+    on_ready(false)
+  end
+  if has_content(launch_path) then
+    refuse_overwrite()
+    return
+  end
 
   -- 2. 파일이 없으면 프로젝트 언어 판별
   local detected_lang = M.detect_project_type()
@@ -743,7 +773,13 @@ function M.ensure_launch_json(on_ready)
         configurations = { config },
       }
 
-      vim.fn.mkdir(cwd .. '/.vscode', 'p')
+      -- 질문에 답하는 사이 다른 곳(편집기·git checkout 등)에서 파일이 생겼을 수 있어 쓰기 직전에 한 번 더 확인합니다.
+      if has_content(launch_path) then
+        refuse_overwrite()
+        return
+      end
+
+      vim.fn.mkdir(launch_dir, 'p')
       local f = io.open(launch_path, 'w')
       if f then
         f:write(pretty_json(launch_data) .. '\n')
