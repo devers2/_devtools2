@@ -38,10 +38,10 @@ if [ -f "$_SCRIPT_DIR/_common.sh" ]; then
     # shellcheck disable=SC1091
     source "$_SCRIPT_DIR/_common.sh"
 else
-    # shellcheck disable=SC1090
     # 받은 뒤 실행: source <(curl …) || … 는 curl 이 실패해도 빈 입력을 source 해 0 을 돌려주므로 || 가 실행되지 않고,
     # 받다가 끊긴 반쪽 파일도 그대로 실행됩니다 → 먼저 변수로 다 받고, 실패하면 중단합니다.
     _dt2_lib_src=$(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+    # shellcheck disable=SC1090
     source <(printf '%s\n' "$_dt2_lib_src"); unset _dt2_lib_src
 fi
 
@@ -49,10 +49,10 @@ if [ -f "$_SCRIPT_DIR/_install-utils.sh" ]; then
     # shellcheck disable=SC1091
     source "$_SCRIPT_DIR/_install-utils.sh"
 else
-    # shellcheck disable=SC1090
     # 받은 뒤 실행: source <(curl …) || … 는 curl 이 실패해도 빈 입력을 source 해 0 을 돌려주므로 || 가 실행되지 않고,
     # 받다가 끊긴 반쪽 파일도 그대로 실행됩니다 → 먼저 변수로 다 받고, 실패하면 중단합니다.
     _dt2_lib_src=$(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_install-utils.sh") || { print_error "_install-utils.sh 로드 실패 - 네트워크 연결을 확인하세요."; exit 1; }
+    # shellcheck disable=SC1090
     source <(printf '%s\n' "$_dt2_lib_src"); unset _dt2_lib_src
 fi
 
