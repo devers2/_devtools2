@@ -162,33 +162,42 @@ if [ "$_do_install" = true ]; then
 
     if download_with_progress "$_smerge_url" "$_smerge_tmp" "Sublime Merge Build $_latest_build (${_smerge_arch})"; then
         echo -n "   📦 Sublime Merge 아카이브 압축 해제 중..."
-        # 기존 바이너리를 임시 백업 후 설치 (실패 시 롤백)
-        if [ -n "$_installed_build" ]; then
-            _smerge_old="$SMERGE_MODULE_DIR/.dt2-old-smerge"
+        # ⚠️ 순서: 임시 폴더에 풀어 실행 파일 확인 → 기존 파일 백업 → 새 파일로 교체 → 실패하면 롤백.
+        #    예전에는 기존 파일을 먼저 옮긴 뒤 압축을 풀어서, 받은 파일이 깨져 tar 가 실패하면 set -e 로 롤백 전에
+        #    끝나 Sublime Merge 가 사라졌고(다음 실행은 "미설치"로 판단), 성공해도 Data(포터블 라이선스)까지 백업째 지웠습니다.
+        #    같은 파일 시스템 안의 임시 폴더라 mv 는 즉시 끝납니다. bin(DevTools2 실행 래퍼)·Data 는 옮기지 않습니다.
+        _smerge_new="$SMERGE_MODULE_DIR/.dt2-new-smerge"
+        _smerge_old="$SMERGE_MODULE_DIR/.dt2-old-smerge"
+        rm -rf "$_smerge_new"
+        mkdir -p "$_smerge_new"
+        if tar -xJf "$_smerge_tmp" --strip-components=1 -C "$_smerge_new" 2>/dev/null && [ -x "$_smerge_new/sublime_merge" ]; then
+            echo " 완료"
             rm -rf "$_smerge_old"
             mkdir -p "$_smerge_old"
-            # bin 폴더(DevTools2 실행 래퍼)는 보존, 바이너리만 백업
-            find "$SMERGE_MODULE_DIR" -mindepth 1 -maxdepth 1 -not -name bin -not -name ".dt2-old-smerge" -exec mv {} "$_smerge_old/" \;
-        fi
-
-        tar -xJf "$_smerge_tmp" --strip-components=1 -C "$SMERGE_MODULE_DIR"
-        rm -f "$_smerge_tmp"
-        echo " 완료"
-
-        # 설치 성공 확인 후 백업 정리 또는 롤백
-        if [ -x "$SMERGE_MODULE_DIR/sublime_merge" ]; then
-            rm -rf "$SMERGE_MODULE_DIR/.dt2-old-smerge" 2>/dev/null || true
-            if [ -n "$_installed_build" ]; then
-                print_done "Sublime Merge 업데이트 완료: Build $_installed_build → Build $_latest_build"
+            find "$SMERGE_MODULE_DIR" -mindepth 1 -maxdepth 1 -not -name bin -not -name Data \
+                -not -name ".dt2-old-smerge" -not -name ".dt2-new-smerge" -exec mv {} "$_smerge_old/" \;
+            if find "$_smerge_new" -mindepth 1 -maxdepth 1 -not -name bin -not -name Data -exec mv {} "$SMERGE_MODULE_DIR/" \; \
+                && [ -x "$SMERGE_MODULE_DIR/sublime_merge" ]; then
+                rm -rf "$_smerge_old"
+                if [ -n "$_installed_build" ]; then
+                    print_done "Sublime Merge 업데이트 완료: Build $_installed_build → Build $_latest_build"
+                else
+                    print_done "Sublime Merge 포터블 설치 완료: Build $_latest_build"
+                fi
             else
-                print_done "Sublime Merge 포터블 설치 완료: Build $_latest_build"
+                # 교체 실패 → 새로 옮긴 것을 치우고 이전 파일을 되돌림
+                find "$SMERGE_MODULE_DIR" -mindepth 1 -maxdepth 1 -not -name bin -not -name Data \
+                    -not -name ".dt2-old-smerge" -not -name ".dt2-new-smerge" -exec rm -rf {} + 2>/dev/null || true
+                find "$_smerge_old" -mindepth 1 -maxdepth 1 -exec mv {} "$SMERGE_MODULE_DIR/" \; 2>/dev/null || true
+                rm -rf "$_smerge_old"
+                print_warn "설치 실패 → ${_installed_build:+이전 Build $_installed_build 로 }롤백했습니다."
             fi
-        elif [ -d "$SMERGE_MODULE_DIR/.dt2-old-smerge" ]; then
-            # 설치 실패 → 롤백
-            find "$SMERGE_MODULE_DIR/.dt2-old-smerge" -mindepth 1 -maxdepth 1 -exec mv {} "$SMERGE_MODULE_DIR/" \;
-            rm -rf "$SMERGE_MODULE_DIR/.dt2-old-smerge"
-            print_warn "설치 실패 → 이전 Build $_installed_build 로 롤백했습니다."
+        else
+            echo " 실패"
+            print_warn "받은 Sublime Merge 아카이브를 풀지 못했습니다(파일 손상 가능). ${_installed_build:+기존 Build $_installed_build 를 그대로 씁니다.}"
         fi
+        rm -rf "$_smerge_new"
+        rm -f "$_smerge_tmp"
         chmod +x "$SMERGE_MODULE_DIR/sublime_merge" 2>/dev/null || true
     else
         print_error "Sublime Merge 다운로드에 실패했습니다. 네트워크를 확인하세요: $_smerge_url"
