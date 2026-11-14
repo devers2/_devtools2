@@ -27,6 +27,12 @@
 #   ~/.gradle/gradle.properties 의 비밀 값(GitHub Packages 토큰, Maven Central 비밀번호, GPG 서명 정보) —
 #   gradle.properties 는 통째로 빼지 않고 비밀 값만 지운 사본을 넣습니다(JDK 경로 org.gradle.java.installations.paths 가
 #   없으면 Gradle 이 Java 8 툴체인을 못 찾아 빌드 실패). git 사용자 이름·이메일은 비밀이 아니고 커밋에 필요해 남깁니다.
+#   그 밖에 함께 빼는 것: AI 도구 로그인(Claude ~/.claude/.credentials.json·~/.claude.json, Codex ~/.codex/auth.json,
+#   Gemini ~/.gemini/oauth_creds.json), GPG 키링(~/.gnupg), ~/.npmrc·~/.netrc·~/.docker/config.json·~/.aws·~/.kube,
+#   셸·REPL 입력 기록(~/.bash_history 등 — 명령줄에 친 비밀 값이 남을 수 있음), <password> 가 든 Maven settings.xml,
+#   SSH 는 config·known_hosts·*.pub·authorized_keys 만 남기고 나머지 파일(이름과 무관하게 개인 키로 봄),
+#   다른 사용자의 홈과 /root 의 내용(폴더 자체는 남김 — 다중 사용자 서버에서 남의 인증 정보가 섞이지 않도록).
+#   ⚠️ /etc/shadow(계정 비밀번호 해시)는 빼면 가져온 배포판에서 sudo 가 동작하지 않아 그대로 들어갑니다 → 읽어보기에 안내.
 #
 # ■ 같이 옮기지 않는 것: ~/.cache(jdtls 색인 등 다시 만들어짐), 로그, apt 내려받기 캐시, /tmp·/mnt 등 시스템 폴더,
 #   (선택) ~/workspaces 프로젝트 소스
@@ -73,15 +79,16 @@ if [ -d "$HOME/workspaces" ]; then
 fi
 INCLUDE_CRED=false
 KEEP_SSH=false
-echo "   ℹ️  인증 정보: GitHub 토큰·gh, Bitwarden, AI API 키(secrets.env), rclone 접속 정보, SSH 개인 키,"
-echo "      gradle.properties 의 토큰·비밀번호·GPG 서명 정보 — 오프라인에서는 쓸 수 없어 기본으로 뺍니다."
+echo "   ℹ️  인증 정보: GitHub 토큰·gh, Bitwarden, AI API 키(secrets.env), AI 도구 로그인(Claude·Codex·Gemini), rclone 접속 정보,"
+echo "      SSH 개인 키, GPG 키링, gradle.properties 의 토큰·비밀번호, npm·Docker·클라우드 자격 증명, 셸 입력 기록,"
+echo "      다른 사용자 홈·/root 의 내용 — 오프라인에서는 쓸 수 없어 기본으로 뺍니다."
 if prompt_confirm "🔐 인증 정보를 모두 함께 넣을까요? (사내망 서버·저장소를 쓸 때만)" "N"; then
     INCLUDE_CRED=true
     KEEP_SSH=true
     print_warn "인증 정보가 묶음에 들어갑니다. 묶음 파일을 옮기고 보관할 때 주의하세요."
-elif ls "$HOME"/.ssh/id_* >/dev/null 2>&1; then
+elif find "$HOME/.ssh" -mindepth 1 -maxdepth 1 ! -name config ! -name 'known_hosts*' ! -name authorized_keys ! -name '*.pub' 2>/dev/null | grep -q .; then
     echo "   ℹ️  오프라인 PC 가 사내망이고 그 안의 Git·개발 서버에 SSH 로 접속한다면 SSH 키만 남길 수 있습니다."
-    prompt_confirm "🔑 SSH 개인 키(~/.ssh/id_*)만 함께 넣을까요? (기본: 빼기)" "N" && KEEP_SSH=true
+    prompt_confirm "🔑 SSH 개인 키(~/.ssh 의 config·known_hosts·*.pub 외 파일)만 함께 넣을까요? (기본: 빼기)" "N" && KEEP_SSH=true
 fi
 
 STAMP="$(date +%Y%m%d-%H%M)"
@@ -101,13 +108,16 @@ print_info "배포판 전체를 읽으려면 관리자(sudo) 권한이 필요합
 sudo -v || { print_error "sudo 인증에 실패했습니다."; exit 1; }
 
 # ── 2. 인증 정보 정리본 (gradle.properties 는 비밀 값만 지운 사본) ─────────────
-STAGE="$(mktemp -d "${TMPDIR:-/tmp}/dt2-offline-XXXXXX")"
+# ⚠️ mktemp 가 실패해 STAGE 가 비면 아래 "> $STAGE/$HOME_REL/.gradle/gradle.properties" 가 실제 ~/.gradle/gradle.properties 를
+#    가리켜 읽기 전에 잘려 비워지므로 반드시 중단합니다.
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/dt2-offline-XXXXXX")" && [ -n "$STAGE" ] && [ -d "$STAGE" ] || { print_error "임시 폴더를 만들지 못했습니다."; exit 1; }
 trap 'sudo rm -rf "$STAGE" 2>/dev/null' EXIT
 OVERLAY=()
 if ! $INCLUDE_CRED && [ -f "$HOME/.gradle/gradle.properties" ]; then
     mkdir -p "$STAGE/$HOME_REL/.gradle"
     # 비밀 키: gpr.*(GitHub Packages), centralUsername/centralPassword(Maven Central), signing.*(GPG) — 주석·빈 줄·그 밖의 값은 유지
-    grep -vE '^[[:space:]]*(gpr\.(user|key)|centralUsername|centralPassword|signing\.[A-Za-z0-9_.]+)[[:space:]]*=' \
+    #   + 이름에 password·passwd·secret·token·apikey·credential 이 든 키(systemProp.*.proxyPassword, ossrhPassword 등)도 지웁니다(대소문자 무시).
+    grep -viE '^[[:space:]]*(gpr\.(user|key)|centralUsername|centralPassword|signing\.[A-Za-z0-9_.]+|[^#=[:space:]]*(password|passwd|secret|token|apikey|api_key|credential)[^=[:space:]]*)[[:space:]]*=' \
         "$HOME/.gradle/gradle.properties" > "$STAGE/$HOME_REL/.gradle/gradle.properties"
     chmod 600 "$STAGE/$HOME_REL/.gradle/gradle.properties"
     OVERLAY+=("$HOME_REL/.gradle/gradle.properties")
@@ -129,9 +139,45 @@ if ! $INCLUDE_CRED; then
         "./$HOME_REL/.config/devtools2/secrets.env" "./$HOME_REL/.config/rclone/rclone.conf"
         "./$HOME_REL/.config/rclone/keys"
         "./$HOME_REL/.gradle/gradle.properties"
+        # AI 도구 로그인 정보
+        "./$HOME_REL/.claude/.credentials.json" "./$HOME_REL/.claude.json" "./$HOME_REL/.claude.json.backup*"
+        "./$HOME_REL/.codex/auth.json" "./$HOME_REL/.gemini/oauth_creds.json" "./$HOME_REL/.gemini/google_accounts.json"
+        # GPG 키링(Maven Central 서명 키 포함), 패키지·클라우드 자격 증명
+        "./$HOME_REL/.gnupg" "./$HOME_REL/.npmrc" "./$HOME_REL/.netrc"
+        "./$HOME_REL/.docker/config.json" "./$HOME_REL/.aws" "./$HOME_REL/.kube"
+        "./$HOME_REL/.m2/settings-security.xml" "./var/opt/_devtools2/data/.m2/settings-security.xml"
+        # 셸·REPL 입력 기록 (명령줄에 친 토큰·비밀번호가 남을 수 있음)
+        "./$HOME_REL/.bash_history" "./$HOME_REL/.zsh_history" "./$HOME_REL/.python_history"
+        "./$HOME_REL/.node_repl_history" "./$HOME_REL/.psql_history" "./$HOME_REL/.mysql_history"
+        # /root 의 내용 (폴더 자체는 남김)
+        "./root/*"
     )
+    # Maven settings.xml 은 미러 설정만 있을 수도 있어 <password> 가 있을 때만 뺍니다 (~/.m2 는 data/.m2 로 가는 링크일 수 있음)
+    _m2_settings="$(readlink -f "$HOME/.m2/settings.xml" 2>/dev/null)"
+    if [ -n "$_m2_settings" ] && [ -f "$_m2_settings" ] && grep -q '<password>' "$_m2_settings" 2>/dev/null; then
+        EXCLUDES+=(".${_m2_settings}")
+    fi
+    # 다른 사용자의 홈 내용 (다중 사용자 — add-devtools2-user.sh). 계정·폴더는 남기고 내용만 뺍니다.
+    for _h in /home/*; do
+        [ -d "$_h" ] || continue
+        [ "$(readlink -f "$_h")" = "$(readlink -f "$HOME")" ] && continue
+        EXCLUDES+=(".${_h}/*")
+    done
 fi
-$KEEP_SSH || EXCLUDES+=("./$HOME_REL/.ssh/id_*" "./$HOME_REL/.ssh/*.pem")
+# SSH: 이름(id_*·*.pem)이 아니라 "공개해도 되는 파일만 남기는" 방식으로 거릅니다 — github_ed25519 같은 이름의 개인 키도 빠지게.
+_SSH_PRIVATE=()
+if [ -d "$HOME/.ssh" ]; then
+    for _f in "$HOME"/.ssh/* "$HOME"/.ssh/.[!.]*; do
+        [ -e "$_f" ] || [ -L "$_f" ] || continue
+        case "$(basename "$_f")" in
+            config|known_hosts|known_hosts.old|authorized_keys|*.pub) ;;
+            *) _SSH_PRIVATE+=("$_f") ;;
+        esac
+    done
+fi
+if ! $KEEP_SSH; then
+    for _f in "${_SSH_PRIVATE[@]}"; do EXCLUDES+=(".${_f}"); done
+fi
 $INCLUDE_WS || EXCLUDES+=("./$HOME_REL/workspaces")
 # 저장 위치가 배포판 안이면(예: ~/backup) 자기 자신을 묶지 않게
 case "$OUT" in /mnt/*) ;; *) EXCLUDES+=(".${OUT}") ;; esac
@@ -172,6 +218,7 @@ if [ "$_tar_rc" -gt 1 ]; then
     exit 1
 fi
 sudo chown "$(id -u):$(id -g)" "$ROOTFS" 2>/dev/null
+chmod 600 "$ROOTFS" 2>/dev/null || true   # /etc/shadow 가 들어 있으므로 (Windows 드라이브(/mnt)에서는 효과 없을 수 있음)
 print_done "배포판: $(du -h "$ROOTFS" | cut -f1)"
 
 # ── 4. Windows 쪽 파일 ───────────────────────────────────────────────────────
@@ -259,7 +306,11 @@ DevTools2 개발 환경 내보내기 — 오프라인 PC 설치용 ($(date '+%Y-
 - .wslconfig (네트워크 설정 + 그 PC 메모리에 맞춘 WSL 메모리 상한)
 
 [빠진 것]
-$( if $INCLUDE_CRED; then echo "- (인증 정보는 함께 넣었습니다 — 묶음 보관에 주의)"; else echo "- 인증 정보 (GitHub·Bitwarden·AI API 키·rclone$( $KEEP_SSH || echo '·SSH 개인 키')) — 오프라인에서는 쓸 수 없음"; fi )
+$( if $INCLUDE_CRED; then echo "- (인증 정보는 함께 넣었습니다 — 묶음 보관에 주의)"; else echo "- 인증 정보 (GitHub·Bitwarden·AI API 키·AI 도구 로그인·rclone·GPG 키링·npm/Docker/클라우드 자격 증명·셸 입력 기록$( $KEEP_SSH || echo '·SSH 개인 키'), 다른 사용자 홈·/root 의 내용) — 오프라인에서는 쓸 수 없음"; fi )
+
+[보관 주의]
+- devtools2-rootfs.tar.gz 에는 배포판의 /etc/shadow(계정 비밀번호 해시)가 들어 있습니다 (빼면 가져온 배포판에서 sudo 가 동작하지 않음).
+  인증 정보를 빼고 묶었더라도 이 묶음은 남에게 넘기거나 공유 폴더에 두지 마세요.
 $( $INCLUDE_WS || echo "- 프로젝트 소스(~/workspaces)")
 
 [오프라인에서 안 되는 것]
