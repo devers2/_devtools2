@@ -191,7 +191,12 @@ ROOTFS="$OUT/devtools2-rootfs.tar.gz"
 #   GNU tar 의 --checkpoint 는 레코드(기본 10KiB)마다 세므로 25,000 레코드(약 250MB)마다 진행 표시 스크립트를 부릅니다.
 #   예상 양은 대략값이라(압축 전 크기 기준, 시스템 폴더 일부 포함) 끝날 때 100% 에 못 미치거나 조금 넘을 수 있습니다.
 _skip_kb=$(du -sk "$HOME/.cache" 2>/dev/null | cut -f1)
-$INCLUDE_WS || _skip_kb=$(( ${_skip_kb:-0} + $(du -sk "$HOME/workspaces" 2>/dev/null | cut -f1 || echo 0) ))
+# ⚠️ "$(du … | cut -f1 || echo 0)" 의 || 는 cut 의 종료 코드를 봐서 실행되지 않습니다 → ~/workspaces 가 없으면
+#    빈 값이 산술식에 들어가 "산술 문법 오류" 로 스크립트가 중단됐습니다. 값을 먼저 받아 기본값을 붙입니다.
+if ! $INCLUDE_WS; then
+    _ws_kb=$(du -sk "$HOME/workspaces" 2>/dev/null | cut -f1)
+    _skip_kb=$(( ${_skip_kb:-0} + ${_ws_kb:-0} ))
+fi
 EST_BYTES=$(( (_used_kb - ${_skip_kb:-0}) * 1024 ))
 cat > "$STAGE/progress.sh" <<'PROG'
 #!/bin/sh
