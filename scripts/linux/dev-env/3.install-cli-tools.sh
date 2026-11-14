@@ -35,7 +35,10 @@ if [ -f "$_SCRIPT_DIR/_common.sh" ]; then
     source "$_SCRIPT_DIR/_common.sh"
 else
     # shellcheck disable=SC1090
-    source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+    # 받은 뒤 실행: source <(curl …) || … 는 curl 이 실패해도 빈 입력을 source 해 0 을 돌려주므로 || 가 실행되지 않고,
+    # 받다가 끊긴 반쪽 파일도 그대로 실행됩니다 → 먼저 변수로 다 받고, 실패하면 중단합니다.
+    _dt2_lib_src=$(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_common.sh") || { echo "[오류] _common.sh 로드 실패 - 네트워크 연결을 확인하세요." >&2; exit 1; }
+    source <(printf '%s\n' "$_dt2_lib_src"); unset _dt2_lib_src
 fi
 
 # 공통 설치 유틸리티 로드
@@ -44,7 +47,10 @@ if [ -f "$_SCRIPT_DIR/_install-utils.sh" ]; then
     source "$_SCRIPT_DIR/_install-utils.sh"
 else
     # shellcheck disable=SC1090
-    source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_install-utils.sh") || { print_error "_install-utils.sh 로드 실패 - 네트워크 연결을 확인하세요."; exit 1; }
+    # 받은 뒤 실행: source <(curl …) || … 는 curl 이 실패해도 빈 입력을 source 해 0 을 돌려주므로 || 가 실행되지 않고,
+    # 받다가 끊긴 반쪽 파일도 그대로 실행됩니다 → 먼저 변수로 다 받고, 실패하면 중단합니다.
+    _dt2_lib_src=$(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$_GH_RAW/_install-utils.sh") || { print_error "_install-utils.sh 로드 실패 - 네트워크 연결을 확인하세요."; exit 1; }
+    source <(printf '%s\n' "$_dt2_lib_src"); unset _dt2_lib_src
 fi
 
 # DEVTOOLS2 기본 폴더 및 필수 서브 디렉토리 존재/권한 확보
@@ -499,8 +505,11 @@ else
         source "$_bw_lib" && _bw_lib_ok=true
     else
         # shellcheck disable=SC1090
-        source <(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' \
-            "https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/scripts/fzf/bw-lib") && _bw_lib_ok=true
+        # 받은 뒤 실행 + 핵심 함수 확인: curl 이 실패해도 source <(…) 는 0 을 돌려줘 _bw_lib_ok 가 참이 되던 문제 방지
+        _dt2_lib_src=$(curl -sSfL --max-time 10 -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' \
+            "https://raw.githubusercontent.com/devers2/_devtools2/${DT2_REF:-main}/scripts/fzf/bw-lib") \
+            && source <(printf '%s\n' "$_dt2_lib_src") && declare -F bw_setup_github_auth >/dev/null && _bw_lib_ok=true
+        unset _dt2_lib_src
     fi
     if [ "$_bw_lib_ok" != true ]; then
         print_warn "bw-lib 을 불러오지 못해 GitHub 로그인 연결을 건너뜁니다. (나중에 프로젝트 설정 스크립트가 폴백으로 설정)"

@@ -49,10 +49,24 @@ print_done()  { echo "[완료] $*"; }
 # GitHub raw URL에서 스크립트를 스트리밍으로 직접 실행하는 헬퍼
 # - bash <(curl ...) 방식: temp 파일 미사용, NoBOM, BOM 이슈 없음
 # - Cache-Control 헤더: CDN·프록시 캐시 강제 우회 → 항상 최신 스크립트 실행
+# - ⚠️ 받기와 실행을 나눕니다: "bash <(curl …)" 은 curl 이 실패해도 bash 가 빈 입력을 실행해 종료 코드 0 을
+#   돌려주므로 해당 단계를 건너뛴 채 "[Step N] 완료" 가 찍혔고, 받다가 끊긴 반쪽 스크립트도 그대로 실행됐습니다.
+#   그래서 먼저 변수로 끝까지 받고(curl -f 는 HTTP 오류·전송 중단을 0 이 아닌 코드로 알림) 성공했을 때만 실행합니다.
+#   실행은 예전과 같이 "bash <(…)" 형태라 하위 스크립트가 보는 BASH_SOURCE(/dev/fd/N)·표준 입력(터미널)은 그대로입니다.
+_fetch_remote_script() {
+    curl -sSfL --retry 3 --retry-delay 2 --connect-timeout 15 \
+        -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$1"
+}
+
 run_remote_script() {
     local url="$1"
     shift
-    bash <(curl -sSfL -H 'Cache-Control: no-cache, no-store, must-revalidate' -H 'Pragma: no-cache' "$url") "$@"
+    local _script
+    if ! _script="$(_fetch_remote_script "$url")" || [ -z "$_script" ]; then
+        print_error "스크립트를 받지 못했습니다 (네트워크·GitHub 상태를 확인하세요): $url"
+        return 1
+    fi
+    bash <(printf '%s\n' "$_script") "$@"
 }
 
 # sudo 가 필요한 스크립트용 (curl | sudo bash 패턴)
@@ -60,13 +74,16 @@ run_remote_script() {
 #    "sudo env KEY=VALUE bash" 로 명시적으로 넘깁니다. 넘기지 않으면 root 스크립트만
 #    main 브랜치 최신본을 보게 되어 커밋 고정이 깨집니다.
 # 사용법: run_remote_script_sudo <url> [KEY=VALUE ...]
+# (받기와 실행을 나누는 이유는 run_remote_script 와 같음 — 파이프는 curl 실패는 pipefail 로 잡아도 반쪽 실행은 못 막음)
 run_remote_script_sudo() {
     local url="$1"
     shift
-    curl -sSfL \
-        -H 'Cache-Control: no-cache, no-store, must-revalidate' \
-        -H 'Pragma: no-cache' \
-        "$url" | sudo env DT2_REF="$DT2_REF" "$@" bash
+    local _script
+    if ! _script="$(_fetch_remote_script "$url")" || [ -z "$_script" ]; then
+        print_error "스크립트를 받지 못했습니다 (네트워크·GitHub 상태를 확인하세요): $url"
+        return 1
+    fi
+    printf '%s\n' "$_script" | sudo env DT2_REF="$DT2_REF" "$@" bash
 }
 
 # ── 커밋 고정(Commit Pinning): 설치 도중 main 브랜치 푸시로 인한 스크립트 불일치 방지 ──
