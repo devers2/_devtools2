@@ -783,7 +783,32 @@ function M.setup()
   end
 
   -- ── 6. vim.notify 인터셉터 (플러그인 공식 알림) ──
-  if not vim._unified_notify_wrapped then
+  -- ⚠️ setup() 은 init.lua 에서 require('config.lazy') 직후에 불리는데, 그 시점의 vim.notify 는 LazyVim 이
+  --    시작 알림을 모아 두려고 잠깐 끼운 임시 함수(LazyVim util/init.lua 의 lazy_notify → temp)입니다.
+  --    이것을 원본으로 잡아 감싸면, LazyVim 이 모아 둔 알림을 다시 보낼 때 래퍼 → 임시 함수 → 순회 중인 목록에
+  --    다시 추가 … 로 끝나지 않아 Neovim 이 CPU 100% 로 멈춥니다(시작 알림이 하나라도 있을 때 — 새 설치 직후의
+  --    Mason·Treesitter 설치 알림 등). 그래서 임시 함수가 실제 알림 함수(noice·snacks 등)로 바뀐 뒤에 감쌉니다.
+  local function is_lazyvim_temp_notify(fn)
+    if type(fn) ~= 'function' then
+      return false
+    end
+    local info = debug.getinfo(fn, 'S')
+    return info ~= nil and type(info.source) == 'string' and info.source:find('lazyvim/util/init.lua', 1, true) ~= nil
+  end
+
+  local function wrap_notify(tries)
+    if vim._unified_notify_wrapped then
+      return
+    end
+    if is_lazyvim_temp_notify(vim.notify) then
+      -- LazyVim 은 알림 함수가 바뀌거나 500ms 가 지나면 임시 함수를 걷어 냅니다 → 100ms 간격으로 최대 5초 기다림
+      if tries < 50 then
+        vim.defer_fn(function()
+          wrap_notify(tries + 1)
+        end, 100)
+      end
+      return
+    end
     vim._unified_notify_wrapped = true
     local orig_notify = vim.notify
     vim.notify = function(msg, level, notify_opts)
@@ -793,6 +818,24 @@ function M.setup()
       end
       return orig_notify(msg, level, notify_opts)
     end
+  end
+
+  -- VeryLazy(화면이 뜬 뒤 noice 등이 로드되는 시점) 다음 틱에 감쌉니다. 이미 지났으면 바로 시도합니다.
+  if vim.g.dt2_very_lazy_done then
+    vim.schedule(function()
+      wrap_notify(0)
+    end)
+  else
+    vim.api.nvim_create_autocmd('User', {
+      pattern = 'VeryLazy',
+      once = true,
+      callback = function()
+        vim.g.dt2_very_lazy_done = true
+        vim.schedule(function()
+          wrap_notify(0)
+        end)
+      end,
+    })
   end
 end
 
