@@ -35,6 +35,7 @@ _C_GRAY="\033[90m"
 total_tests=0
 passed_tests=0
 failed_tests=0
+skipped_tests=0
 
 write_header() {
   local title="$1"
@@ -60,6 +61,15 @@ assert_test() {
       printf "         ${_C_YELLOW}-> 오류 상세: %s${_C_RESET}\n" "$fail_msg"
     fi
   fi
+}
+
+# 검사 도구가 없어 확인하지 못한 항목: 통과로 세지 않고 따로 셉니다(예전에는 PASS 로 세어 "31건 통과"에 섞였음).
+assert_skip() {
+  local desc="$1"
+  local reason="${2:-}"
+  total_tests=$((total_tests + 1))
+  skipped_tests=$((skipped_tests + 1))
+  printf "  ${_C_YELLOW}[SKIP]${_C_RESET} %s${reason:+ — $reason}\n" "$desc"
 }
 
 # ==============================================================================
@@ -213,7 +223,7 @@ elif [ -n "$ps_parser" ]; then
     fi
   fi
 else
-  assert_test "PowerShell 파서 감지 (powershell.exe / pwsh 미설치로 건너뜀)" 0
+  assert_skip "모든 .ps1 파일에 문법 오류가 없는가 (PowerShell 파서)" "powershell.exe / pwsh 없음"
 fi
 
 # 2-3. .ps1 이 부르는 함수·cmdlet 이 모두 정의되어 있는가 (정의 없는 함수 호출)
@@ -241,7 +251,7 @@ if [ "${#ps1_files[@]}" -gt 0 ] && [ "$ps_parser" = "powershell.exe" ]; then
     fi
   fi
 else
-  assert_test ".ps1 정의 없는 함수 호출 검사 (Windows PowerShell 5.1 없음 — CI 의 Windows 실행에서 검사)" 0
+  assert_skip ".ps1 이 부르는 함수·cmdlet 이 모두 정의되어 있는가" "Windows PowerShell 5.1 없음 — CI 의 Windows 실행에서 검사"
 fi
 
 # 2-2. PS 5.1 호환 정적 검사 — 파서 유무와 관계없이 항상 실행
@@ -253,14 +263,19 @@ fi
 # 3) 접두사 변수 누락 URL 패턴 검사 (-Url "/...")
 # 4) 좌변 변수 탈락 빈 대입문 검사 (^= ...)
 # 5) Test-Path 괄호 누락으로 -and/-or 가 매개변수로 오인되는 패턴 검사
-ps_static_errors=$(python3 -c "
-import os, re
+# ⚠️ 경로는 인자로 넘기고(문자열에 끼우면 ' 가 든 경로에서 문법 오류), 끝 표식(DT2_DONE)이 있어야 통과로 봅니다
+#    (예전에는 "2>/dev/null || true" + "출력 없음 = 통과" 라 파이썬이 예외로 죽어도 통과했음).
+ps_static_out=$(python3 - "$REPO_ROOT" 2>&1 <<'PYEOF'
+import os, re, sys
 
-repo_root = '$REPO_ROOT'
+repo_root = sys.argv[1]
 errors = []
 
 for root, _, files in os.walk(repo_root):
-    if any(p in root for p in ['modules', 'data', '.git']):
+    # 경로 성분 단위로 비교 (부분 문자열이면 저장소 경로에 'data' 가 들어갈 때 모든 파일을 건너뜀)
+    rel_root = os.path.relpath(root, repo_root)
+    parts = [] if rel_root == '.' else rel_root.split(os.sep)
+    if any(p in ('modules', 'data', '.git') for p in parts):
         continue
     for f in files:
         if f.endswith('.ps1') and f != 'run-all-tests.ps1':
@@ -282,10 +297,10 @@ for root, _, files in os.walk(repo_root):
                 line_no = content[:m.start()].count('\n') + 1
                 errors.append(f'{rel}:{line_no}: 빈 해시테이블 대입문 (@{{ ... {m.group(1)} = ... }})')
 
-            # 3. 접두사 변수 누락 URL 검사 (-Url \"/...\")
-            for m in re.finditer(r'-Url\s+[\"\']/[a-zA-Z0-9_]', no_comments):
+            # 3. 접두사 변수 누락 URL 검사 (-Url "/...")
+            for m in re.finditer(r'-Url\s+["\']/[a-zA-Z0-9_]', no_comments):
                 line_no = content[:m.start()].count('\n') + 1
-                errors.append(f'{rel}:{line_no}: 접두사 변수 누락 URL (-Url \"/...\")')
+                errors.append(f'{rel}:{line_no}: 접두사 변수 누락 URL (-Url "/...")')
 
             # 4. 좌변 변수 탈락 빈 대입문 검사 (^= ...)
             for i, line in enumerate(lines, 1):
@@ -298,10 +313,17 @@ for root, _, files in os.walk(repo_root):
                 line_no = content[:m.start()].count('\n') + 1
                 errors.append(f'{rel}:{line_no}: Test-Path 괄호 누락 매개변수 오인 ({m.group(0).strip()})')
 
-print('; '.join(errors))
-" 2>/dev/null || true)
+print('DT2_ERRORS=' + '; '.join(errors))
+print('DT2_DONE')
+PYEOF
+)
+ps_static_errors=$(printf '%s\n' "$ps_static_out" | sed -n 's/^DT2_ERRORS=//p')
 
-if [ -z "$ps_static_errors" ]; then
+if ! command -v python3 >/dev/null 2>&1; then
+  assert_skip "PS 5.1 호환 정적 검사 (?? 연산자·빈 해시 대입·URL 접두 변수 누락·Test-Path 괄호)" "python3 없음"
+elif ! printf '%s\n' "$ps_static_out" | grep -q '^DT2_DONE$'; then
+  assert_test "PS 5.1 호환 정적 검사 (?? 연산자·빈 해시 대입·URL 접두 변수 누락·Test-Path 괄호)" 1 "검사 실행 실패: $(printf '%s' "$ps_static_out" | tail -1)"
+elif [ -z "$ps_static_errors" ]; then
   assert_test "PS 5.1 호환 정적 검사 (?? 연산자·빈 해시 대입·URL 접두 변수 누락·Test-Path 괄호)" 0
 else
   assert_test "PS 5.1 호환 정적 검사 (?? 연산자·빈 해시 대입·URL 접두 변수 누락·Test-Path 괄호)" 1 "$ps_static_errors"
@@ -371,16 +393,12 @@ m = re.search(r'\$mergeWslConfPy\s*=\s*@\'\r?\n(.*?)\r?\n\'@', code, re.DOTALL)
 syntax_ok = False
 if m:
     py_code = m.group(1)
-    with tempfile.NamedTemporaryFile('w', suffix='.py', delete=False, encoding='utf-8') as tmp:
-        tmp.write(py_code)
-        tmp_name = tmp.name
+    # 내장 compile() 로 검사 — py_compile 은 임시 파일 옆 /tmp/__pycache__ 에 .pyc 를 남겼음
     try:
-        py_compile.compile(tmp_name, doraise=True)
+        compile(py_code, '<mergeWslConfPy>', 'exec')
         syntax_ok = True
-    except Exception as e:
+    except SyntaxError:
         syntax_ok = False
-    finally:
-        os.remove(tmp_name)
 
 uses_stdin = bool(re.search(r'\$mergeWslConfPy\s*\|\s*wsl', code))
 avoids_inline = not bool(re.search(r'python3\s+-c\s+"\$mergeWslConfPy"', code))
@@ -614,7 +632,8 @@ import sys, re
 with open(sys.argv[1], 'r', encoding='utf-8') as f:
     c = f.read()
 traps = re.findall(r"trap '[^']*' RETURN", c)
-bad = [t for t in traps if 'trap - RETURN' not in c]
+# 트랩마다 자기 명령 안에서 해제하는지 봅니다(예전에는 파일 어딘가에 'trap - RETURN' 이 한 번만 있어도 모두 통과)
+bad = [t for t in traps if 'trap - RETURN' not in t]
 print(len(bad))
 EOF
 )
@@ -626,23 +645,29 @@ fi
 
 # 5-9. 리눅스 설치 스크립트가 /tmp 고정 이름 대신 사용자 전용 $DT2_TMP 를 쓰는가
 fixed_tmp_violations=$(
-  python3 - "$REPO_ROOT/scripts/linux" <<'EOF'
+  python3 - "$REPO_ROOT/scripts/linux/dev-env" "$REPO_ROOT/scripts/linux/setup-devtools2.sh" <<'EOF'
 import os, sys, re
 
-folder = sys.argv[1]
 violations = []
-pat = re.compile(r'[>"\s]/tmp/_[A-Za-z]')
+# 고정 이름 /tmp/<이름> 전체(예전에는 /tmp/_… 만 봐서 /tmp/rclone.zip 등을 놓침). mktemp 템플릿(XXXXXX)은 제외.
+pat = re.compile(r'[>"\'\s=(]/tmp/[A-Za-z_][A-Za-z0-9_.-]*')
 
-for root, dirs, files in os.walk(folder):
-    for f in files:
-        if f.endswith('.sh'):
-            path = os.path.join(root, f)
-            with open(path, 'r', encoding='utf-8', errors='ignore') as fp:
-                for idx, line in enumerate(fp):
-                    if line.strip().startswith('#'):
-                        continue
-                    if pat.search(line):
-                        violations.append(f"{f}:{idx+1}")
+paths = []
+for target in sys.argv[1:]:
+    if os.path.isfile(target):
+        paths.append(target)
+    else:
+        for root, dirs, files in os.walk(target):
+            paths.extend(os.path.join(root, f) for f in files if f.endswith('.sh'))
+
+for path in paths:
+    f = os.path.basename(path)
+    with open(path, 'r', encoding='utf-8', errors='ignore') as fp:
+        for idx, line in enumerate(fp):
+            if line.strip().startswith('#') or 'XXXX' in line or 'mktemp' in line:
+                continue
+            if pat.search(line):
+                violations.append(f"{f}:{idx+1}")
 
 print(len(violations), ";".join(violations))
 EOF
@@ -1087,8 +1112,8 @@ if [ "$failed_tests" -eq 0 ]; then
 else
   summary_color="$_C_RED"
 fi
-printf "  ${_C_BOLD}테스트 결과 요약: 총 %d 건 | 통과: %d 건 | 실패: %d 건${_C_RESET}\n" \
-  "$total_tests" "$passed_tests" "$failed_tests"
+printf "  ${_C_BOLD}테스트 결과 요약: 총 %d 건 | 통과: %d 건 | 실패: %d 건 | 건너뜀: %d 건${_C_RESET}\n" \
+  "$total_tests" "$passed_tests" "$failed_tests" "$skipped_tests"
 printf "${_C_CYAN}===========================================================================${_C_RESET}\n"
 echo ""
 

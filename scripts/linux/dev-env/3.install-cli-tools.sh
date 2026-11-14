@@ -369,18 +369,20 @@ install_cli_tool() {
     # 5. 다운로드 및 설치
     local install_ok=false
     if [ "$id" = "rclone" ]; then
-        if download_with_progress "$dl_url" "/tmp/rclone.zip" "rclone $selected_ver"; then
+        # 임시 파일은 사용자 전용 $DT2_TMP 에 둡니다(_common.sh 머리말 — 고정 이름 /tmp/rclone.zip 은 다중 사용자에서
+        # fs.protected_regular 때문에 두 번째 사용자가 덮어쓰지 못하고, 다른 사용자가 미리 만들어 둘 수도 있음).
+        if download_with_progress "$dl_url" "$DT2_TMP/rclone.zip" "rclone $selected_ver"; then
             if [ -n "$dl_checksum" ]; then
-                if ! verify_sha256 "/tmp/rclone.zip" "$dl_checksum" "$(basename "$dl_url")"; then
-                    rm -f /tmp/rclone.zip
+                if ! verify_sha256 "$DT2_TMP/rclone.zip" "$dl_checksum" "$(basename "$dl_url")"; then
+                    rm -f "$DT2_TMP/rclone.zip"
                     echo " ❌ rclone 체크섬 검증 실패" >&2
                     return 1
                 fi
             fi
             echo -n "   📦 rclone $selected_ver 압축 해제 중..."
-            (unzip -qo /tmp/rclone.zip -d /tmp/rclone_tmp && \
-             mv -f /tmp/rclone_tmp/rclone-*/rclone "$MODULES_DIR/rclone/rclone" && \
-             rm -rf /tmp/rclone.zip /tmp/rclone_tmp) &
+            (unzip -qo "$DT2_TMP/rclone.zip" -d "$DT2_TMP/rclone_tmp" && \
+             mv -f "$DT2_TMP"/rclone_tmp/rclone-*/rclone "$MODULES_DIR/rclone/rclone" && \
+             rm -rf "$DT2_TMP/rclone.zip" "$DT2_TMP/rclone_tmp") &
             local _rc_pid=$!
             show_spinner $_rc_pid
             if wait $_rc_pid 2>/dev/null; then
