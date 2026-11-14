@@ -255,6 +255,32 @@ if vim.fn.has('wsl') == 1 then
 end
 vim.opt.clipboard = 'unnamedplus'
 
+-- [WSL: 외부 프로그램으로 열기] gx(URL), <leader>fE(탐색기), 이미지·PDF 외부 뷰어가 쓰는 vim.ui.open 을 Windows 쪽으로 보냄
+--   Neovim 의 vim.ui.open 은 xdg-open 이 있으면 wslview·explorer.exe 보다 먼저 씁니다(runtime/lua/vim/ui.lua).
+--   WSL 에는 GUI 앱 설치 때 xdg-utils 가 따라 들어오지만 https 기본 처리기가 없고 폴더 처리기는 Sublime Merge 라
+--   URL·이미지를 열면 끝나지 않고, 탐색기 대신 Sublime Merge 가 뜰 수 있었습니다(실측).
+--   ● URL: rundll32 url.dll,FileProtocolHandler (cmd /c start 와 달리 URL 안의 & 가 깨지지 않음)
+--   ● 파일·폴더: wslpath -w 로 Windows 경로로 바꿔 explorer.exe (폴더는 탐색기, 파일은 Windows 기본 앱)
+--   리눅스 네이티브는 Neovim 기본 동작 그대로입니다.
+if vim.fn.has('wsl') == 1 then
+  local orig_ui_open = vim.ui.open
+  vim.ui.open = function(path, opt)
+    if (opt and opt.cmd) or type(path) ~= 'string' or path == '' then
+      return orig_ui_open(path, opt)
+    end
+    if path:match('^%w+:') then
+      return vim.system({ 'rundll32.exe', 'url.dll,FileProtocolHandler', path }, { text = true, detach = true }), nil
+    end
+    local abs = vim.fn.fnamemodify(vim.fs.normalize(path), ':p')
+    local res = vim.system({ 'wslpath', '-w', abs }, { text = true }):wait()
+    local win_path = vim.trim(res.stdout or '')
+    if res.code ~= 0 or win_path == '' then
+      return orig_ui_open(path, opt)
+    end
+    return vim.system({ 'explorer.exe', win_path }, { text = true, detach = true }), nil
+  end
+end
+
 -- [Neovim provider] Python·Node 로 작성된 Neovim 플러그인(remote plugin)을 실행하는 연결 고리
 -- (Python·Node 개발 자체 — LSP·디버거·포매터 — 와는 별개. 지금은 쓰는 플러그인이 없지만 쓸 수 있도록 준비)
 --   ● Python: 설치 스크립트(3.install-cli-tools.sh 7-1)가 만든 pynvim 전용 가상환경
