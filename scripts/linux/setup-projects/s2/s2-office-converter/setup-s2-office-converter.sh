@@ -656,6 +656,11 @@ select_versions() {
         RHWP_VERSION="$(choose_version rhwp "$current_rhwp" "$target_rhwp")"
     fi
     IMAGE="$(image_for "$WITH_CHROME")"
+    # The age check (old image → rebuild?) must come before the checksum decision below, or a rebuild it turns on
+    # runs without checksums | 이미지 나이 확인(오래됐으면 다시 만들지)을 아래 검증값 판정보다 먼저 합니다.
+    # 예전에는 build_image 에서 그 뒤에 REBUILD=true 를 켜서, 30일 경과 재빌드가 빈 검증값으로 항상 실패했습니다.
+    [ "$REBUILD" = true ] || check_image_age
+    AGE_CHECKED=true
     # Checksums are needed only to build | 검증값은 이미지를 만들 때만 필요
     if [ "$REBUILD" = true ] || ! podman_target image exists "$IMAGE" 2>/dev/null; then
         checksum_for h2orestart "$H2ORESTART_VERSION"
@@ -971,7 +976,8 @@ CONVERT
 # 변환기 이미지 빌드 (온라인)
 build_image() {
     info "변환기 이미지 ($IMAGE)"
-    [ "$REBUILD" = true ] || check_image_age
+    # select_versions 가 이미 확인했으면 다시 묻지 않음
+    [ "$REBUILD" = true ] || [ "${AGE_CHECKED:-false}" = true ] || check_image_age
     if [ "$REBUILD" = false ] && podman_target image exists "$IMAGE" 2>/dev/null; then
         skip "이미지가 이미 있습니다 ($TARGET_USER)."
         remove_old_images
