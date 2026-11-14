@@ -492,17 +492,31 @@ return {
       end
       walk(opts.spec, nil)
       -- 뒤에서부터 보며, 이미 나중 항목이 차지한 (키, 모드)는 앞 항목에서 뺌
-      local taken = {}
+      -- ⚠️ 이름표만 바꾸려는 나중 항목(예: '<leader>w' 한글 그룹)이 앞 항목(LazyVim)의 기능 속성까지 지우지 않도록,
+      --    빼는 앞 항목의 proxy·expand·icon·실제 매핑([2])을 나중 항목에 없을 때만 옮겨 줍니다.
+      --    예전에는 LazyVim 의 '<leader>w' = proxy '<c-w>' 가 사라져 <leader>ws·wv·ww 등 창 관리 키가 노멀 모드에서
+      --    동작하지 않았고, '<leader>b' 의 버퍼 목록 펼침(expand)도 사라졌습니다.
+      local carry_keys = { 'proxy', 'expand', 'icon' }
+      local taken = {} -- taken[lhs][mode] = 그 (키, 모드)를 차지한 나중 항목
       for i = #items, 1, -1 do
         local e = items[i]
         taken[e.lhs] = taken[e.lhs] or {}
         local keep, removed = {}, false
         for m in pairs(e.modes) do
-          if taken[e.lhs][m] then
+          local later = taken[e.lhs][m]
+          if later then
             removed = true
+            for _, k in ipairs(carry_keys) do
+              if later[k] == nil and e.item[k] ~= nil then
+                later[k] = e.item[k]
+              end
+            end
+            if later[2] == nil and e.item[2] ~= nil then
+              later[2] = e.item[2]
+            end
           else
             table.insert(keep, m)
-            taken[e.lhs][m] = true
+            taken[e.lhs][m] = e.item
           end
         end
         if removed then
