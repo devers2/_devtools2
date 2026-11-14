@@ -226,18 +226,8 @@ vim.o.ttimeoutlen = 50
 if vim.fn.has('wsl') == 1 then
   local win32yank = _G.DEVTOOLS2_DIR .. '/modules/win32yank/win32yank.exe'
   if vim.uv.fs_stat(win32yank) then
-    vim.g.clipboard = {
-      name = 'win32yank-wsl',
-      copy = {
-        ['+'] = { win32yank, '-i', '--crlf' },
-        ['*'] = { win32yank, '-i', '--crlf' },
-      },
-      paste = {
-        ['+'] = { win32yank, '-o', '--lf' },
-        ['*'] = { win32yank, '-o', '--lf' },
-      },
-      cache_enabled = 0,
-    }
+    -- 복사는 비동기, 붙여넣기는 캐시 우선 (명령 방식은 y·p 마다 win32yank 기동 약 0.2초씩 멈춤 — util/wsl_clipboard.lua)
+    require('util.wsl_clipboard').setup(win32yank)
   else
     vim.g.clipboard = {
       name = 'powershell-wsl',
